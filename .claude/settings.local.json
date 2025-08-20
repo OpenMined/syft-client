@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(cp:*)",
+      "Bash(rm:*)",
+      "Bash(# Create the wallet directory for liamtrask\nmkdir -p ~/.syft/gdrive/liamtrask_at_gmail_com\n\n# Copy the credentials\ncp ~/Downloads/credentials.json ~/.syft/gdrive/liamtrask_at_gmail_com/credentials.json\n\n# Create account info\necho ''{\"\"email\"\": \"\"liamtrask@gmail.com\"\"}'' > ~/.syft/gdrive/liamtrask_at_gmail_com/account_info.json\n\necho \"\"✅ Manually added liamtrask@gmail.com to wallet\"\"\nls -la ~/.syft/gdrive/liamtrask_at_gmail_com/)",
+      "Bash(grep:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(rg:*)",
+      "Bash(sed:*)",
+      "Bash(find:*)",
+      "Bash(git restore:*)"
+    ],
+    "deny": []
+  }
+}
