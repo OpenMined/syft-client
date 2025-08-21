@@ -31,7 +31,7 @@ class GDriveUnifiedClient:
     SCOPES = ['https://www.googleapis.com/auth/drive']
     
     def __init__(self, auth_method: str = "auto", credentials_file: str = "credentials.json", 
-                 email: Optional[str] = None, verbose: bool = True):
+                 email: Optional[str] = None, verbose: bool = True, force_relogin: bool = False):
         """
         Initialize the unified client
         
@@ -40,6 +40,7 @@ class GDriveUnifiedClient:
             credentials_file: Path to credentials.json (for credentials method)
             email: Email address to authenticate as (uses wallet if provided)
             verbose: Whether to print status messages
+            force_relogin: Force fresh authentication even if token exists
         """
         self.auth_method = auth_method
         self.credentials_file = credentials_file
@@ -48,6 +49,7 @@ class GDriveUnifiedClient:
         self.my_email = None
         self.target_email = email
         self.verbose = verbose
+        self.force_relogin = force_relogin
         
     def __repr__(self) -> str:
         """Pretty representation of the client"""
@@ -277,7 +279,7 @@ class GDriveUnifiedClient:
             return False
     
     def _auth_credentials(self) -> bool:
-        """Authenticate using credentials.json"""
+        """Authenticate using credentials.json with token caching"""
         try:
             if self.verbose:
                 if self.target_email:
@@ -285,7 +287,54 @@ class GDriveUnifiedClient:
                 else:
                     print("🔐 Authenticating with credentials.json...")
 
-            # Always get fresh credentials - no token caching
+            creds = None
+            
+            # Check if force_relogin is set
+            if self.force_relogin and self.verbose:
+                print("🔄 Force relogin requested - ignoring cached token")
+            
+            # First, try to load cached token if we have a target email and not forcing relogin
+            if self.target_email and not self.force_relogin:
+                from .auth import _get_stored_token_path, _save_token
+                token_path = _get_stored_token_path(self.target_email)
+                
+                if token_path and os.path.exists(token_path):
+                    try:
+                        with open(token_path, 'r') as token:
+                            token_data = json.load(token)
+                        creds = Credentials.from_authorized_user_info(token_data, self.SCOPES)
+                        
+                        # Check if token needs refresh
+                        if creds and creds.expired and creds.refresh_token:
+                            if self.verbose:
+                                print("🔄 Refreshing expired token...")
+                            creds.refresh(Request())
+                            # Save the refreshed token
+                            _save_token(self.target_email, {
+                                'type': 'authorized_user',
+                                'client_id': creds.client_id,
+                                'client_secret': creds.client_secret,
+                                'refresh_token': creds.refresh_token,
+                                'token': creds.token,
+                                'token_uri': creds.token_uri,
+                                'client_id': creds.client_id,
+                                'client_secret': creds.client_secret,
+                                'scopes': creds.scopes
+                            })
+                        
+                        if creds and creds.valid:
+                            if self.verbose:
+                                print("✅ Using cached authentication token")
+                            self.service = build('drive', 'v3', credentials=creds)
+                            self.authenticated = True
+                            self._get_my_email()
+                            return True
+                    except Exception as e:
+                        if self.verbose:
+                            print(f"⚠️  Could not use cached token: {e}")
+                        creds = None
+            
+            # If no valid cached token, do the full OAuth flow
             if not os.path.exists(self.credentials_file):
                 if self.verbose:
                     print(f"❌ {self.credentials_file} not found")
@@ -315,11 +364,30 @@ class GDriveUnifiedClient:
                 authorization_prompt_message=auth_msg,
                 success_message=success_msg
             )
-
             
             self.service = build('drive', 'v3', credentials=creds)
             self.authenticated = True
             self._get_my_email()
+            
+            # Save the token for future use if we have a target email
+            if self.target_email and creds:
+                try:
+                    _save_token(self.target_email, {
+                        'type': 'authorized_user',
+                        'client_id': creds.client_id,
+                        'client_secret': creds.client_secret,
+                        'refresh_token': creds.refresh_token,
+                        'token': creds.token,
+                        'token_uri': creds.token_uri,
+                        'client_id': creds.client_id,
+                        'client_secret': creds.client_secret,
+                        'scopes': creds.scopes
+                    })
+                    if self.verbose:
+                        print("💾 Saved authentication token for future use")
+                except Exception as e:
+                    if self.verbose:
+                        print(f"⚠️  Could not save token: {e}")
             
             # Verify we authenticated as the expected user
             if self.target_email and self.my_email != self.target_email:
@@ -1460,22 +1528,23 @@ class GDriveUnifiedClient:
             return results
 
 # Convenience function for quick setup
-def create_gdrive_client(email_or_auth_method: str = "auto", verbose: bool = True) -> GDriveUnifiedClient:
+def create_gdrive_client(email_or_auth_method: str = "auto", verbose: bool = True, force_relogin: bool = False) -> GDriveUnifiedClient:
     """
     Create and authenticate a GDrive client
     
     Args:
         email_or_auth_method: Email address (e.g. "user@gmail.com") or auth method ("auto", "colab", "credentials")
         verbose: Whether to print status messages
+        force_relogin: Force fresh authentication even if token exists (default: False)
         
     Returns:
         Authenticated GDriveUnifiedClient
     """
     # Check if it's an email address
     if "@" in email_or_auth_method:
-        client = GDriveUnifiedClient(auth_method="credentials", email=email_or_auth_method, verbose=verbose)
+        client = GDriveUnifiedClient(auth_method="credentials", email=email_or_auth_method, verbose=verbose, force_relogin=force_relogin)
     else:
-        client = GDriveUnifiedClient(auth_method=email_or_auth_method, verbose=verbose)
+        client = GDriveUnifiedClient(auth_method=email_or_auth_method, verbose=verbose, force_relogin=force_relogin)
     
     if client.authenticate():
         return client

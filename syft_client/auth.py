@@ -43,6 +43,30 @@ def _get_stored_credentials_path(email: str) -> Optional[str]:
     return None
 
 
+def _get_stored_token_path(email: str) -> Optional[str]:
+    """Get the path to stored token for an email"""
+    account_dir = _get_account_dir(email)
+    token_path = account_dir / "token.json"
+    
+    if token_path.exists():
+        return str(token_path)
+    return None
+
+
+def _save_token(email: str, token_data: dict) -> bool:
+    """Save OAuth token to wallet"""
+    account_dir = _get_account_dir(email)
+    account_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        token_path = account_dir / "token.json"
+        with open(token_path, 'w') as f:
+            json.dump(token_data, f, indent=2)
+        return True
+    except Exception as e:
+        return False
+
+
 def _add_to_wallet(email: str, credentials_path: str, verbose: bool = True) -> bool:
     """Add credentials to the wallet"""
     if not os.path.exists(credentials_path):
@@ -129,21 +153,56 @@ def _get_google_console_url(email: str) -> str:
     return f"https://console.cloud.google.com/apis/credentials?authuser={encoded_email}"
 
 
-def login(email: str, credentials_path: Optional[str] = None, verbose: bool = True) -> GDriveUnifiedClient:
+def login(email: Optional[str] = None, credentials_path: Optional[str] = None, verbose: bool = True, force_relogin: bool = False) -> GDriveUnifiedClient:
     """
     Simple login function that checks wallet or adds new credentials
     
     Args:
-        email: Email address to authenticate as
+        email: Email address to authenticate as. If not provided:
+               - If only one account exists in wallet, uses that automatically
+               - If multiple accounts exist, prompts for selection
         credentials_path: Optional path to credentials.json file (skips wizard if provided)
         verbose: Whether to print status messages (default: True)
+        force_relogin: Force fresh authentication even if token exists (default: False)
         
     Returns:
         Authenticated GDriveUnifiedClient
     """
     
+    # If no email provided, check wallet for accounts
+    if not email:
+        accounts = _list_wallet_accounts()
+        
+        if len(accounts) == 0:
+            raise RuntimeError("No accounts found in wallet. Please provide an email address.")
+        elif len(accounts) == 1:
+            # Auto-select the only account
+            email = accounts[0]
+            if verbose:
+                print(f"🔑 Auto-selecting the only account in wallet: {email}")
+        else:
+            # Multiple accounts - prompt for selection
+            print("\n📋 Multiple accounts found in wallet:")
+            for i, account in enumerate(accounts, 1):
+                print(f"{i}. {account}")
+            
+            while True:
+                try:
+                    choice = input(f"\nSelect account [1-{len(accounts)}]: ").strip()
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(accounts):
+                        email = accounts[idx]
+                        break
+                    else:
+                        print(f"❌ Please enter a number between 1 and {len(accounts)}")
+                except (ValueError, EOFError, KeyboardInterrupt):
+                    print("\n❌ Cancelled")
+                    raise RuntimeError("No account selected")
+    
     # If credentials_path is provided, skip straight to using it
     if credentials_path:
+        if not email:
+            raise RuntimeError("Email address is required when providing a credentials_path")
         path = os.path.expanduser(credentials_path)
         if not os.path.exists(path):
             raise RuntimeError(f"Credentials file not found: {path}")
@@ -153,7 +212,7 @@ def login(email: str, credentials_path: Optional[str] = None, verbose: bool = Tr
         _add_to_wallet(email, path, verbose=verbose)
         if verbose:
             print(f"✅ Added {email} to wallet")
-        client = create_gdrive_client(email, verbose=verbose)
+        client = create_gdrive_client(email, verbose=verbose, force_relogin=force_relogin)
         # Automatically create shortcuts for shared folders
         shortcut_results = client._create_shortcuts_for_shared_folders(verbose=False)
         
@@ -169,7 +228,7 @@ def login(email: str, credentials_path: Optional[str] = None, verbose: bool = Tr
     if _get_stored_credentials_path(email):
         if verbose:
             print(f"🔑 Found stored credentials for {email}")
-        client = create_gdrive_client(email, verbose=verbose)
+        client = create_gdrive_client(email, verbose=verbose, force_relogin=force_relogin)
         # Automatically create shortcuts for shared folders
         shortcut_results = client._create_shortcuts_for_shared_folders(verbose=False)
         
@@ -182,13 +241,23 @@ def login(email: str, credentials_path: Optional[str] = None, verbose: bool = Tr
         return client
     
     # 2. Not in wallet - add new credentials
+    # Check if we're in a Jupyter notebook
+    try:
+        from IPython import get_ipython
+        if get_ipython() is not None:
+            # We're in IPython/Jupyter - show the wizard
+            from .wizard import wizard
+            print(f"❌ No credentials found for {email}")
+            print(f"Run syft_client.wizard() or print your client object to create credentials")
+            return wizard()
+    except ImportError:
+        pass
+    
+    # If not in Jupyter or verbose=False, show minimal message
     if verbose:
         print(f"❌ No credentials found for {email} in wallet")
     
-    # If not verbose, don't show wizard
-    if not verbose:
-        raise RuntimeError(f"No credentials found for {email}. Run with verbose=True to set up.")
-    
+    # Terminal fallback
     print("\n🔧 Let's set up Google Drive access for this account")
     print("Choose an option:")
     print("1. I have a credentials.json file")
