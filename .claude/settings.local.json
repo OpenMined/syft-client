@@ -18,7 +18,11 @@
       "Bash(git restore:*)",
       "Bash(pip install:*)",
       "Bash(pip show:*)",
-      "Bash(pip --version)"
+      "Bash(pip --version)",
+      "WebFetch(domain:openmined.github.io)",
+      "WebFetch(domain:www.speakeasy.com)",
+      "Bash(uv pip install:*)",
+      "Bash(uv run:*)"
     ],
     "deny": []
   }

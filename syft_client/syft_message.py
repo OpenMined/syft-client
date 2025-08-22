@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from .syft_object import SyftObject
+from .syft_file_backed_view import SyftFileBackedView
 
 
-class SyftMessage(SyftObject):
+class SyftMessage(SyftFileBackedView):
     """A message for syncing files between SyftBox users with enhanced safety"""
     
     def __init__(self, message_path: Path):
