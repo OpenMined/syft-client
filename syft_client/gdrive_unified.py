@@ -483,6 +483,40 @@ class GDriveUnifiedClient:
                 print(f"❌ Error checking folder existence: {e}")
             return False
     
+    def _share_folder_with_email(self, folder_id: str, email: str) -> bool:
+        """
+        Share a folder with a specific email address
+        
+        Args:
+            folder_id: Google Drive folder ID to share
+            email: Email address to share with
+            
+        Returns:
+            True if sharing successful, False otherwise
+        """
+        self._ensure_authenticated()
+        
+        try:
+            permission = {
+                'type': 'user',
+                'role': 'writer',
+                'emailAddress': email
+            }
+            
+            self.service.files().permissions().create(
+                fileId=folder_id,
+                body=permission
+            ).execute()
+            
+            if self.verbose:
+                print(f"✅ Shared folder {folder_id} with {email}")
+            return True
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error sharing folder: {e}")
+            return False
+    
     def _upload_file(self, local_path: str, name: str = None, 
                     parent_id: str = 'root', mimetype: str = 'text/plain') -> Optional[str]:
         """
@@ -1066,7 +1100,8 @@ class GDriveUnifiedClient:
         Returns:
             List of email addresses you've added as friends
         """
-        self._ensure_authenticated()
+        if not self.authenticated:
+            return []
         
         if not self.my_email:
             return []
@@ -1137,7 +1172,8 @@ class GDriveUnifiedClient:
         Returns:
             List of email addresses with pending friend requests
         """
-        self._ensure_authenticated()
+        if not self.authenticated:
+            return []
         
         if not self.my_email:
             return []
