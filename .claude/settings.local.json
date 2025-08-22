@@ -20,7 +20,9 @@
       "WebFetch(domain:www.speakeasy.com)",
       "Bash(uv pip install:*)",
       "Bash(uv run:*)",
-      "Bash(uv add:*)"
+      "Bash(uv add:*)",
+      "Bash(timeout 5 uv run:*)",
+      "Bash(pkill:*)"
     ],
     "deny": []
   }
