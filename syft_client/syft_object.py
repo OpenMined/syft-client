@@ -114,6 +114,44 @@ class SyftObject:
             
             os.replace(tmp_path, self.metadata_path)
     
+    def update_metadata_atomic(self, updater_func):
+        """Atomically update metadata using a function
+        
+        Args:
+            updater_func: A function that takes the current metadata dict and returns
+                          the updated metadata dict. This function will be called
+                          while holding an exclusive lock.
+                          
+        Example:
+            # Atomically increment a counter
+            def increment(metadata):
+                metadata['counter'] = metadata.get('counter', 0) + 1
+                return metadata
+            
+            obj.update_metadata_atomic(increment)
+        """
+        with self.exclusive_access():
+            # Read current metadata
+            metadata = self._get_metadata_no_lock()
+            
+            # Apply the update function
+            updated_metadata = updater_func(metadata)
+            
+            # Ensure metadata is still a dict
+            if not isinstance(updated_metadata, dict):
+                raise ValueError("Updater function must return a dictionary")
+            
+            # Add timestamp
+            updated_metadata["_updated_at"] = datetime.now().isoformat()
+            
+            # Write atomically
+            with tempfile.NamedTemporaryFile(mode='w', dir=self.path, 
+                                           delete=False, suffix='.tmp') as tmp:
+                yaml.dump(updated_metadata, tmp, default_flow_style=False)
+                tmp_path = tmp.name
+            
+            os.replace(tmp_path, self.metadata_path)
+    
     # Secure data file management
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename to prevent path traversal"""
