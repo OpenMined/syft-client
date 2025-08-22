@@ -15,7 +15,11 @@
       "Bash(rg:*)",
       "Bash(sed:*)",
       "Bash(find:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "WebFetch(domain:openmined.github.io)",
+      "WebFetch(domain:www.speakeasy.com)",
+      "Bash(uv pip install:*)",
+      "Bash(uv run:*)"
     ],
     "deny": []
   }
