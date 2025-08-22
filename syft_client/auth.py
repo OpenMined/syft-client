@@ -153,7 +153,7 @@ def _get_google_console_url(email: str) -> str:
     return f"https://console.cloud.google.com/apis/credentials?authuser={encoded_email}"
 
 
-def login(email: Optional[str] = None, credentials_path: Optional[str] = None, verbose: bool = True, force_relogin: bool = False) -> GDriveUnifiedClient:
+def login(email: Optional[str] = None, credentials_path: Optional[str] = None, verbose: bool = False, force_relogin: bool = False) -> GDriveUnifiedClient:
     """
     Simple login function that checks wallet or adds new credentials
     
@@ -162,7 +162,7 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
                - If only one account exists in wallet, uses that automatically
                - If multiple accounts exist, prompts for selection
         credentials_path: Optional path to credentials.json file (skips wizard if provided)
-        verbose: Whether to print status messages (default: True)
+        verbose: Whether to print status messages (default: False)
         force_relogin: Force fresh authentication even if token exists (default: False)
         
     Returns:
@@ -207,36 +207,65 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
         if not os.path.exists(path):
             raise RuntimeError(f"Credentials file not found: {path}")
         
-        if verbose:
+        if not verbose:
+            # Use carriage return for progress updates
+            print(f"[1/4] 🔐 Adding credentials for {email}...", end='', flush=True)
+            _add_to_wallet(email, path, verbose=False)
+            print(f"\r[2/4] 🔑 Logging in as {email}..." + " " * 30, end='', flush=True)
+            client = create_gdrive_client(email, verbose=False, force_relogin=force_relogin)
+            print(f"\r[3/4] 🔐 Checking for new inboxes..." + " " * 30, end='', flush=True)
+            # Automatically create shortcuts for shared folders
+            shortcut_results = client._create_shortcuts_for_shared_folders(verbose=False)
+            
+            # Build login message with inbox count
+            login_msg = f"\r[4/4] ✅ Logged in as {client.my_email}"
+            if shortcut_results['created'] > 0:
+                login_msg += f" ({shortcut_results['created']} new inbox{'es' if shortcut_results['created'] != 1 else ''} added!)"
+            print(login_msg + " " * 50)  # Extra spaces to clear the line
+        else:
             print(f"🔐 Using provided credentials file: {path}")
-        _add_to_wallet(email, path, verbose=verbose)
-        if verbose:
+            _add_to_wallet(email, path, verbose=verbose)
             print(f"✅ Added {email} to wallet")
-        client = create_gdrive_client(email, verbose=verbose, force_relogin=force_relogin)
-        # Automatically create shortcuts for shared folders
-        shortcut_results = client._create_shortcuts_for_shared_folders(verbose=False)
-        
-        # Build login message with inbox count
-        login_msg = f"✅ Logged in as {client.my_email}"
-        if shortcut_results['created'] > 0:
-            login_msg += f" ({shortcut_results['created']} new inbox{'es' if shortcut_results['created'] != 1 else ''} added!)"
-        print(login_msg)
+            client = create_gdrive_client(email, verbose=verbose, force_relogin=force_relogin)
+            # Automatically create shortcuts for shared folders
+            shortcut_results = client._create_shortcuts_for_shared_folders(verbose=False)
+            
+            # Build login message with inbox count
+            login_msg = f"✅ Logged in as {client.my_email}"
+            if shortcut_results['created'] > 0:
+                login_msg += f" ({shortcut_results['created']} new inbox{'es' if shortcut_results['created'] != 1 else ''} added!)"
+            print(login_msg)
         
         return client
     
     # 1. Check if email is in wallet
     if _get_stored_credentials_path(email):
-        if verbose:
+        if not verbose:
+            # Use carriage return for progress updates
+            import sys
+            print(f"[1/3] 🔑 Logging in as {email}...", end='', flush=True)
+            client = create_gdrive_client(email, verbose=False, force_relogin=force_relogin)
+            print(f"\r[2/3] 🔐 Checking for new inboxes..." + " " * 30, end='', flush=True)
+            # Automatically create shortcuts for shared folders
+            shortcut_results = client._create_shortcuts_for_shared_folders(verbose=False)
+            
+            # Build login message with inbox count
+            login_msg = f"\r[3/3] ✅ Logged in as {client.my_email}"
+            if shortcut_results['created'] > 0:
+                login_msg += f" ({shortcut_results['created']} new inbox{'es' if shortcut_results['created'] != 1 else ''} added!)"
+            print(login_msg + " " * 50)  # Extra spaces to clear the line
+        else:
+            # Verbose mode - show all messages
             print(f"🔑 Found stored credentials for {email}")
-        client = create_gdrive_client(email, verbose=verbose, force_relogin=force_relogin)
-        # Automatically create shortcuts for shared folders
-        shortcut_results = client._create_shortcuts_for_shared_folders(verbose=False)
-        
-        # Build login message with inbox count
-        login_msg = f"✅ Logged in as {client.my_email}"
-        if shortcut_results['created'] > 0:
-            login_msg += f" ({shortcut_results['created']} new inbox{'es' if shortcut_results['created'] != 1 else ''} added!)"
-        print(login_msg)
+            client = create_gdrive_client(email, verbose=verbose, force_relogin=force_relogin)
+            # Automatically create shortcuts for shared folders
+            shortcut_results = client._create_shortcuts_for_shared_folders(verbose=False)
+            
+            # Build login message with inbox count
+            login_msg = f"✅ Logged in as {client.my_email}"
+            if shortcut_results['created'] > 0:
+                login_msg += f" ({shortcut_results['created']} new inbox{'es' if shortcut_results['created'] != 1 else ''} added!)"
+            print(login_msg)
         
         return client
     
