@@ -50,6 +50,7 @@ class GDriveUnifiedClient:
         self.target_email = email
         self.verbose = verbose
         self.force_relogin = force_relogin
+        self.local_syftbox_dir = None
         
     def __repr__(self) -> str:
         """Pretty representation of the client"""
@@ -184,6 +185,15 @@ class GDriveUnifiedClient:
                             🔗 Open in Google Drive
                         </a>
                     </td>
+                </tr>
+            """
+        
+        # Add local SyftBox directory info
+        if self.local_syftbox_dir:
+            html += f"""
+                <tr>
+                    <td style="padding: 5px 10px 5px 0; font-weight: bold; color: #555;">Local Directory:</td>
+                    <td style="padding: 5px;">{self.local_syftbox_dir}</td>
                 </tr>
             """
         
@@ -415,10 +425,53 @@ class GDriveUnifiedClient:
             self.my_email = about['user']['emailAddress']
             if self.verbose:
                 print(f"👤 Authenticated as: {self.my_email}")
+            
+            # Create local SyftBox directory after successful authentication
+            self._create_local_syftbox_directory()
+            
         except Exception as e:
             if self.verbose:
                 print(f"⚠️  Could not get email address: {e}")
             self.my_email = None
+    
+    def _create_local_syftbox_directory(self):
+        """Create the local SyftBox directory structure"""
+        if not self.my_email:
+            return
+            
+        # Create ~/SyftBox_{email} directory
+        home_dir = Path.home()
+        syftbox_dir = home_dir / f"SyftBox_{self.my_email}"
+        
+        if not syftbox_dir.exists():
+            try:
+                syftbox_dir.mkdir(exist_ok=True)
+                if self.verbose:
+                    print(f"📁 Created local SyftBox directory: {syftbox_dir}")
+                
+                # Create subdirectories
+                subdirs = ["inbox", "outbox", "shared", "private"]
+                for subdir in subdirs:
+                    (syftbox_dir / subdir).mkdir(exist_ok=True)
+                    
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️  Could not create SyftBox directory: {e}")
+        else:
+            if self.verbose:
+                print(f"📁 Using existing SyftBox directory: {syftbox_dir}")
+                
+        # Store the path for later use
+        self.local_syftbox_dir = syftbox_dir
+    
+    def get_syftbox_directory(self) -> Optional[Path]:
+        """Get the local SyftBox directory path"""
+        if self.local_syftbox_dir:
+            return self.local_syftbox_dir
+        elif self.my_email:
+            # Calculate the path even if not created yet
+            return Path.home() / f"SyftBox_{self.my_email}"
+        return None
     
     # ========== File Operations ==========
     
