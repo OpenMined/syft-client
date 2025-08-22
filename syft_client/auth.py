@@ -153,6 +153,19 @@ def _get_google_console_url(email: str) -> str:
     return f"https://console.cloud.google.com/apis/credentials?authuser={encoded_email}"
 
 
+def _get_credentials_setup_url(email: str) -> str:
+    """
+    Get the credentials setup URL (alias for _get_google_console_url for backwards compatibility)
+    
+    Args:
+        email: Email address to use
+        
+    Returns:
+        URL with authuser parameter
+    """
+    return _get_google_console_url(email)
+
+
 def login(email: Optional[str] = None, credentials_path: Optional[str] = None, verbose: bool = False, force_relogin: bool = False) -> GDriveUnifiedClient:
     """
     Simple login function that checks wallet or adds new credentials
@@ -527,10 +540,11 @@ def logout(email: Optional[str] = None, clear_tokens_only: bool = True):
     """
     if not email:
         print("❌ Please specify an email to logout")
-        return
+        return False
         
     if not clear_tokens_only:
         # Remove entire account
-        _remove_from_wallet(email)
+        return _remove_from_wallet(email)
     else:
         print("ℹ️  Token caching is disabled. Use logout(email, clear_tokens_only=False) to remove account from wallet.")
+        return True
