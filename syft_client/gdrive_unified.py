@@ -457,6 +457,32 @@ class GDriveUnifiedClient:
                 print(f"❌ Error creating folder: {e}")
             return None
     
+    def _folder_exists(self, name: str, parent_id: str = 'root') -> bool:
+        """
+        Check if a folder exists
+        
+        Args:
+            name: Folder name to check
+            parent_id: Parent folder ID (default: root)
+            
+        Returns:
+            True if folder exists, False otherwise
+        """
+        self._ensure_authenticated()
+        
+        try:
+            results = self.service.files().list(
+                q=f"name='{name}' and mimeType='application/vnd.google-apps.folder' and '{parent_id}' in parents and trashed=false",
+                fields="files(id,name)"
+            ).execute()
+            
+            return len(results.get('files', [])) > 0
+            
+        except HttpError as e:
+            if self.verbose:
+                print(f"❌ Error checking folder existence: {e}")
+            return False
+    
     def _upload_file(self, local_path: str, name: str = None, 
                     parent_id: str = 'root', mimetype: str = 'text/plain') -> Optional[str]:
         """

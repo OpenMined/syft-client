@@ -1,4 +1,6 @@
 google-api-python-client==2.95.0
 google-auth==2.22.0
-syft-widget
 google-auth-oauthlib==1.2.2
+google-auth-httplib2
+syft-widget
+pyyaml

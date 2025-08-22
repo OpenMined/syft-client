@@ -25,7 +25,7 @@ class MockGoogleDriveService:
     
     def __init__(self):
         self.folders = {}  # folder_id -> folder_data
-        self.files = {}    # file_id -> file_data
+        self.files_data = {}    # file_id -> file_data (renamed to avoid conflict)
         self.permissions = {}  # file_id -> [permissions]
         self.next_id = 1000
         
@@ -42,7 +42,7 @@ class MockGoogleDriveService:
     def reset(self):
         """Reset mock service state"""
         self.folders.clear()
-        self.files.clear()
+        self.files_data.clear()
         self.permissions.clear()
         self.next_id = 1000
 
@@ -51,19 +51,30 @@ class MockFilesResource:
         self.service = service
     
     def create(self, body=None, fields=None):
-        return MockCreateRequest(self.service, body, fields)
+        # Always return the same mock instance so tests can configure it
+        if not hasattr(self.service, '_create_request'):
+            self.service._create_request = Mock()
+        return self.service._create_request
     
     def list(self, q=None, fields=None, pageSize=None, pageToken=None):
-        return MockListRequest(self.service, q, fields, pageSize, pageToken)
+        if not hasattr(self.service, '_list_request'):
+            self.service._list_request = Mock()
+        return self.service._list_request
     
     def get(self, fileId=None, fields=None):
-        return MockGetRequest(self.service, fileId, fields)
+        if not hasattr(self.service, '_get_request'):
+            self.service._get_request = Mock()
+        return self.service._get_request
     
     def delete(self, fileId=None):
-        return MockDeleteRequest(self.service, fileId)
+        if not hasattr(self.service, '_delete_request'):
+            self.service._delete_request = Mock()
+        return self.service._delete_request
     
     def permissions(self):
-        return MockPermissionsResource(self.service)
+        if not hasattr(self.service, '_permissions_resource'):
+            self.service._permissions_resource = Mock()
+        return self.service._permissions_resource
 
 class MockCreateRequest:
     def __init__(self, service, body, fields):

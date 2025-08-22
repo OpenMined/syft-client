@@ -15,7 +15,10 @@
       "Bash(rg:*)",
       "Bash(sed:*)",
       "Bash(find:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(pip install:*)",
+      "Bash(pip show:*)",
+      "Bash(pip --version)"
     ],
     "deny": []
   }

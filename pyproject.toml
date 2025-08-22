@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=64.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,13 +10,12 @@ readme = "README.md"
 authors = [
     {name = "OpenMined", email = "info@openmined.org"}
 ]
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 requires-python = ">=3.8"
 keywords = ["privacy", "federated-learning", "google-drive", "communication"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
@@ -29,6 +28,7 @@ classifiers = [
 dependencies = [
     "google-api-python-client==2.95.0",
     "google-auth==2.22.0",
+    "google-auth-oauthlib",
     "syft-widget"
 ]
 

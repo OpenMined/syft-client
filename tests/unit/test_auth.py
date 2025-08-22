@@ -240,39 +240,52 @@ class TestAccountManagement:
     def test_logout(self, mock_rmtree, mock_get_account_dir):
         """Test logout function"""
         email = "test@gmail.com"
-        account_dir = Path("/fake/path")
-        mock_get_account_dir.return_value = account_dir
+        mock_account_dir = MagicMock()
+        mock_account_dir.exists.return_value = True
+        mock_get_account_dir.return_value = mock_account_dir
         
-        with patch.object(account_dir, 'exists', return_value=True):
-            with patch('builtins.print'):
-                result = auth.logout(email, verbose=False)
+        with patch('builtins.print'):
+            result = auth.logout(email, clear_tokens_only=False)
         
         assert result is True
-        mock_rmtree.assert_called_once_with(account_dir)
+        mock_rmtree.assert_called_once_with(mock_account_dir)
     
     @patch('syft_client.auth._get_account_dir')
     def test_logout_account_not_found(self, mock_get_account_dir):
         """Test logout with non-existent account"""
         email = "test@gmail.com"
-        account_dir = Path("/fake/path")
-        mock_get_account_dir.return_value = account_dir
+        mock_account_dir = MagicMock()
+        mock_account_dir.exists.return_value = False
+        mock_get_account_dir.return_value = mock_account_dir
         
-        with patch.object(account_dir, 'exists', return_value=False):
-            with patch('builtins.print'):
-                result = auth.logout(email, verbose=False)
+        with patch('builtins.print'):
+            result = auth.logout(email, clear_tokens_only=False)
         
         assert result is False
     
-    def test_add_current_credentials_to_wallet(self, temp_credentials_file, mock_wallet_dir):
+    @patch('syft_client.auth.GDriveUnifiedClient')
+    @patch('syft_client.auth._add_to_wallet')
+    @patch('builtins.input')
+    @patch('os.path.exists')
+    def test_add_current_credentials_to_wallet(self, mock_exists, mock_input, mock_add_wallet, mock_client_class):
         """Test adding current credentials to wallet"""
         email = "test@gmail.com"
         
-        with patch('builtins.print'):
-            result = auth.add_current_credentials_to_wallet(email, temp_credentials_file, verbose=False)
+        # Setup mocks
+        mock_exists.return_value = True  # credentials.json exists
+        mock_input.return_value = 'y'  # User agrees to add
+        mock_add_wallet.return_value = True
         
-        assert result is True
+        # Mock client
+        mock_client = Mock()
+        mock_client.authenticate.return_value = True
+        mock_client.my_email = email
+        mock_client_class.return_value = mock_client
         
-        # Verify credentials were added
-        account_dir = mock_wallet_dir / "test_at_gmail_com"
-        assert (account_dir / "credentials.json").exists()
-        assert (account_dir / "account_info.json").exists()
+        # Mock that credentials are not already in wallet
+        with patch('syft_client.auth._get_stored_credentials_path', return_value=None):
+            with patch('builtins.print'):
+                result = auth.add_current_credentials_to_wallet()
+        
+        assert result == email
+        mock_add_wallet.assert_called_once_with(email, "credentials.json")
