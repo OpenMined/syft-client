@@ -450,7 +450,7 @@ class GDriveUnifiedClient:
                     print(f"📁 Created local SyftBox directory: {syftbox_dir}")
                 
                 # Create subdirectories
-                subdirs = ["inbox", "outbox", "shared", "private"]
+                subdirs = ["datasites", "apps"]
                 for subdir in subdirs:
                     (syftbox_dir / subdir).mkdir(exist_ok=True)
                     
