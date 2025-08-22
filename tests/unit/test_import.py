@@ -164,12 +164,15 @@ class TestModuleConstants:
         import syft_client
         import syft_client.auth
         import syft_client.gdrive_unified
-        import syft_client.wizard
         
         # Check that modules have expected attributes
         assert hasattr(syft_client.auth, 'login')
         assert hasattr(syft_client.gdrive_unified, 'GDriveUnifiedClient')
-        assert hasattr(syft_client.wizard, 'wizard')
+        
+        # Check that wizard is available (either as module or function)
+        # Since we import wizard function directly, check it's accessible from main package
+        assert hasattr(syft_client, 'wizard')
+        assert callable(syft_client.wizard)
 
 
 @pytest.mark.unit 
