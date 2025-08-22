@@ -1,5 +1,5 @@
 """
-Base class for file-backed objects in SyftBox with safety features
+Base class for file-backed views in SyftBox with safety features
 """
 import json
 import yaml
@@ -13,16 +13,16 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 
-class SyftObject:
-    """Base class for file-backed objects with safety features"""
+class SyftFileBackedView:
+    """Base class for file-backed views with safety features"""
     
     def __init__(self, object_path: Path, schema_version: str = "1.0.0"):
         """
-        Initialize a file-backed object.
+        Initialize a file-backed view.
         
         Args:
-            object_path: Path to the object directory
-            schema_version: Version of the object schema
+            object_path: Path to the view directory
+            schema_version: Version of the view schema
         """
         self.path = Path(object_path).resolve()  # Always use absolute paths
         self.path.mkdir(parents=True, exist_ok=True)
