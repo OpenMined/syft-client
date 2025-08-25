@@ -23,7 +23,9 @@
       "WebFetch(domain:www.speakeasy.com)",
       "Bash(uv pip install:*)",
       "Bash(uv run:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(SYFT_TEST_MODE=integration python3 -m pytest tests/integration/test_two_user_workflow.py::TestTwoUserWorkflow::test_bidirectional_friend_setup -v --tb=short -x)",
+      "Bash(export SYFT_TEST_MODE=integration)"
     ],
     "deny": []
   }
