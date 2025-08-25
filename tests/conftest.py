@@ -241,7 +241,7 @@ def mock_wallet_dir():
         with patch('syft_client.auth._get_wallet_dir', return_value=wallet_dir):
             yield wallet_dir
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def test_users():
     """Test user configuration for integration tests"""
     return {
