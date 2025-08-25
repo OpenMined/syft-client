@@ -294,14 +294,19 @@ class TestFriendManagement:
         client.authenticated = True
         client.my_email = "user1@gmail.com"
         
-        # Mock folders representing friends
-        mock_gdrive_service.files().list().execute.return_value = {
-            'files': [
-                {'name': 'syft_user1_to_user2_pending'},
-                {'name': 'syft_user1_to_user3_outbox_inbox'},
-                {'name': 'some_other_folder'}  # Should be ignored
-            ]
-        }
+        # Mock sequence of calls: first find SyftBoxTransportService, then list folders inside it
+        mock_gdrive_service.files().list().execute.side_effect = [
+            # First call: find SyftBoxTransportService
+            {'files': [{'id': 'syftbox-id'}]},
+            # Second call: list folders inside SyftBoxTransportService
+            {
+                'files': [
+                    {'name': 'syft_user1@gmail.com_to_user2@gmail.com_pending'},
+                    {'name': 'syft_user1@gmail.com_to_user3@gmail.com_outbox_inbox'},
+                    {'name': 'some_other_folder'}  # Should be ignored
+                ]
+            }
+        ]
         
         friends = client.friends
         
