@@ -88,7 +88,11 @@ print('✅ User 2 authenticated')
 "
 ```
 
-This creates tokens in `~/.syft/gdrive/` that you'll need for CI.
+**IMPORTANT**: This creates refresh tokens in `~/.syft/gdrive/` that are required for non-interactive CI authentication:
+- `~/.syft/gdrive/your-project-test-user1@gmail.com/token.json`
+- `~/.syft/gdrive/your-project-test-user2@gmail.com/token.json`
+
+You'll need these token files as GitHub secrets in the next step.
 
 ### 5. Configure GitHub Secrets
 
@@ -103,6 +107,10 @@ GOOGLE_SERVICE_ACCOUNT_KEY='{"type": "service_account", "project_id": "syft-clie
 # OAuth credentials (same file for both users)
 TEST_USER1_CREDENTIALS='{"installed": {"client_id": "...", "client_secret": "...", ...}}'
 TEST_USER2_CREDENTIALS='{"installed": {"client_id": "...", "client_secret": "...", ...}}'
+
+# Refresh tokens (from local authentication - CRITICAL for non-interactive CI)
+TEST_USER1_TOKEN='{"token": "ya29.a0AX...", "refresh_token": "1//0G...", "token_uri": "https://oauth2.googleapis.com/token", ...}'
+TEST_USER2_TOKEN='{"token": "ya29.a0AX...", "refresh_token": "1//0G...", "token_uri": "https://oauth2.googleapis.com/token", ...}'
 
 # Test user email addresses
 TEST_USER1_EMAIL=your-project-test-user1@gmail.com
@@ -122,6 +130,16 @@ cat ~/Downloads/syft-ci-service-account-key.json
 cat ~/.syft/test/oauth-credentials.json
 # Copy the entire JSON content for both secrets (same content)
 ```
+
+**For TEST_USER1_TOKEN and TEST_USER2_TOKEN (CRITICAL):**
+```bash
+# After successfully authenticating locally (step 4), extract the tokens:
+cat ~/.syft/gdrive/your-project-test-user1@gmail.com/token.json
+cat ~/.syft/gdrive/your-project-test-user2@gmail.com/token.json
+# Copy the entire JSON content of each token file to the respective GitHub secret
+```
+
+**⚠️ IMPORTANT**: The token files are what enable non-interactive authentication in CI. Without them, tests will prompt for user interaction and fail.
 
 #### Optional Secrets (for enhanced features)
 

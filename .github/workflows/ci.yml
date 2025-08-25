@@ -113,12 +113,30 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           TEST_USER1_CREDENTIALS: ${{ secrets.TEST_USER1_CREDENTIALS }}
           TEST_USER2_CREDENTIALS: ${{ secrets.TEST_USER2_CREDENTIALS }}
+          TEST_USER1_TOKEN: ${{ secrets.TEST_USER1_TOKEN }}
+          TEST_USER2_TOKEN: ${{ secrets.TEST_USER2_TOKEN }}
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
         run: |
-          echo "Setting up test credentials..."
+          echo "Setting up test credentials and tokens..."
           mkdir -p ~/.syft/test
+          mkdir -p ~/.syft/gdrive/$TEST_USER1_EMAIL
+          mkdir -p ~/.syft/gdrive/$TEST_USER2_EMAIL
+          
+          # Write credentials files
           echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > ~/.syft/test/service-account.json
           echo "$TEST_USER1_CREDENTIALS" > ~/.syft/test/user1-creds.json
           echo "$TEST_USER2_CREDENTIALS" > ~/.syft/test/user2-creds.json
+          
+          # Write token files (enables non-interactive authentication)
+          echo "$TEST_USER1_TOKEN" > ~/.syft/gdrive/$TEST_USER1_EMAIL/token.json
+          echo "$TEST_USER2_TOKEN" > ~/.syft/gdrive/$TEST_USER2_EMAIL/token.json
+          
+          # Write account info files  
+          echo "{\"email\": \"$TEST_USER1_EMAIL\"}" > ~/.syft/gdrive/$TEST_USER1_EMAIL/account_info.json
+          echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$TEST_USER2_EMAIL/account_info.json
+          
+          chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
 
       - name: Run integration tests
         env:

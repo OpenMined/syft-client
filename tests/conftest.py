@@ -272,29 +272,28 @@ def integration_test_clients(test_users):
     user2_creds = os.path.expanduser(test_users['user2']['creds_file'])
     
     try:
-        # In CI, credentials files must exist
+        # In CI, tokens and credentials should be pre-configured
         if os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'):
-            print(f"🔍 CI Mode detected - using credentials from secrets")
+            print(f"🔍 CI Mode detected - using pre-configured tokens and credentials")
             print(f"   CI env var: {os.environ.get('CI')}")
             print(f"   GITHUB_ACTIONS env var: {os.environ.get('GITHUB_ACTIONS')}")
             print(f"   User1 email: {user1_email}")
-            print(f"   User1 creds: {user1_creds} (exists: {os.path.exists(user1_creds)})")
             print(f"   User2 email: {user2_email}")
-            print(f"   User2 creds: {user2_creds} (exists: {os.path.exists(user2_creds)})")
             
-            if not os.path.exists(user1_creds):
-                pytest.fail(f"CI requires credentials file at {user1_creds} but it doesn't exist")
-            if not os.path.exists(user2_creds):
-                pytest.fail(f"CI requires credentials file at {user2_creds} but it doesn't exist")
+            # Check if tokens exist (they should be pre-configured by CI)
+            user1_token_path = os.path.expanduser(f"~/.syft/gdrive/{user1_email}/token.json")
+            user2_token_path = os.path.expanduser(f"~/.syft/gdrive/{user2_email}/token.json")
+            print(f"   User1 token: {user1_token_path} (exists: {os.path.exists(user1_token_path)})")
+            print(f"   User2 token: {user2_token_path} (exists: {os.path.exists(user2_token_path)})")
             
-            # Use credentials files - this adds them to wallet automatically
-            # IMPORTANT: In CI, we MUST provide credentials_path to avoid any prompts
-            print(f"🔐 Logging in user1 with credentials file...")
-            user1 = sc.login(user1_email, credentials_path=user1_creds, verbose=False, force_relogin=True)
+            # In CI, login should work directly with pre-configured tokens
+            # No need to provide credentials_path as tokens are already in wallet
+            print(f"🔐 Logging in user1 with pre-configured token...")
+            user1 = sc.login(user1_email, verbose=False, force_relogin=True)
             print(f"✅ User1 logged in successfully")
             
-            print(f"🔐 Logging in user2 with credentials file...")
-            user2 = sc.login(user2_email, credentials_path=user2_creds, verbose=False, force_relogin=True)
+            print(f"🔐 Logging in user2 with pre-configured token...")
+            user2 = sc.login(user2_email, verbose=False, force_relogin=True)
             print(f"✅ User2 logged in successfully")
         else:
             # Local development - try with credentials files if they exist
