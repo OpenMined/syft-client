@@ -3,6 +3,7 @@ Simplified authentication interface for syft_client
 """
 
 import os
+import sys
 import json
 import shutil
 import urllib.parse
@@ -323,6 +324,12 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
     if verbose:
         print(f"❌ No credentials found for {email} in wallet")
     
+    # Check if we're in a CI/non-interactive environment
+    is_ci = os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS') or not sys.stdin.isatty()
+    if is_ci:
+        raise RuntimeError(f"No credentials found for {email} and running in non-interactive mode (CI={os.environ.get('CI')}, GITHUB_ACTIONS={os.environ.get('GITHUB_ACTIONS')}). "
+                         f"Please provide credentials or add them to the wallet first.")
+    
     # Terminal fallback
     print("\n🔧 Let's set up Google Drive access for this account")
     print("Choose an option:")
@@ -331,6 +338,10 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
     print("3. Exit")
     
     try:
+        # Double-check we're not in CI before trying to read input
+        if os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'):
+            print("❌ Cancelled")
+            raise RuntimeError(f"Cannot prompt for input in CI environment")
         choice = input("\nYour choice [1-3]: ").strip()
         
         if choice == "1":
