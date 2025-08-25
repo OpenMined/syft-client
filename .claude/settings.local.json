@@ -22,7 +22,8 @@
       "WebFetch(domain:openmined.github.io)",
       "WebFetch(domain:www.speakeasy.com)",
       "Bash(uv pip install:*)",
-      "Bash(uv run:*)"
+      "Bash(uv run:*)",
+      "Bash(cat:*)"
     ],
     "deny": []
   }

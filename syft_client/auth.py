@@ -74,6 +74,27 @@ def _add_to_wallet(email: str, credentials_path: str, verbose: bool = True) -> b
             print(f"❌ Credentials file not found: {credentials_path}")
         return False
         
+    # Validate that the credentials file is valid JSON with required fields
+    try:
+        with open(credentials_path, 'r') as f:
+            creds_data = json.load(f)
+            
+        # Check for required OAuth2 fields
+        required_fields = ['installed', 'web']
+        if not any(field in creds_data for field in required_fields):
+            if verbose:
+                print(f"❌ Invalid credentials file: missing 'installed' or 'web' configuration")
+            return False
+            
+    except json.JSONDecodeError as e:
+        if verbose:
+            print(f"❌ Invalid JSON in credentials file: {e}")
+        return False
+    except Exception as e:
+        if verbose:
+            print(f"❌ Error reading credentials file: {e}")
+        return False
+        
     account_dir = _get_account_dir(email)
     account_dir.mkdir(parents=True, exist_ok=True)
     
@@ -223,7 +244,9 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
         if not verbose:
             # Use carriage return for progress updates
             print(f"[1/4] 🔐 Adding credentials for {email}...", end='', flush=True)
-            _add_to_wallet(email, path, verbose=False)
+            if not _add_to_wallet(email, path, verbose=False):
+                print(f"\r❌ Failed to add credentials for {email}" + " " * 50)
+                raise RuntimeError(f"Invalid or malformed credentials file: {path}")
             print(f"\r[2/4] 🔑 Logging in as {email}..." + " " * 30, end='', flush=True)
             client = create_gdrive_client(email, verbose=False, force_relogin=force_relogin)
             print(f"\r[3/4] 🔐 Checking for new inboxes..." + " " * 30, end='', flush=True)
@@ -237,7 +260,8 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
             print(login_msg + " " * 50)  # Extra spaces to clear the line
         else:
             print(f"🔐 Using provided credentials file: {path}")
-            _add_to_wallet(email, path, verbose=verbose)
+            if not _add_to_wallet(email, path, verbose=verbose):
+                raise RuntimeError(f"Invalid or malformed credentials file: {path}")
             print(f"✅ Added {email} to wallet")
             client = create_gdrive_client(email, verbose=verbose, force_relogin=force_relogin)
             # Automatically create shortcuts for shared folders
