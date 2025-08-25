@@ -123,10 +123,14 @@ jobs:
           mkdir -p ~/.syft/gdrive/$TEST_USER1_EMAIL
           mkdir -p ~/.syft/gdrive/$TEST_USER2_EMAIL
           
-          # Write credentials files
+          # Write credentials files (for backwards compatibility)
           echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > ~/.syft/test/service-account.json
           echo "$TEST_USER1_CREDENTIALS" > ~/.syft/test/user1-creds.json
           echo "$TEST_USER2_CREDENTIALS" > ~/.syft/test/user2-creds.json
+          
+          # Write credentials to wallet directories (required for login detection)
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/gdrive/$TEST_USER1_EMAIL/credentials.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/gdrive/$TEST_USER2_EMAIL/credentials.json
           
           # Write token files (enables non-interactive authentication)
           echo "$TEST_USER1_TOKEN" > ~/.syft/gdrive/$TEST_USER1_EMAIL/token.json
@@ -136,7 +140,7 @@ jobs:
           echo "{\"email\": \"$TEST_USER1_EMAIL\"}" > ~/.syft/gdrive/$TEST_USER1_EMAIL/account_info.json
           echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$TEST_USER2_EMAIL/account_info.json
           
-          chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
+          chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/credentials.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
 
       - name: Run integration tests
         env:
