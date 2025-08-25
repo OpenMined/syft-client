@@ -268,10 +268,45 @@ def integration_test_clients(test_users):
     # Create clients
     user1_email = test_users['user1']['email']
     user2_email = test_users['user2']['email']
+    user1_creds = os.path.expanduser(test_users['user1']['creds_file'])
+    user2_creds = os.path.expanduser(test_users['user2']['creds_file'])
     
     try:
-        user1 = sc.login(user1_email, force_relogin=True)
-        user2 = sc.login(user2_email, force_relogin=True)
+        # In CI, credentials files must exist
+        if os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'):
+            print(f"🔍 CI Mode detected - using credentials from secrets")
+            print(f"   CI env var: {os.environ.get('CI')}")
+            print(f"   GITHUB_ACTIONS env var: {os.environ.get('GITHUB_ACTIONS')}")
+            print(f"   User1 email: {user1_email}")
+            print(f"   User1 creds: {user1_creds} (exists: {os.path.exists(user1_creds)})")
+            print(f"   User2 email: {user2_email}")
+            print(f"   User2 creds: {user2_creds} (exists: {os.path.exists(user2_creds)})")
+            
+            if not os.path.exists(user1_creds):
+                pytest.fail(f"CI requires credentials file at {user1_creds} but it doesn't exist")
+            if not os.path.exists(user2_creds):
+                pytest.fail(f"CI requires credentials file at {user2_creds} but it doesn't exist")
+            
+            # Use credentials files - this adds them to wallet automatically
+            # IMPORTANT: In CI, we MUST provide credentials_path to avoid any prompts
+            print(f"🔐 Logging in user1 with credentials file...")
+            user1 = sc.login(user1_email, credentials_path=user1_creds, verbose=False, force_relogin=True)
+            print(f"✅ User1 logged in successfully")
+            
+            print(f"🔐 Logging in user2 with credentials file...")
+            user2 = sc.login(user2_email, credentials_path=user2_creds, verbose=False, force_relogin=True)
+            print(f"✅ User2 logged in successfully")
+        else:
+            # Local development - try with credentials files if they exist
+            if os.path.exists(user1_creds):
+                user1 = sc.login(user1_email, credentials_path=user1_creds, force_relogin=True)
+            else:
+                user1 = sc.login(user1_email, force_relogin=True)
+                
+            if os.path.exists(user2_creds):
+                user2 = sc.login(user2_email, credentials_path=user2_creds, force_relogin=True)
+            else:
+                user2 = sc.login(user2_email, force_relogin=True)
         
         # Clean slate
         user1.reset_syftbox()
@@ -280,7 +315,11 @@ def integration_test_clients(test_users):
         yield {'user1': user1, 'user2': user2}
         
     except Exception as e:
-        pytest.skip(f"Could not set up integration test clients: {e}")
+        # In CI, this should be a failure, not a skip
+        if os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'):
+            pytest.fail(f"Failed to set up integration test clients in CI: {e}")
+        else:
+            pytest.skip(f"Could not set up integration test clients: {e}")
     
     finally:
         # Cleanup
