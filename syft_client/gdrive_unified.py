@@ -9,11 +9,18 @@ from pathlib import Path
 from typing import Optional, List, Dict, Union
 
 # Try importing Colab auth
+def _is_colab():
+    """Check if running in Google Colab"""
+    try:
+        import google.colab
+        return True
+    except ImportError:
+        return False
+
 try:
     from google.colab import auth as colab_auth
-    IN_COLAB = True
 except ImportError:
-    IN_COLAB = False
+    colab_auth = None
 
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -229,8 +236,16 @@ class GDriveUnifiedClient:
         Returns:
             bool: True if authentication successful
         """
-        # If email is provided, try to use stored credentials first
-        if self.target_email:
+        # If auth_method is explicitly set to colab, use Colab auth
+        if self.auth_method == "colab":
+            if not _is_colab():
+                if self.verbose:
+                    print("❌ Not running in Google Colab")
+                return False
+            return self._auth_colab()
+        
+        # If email is provided and not using Colab, try to use stored credentials first
+        if self.target_email and self.auth_method != "colab":
             # Import here to avoid circular dependency
             from .auth import _get_stored_credentials_path
             wallet_creds = _get_stored_credentials_path(self.target_email)
@@ -245,7 +260,7 @@ class GDriveUnifiedClient:
         
         if self.auth_method == "auto":
             # Auto-detect best method
-            if IN_COLAB:
+            if _is_colab():
                 return self._auth_colab()
             elif os.path.exists(self.credentials_file):
                 return self._auth_credentials()
@@ -256,13 +271,6 @@ class GDriveUnifiedClient:
                     print(f"   - No {self.credentials_file} found")
                 return False
                 
-        elif self.auth_method == "colab":
-            if not IN_COLAB:
-                if self.verbose:
-                    print("❌ Not running in Google Colab")
-                return False
-            return self._auth_colab()
-            
         elif self.auth_method == "credentials":
             return self._auth_credentials()
             

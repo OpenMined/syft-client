@@ -29,7 +29,12 @@
       "Bash(export CI=true)",
       "Bash(export GITHUB_ACTIONS=true)",
       "Bash(export TEST_USER1_EMAIL=test1@openmined.org)",
-      "Bash(export TEST_USER2_EMAIL=test2@openmined.org)"
+      "Bash(export TEST_USER2_EMAIL=test2@openmined.org)",
+      "Bash(twine check:*)",
+      "Bash(twine upload:*)",
+      "Bash(chmod:*)",
+      "Read(//tmp/**)",
+      "Read(//tmp/**)"
     ],
     "deny": []
   }
