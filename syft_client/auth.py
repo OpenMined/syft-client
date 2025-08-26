@@ -11,12 +11,20 @@ from typing import Optional, List
 from pathlib import Path
 
 # Try importing Colab auth
+def _is_colab():
+    """Check if running in Google Colab"""
+    try:
+        import google.colab
+        return True
+    except ImportError:
+        return False
+
 try:
     from google.colab import auth as colab_auth
     from google.colab import userdata
-    IN_COLAB = True
 except ImportError:
-    IN_COLAB = False
+    colab_auth = None
+    userdata = None
 
 from .gdrive_unified import GDriveUnifiedClient, create_gdrive_client
 
@@ -307,7 +315,116 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
         
         return client
     
-    # 2. Not in wallet - add new credentials
+    # 2. Check if we're in Google Colab - use Colab auth
+    if _is_colab():
+        if colab_auth is None:
+            print(f"❌ Colab authentication not available")
+            return None
+            
+        try:
+            # Show nice Colab welcome message
+            from IPython.display import HTML, display
+            colab_welcome = f'''
+            <div style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                <div style="background: white; border-radius: 8px; padding: 20px;">
+                    <h2 style="color: #1a202c; margin: 0 0 10px 0; font-family: -apple-system, system-ui, sans-serif;">
+                        🎉 Welcome to SyftClient on Google Colab!
+                    </h2>
+                    <p style="color: #4a5568; margin: 10px 0; font-size: 16px;">
+                        Authenticating as: <strong style="color: #667eea;">{email}</strong>
+                    </p>
+                    <div style="background: #f7fafc; border-left: 4px solid #667eea; padding: 10px; margin: 15px 0; border-radius: 4px;">
+                        <p style="color: #2d3748; margin: 0; font-size: 14px;">
+                            ✨ Colab provides seamless Google Drive integration<br>
+                            🔐 Using your Colab session's Google account<br>
+                            📁 Your SyftBox will be created automatically
+                        </p>
+                    </div>
+                    <p style="color: #718096; font-size: 12px; margin-top: 15px; margin-bottom: 0;">
+                        <em>Note: You may see an authentication popup if this is your first time.</em>
+                    </p>
+                </div>
+            </div>
+            '''
+            display(HTML(colab_welcome))
+            
+            # Authenticate with Colab
+            colab_auth.authenticate_user()
+            
+            # Create client with Colab auth method
+            client = GDriveUnifiedClient(email=email, auth_method="colab", verbose=False)
+            if client.authenticate():
+                # Show success message
+                success_html = f'''
+                <div style="padding: 15px; background: #f0fdf4; border-left: 4px solid #10b981; border-radius: 4px; margin: 10px 0;">
+                    <div style="display: flex; align-items: center;">
+                        <span style="font-size: 24px; margin-right: 10px;">✅</span>
+                        <div>
+                            <p style="color: #065f46; font-weight: 600; margin: 0;">
+                                Successfully authenticated as {client.my_email}
+                            </p>
+                            <p style="color: #047857; font-size: 14px; margin: 5px 0 0 0;">
+                                Your SyftBox is ready in Google Drive
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                '''
+                display(HTML(success_html))
+                
+                # Check if the authenticated email matches requested email
+                if client.my_email != email:
+                    warning_html = f'''
+                    <div style="padding: 10px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px; margin: 10px 0;">
+                        <p style="color: #92400e; margin: 0; font-size: 14px;">
+                            ⚠️ Note: Authenticated as <strong>{client.my_email}</strong> instead of {email}<br>
+                            <span style="font-size: 12px;">Google Colab uses your logged-in Google account</span>
+                        </p>
+                    </div>
+                    '''
+                    display(HTML(warning_html))
+                
+                # Automatically create shortcuts for shared folders
+                shortcut_results = client._create_shortcuts_for_shared_folders(verbose=False)
+                if shortcut_results['created'] > 0:
+                    inbox_html = f'''
+                    <div style="padding: 10px; background: #ede9fe; border-left: 4px solid #8b5cf6; border-radius: 4px; margin: 10px 0;">
+                        <p style="color: #5b21b6; margin: 0; font-size: 14px;">
+                            📥 Added {shortcut_results['created']} new inbox{'es' if shortcut_results['created'] != 1 else ''}!
+                        </p>
+                    </div>
+                    '''
+                    display(HTML(inbox_html))
+                
+                return client
+            else:
+                error_html = '''
+                <div style="padding: 15px; background: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px; margin: 10px 0;">
+                    <p style="color: #991b1b; font-weight: 600; margin: 0;">
+                        ❌ Failed to authenticate with Google Colab
+                    </p>
+                    <p style="color: #b91c1c; font-size: 14px; margin: 5px 0 0 0;">
+                        Please try again or check your Google account permissions
+                    </p>
+                </div>
+                '''
+                display(HTML(error_html))
+                return None
+        except Exception as e:
+            error_html = f'''
+            <div style="padding: 15px; background: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px; margin: 10px 0;">
+                <p style="color: #991b1b; font-weight: 600; margin: 0;">
+                    ❌ Colab authentication error
+                </p>
+                <p style="color: #b91c1c; font-size: 14px; margin: 5px 0 0 0;">
+                    {str(e)}
+                </p>
+            </div>
+            '''
+            display(HTML(error_html))
+            return None
+    
+    # 3. Not in wallet and not in Colab - show wizard if in Jupyter
     # Check if we're in a Jupyter notebook
     try:
         from IPython import get_ipython
@@ -316,7 +433,8 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
             from .wizard import wizard
             print(f"❌ No credentials found for {email}")
             print(f"Run syft_client.wizard() or print your client object to create credentials")
-            return wizard()
+            wizard()  # Call wizard directly, it will display itself
+            return None
     except ImportError:
         pass
     
@@ -503,7 +621,7 @@ def list_accounts() -> list:
     """
     accounts = _list_wallet_accounts()
     
-    if IN_COLAB:
+    if _is_colab():
         # Also check if we can get Colab user
         try:
             from googleapiclient.discovery import build

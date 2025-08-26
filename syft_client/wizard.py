@@ -4,7 +4,34 @@ def wizard():
     
     Returns a simple HTML widget with JavaScript navigation.
     """
-    from IPython.display import HTML
+    from IPython.display import HTML, display
+    
+    # Check if we're in Google Colab
+    try:
+        import google.colab
+        in_colab = True
+    except ImportError:
+        in_colab = False
+    
+    # If in Colab, show a different message
+    if in_colab:
+        colab_html = '''
+        <div style="padding: 20px; background: #f0f9ff; border-left: 4px solid #3182ce; border-radius: 4px; margin: 10px 0;">
+            <h3 style="color: #1e40af; margin: 0 0 10px 0;">🎉 Good news! You're using Google Colab</h3>
+            <p style="color: #1e3a8a; margin: 5px 0;">
+                Google Colab provides built-in authentication for Google Drive. You don't need to create credentials!
+            </p>
+            <p style="color: #1e3a8a; margin: 10px 0 5px 0;">
+                Simply run: <code style="background: white; padding: 2px 6px; border-radius: 3px;">syft_client.login("your_email@gmail.com")</code>
+            </p>
+            <p style="color: #64748b; font-size: 14px; margin-top: 10px;">
+                Colab will automatically authenticate using your logged-in Google account.
+            </p>
+        </div>
+        '''
+        html_widget = HTML(colab_html)
+        display(html_widget)
+        return None  # Don't return HTML widget that could confuse users
     
     # Generate the HTML with embedded JavaScript
     html_content = '''
@@ -124,4 +151,19 @@ def wizard():
     </script>
     '''
     
-    return HTML(html_content)
+    # Create the HTML object
+    html_widget = HTML(html_content)
+    
+    # In Colab/Jupyter, we need to display it explicitly
+    # Check if we're in an IPython environment
+    try:
+        from IPython import get_ipython
+        if get_ipython() is not None:
+            # Display the widget immediately
+            display(html_widget)
+            return html_widget
+    except ImportError:
+        pass
+    
+    # If not in IPython, just return the HTML object
+    return html_widget
