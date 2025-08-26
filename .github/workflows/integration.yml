@@ -56,7 +56,64 @@ jobs:
           TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
           TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
         run: |
-          echo "Setting up test credentials and tokens..."
+          echo "🔍 Checking if secrets are properly set..."
+          
+          # Check each secret and fail early if missing
+          if [ -z "$TEST_USER1_EMAIL" ]; then
+            echo "❌ ERROR: TEST_USER1_EMAIL secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER1_EMAIL is set: $TEST_USER1_EMAIL"
+          fi
+          
+          if [ -z "$TEST_USER2_EMAIL" ]; then
+            echo "❌ ERROR: TEST_USER2_EMAIL secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER2_EMAIL is set: $TEST_USER2_EMAIL"
+          fi
+          
+          if [ -z "$TEST_USER1_CREDENTIALS" ]; then
+            echo "❌ ERROR: TEST_USER1_CREDENTIALS secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER1_CREDENTIALS is set (length: ${#TEST_USER1_CREDENTIALS})"
+            echo "   First 50 chars: ${TEST_USER1_CREDENTIALS:0:50}..."
+          fi
+          
+          if [ -z "$TEST_USER2_CREDENTIALS" ]; then
+            echo "❌ ERROR: TEST_USER2_CREDENTIALS secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER2_CREDENTIALS is set (length: ${#TEST_USER2_CREDENTIALS})"
+            echo "   First 50 chars: ${TEST_USER2_CREDENTIALS:0:50}..."
+          fi
+          
+          if [ -z "$TEST_USER1_TOKEN" ]; then
+            echo "❌ ERROR: TEST_USER1_TOKEN secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER1_TOKEN is set (length: ${#TEST_USER1_TOKEN})"
+            echo "   First 50 chars: ${TEST_USER1_TOKEN:0:50}..."
+          fi
+          
+          if [ -z "$TEST_USER2_TOKEN" ]; then
+            echo "❌ ERROR: TEST_USER2_TOKEN secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER2_TOKEN is set (length: ${#TEST_USER2_TOKEN})"
+            echo "   First 50 chars: ${TEST_USER2_TOKEN:0:50}..."
+          fi
+          
+          if [ -z "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "❌ ERROR: GOOGLE_SERVICE_ACCOUNT_KEY secret is not set!"
+            exit 1
+          else
+            echo "✅ GOOGLE_SERVICE_ACCOUNT_KEY is set (length: ${#GOOGLE_SERVICE_ACCOUNT_KEY})"
+          fi
+          
+          echo ""
+          echo "📂 Setting up test credentials and tokens..."
           mkdir -p ~/.syft/test
           mkdir -p ~/.syft/gdrive/$TEST_USER1_EMAIL
           mkdir -p ~/.syft/gdrive/$TEST_USER2_EMAIL
@@ -79,6 +136,56 @@ jobs:
           echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$TEST_USER2_EMAIL/account_info.json
           
           chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/credentials.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
+          
+          echo ""
+          echo "🔍 Verifying files were created correctly..."
+          
+          # Check test directory
+          echo "📁 ~/.syft/test/ contents:"
+          ls -la ~/.syft/test/
+          
+          # Check user1 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$TEST_USER1_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$TEST_USER1_EMAIL/
+          
+          # Verify user1 files
+          if [ -f ~/.syft/gdrive/$TEST_USER1_EMAIL/credentials.json ]; then
+            echo "✅ User1 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER1_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User1 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$TEST_USER1_EMAIL/token.json ]; then
+            echo "✅ User1 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER1_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User1 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          # Check user2 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$TEST_USER2_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$TEST_USER2_EMAIL/
+          
+          # Verify user2 files
+          if [ -f ~/.syft/gdrive/$TEST_USER2_EMAIL/credentials.json ]; then
+            echo "✅ User2 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER2_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User2 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$TEST_USER2_EMAIL/token.json ]; then
+            echo "✅ User2 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER2_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User2 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All credential files created successfully!"
 
       - name: Pre-cleanup test environment
         env:
@@ -120,6 +227,28 @@ jobs:
           pytest tests/integration/test_syftbox_ops.py -v --tb=short \
             -m "integration and syftbox" \
             --junit-xml=junit-syftbox.xml
+
+      - name: Debug credential setup (main job)
+        run: |
+          echo "🔍 Debugging credential setup in main integration job..."
+          echo "TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}"
+          echo "TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}"
+          echo ""
+          echo "📁 Checking file structure:"
+          echo "~/.syft/test/ contents:"
+          ls -la ~/.syft/test/ || echo "Directory doesn't exist"
+          echo ""
+          echo "~/.syft/gdrive/ contents:"
+          ls -la ~/.syft/gdrive/ || echo "Directory doesn't exist"
+          echo ""
+          if [ -d ~/.syft/gdrive/${{ secrets.TEST_USER1_EMAIL }} ]; then
+            echo "~/.syft/gdrive/${{ secrets.TEST_USER1_EMAIL }}/ contents:"
+            ls -la ~/.syft/gdrive/${{ secrets.TEST_USER1_EMAIL }}/
+          fi
+          if [ -d ~/.syft/gdrive/${{ secrets.TEST_USER2_EMAIL }} ]; then
+            echo "~/.syft/gdrive/${{ secrets.TEST_USER2_EMAIL }}/ contents:"
+            ls -la ~/.syft/gdrive/${{ secrets.TEST_USER2_EMAIL }}/
+          fi
 
       - name: Run two-user workflow tests
         env:
@@ -276,6 +405,78 @@ jobs:
           echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$TEST_USER2_EMAIL/account_info.json
           
           chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/credentials.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
+          
+          echo ""
+          echo "🔍 Verifying files were created correctly..."
+          
+          # Check test directory
+          echo "📁 ~/.syft/test/ contents:"
+          ls -la ~/.syft/test/
+          
+          # Check user1 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$TEST_USER1_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$TEST_USER1_EMAIL/
+          
+          # Verify user1 files
+          if [ -f ~/.syft/gdrive/$TEST_USER1_EMAIL/credentials.json ]; then
+            echo "✅ User1 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER1_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User1 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$TEST_USER1_EMAIL/token.json ]; then
+            echo "✅ User1 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER1_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User1 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          # Check user2 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$TEST_USER2_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$TEST_USER2_EMAIL/
+          
+          # Verify user2 files
+          if [ -f ~/.syft/gdrive/$TEST_USER2_EMAIL/credentials.json ]; then
+            echo "✅ User2 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER2_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User2 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$TEST_USER2_EMAIL/token.json ]; then
+            echo "✅ User2 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER2_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User2 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All credential files created successfully!"
+
+      - name: Debug credential setup
+        run: |
+          echo "🔍 Debugging credential setup..."
+          echo "TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}"
+          echo "TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}"
+          echo ""
+          echo "📁 Checking file structure:"
+          echo "~/.syft/test/ contents:"
+          ls -la ~/.syft/test/ || echo "Directory doesn't exist"
+          echo ""
+          echo "~/.syft/gdrive/ contents:"
+          ls -la ~/.syft/gdrive/ || echo "Directory doesn't exist"
+          echo ""
+          if [ -d ~/.syft/gdrive/${{ secrets.TEST_USER1_EMAIL }} ]; then
+            echo "~/.syft/gdrive/${{ secrets.TEST_USER1_EMAIL }}/ contents:"
+            ls -la ~/.syft/gdrive/${{ secrets.TEST_USER1_EMAIL }}/
+          fi
+          if [ -d ~/.syft/gdrive/${{ secrets.TEST_USER2_EMAIL }} ]; then
+            echo "~/.syft/gdrive/${{ secrets.TEST_USER2_EMAIL }}/ contents:"
+            ls -la ~/.syft/gdrive/${{ secrets.TEST_USER2_EMAIL }}/
+          fi
 
       - name: Run two-user workflow tests only
         env:
@@ -355,6 +556,56 @@ jobs:
           echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$TEST_USER2_EMAIL/account_info.json
           
           chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/credentials.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
+          
+          echo ""
+          echo "🔍 Verifying files were created correctly..."
+          
+          # Check test directory
+          echo "📁 ~/.syft/test/ contents:"
+          ls -la ~/.syft/test/
+          
+          # Check user1 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$TEST_USER1_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$TEST_USER1_EMAIL/
+          
+          # Verify user1 files
+          if [ -f ~/.syft/gdrive/$TEST_USER1_EMAIL/credentials.json ]; then
+            echo "✅ User1 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER1_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User1 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$TEST_USER1_EMAIL/token.json ]; then
+            echo "✅ User1 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER1_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User1 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          # Check user2 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$TEST_USER2_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$TEST_USER2_EMAIL/
+          
+          # Verify user2 files
+          if [ -f ~/.syft/gdrive/$TEST_USER2_EMAIL/credentials.json ]; then
+            echo "✅ User2 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER2_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User2 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$TEST_USER2_EMAIL/token.json ]; then
+            echo "✅ User2 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER2_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User2 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All credential files created successfully!"
 
       - name: Run comprehensive cleanup
         env:
