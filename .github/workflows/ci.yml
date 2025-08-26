@@ -165,9 +165,16 @@ jobs:
           
           echo ""
           echo "📂 Setting up test credentials and tokens..."
+          
+          # Sanitize email addresses for directory names (same as Python code does)
+          SANITIZED_USER1_EMAIL=$(echo "$TEST_USER1_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          SANITIZED_USER2_EMAIL=$(echo "$TEST_USER2_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          echo "   Sanitized User1 dir: $SANITIZED_USER1_EMAIL"
+          echo "   Sanitized User2 dir: $SANITIZED_USER2_EMAIL"
+          
           mkdir -p ~/.syft/test
-          mkdir -p ~/.syft/gdrive/$TEST_USER1_EMAIL
-          mkdir -p ~/.syft/gdrive/$TEST_USER2_EMAIL
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER1_EMAIL
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER2_EMAIL
           
           # Write credentials files (for backwards compatibility)
           echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > ~/.syft/test/service-account.json
@@ -175,16 +182,16 @@ jobs:
           echo "$TEST_USER2_CREDENTIALS" > ~/.syft/test/user2-creds.json
           
           # Write credentials to wallet directories (required for login detection)
-          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/gdrive/$TEST_USER1_EMAIL/credentials.json
-          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/gdrive/$TEST_USER2_EMAIL/credentials.json
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json
           
           # Write token files (enables non-interactive authentication)
-          echo "$TEST_USER1_TOKEN" > ~/.syft/gdrive/$TEST_USER1_EMAIL/token.json
-          echo "$TEST_USER2_TOKEN" > ~/.syft/gdrive/$TEST_USER2_EMAIL/token.json
+          echo "$TEST_USER1_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json
+          echo "$TEST_USER2_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json
           
           # Write account info files  
-          echo "{\"email\": \"$TEST_USER1_EMAIL\"}" > ~/.syft/gdrive/$TEST_USER1_EMAIL/account_info.json
-          echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$TEST_USER2_EMAIL/account_info.json
+          echo "{\"email\": \"$TEST_USER1_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/account_info.json
+          echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/account_info.json
           
           chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/credentials.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
           
@@ -197,19 +204,19 @@ jobs:
           
           # Check user1 wallet
           echo ""
-          echo "📁 ~/.syft/gdrive/$TEST_USER1_EMAIL/ contents:"
-          ls -la ~/.syft/gdrive/$TEST_USER1_EMAIL/
+          echo "📁 ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/
           
           # Verify user1 files
-          if [ -f ~/.syft/gdrive/$TEST_USER1_EMAIL/credentials.json ]; then
-            echo "✅ User1 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER1_EMAIL/credentials.json) bytes)"
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json ]; then
+            echo "✅ User1 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json) bytes)"
           else
             echo "❌ ERROR: User1 credentials.json NOT FOUND!"
             exit 1
           fi
           
-          if [ -f ~/.syft/gdrive/$TEST_USER1_EMAIL/token.json ]; then
-            echo "✅ User1 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER1_EMAIL/token.json) bytes)"
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json ]; then
+            echo "✅ User1 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json) bytes)"
           else
             echo "❌ ERROR: User1 token.json NOT FOUND!"
             exit 1
@@ -217,19 +224,19 @@ jobs:
           
           # Check user2 wallet
           echo ""
-          echo "📁 ~/.syft/gdrive/$TEST_USER2_EMAIL/ contents:"
-          ls -la ~/.syft/gdrive/$TEST_USER2_EMAIL/
+          echo "📁 ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/
           
           # Verify user2 files
-          if [ -f ~/.syft/gdrive/$TEST_USER2_EMAIL/credentials.json ]; then
-            echo "✅ User2 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER2_EMAIL/credentials.json) bytes)"
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json ]; then
+            echo "✅ User2 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json) bytes)"
           else
             echo "❌ ERROR: User2 credentials.json NOT FOUND!"
             exit 1
           fi
           
-          if [ -f ~/.syft/gdrive/$TEST_USER2_EMAIL/token.json ]; then
-            echo "✅ User2 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$TEST_USER2_EMAIL/token.json) bytes)"
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json ]; then
+            echo "✅ User2 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json) bytes)"
           else
             echo "❌ ERROR: User2 token.json NOT FOUND!"
             exit 1
