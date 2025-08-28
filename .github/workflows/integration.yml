@@ -1,0 +1,653 @@
+name: Integration Tests
+
+on:
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_scope:
+        description: 'Test scope'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - two-user-only
+          - cleanup-only
+      verbose:
+        description: 'Verbose output'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  PYTHONUNBUFFERED: 1
+  FORCE_COLOR: 1
+
+jobs:
+  integration-full:
+    name: Full Integration Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_scope == 'full')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Setup test credentials
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          TEST_USER1_CREDENTIALS: ${{ secrets.TEST_USER1_CREDENTIALS }}
+          TEST_USER2_CREDENTIALS: ${{ secrets.TEST_USER2_CREDENTIALS }}
+          TEST_USER1_TOKEN: ${{ secrets.TEST_USER1_TOKEN }}
+          TEST_USER2_TOKEN: ${{ secrets.TEST_USER2_TOKEN }}
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+        run: |
+          echo "🔍 Checking if secrets are properly set..."
+          
+          # Check each secret and fail early if missing
+          if [ -z "$TEST_USER1_EMAIL" ]; then
+            echo "❌ ERROR: TEST_USER1_EMAIL secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER1_EMAIL is set: $TEST_USER1_EMAIL"
+          fi
+          
+          if [ -z "$TEST_USER2_EMAIL" ]; then
+            echo "❌ ERROR: TEST_USER2_EMAIL secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER2_EMAIL is set: $TEST_USER2_EMAIL"
+          fi
+          
+          if [ -z "$TEST_USER1_CREDENTIALS" ]; then
+            echo "❌ ERROR: TEST_USER1_CREDENTIALS secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER1_CREDENTIALS is set (length: ${#TEST_USER1_CREDENTIALS})"
+            echo "   First 50 chars: ${TEST_USER1_CREDENTIALS:0:50}..."
+          fi
+          
+          if [ -z "$TEST_USER2_CREDENTIALS" ]; then
+            echo "❌ ERROR: TEST_USER2_CREDENTIALS secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER2_CREDENTIALS is set (length: ${#TEST_USER2_CREDENTIALS})"
+            echo "   First 50 chars: ${TEST_USER2_CREDENTIALS:0:50}..."
+          fi
+          
+          if [ -z "$TEST_USER1_TOKEN" ]; then
+            echo "❌ ERROR: TEST_USER1_TOKEN secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER1_TOKEN is set (length: ${#TEST_USER1_TOKEN})"
+            echo "   First 50 chars: ${TEST_USER1_TOKEN:0:50}..."
+          fi
+          
+          if [ -z "$TEST_USER2_TOKEN" ]; then
+            echo "❌ ERROR: TEST_USER2_TOKEN secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER2_TOKEN is set (length: ${#TEST_USER2_TOKEN})"
+            echo "   First 50 chars: ${TEST_USER2_TOKEN:0:50}..."
+          fi
+          
+          if [ -z "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "❌ ERROR: GOOGLE_SERVICE_ACCOUNT_KEY secret is not set!"
+            exit 1
+          else
+            echo "✅ GOOGLE_SERVICE_ACCOUNT_KEY is set (length: ${#GOOGLE_SERVICE_ACCOUNT_KEY})"
+          fi
+          
+          echo ""
+          echo "📂 Setting up test credentials and tokens..."
+          
+          # Sanitize email addresses for directory names (same as Python code does)
+          SANITIZED_USER1_EMAIL=$(echo "$TEST_USER1_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          SANITIZED_USER2_EMAIL=$(echo "$TEST_USER2_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          echo "   Sanitized User1 dir: $SANITIZED_USER1_EMAIL"
+          echo "   Sanitized User2 dir: $SANITIZED_USER2_EMAIL"
+          
+          mkdir -p ~/.syft/test
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER1_EMAIL
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER2_EMAIL
+          
+          # Write credentials files (for backwards compatibility)
+          echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > ~/.syft/test/service-account.json
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/test/user1-creds.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/test/user2-creds.json
+          
+          # Write credentials to wallet directories (required for login detection)
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json
+          
+          # Write token files (enables non-interactive authentication)
+          echo "$TEST_USER1_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json
+          echo "$TEST_USER2_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json
+          
+          # Write account info files  
+          echo "{\"email\": \"$TEST_USER1_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/account_info.json
+          echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/account_info.json
+          
+          chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/credentials.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
+          
+          echo ""
+          echo "🔍 Verifying files were created correctly..."
+          
+          # Check test directory
+          echo "📁 ~/.syft/test/ contents:"
+          ls -la ~/.syft/test/
+          
+          # Check user1 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/
+          
+          # Verify user1 files
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json ]; then
+            echo "✅ User1 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User1 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json ]; then
+            echo "✅ User1 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User1 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          # Check user2 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/
+          
+          # Verify user2 files
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json ]; then
+            echo "✅ User2 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User2 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json ]; then
+            echo "✅ User2 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User2 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All credential files created successfully!"
+
+      - name: Pre-cleanup test environment
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+        run: |
+          echo "Cleaning up any leftover test data..."
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, '.')
+          try:
+              from tests.utils.cleanup import cleanup_all_test_data
+              cleanup_all_test_data()
+              print('✅ Pre-cleanup completed')
+          except Exception as e:
+              print(f'⚠️  Pre-cleanup warning: {e}')
+          "
+
+      - name: Run authentication tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration/test_auth.py -v --tb=short \
+            -m "integration and auth" \
+            --junit-xml=junit-auth.xml
+
+      - name: Run SyftBox operations tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration/test_syftbox_ops.py -v --tb=short \
+            -m "integration and syftbox" \
+            --junit-xml=junit-syftbox.xml
+
+      - name: Debug credential setup (main job)
+        run: |
+          echo "🔍 Debugging credential setup in main integration job..."
+          echo "TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}"
+          echo "TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}"
+          echo ""
+          echo "📁 Checking file structure:"
+          echo "~/.syft/test/ contents:"
+          ls -la ~/.syft/test/ || echo "Directory doesn't exist"
+          echo ""
+          echo "~/.syft/gdrive/ contents:"
+          ls -la ~/.syft/gdrive/ || echo "Directory doesn't exist"
+          echo ""
+          # Use sanitized email for directory names
+          SANITIZED_USER1_EMAIL=$(echo "${{ secrets.TEST_USER1_EMAIL }}" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          SANITIZED_USER2_EMAIL=$(echo "${{ secrets.TEST_USER2_EMAIL }}" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          
+          if [ -d ~/.syft/gdrive/$SANITIZED_USER1_EMAIL ]; then
+            echo "~/.syft/gdrive/$SANITIZED_USER1_EMAIL/ contents:"
+            ls -la ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/
+          fi
+          if [ -d ~/.syft/gdrive/$SANITIZED_USER2_EMAIL ]; then
+            echo "~/.syft/gdrive/$SANITIZED_USER2_EMAIL/ contents:"
+            ls -la ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/
+          fi
+
+      - name: Run two-user workflow tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration/test_two_user_workflow.py -v --tb=short \
+            -m "integration and two_user" \
+            --junit-xml=junit-two-user.xml \
+            --capture=no \
+            ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+
+      - name: Run friend management tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration/test_friend_management.py -v --tb=short \
+            -m "integration and friends" \
+            --junit-xml=junit-friends.xml
+
+      - name: Run edge cases and stress tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration/test_edge_cases.py -v --tb=short \
+            -m "integration and slow" \
+            --junit-xml=junit-edge-cases.xml
+
+      - name: Generate test report
+        if: always()
+        run: |
+          echo "## 🧪 Integration Test Results" > test-report.md
+          echo "" >> test-report.md
+          echo "### Test Summary" >> test-report.md
+          
+          # Count passed/failed tests from JUnit files
+          if ls junit-*.xml 1> /dev/null 2>&1; then
+            python -c "
+            import xml.etree.ElementTree as ET
+            import glob
+            
+            total_tests = 0
+            total_failures = 0
+            total_errors = 0
+            
+            for file in glob.glob('junit-*.xml'):
+                try:
+                    tree = ET.parse(file)
+                    root = tree.getroot()
+                    total_tests += int(root.attrib.get('tests', 0))
+                    total_failures += int(root.attrib.get('failures', 0))
+                    total_errors += int(root.attrib.get('errors', 0))
+                except:
+                    pass
+            
+            passed = total_tests - total_failures - total_errors
+            print(f'- ✅ Passed: {passed}')
+            print(f'- ❌ Failed: {total_failures}')  
+            print(f'- 💥 Errors: {total_errors}')
+            print(f'- 📊 Total: {total_tests}')
+            " >> test-report.md
+          fi
+          
+          echo "" >> test-report.md
+          echo "### Test Environment" >> test-report.md
+          echo "- Python Version: $(python --version)" >> test-report.md
+          echo "- OS: Ubuntu Latest" >> test-report.md
+          echo "- Timestamp: $(date -u)" >> test-report.md
+
+      - name: Post-cleanup test environment
+        if: always()
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+        run: |
+          echo "Final cleanup of test data..."
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, '.')
+          from tests.utils.cleanup import cleanup_all_test_data
+          cleanup_all_test_data()
+          print('✅ Post-cleanup completed')
+          "
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results-full
+          path: |
+            junit-*.xml
+            test-report.md
+            ~/.syft/test/*.log
+
+  two-user-workflow-only:
+    name: Two-User Workflow Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_scope == 'two-user-only'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Setup test credentials
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          TEST_USER1_CREDENTIALS: ${{ secrets.TEST_USER1_CREDENTIALS }}
+          TEST_USER2_CREDENTIALS: ${{ secrets.TEST_USER2_CREDENTIALS }}
+          TEST_USER1_TOKEN: ${{ secrets.TEST_USER1_TOKEN }}
+          TEST_USER2_TOKEN: ${{ secrets.TEST_USER2_TOKEN }}
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+        run: |
+          mkdir -p ~/.syft/test
+          mkdir -p ~/.syft/gdrive/$TEST_USER1_EMAIL
+          mkdir -p ~/.syft/gdrive/$TEST_USER2_EMAIL
+          
+          # Write credentials files (for backwards compatibility)
+          echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > ~/.syft/test/service-account.json
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/test/user1-creds.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/test/user2-creds.json
+          
+          # Write credentials to wallet directories (required for login detection)
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json
+          
+          # Write token files (enables non-interactive authentication)
+          echo "$TEST_USER1_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json
+          echo "$TEST_USER2_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json
+          
+          # Write account info files  
+          echo "{\"email\": \"$TEST_USER1_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/account_info.json
+          echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/account_info.json
+          
+          chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/credentials.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
+          
+          echo ""
+          echo "🔍 Verifying files were created correctly..."
+          
+          # Check test directory
+          echo "📁 ~/.syft/test/ contents:"
+          ls -la ~/.syft/test/
+          
+          # Check user1 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/
+          
+          # Verify user1 files
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json ]; then
+            echo "✅ User1 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User1 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json ]; then
+            echo "✅ User1 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User1 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          # Check user2 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/
+          
+          # Verify user2 files
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json ]; then
+            echo "✅ User2 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User2 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json ]; then
+            echo "✅ User2 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User2 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All credential files created successfully!"
+
+      - name: Debug credential setup
+        run: |
+          echo "🔍 Debugging credential setup..."
+          echo "TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}"
+          echo "TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}"
+          echo ""
+          echo "📁 Checking file structure:"
+          echo "~/.syft/test/ contents:"
+          ls -la ~/.syft/test/ || echo "Directory doesn't exist"
+          echo ""
+          echo "~/.syft/gdrive/ contents:"
+          ls -la ~/.syft/gdrive/ || echo "Directory doesn't exist"
+          echo ""
+          # Use sanitized email for directory names
+          SANITIZED_USER1_EMAIL=$(echo "${{ secrets.TEST_USER1_EMAIL }}" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          SANITIZED_USER2_EMAIL=$(echo "${{ secrets.TEST_USER2_EMAIL }}" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          
+          if [ -d ~/.syft/gdrive/$SANITIZED_USER1_EMAIL ]; then
+            echo "~/.syft/gdrive/$SANITIZED_USER1_EMAIL/ contents:"
+            ls -la ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/
+          fi
+          if [ -d ~/.syft/gdrive/$SANITIZED_USER2_EMAIL ]; then
+            echo "~/.syft/gdrive/$SANITIZED_USER2_EMAIL/ contents:"
+            ls -la ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/
+          fi
+
+      - name: Run two-user workflow tests only
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration/test_two_user_workflow.py -v \
+            -m "integration and two_user" \
+            --tb=short \
+            --capture=no \
+            ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+
+      - name: Cleanup
+        if: always()
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from tests.utils.cleanup import cleanup_all_test_data
+          cleanup_all_test_data()
+          "
+
+  cleanup-only:
+    name: Cleanup Test Data
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_scope == 'cleanup-only'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Setup credentials for cleanup
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          TEST_USER1_CREDENTIALS: ${{ secrets.TEST_USER1_CREDENTIALS }}
+          TEST_USER2_CREDENTIALS: ${{ secrets.TEST_USER2_CREDENTIALS }}
+          TEST_USER1_TOKEN: ${{ secrets.TEST_USER1_TOKEN }}
+          TEST_USER2_TOKEN: ${{ secrets.TEST_USER2_TOKEN }}
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+        run: |
+          mkdir -p ~/.syft/test
+          mkdir -p ~/.syft/gdrive/$TEST_USER1_EMAIL
+          mkdir -p ~/.syft/gdrive/$TEST_USER2_EMAIL
+          
+          # Write credentials files (for backwards compatibility)
+          echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > ~/.syft/test/service-account.json
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/test/user1-creds.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/test/user2-creds.json
+          
+          # Write credentials to wallet directories (required for login detection)
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json
+          
+          # Write token files (enables non-interactive authentication)
+          echo "$TEST_USER1_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json
+          echo "$TEST_USER2_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json
+          
+          # Write account info files  
+          echo "{\"email\": \"$TEST_USER1_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/account_info.json
+          echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/account_info.json
+          
+          chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/credentials.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
+          
+          echo ""
+          echo "🔍 Verifying files were created correctly..."
+          
+          # Check test directory
+          echo "📁 ~/.syft/test/ contents:"
+          ls -la ~/.syft/test/
+          
+          # Check user1 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/
+          
+          # Verify user1 files
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json ]; then
+            echo "✅ User1 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User1 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json ]; then
+            echo "✅ User1 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User1 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          # Check user2 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/
+          
+          # Verify user2 files
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json ]; then
+            echo "✅ User2 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User2 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json ]; then
+            echo "✅ User2 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User2 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All credential files created successfully!"
+
+      - name: Run comprehensive cleanup
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from tests.utils.cleanup import cleanup_all_test_data, deep_cleanup
+          print('🧹 Starting comprehensive cleanup...')
+          cleanup_all_test_data()
+          deep_cleanup()
+          print('✅ Cleanup completed')
+          "
+
+  notify-results:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [integration-full, two-user-workflow-only, cleanup-only]
+    if: always() && github.event_name == 'schedule'
+    
+    steps:
+      - name: Notify on failure
+        if: needs.integration-full.result == 'failure'
+        run: |
+          echo "💥 Nightly integration tests failed!"
+          echo "Check the workflow logs for details."
+          # Add notification logic here (Slack, email, etc.)

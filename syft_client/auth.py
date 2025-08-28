@@ -3,6 +3,7 @@ Simplified authentication interface for syft_client
 """
 
 import os
+import sys
 import json
 import shutil
 import urllib.parse
@@ -10,12 +11,20 @@ from typing import Optional, List
 from pathlib import Path
 
 # Try importing Colab auth
+def _is_colab():
+    """Check if running in Google Colab"""
+    try:
+        import google.colab
+        return True
+    except ImportError:
+        return False
+
 try:
     from google.colab import auth as colab_auth
     from google.colab import userdata
-    IN_COLAB = True
 except ImportError:
-    IN_COLAB = False
+    colab_auth = None
+    userdata = None
 
 from .gdrive_unified import GDriveUnifiedClient, create_gdrive_client
 
@@ -72,6 +81,27 @@ def _add_to_wallet(email: str, credentials_path: str, verbose: bool = True) -> b
     if not os.path.exists(credentials_path):
         if verbose:
             print(f"❌ Credentials file not found: {credentials_path}")
+        return False
+        
+    # Validate that the credentials file is valid JSON with required fields
+    try:
+        with open(credentials_path, 'r') as f:
+            creds_data = json.load(f)
+            
+        # Check for required OAuth2 fields
+        required_fields = ['installed', 'web']
+        if not any(field in creds_data for field in required_fields):
+            if verbose:
+                print(f"❌ Invalid credentials file: missing 'installed' or 'web' configuration")
+            return False
+            
+    except json.JSONDecodeError as e:
+        if verbose:
+            print(f"❌ Invalid JSON in credentials file: {e}")
+        return False
+    except Exception as e:
+        if verbose:
+            print(f"❌ Error reading credentials file: {e}")
         return False
         
     account_dir = _get_account_dir(email)
@@ -153,6 +183,19 @@ def _get_google_console_url(email: str) -> str:
     return f"https://console.cloud.google.com/apis/credentials?authuser={encoded_email}"
 
 
+def _get_credentials_setup_url(email: str) -> str:
+    """
+    Get the credentials setup URL (alias for _get_google_console_url for backwards compatibility)
+    
+    Args:
+        email: Email address to use
+        
+    Returns:
+        URL with authuser parameter
+    """
+    return _get_google_console_url(email)
+
+
 def login(email: Optional[str] = None, credentials_path: Optional[str] = None, verbose: bool = False, force_relogin: bool = False) -> GDriveUnifiedClient:
     """
     Simple login function that checks wallet or adds new credentials
@@ -210,7 +253,9 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
         if not verbose:
             # Use carriage return for progress updates
             print(f"[1/4] 🔐 Adding credentials for {email}...", end='', flush=True)
-            _add_to_wallet(email, path, verbose=False)
+            if not _add_to_wallet(email, path, verbose=False):
+                print(f"\r❌ Failed to add credentials for {email}" + " " * 50)
+                raise RuntimeError(f"Invalid or malformed credentials file: {path}")
             print(f"\r[2/4] 🔑 Logging in as {email}..." + " " * 30, end='', flush=True)
             client = create_gdrive_client(email, verbose=False, force_relogin=force_relogin)
             print(f"\r[3/4] 🔐 Checking for new inboxes..." + " " * 30, end='', flush=True)
@@ -224,7 +269,8 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
             print(login_msg + " " * 50)  # Extra spaces to clear the line
         else:
             print(f"🔐 Using provided credentials file: {path}")
-            _add_to_wallet(email, path, verbose=verbose)
+            if not _add_to_wallet(email, path, verbose=verbose):
+                raise RuntimeError(f"Invalid or malformed credentials file: {path}")
             print(f"✅ Added {email} to wallet")
             client = create_gdrive_client(email, verbose=verbose, force_relogin=force_relogin)
             # Automatically create shortcuts for shared folders
@@ -269,7 +315,116 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
         
         return client
     
-    # 2. Not in wallet - add new credentials
+    # 2. Check if we're in Google Colab - use Colab auth
+    if _is_colab():
+        if colab_auth is None:
+            print(f"❌ Colab authentication not available")
+            return None
+            
+        try:
+            # Show nice Colab welcome message
+            from IPython.display import HTML, display
+            colab_welcome = f'''
+            <div style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                <div style="background: white; border-radius: 8px; padding: 20px;">
+                    <h2 style="color: #1a202c; margin: 0 0 10px 0; font-family: -apple-system, system-ui, sans-serif;">
+                        🎉 Welcome to SyftClient on Google Colab!
+                    </h2>
+                    <p style="color: #4a5568; margin: 10px 0; font-size: 16px;">
+                        Authenticating as: <strong style="color: #667eea;">{email}</strong>
+                    </p>
+                    <div style="background: #f7fafc; border-left: 4px solid #667eea; padding: 10px; margin: 15px 0; border-radius: 4px;">
+                        <p style="color: #2d3748; margin: 0; font-size: 14px;">
+                            ✨ Colab provides seamless Google Drive integration<br>
+                            🔐 Using your Colab session's Google account<br>
+                            📁 Your SyftBox will be created automatically
+                        </p>
+                    </div>
+                    <p style="color: #718096; font-size: 12px; margin-top: 15px; margin-bottom: 0;">
+                        <em>Note: You may see an authentication popup if this is your first time.</em>
+                    </p>
+                </div>
+            </div>
+            '''
+            display(HTML(colab_welcome))
+            
+            # Authenticate with Colab
+            colab_auth.authenticate_user()
+            
+            # Create client with Colab auth method
+            client = GDriveUnifiedClient(email=email, auth_method="colab", verbose=False)
+            if client.authenticate():
+                # Show success message
+                success_html = f'''
+                <div style="padding: 15px; background: #f0fdf4; border-left: 4px solid #10b981; border-radius: 4px; margin: 10px 0;">
+                    <div style="display: flex; align-items: center;">
+                        <span style="font-size: 24px; margin-right: 10px;">✅</span>
+                        <div>
+                            <p style="color: #065f46; font-weight: 600; margin: 0;">
+                                Successfully authenticated as {client.my_email}
+                            </p>
+                            <p style="color: #047857; font-size: 14px; margin: 5px 0 0 0;">
+                                Your SyftBox is ready in Google Drive
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                '''
+                display(HTML(success_html))
+                
+                # Check if the authenticated email matches requested email
+                if client.my_email != email:
+                    warning_html = f'''
+                    <div style="padding: 10px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px; margin: 10px 0;">
+                        <p style="color: #92400e; margin: 0; font-size: 14px;">
+                            ⚠️ Note: Authenticated as <strong>{client.my_email}</strong> instead of {email}<br>
+                            <span style="font-size: 12px;">Google Colab uses your logged-in Google account</span>
+                        </p>
+                    </div>
+                    '''
+                    display(HTML(warning_html))
+                
+                # Automatically create shortcuts for shared folders
+                shortcut_results = client._create_shortcuts_for_shared_folders(verbose=False)
+                if shortcut_results['created'] > 0:
+                    inbox_html = f'''
+                    <div style="padding: 10px; background: #ede9fe; border-left: 4px solid #8b5cf6; border-radius: 4px; margin: 10px 0;">
+                        <p style="color: #5b21b6; margin: 0; font-size: 14px;">
+                            📥 Added {shortcut_results['created']} new inbox{'es' if shortcut_results['created'] != 1 else ''}!
+                        </p>
+                    </div>
+                    '''
+                    display(HTML(inbox_html))
+                
+                return client
+            else:
+                error_html = '''
+                <div style="padding: 15px; background: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px; margin: 10px 0;">
+                    <p style="color: #991b1b; font-weight: 600; margin: 0;">
+                        ❌ Failed to authenticate with Google Colab
+                    </p>
+                    <p style="color: #b91c1c; font-size: 14px; margin: 5px 0 0 0;">
+                        Please try again or check your Google account permissions
+                    </p>
+                </div>
+                '''
+                display(HTML(error_html))
+                return None
+        except Exception as e:
+            error_html = f'''
+            <div style="padding: 15px; background: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px; margin: 10px 0;">
+                <p style="color: #991b1b; font-weight: 600; margin: 0;">
+                    ❌ Colab authentication error
+                </p>
+                <p style="color: #b91c1c; font-size: 14px; margin: 5px 0 0 0;">
+                    {str(e)}
+                </p>
+            </div>
+            '''
+            display(HTML(error_html))
+            return None
+    
+    # 3. Not in wallet and not in Colab - show wizard if in Jupyter
     # Check if we're in a Jupyter notebook
     try:
         from IPython import get_ipython
@@ -278,13 +433,20 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
             from .wizard import wizard
             print(f"❌ No credentials found for {email}")
             print(f"Run syft_client.wizard() or print your client object to create credentials")
-            return wizard()
+            wizard()  # Call wizard directly, it will display itself
+            return None
     except ImportError:
         pass
     
     # If not in Jupyter or verbose=False, show minimal message
     if verbose:
         print(f"❌ No credentials found for {email} in wallet")
+    
+    # Check if we're in a CI/non-interactive environment
+    is_ci = os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS') or not sys.stdin.isatty()
+    if is_ci:
+        raise RuntimeError(f"No credentials found for {email} and running in non-interactive mode (CI={os.environ.get('CI')}, GITHUB_ACTIONS={os.environ.get('GITHUB_ACTIONS')}). "
+                         f"Please provide credentials or add them to the wallet first.")
     
     # Terminal fallback
     print("\n🔧 Let's set up Google Drive access for this account")
@@ -294,6 +456,10 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
     print("3. Exit")
     
     try:
+        # Double-check we're not in CI before trying to read input
+        if os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'):
+            print("❌ Cancelled")
+            raise RuntimeError(f"Cannot prompt for input in CI environment")
         choice = input("\nYour choice [1-3]: ").strip()
         
         if choice == "1":
@@ -455,7 +621,7 @@ def list_accounts() -> list:
     """
     accounts = _list_wallet_accounts()
     
-    if IN_COLAB:
+    if _is_colab():
         # Also check if we can get Colab user
         try:
             from googleapiclient.discovery import build
@@ -527,10 +693,11 @@ def logout(email: Optional[str] = None, clear_tokens_only: bool = True):
     """
     if not email:
         print("❌ Please specify an email to logout")
-        return
+        return False
         
     if not clear_tokens_only:
         # Remove entire account
-        _remove_from_wallet(email)
+        return _remove_from_wallet(email)
     else:
         print("ℹ️  Token caching is disabled. Use logout(email, clear_tokens_only=False) to remove account from wallet.")
+        return True
