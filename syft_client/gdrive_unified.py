@@ -9,11 +9,18 @@ from pathlib import Path
 from typing import Optional, List, Dict, Union
 
 # Try importing Colab auth
+def _is_colab():
+    """Check if running in Google Colab"""
+    try:
+        import google.colab
+        return True
+    except ImportError:
+        return False
+
 try:
     from google.colab import auth as colab_auth
-    IN_COLAB = True
 except ImportError:
-    IN_COLAB = False
+    colab_auth = None
 
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -229,8 +236,16 @@ class GDriveUnifiedClient:
         Returns:
             bool: True if authentication successful
         """
-        # If email is provided, try to use stored credentials first
-        if self.target_email:
+        # If auth_method is explicitly set to colab, use Colab auth
+        if self.auth_method == "colab":
+            if not _is_colab():
+                if self.verbose:
+                    print("❌ Not running in Google Colab")
+                return False
+            return self._auth_colab()
+        
+        # If email is provided and not using Colab, try to use stored credentials first
+        if self.target_email and self.auth_method != "colab":
             # Import here to avoid circular dependency
             from .auth import _get_stored_credentials_path
             wallet_creds = _get_stored_credentials_path(self.target_email)
@@ -245,7 +260,7 @@ class GDriveUnifiedClient:
         
         if self.auth_method == "auto":
             # Auto-detect best method
-            if IN_COLAB:
+            if _is_colab():
                 return self._auth_colab()
             elif os.path.exists(self.credentials_file):
                 return self._auth_credentials()
@@ -256,13 +271,6 @@ class GDriveUnifiedClient:
                     print(f"   - No {self.credentials_file} found")
                 return False
                 
-        elif self.auth_method == "colab":
-            if not IN_COLAB:
-                if self.verbose:
-                    print("❌ Not running in Google Colab")
-                return False
-            return self._auth_colab()
-            
         elif self.auth_method == "credentials":
             return self._auth_credentials()
             
@@ -509,6 +517,66 @@ class GDriveUnifiedClient:
             if self.verbose:
                 print(f"❌ Error creating folder: {e}")
             return None
+    
+    def _folder_exists(self, name: str, parent_id: str = 'root') -> bool:
+        """
+        Check if a folder exists
+        
+        Args:
+            name: Folder name to check
+            parent_id: Parent folder ID (default: root)
+            
+        Returns:
+            True if folder exists, False otherwise
+        """
+        self._ensure_authenticated()
+        
+        try:
+            results = self.service.files().list(
+                q=f"name='{name}' and mimeType='application/vnd.google-apps.folder' and '{parent_id}' in parents and trashed=false",
+                fields="files(id,name)"
+            ).execute()
+            
+            return len(results.get('files', [])) > 0
+            
+        except HttpError as e:
+            if self.verbose:
+                print(f"❌ Error checking folder existence: {e}")
+            return False
+    
+    def _share_folder_with_email(self, folder_id: str, email: str) -> bool:
+        """
+        Share a folder with a specific email address
+        
+        Args:
+            folder_id: Google Drive folder ID to share
+            email: Email address to share with
+            
+        Returns:
+            True if sharing successful, False otherwise
+        """
+        self._ensure_authenticated()
+        
+        try:
+            permission = {
+                'type': 'user',
+                'role': 'writer',
+                'emailAddress': email
+            }
+            
+            self.service.files().permissions().create(
+                fileId=folder_id,
+                body=permission
+            ).execute()
+            
+            if self.verbose:
+                print(f"✅ Shared folder {folder_id} with {email}")
+            return True
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error sharing folder: {e}")
+            return False
     
     def _upload_file(self, local_path: str, name: str = None, 
                     parent_id: str = 'root', mimetype: str = 'text/plain') -> Optional[str]:
@@ -1093,7 +1161,8 @@ class GDriveUnifiedClient:
         Returns:
             List of email addresses you've added as friends
         """
-        self._ensure_authenticated()
+        if not self.authenticated:
+            return []
         
         if not self.my_email:
             return []
@@ -1164,7 +1233,8 @@ class GDriveUnifiedClient:
         Returns:
             List of email addresses with pending friend requests
         """
-        self._ensure_authenticated()
+        if not self.authenticated:
+            return []
         
         if not self.my_email:
             return []

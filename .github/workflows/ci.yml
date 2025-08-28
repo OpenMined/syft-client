@@ -1,0 +1,343 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  PYTHONUNBUFFERED: 1
+  FORCE_COLOR: 1
+
+jobs:
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Run Black (code formatting)
+        run: black --check --diff syft_client tests
+
+      - name: Run isort (import sorting)
+        run: isort --check-only --diff syft_client tests
+
+      - name: Run Flake8 (linting)
+        run: flake8 syft_client tests
+
+      - name: Run MyPy (type checking)
+        run: mypy syft_client
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Run unit tests
+        run: |
+          pytest tests/unit -v --tb=short -m "unit and not integration" \
+            --cov=syft_client \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --junit-xml=junit-${{ matrix.os }}-${{ matrix.python-version }}.xml
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.python-version }}
+          path: junit-*.xml
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests]
+    # Only run integration tests on main branch or when manually triggered
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Setup test credentials
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          TEST_USER1_CREDENTIALS: ${{ secrets.TEST_USER1_CREDENTIALS }}
+          TEST_USER2_CREDENTIALS: ${{ secrets.TEST_USER2_CREDENTIALS }}
+          TEST_USER1_TOKEN: ${{ secrets.TEST_USER1_TOKEN }}
+          TEST_USER2_TOKEN: ${{ secrets.TEST_USER2_TOKEN }}
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+        run: |
+          echo "🔍 Checking if secrets are properly set..."
+          
+          # Check each secret and fail early if missing
+          if [ -z "$TEST_USER1_EMAIL" ]; then
+            echo "❌ ERROR: TEST_USER1_EMAIL secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER1_EMAIL is set: $TEST_USER1_EMAIL"
+          fi
+          
+          if [ -z "$TEST_USER2_EMAIL" ]; then
+            echo "❌ ERROR: TEST_USER2_EMAIL secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER2_EMAIL is set: $TEST_USER2_EMAIL"
+          fi
+          
+          if [ -z "$TEST_USER1_CREDENTIALS" ]; then
+            echo "❌ ERROR: TEST_USER1_CREDENTIALS secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER1_CREDENTIALS is set (length: ${#TEST_USER1_CREDENTIALS})"
+          fi
+          
+          if [ -z "$TEST_USER2_CREDENTIALS" ]; then
+            echo "❌ ERROR: TEST_USER2_CREDENTIALS secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER2_CREDENTIALS is set (length: ${#TEST_USER2_CREDENTIALS})"
+          fi
+          
+          if [ -z "$TEST_USER1_TOKEN" ]; then
+            echo "❌ ERROR: TEST_USER1_TOKEN secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER1_TOKEN is set (length: ${#TEST_USER1_TOKEN})"
+          fi
+          
+          if [ -z "$TEST_USER2_TOKEN" ]; then
+            echo "❌ ERROR: TEST_USER2_TOKEN secret is not set!"
+            exit 1
+          else
+            echo "✅ TEST_USER2_TOKEN is set (length: ${#TEST_USER2_TOKEN})"
+          fi
+          
+          echo ""
+          echo "📂 Setting up test credentials and tokens..."
+          
+          # Sanitize email addresses for directory names (same as Python code does)
+          SANITIZED_USER1_EMAIL=$(echo "$TEST_USER1_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          SANITIZED_USER2_EMAIL=$(echo "$TEST_USER2_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          echo "   Sanitized User1 dir: $SANITIZED_USER1_EMAIL"
+          echo "   Sanitized User2 dir: $SANITIZED_USER2_EMAIL"
+          
+          mkdir -p ~/.syft/test
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER1_EMAIL
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER2_EMAIL
+          
+          # Write credentials files (for backwards compatibility)
+          echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > ~/.syft/test/service-account.json
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/test/user1-creds.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/test/user2-creds.json
+          
+          # Write credentials to wallet directories (required for login detection)
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json
+          
+          # Write token files (enables non-interactive authentication)
+          echo "$TEST_USER1_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json
+          echo "$TEST_USER2_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json
+          
+          # Write account info files  
+          echo "{\"email\": \"$TEST_USER1_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/account_info.json
+          echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/account_info.json
+          
+          chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/credentials.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
+          
+          echo ""
+          echo "🔍 Verifying files were created correctly..."
+          
+          # Check test directory
+          echo "📁 ~/.syft/test/ contents:"
+          ls -la ~/.syft/test/
+          
+          # Check user1 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/
+          
+          # Verify user1 files
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json ]; then
+            echo "✅ User1 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User1 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json ]; then
+            echo "✅ User1 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User1 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          # Check user2 wallet
+          echo ""
+          echo "📁 ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/ contents:"
+          ls -la ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/
+          
+          # Verify user2 files
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json ]; then
+            echo "✅ User2 credentials.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json) bytes)"
+          else
+            echo "❌ ERROR: User2 credentials.json NOT FOUND!"
+            exit 1
+          fi
+          
+          if [ -f ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json ]; then
+            echo "✅ User2 token.json exists (size: $(stat -c%s ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json) bytes)"
+          else
+            echo "❌ ERROR: User2 token.json NOT FOUND!"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All credential files created successfully!"
+
+      - name: Run integration tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration -v --tb=short -m "integration" \
+            --cov=syft_client \
+            --cov-append \
+            --cov-report=xml \
+            --junit-xml=junit-integration.xml \
+            --maxfail=3
+
+      - name: Cleanup test data
+        if: always()
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+        run: |
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, '.')
+          from tests.utils.cleanup import cleanup_all_test_data
+          cleanup_all_test_data()
+          "
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: |
+            junit-integration.xml
+            coverage.xml
+            htmlcov/
+
+      - name: Upload coverage (integration)
+        if: always()
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: integration
+          name: codecov-integration
+          fail_ci_if_error: false
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Bandit security scan
+        uses: securecodewarrior/github-action-bandit@v1
+        with:
+          args: '-r syft_client -f json -o bandit-report.json'
+
+      - name: Upload security scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-results
+          path: bandit-report.json
+
+  build-package:
+    name: Build Package
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build package
+        run: python -m build
+
+      - name: Check package
+        run: twine check dist/*
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-packages
+          path: dist/
