@@ -7,6 +7,7 @@ import json
 import io
 from pathlib import Path
 from typing import Optional, List, Dict, Union
+from datetime import datetime
 
 # Try importing Colab auth
 def _is_colab():
@@ -1430,6 +1431,289 @@ class GDriveUnifiedClient:
                 # Recursively add subdirectory
                 new_parent = os.path.join(parent_path, item) if parent_path else item
                 self._add_folder_to_message(message, item_path, base_path, new_parent)
+    
+    def update_inbox(self, inbox_dir: str = None) -> Dict[str, List[str]]:
+        """
+        Check all friend inboxes for new SyftMessage objects and download them
+        
+        Args:
+            inbox_dir: Local directory to store messages (default: {syftbox_dir}/inbox)
+            
+        Returns:
+            Dict mapping friend emails to list of downloaded message IDs
+        """
+        from .syft_message import SyftMessage
+        from googleapiclient.http import BatchHttpRequest
+        import time
+        
+        self._ensure_authenticated()
+        
+        # Set default inbox directory using get_syftbox_directory
+        if inbox_dir is None:
+            syftbox_dir = self.get_syftbox_directory()
+            if syftbox_dir is None:
+                print("❌ Could not determine SyftBox directory")
+                return {}
+            inbox_dir = str(syftbox_dir / "inbox")
+        
+        # Create inbox directory if it doesn't exist
+        os.makedirs(inbox_dir, exist_ok=True)
+        
+        if not self.my_email:
+            print("❌ Could not determine your email address")
+            return {}
+        
+        # Get list of friends
+        friends_list = self.friends
+        if not friends_list:
+            if self.verbose:
+                print("No friends found - nothing to check")
+            return {}
+        
+        print(f"📥 Checking inboxes from {len(friends_list)} friend(s)...")
+        
+        # Get SyftBox folder ID
+        try:
+            results = self.service.files().list(
+                q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
+                fields="files(id)"
+            ).execute()
+            
+            if not results.get('files'):
+                print("❌ SyftBoxTransportService not found")
+                return {}
+                
+            syftbox_id = results['files'][0]['id']
+        except Exception as e:
+            print(f"❌ Error finding SyftBox folder: {e}")
+            return {}
+        
+        # Prepare batch request to check all inboxes
+        downloaded_messages = {}
+        
+        def process_batch_in_chunks(friends, chunk_size=100):
+            """Process friends in chunks of 100 (batch request limit)"""
+            for i in range(0, len(friends), chunk_size):
+                chunk = friends[i:i + chunk_size]
+                
+                # Create batch request
+                batch = self.service.new_batch_http_request()
+                callbacks = {}
+                
+                # Add requests for each friend's inbox
+                for friend_email in chunk:
+                    # Look for the inbox folder shared by this friend
+                    inbox_name = f"syft_{friend_email}_to_{self.my_email}_outbox_inbox"
+                    
+                    def make_callback(email, inbox):
+                        def callback(request_id, response, exception):
+                            if exception is None:
+                                callbacks[email] = (inbox, response)
+                            else:
+                                if self.verbose:
+                                    print(f"   ⚠️  Error checking {email}: {exception}")
+                                callbacks[email] = (inbox, None)
+                        return callback
+                    
+                    # Query for all messages in this inbox (no timestamp filter)
+                    query = (
+                        f"name contains 'syft_message_' and "
+                        f"mimeType='application/vnd.google-apps.folder' and "
+                        f"trashed=false"
+                    )
+                    
+                    batch.add(
+                        self.service.files().list(
+                            q=query,
+                            fields="files(id, name, parents)",
+                            orderBy="name"
+                        ),
+                        callback=make_callback(friend_email, inbox_name)
+                    )
+                
+                # Execute batch request
+                try:
+                    batch.execute()
+                except Exception as e:
+                    print(f"❌ Batch request failed: {e}")
+                    continue
+                
+                # Process results
+                for friend_email, (inbox_name, response) in callbacks.items():
+                    if response is None:
+                        continue
+                    
+                    messages = response.get('files', [])
+                    if messages:
+                        # Find the actual inbox folder in the messages' parents
+                        inbox_folder_id = None
+                        
+                        # Get inbox folder ID
+                        try:
+                            inbox_results = self.service.files().list(
+                                q=f"name='{inbox_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                                fields="files(id)",
+                                pageSize=1
+                            ).execute()
+                            
+                            if inbox_results.get('files'):
+                                inbox_folder_id = inbox_results['files'][0]['id']
+                        except:
+                            continue
+                        
+                        if not inbox_folder_id:
+                            continue
+                        
+                        # Filter messages that are actually in this inbox
+                        inbox_messages = [
+                            msg for msg in messages 
+                            if inbox_folder_id in msg.get('parents', [])
+                        ]
+                        
+                        if inbox_messages:
+                            print(f"\n📬 Found {len(inbox_messages)} message(s) from {friend_email}")
+                            downloaded_messages[friend_email] = []
+                            
+                            # Download each message
+                            for msg in inbox_messages:
+                                msg_id = msg['name']
+                                msg_folder_id = msg['id']
+                                
+                                # Check if message has lock.json (is finalized)
+                                try:
+                                    lock_results = self.service.files().list(
+                                        q=f"name='lock.json' and '{msg_folder_id}' in parents and trashed=false",
+                                        fields="files(id)",
+                                        pageSize=1
+                                    ).execute()
+                                    
+                                    if not lock_results.get('files'):
+                                        if self.verbose:
+                                            print(f"   ⏭️  Skipping {msg_id} - not finalized (no lock.json)")
+                                        continue
+                                except:
+                                    continue
+                                
+                                # Download the message folder
+                                local_msg_path = os.path.join(inbox_dir, msg_id)
+                                if os.path.exists(local_msg_path):
+                                    if self.verbose:
+                                        print(f"   ⏭️  Skipping {msg_id} - already downloaded")
+                                    continue
+                                
+                                print(f"   📥 Downloading {msg_id}...")
+                                if self._download_folder_recursive(msg_folder_id, inbox_dir, msg_id):
+                                    downloaded_messages[friend_email].append(msg_id)
+                                    
+                                    # Validate the downloaded message
+                                    is_valid = False
+                                    try:
+                                        received_msg = SyftMessage(Path(local_msg_path))
+                                        is_valid, error = received_msg.validate()
+                                        if is_valid:
+                                            print(f"   ✅ Valid message from {received_msg.sender_email}")
+                                        else:
+                                            print(f"   ❌ Invalid message: {error}")
+                                    except Exception as e:
+                                        print(f"   ❌ Error validating message: {e}")
+                                    
+                                    # Archive the message if it was valid
+                                    if is_valid:
+                                        # Archive folder follows pattern: syft_{sender}_to_{receiver}_archive
+                                        archive_name = f"syft_{friend_email}_to_{self.my_email}_archive"
+                                        
+                                        # Check if archive folder exists, create if not
+                                        try:
+                                            archive_results = self.service.files().list(
+                                                q=f"name='{archive_name}' and mimeType='application/vnd.google-apps.folder' and '{syftbox_id}' in parents and trashed=false",
+                                                fields="files(id)",
+                                                pageSize=1
+                                            ).execute()
+                                            
+                                            if archive_results.get('files'):
+                                                archive_id = archive_results['files'][0]['id']
+                                            else:
+                                                # Create archive folder
+                                                archive_id = self._create_folder(archive_name, parent_id=syftbox_id)
+                                                if self.verbose and archive_id:
+                                                    print(f"   📁 Created archive folder: {archive_name}")
+                                            
+                                            if archive_id:
+                                                # Move message from outbox to archive
+                                                try:
+                                                    # Remove from current parent (outbox)
+                                                    self.service.files().update(
+                                                        fileId=msg_folder_id,
+                                                        addParents=archive_id,
+                                                        removeParents=inbox_folder_id,
+                                                        fields='id, parents'
+                                                    ).execute()
+                                                    
+                                                    print(f"   📦 Archived message to {archive_name}")
+                                                except Exception as e:
+                                                    if self.verbose:
+                                                        print(f"   ⚠️  Could not archive message: {e}")
+                                        except Exception as e:
+                                            if self.verbose:
+                                                print(f"   ⚠️  Error creating archive: {e}")
+        
+        # Process all friends (in chunks if > 100)
+        process_batch_in_chunks(friends_list)
+        
+        # Summary
+        total_messages = sum(len(msgs) for msgs in downloaded_messages.values())
+        if total_messages > 0:
+            print(f"\n✅ Downloaded {total_messages} message(s) to {inbox_dir}")
+        else:
+            print("✅ No messages to download")
+        
+        return downloaded_messages
+    
+    def _download_folder_recursive(self, folder_id: str, local_parent: str, folder_name: str) -> bool:
+        """
+        Recursively download a folder and its contents from Google Drive
+        
+        Args:
+            folder_id: Google Drive folder ID
+            local_parent: Local parent directory
+            folder_name: Name for the local folder
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        self._ensure_authenticated()
+        
+        local_folder_path = os.path.join(local_parent, folder_name)
+        
+        try:
+            # Create local folder
+            os.makedirs(local_folder_path, exist_ok=True)
+            
+            # List all items in the folder
+            results = self.service.files().list(
+                q=f"'{folder_id}' in parents and trashed=false",
+                fields="files(id, name, mimeType)"
+            ).execute()
+            
+            items = results.get('files', [])
+            
+            for item in items:
+                item_name = item['name']
+                item_id = item['id']
+                
+                if item['mimeType'] == 'application/vnd.google-apps.folder':
+                    # Recursively download subfolder
+                    self._download_folder_recursive(item_id, local_folder_path, item_name)
+                else:
+                    # Download file
+                    local_file_path = os.path.join(local_folder_path, item_name)
+                    self._download_file(item_id, local_file_path)
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error downloading folder: {e}")
+            return False
     
     @property
     def friends(self) -> List[str]:
