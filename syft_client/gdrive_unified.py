@@ -454,7 +454,7 @@ class GDriveUnifiedClient:
                     print(f"📁 Created local SyftBox directory: {syftbox_dir}")
                 
                 # Create subdirectories
-                subdirs = ["inbox", "outbox", "shared", "private"]
+                subdirs = ["datasites", "apps"]
                 for subdir in subdirs:
                     (syftbox_dir / subdir).mkdir(exist_ok=True)
                     
@@ -621,6 +621,115 @@ class GDriveUnifiedClient:
         except HttpError as e:
             print(f"❌ Error uploading file: {e}")
             return None
+    
+    def _upload_folder_recursive(self, local_folder_path: str, parent_id: str, folder_name: str = None) -> bool:
+        """
+        Recursively upload a folder and its contents to Google Drive
+        
+        Args:
+            local_folder_path: Path to local folder
+            parent_id: Parent folder ID in Google Drive
+            folder_name: Name for the folder in Drive (default: use local folder name)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        self._ensure_authenticated()
+        
+        if not os.path.isdir(local_folder_path):
+            print(f"❌ Not a directory: {local_folder_path}")
+            return False
+            
+        if folder_name is None:
+            folder_name = os.path.basename(local_folder_path)
+        
+        try:
+            # Create the folder in Google Drive
+            folder_metadata = {
+                'name': folder_name,
+                'mimeType': 'application/vnd.google-apps.folder',
+                'parents': [parent_id]
+            }
+            
+            folder = self.service.files().create(
+                body=folder_metadata,
+                fields='id'
+            ).execute()
+            
+            folder_id = folder.get('id')
+            if self.verbose:
+                print(f"   📁 Created folder: {folder_name}")
+            
+            # Separate files into regular files and lock files
+            regular_files = []
+            lock_files = []
+            subdirectories = []
+            
+            for item in os.listdir(local_folder_path):
+                item_path = os.path.join(local_folder_path, item)
+                
+                if os.path.isfile(item_path):
+                    # Categorize lock files to upload last
+                    if item in ['lock.json', '.write_lock']:
+                        lock_files.append((item, item_path))
+                    else:
+                        regular_files.append((item, item_path))
+                elif os.path.isdir(item_path):
+                    subdirectories.append((item, item_path))
+            
+            # Upload subdirectories first
+            for item, item_path in subdirectories:
+                success = self._upload_folder_recursive(
+                    local_folder_path=item_path,
+                    parent_id=folder_id,
+                    folder_name=item
+                )
+                if not success:
+                    print(f"   ⚠️  Failed to upload folder: {item}")
+            
+            # Upload regular files
+            for item, item_path in regular_files:
+                file_id = self._upload_file(
+                    local_path=item_path,
+                    name=item,
+                    parent_id=folder_id,
+                    mimetype='application/octet-stream'
+                )
+                if not file_id:
+                    print(f"   ⚠️  Failed to upload file: {item}")
+            
+            # Upload lock files last (with lock.json being the very last)
+            # First upload .write_lock if it exists
+            for item, item_path in lock_files:
+                if item == '.write_lock':
+                    file_id = self._upload_file(
+                        local_path=item_path,
+                        name=item,
+                        parent_id=folder_id,
+                        mimetype='application/octet-stream'
+                    )
+                    if not file_id:
+                        print(f"   ⚠️  Failed to upload file: {item}")
+            
+            # Finally upload lock.json
+            for item, item_path in lock_files:
+                if item == 'lock.json':
+                    file_id = self._upload_file(
+                        local_path=item_path,
+                        name=item,
+                        parent_id=folder_id,
+                        mimetype='application/octet-stream'
+                    )
+                    if not file_id:
+                        print(f"   ⚠️  Failed to upload file: {item}")
+                    elif self.verbose:
+                        print(f"   🔒 Uploaded lock file last: {item}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error uploading folder: {e}")
+            return False
     
     def _download_file(self, file_id: str, local_path: str) -> bool:
         """
@@ -1148,6 +1257,175 @@ class GDriveUnifiedClient:
         except Exception as e:
             print(f"❌ Error adding friend: {e}")
             return False
+    
+    def send_file_or_folder(self, path: str, recipient_email: str) -> bool:
+        """
+        Send a file or folder to a friend by creating a SyftMessage
+        
+        Args:
+            path: Path to the file or folder to send
+            recipient_email: Email address of the recipient (must be a friend)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        from .syft_message import SyftMessage
+        import tempfile
+        
+        self._ensure_authenticated()
+        
+        # Check if recipient is in friends list
+        if recipient_email not in self.friends:
+            print(f"❌ We don't have an outbox for {recipient_email}")
+            return False
+        
+        # Check if path exists
+        if not os.path.exists(path):
+            print(f"❌ Path not found: {path}")
+            return False
+        
+        is_directory = os.path.isdir(path)
+        
+        # Get the outbox folder ID
+        if not self.my_email:
+            print("❌ Could not determine your email address")
+            return False
+            
+        outbox_inbox_name = f"syft_{self.my_email}_to_{recipient_email}_outbox_inbox"
+        
+        try:
+            # Get SyftBox ID first
+            results = self.service.files().list(
+                q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
+                fields="files(id)"
+            ).execute()
+            
+            if not results.get('files'):
+                print("❌ SyftBoxTransportService not found")
+                return False
+                
+            syftbox_id = results['files'][0]['id']
+            
+            # Find the outbox folder
+            results = self.service.files().list(
+                q=f"name='{outbox_inbox_name}' and mimeType='application/vnd.google-apps.folder' and '{syftbox_id}' in parents and trashed=false",
+                fields="files(id)"
+            ).execute()
+            
+            if not results.get('files'):
+                print(f"❌ Outbox folder not found for {recipient_email}")
+                return False
+                
+            outbox_id = results['files'][0]['id']
+            
+            # Create a temporary directory for the SyftMessage
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                
+                # Create SyftMessage
+                message = SyftMessage.create(
+                    sender_email=self.my_email,
+                    recipient_email=recipient_email,
+                    message_root=temp_path
+                )
+                
+                if self.verbose:
+                    print(f"📦 Creating message: {message.message_id}")
+                
+                # Add files to the message
+                if is_directory:
+                    # Add all files from the directory recursively
+                    base_name = os.path.basename(path.rstrip('/'))
+                    self._add_folder_to_message(message, path, base_name)
+                else:
+                    # Add single file
+                    filename = os.path.basename(path)
+                    syftbox_path = f"/{self.my_email}/shared/{filename}"
+                    message.add_file(
+                        source_path=Path(path),
+                        path=syftbox_path,
+                        permissions={
+                            "read": [recipient_email],
+                            "write": [self.my_email]
+                        }
+                    )
+                    if self.verbose:
+                        print(f"   📄 Added file: {filename}")
+                
+                # Finalize the message
+                message.finalize()
+                
+                # Check if there's already a message with this ID and delete it
+                message_folder_name = message.message_id
+                existing_messages = self.service.files().list(
+                    q=f"name='{message_folder_name}' and '{outbox_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                    fields="files(id, name)"
+                ).execute()
+                
+                for existing in existing_messages.get('files', []):
+                    try:
+                        self.service.files().delete(fileId=existing['id']).execute()
+                        if self.verbose:
+                            print(f"   ♻️  Replacing existing message: {message_folder_name}")
+                    except Exception as e:
+                        if self.verbose:
+                            print(f"   ⚠️  Could not delete existing message: {e}")
+                
+                # Upload the entire SyftMessage folder
+                success = self._upload_folder_recursive(str(message.path), outbox_id, message_folder_name)
+                
+                if success:
+                    print(f"✅ Message sent to {recipient_email}")
+                    return True
+                else:
+                    print(f"❌ Failed to upload message")
+                    return False
+                
+        except Exception as e:
+            print(f"❌ Error sending: {e}")
+            return False
+    
+    def _add_folder_to_message(self, message, folder_path: str, base_path: str, parent_path: str = ""):
+        """
+        Recursively add all files from a folder to a SyftMessage
+        
+        Args:
+            message: SyftMessage instance
+            folder_path: Local folder path to add
+            base_path: Base folder name for syftbox paths
+            parent_path: Parent path for recursive calls
+        """
+        for item in os.listdir(folder_path):
+            item_path = os.path.join(folder_path, item)
+            
+            # Skip hidden files
+            if item.startswith('.'):
+                continue
+                
+            if os.path.isfile(item_path):
+                # Calculate relative path for syftbox
+                relative_path = os.path.join(parent_path, item) if parent_path else item
+                syftbox_path = f"/{message.sender_email}/shared/{base_path}/{relative_path}"
+                
+                try:
+                    message.add_file(
+                        source_path=Path(item_path),
+                        path=syftbox_path,
+                        permissions={
+                            "read": [message.recipient_email],
+                            "write": [message.sender_email]
+                        }
+                    )
+                    if self.verbose:
+                        print(f"   📄 Added: {relative_path}")
+                except Exception as e:
+                    if self.verbose:
+                        print(f"   ⚠️  Skipped {relative_path}: {e}")
+                        
+            elif os.path.isdir(item_path):
+                # Recursively add subdirectory
+                new_parent = os.path.join(parent_path, item) if parent_path else item
+                self._add_folder_to_message(message, item_path, base_path, new_parent)
     
     @property
     def friends(self) -> List[str]:
