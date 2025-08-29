@@ -24,24 +24,21 @@ class SyftMessage(SyftFileBackedView):
     def create(cls, 
                sender_email: str, 
                recipient_email: str,
-               message_root: Path,
-               message_type: str = "file_sync") -> "SyftMessage":
-        """Create a new SyftMessage"""
+               message_root: Path) -> "SyftMessage":
+        """Create a new SyftMessage with minimal schema"""
         timestamp = datetime.now().timestamp()
         random_id = hashlib.sha256(f"{timestamp}{sender_email}{recipient_email}".encode()).hexdigest()[:8]
-        message_id = f"gdrive_{sender_email}_{recipient_email}_{int(timestamp)}_{random_id}"
+        message_id = f"syft_message_{int(timestamp)}_{random_id}"
         
         message_path = message_root / message_id
         message = cls(message_path)
         
-        # Initialize metadata using parent class method
+        # Initialize with minimal metadata
         message.set_metadata({
-            "message_id": message_id,
-            "sender_email": sender_email,
-            "recipient_email": recipient_email,
-            "timestamp": timestamp,
-            "message_type": message_type,
-            "transport": "gdrive",
+            "id": message_id,
+            "from": sender_email,
+            "to": recipient_email,
+            "ts": int(timestamp),
             "files": []
         })
         
@@ -49,9 +46,9 @@ class SyftMessage(SyftFileBackedView):
     
     def add_file(self, 
                  source_path: Path, 
-                 syftbox_path: str,
+                 path: str,
                  permissions: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
-        """Add a file to the message with streaming and validation"""
+        """Add a file to the message with minimal schema"""
         source_path = Path(source_path).resolve()
         
         # Validate source exists
@@ -82,15 +79,22 @@ class SyftMessage(SyftFileBackedView):
             # Copy file stats
             shutil.copystat(source_path, dest_path)
             
-            # Create file entry
+            # Create minimal file entry
             file_entry = {
-                "filename": filename,
-                "syftbox_path": syftbox_path,
-                "file_hash": file_hash,
-                "file_size": dest_path.stat().st_size,
-                "permissions": permissions or {"read": ["*"], "write": [], "admin": []},
-                "change_timestamp": datetime.now().timestamp()
+                "path": path,
+                "hash": file_hash,
+                "size": dest_path.stat().st_size,
             }
+            
+            # Add permissions if provided
+            if permissions:
+                file_entry["perms"] = {
+                    "r": permissions.get("read", ["*"]),
+                    "w": permissions.get("write", []),
+                }
+            
+            # Store internal filename for extraction
+            file_entry["_internal_name"] = filename
             
             # Update metadata atomically (we already have exclusive lock)
             metadata = self._get_metadata_no_lock()
@@ -109,11 +113,10 @@ class SyftMessage(SyftFileBackedView):
         file_path = self.files_dir / clean_name
         return file_path if file_path.exists() else None
     
-    def get_file_metadata(self, filename: str) -> Optional[Dict[str, Any]]:
-        """Get metadata for a single file without loading all files"""
-        clean_name = self._sanitize_filename(filename)
+    def get_file_metadata(self, path: str) -> Optional[Dict[str, Any]]:
+        """Get metadata for a single file by path"""
         for file_entry in self.get_files():
-            if file_entry["filename"] == clean_name:
+            if file_entry["path"] == path:
                 return file_entry
         return None
     
@@ -138,27 +141,31 @@ class SyftMessage(SyftFileBackedView):
             # Verify all files exist and match hashes
             for file_entry in files:
                 try:
-                    clean_name = self._sanitize_filename(file_entry["filename"])
+                    # Use internal name if available, otherwise derive from path
+                    internal_name = file_entry.get("_internal_name")
+                    if not internal_name:
+                        # Extract filename from path
+                        internal_name = os.path.basename(file_entry["path"])
+                    
+                    clean_name = self._sanitize_filename(internal_name)
                     file_path = self.files_dir / clean_name
                     file_path = self._validate_path(file_path)
                     
                     if not file_path.exists():
-                        return False, f"Missing file: {file_entry['filename']}"
+                        return False, f"Missing file: {file_entry['path']}"
                     
                     # Verify hash using streaming
                     actual_hash = self.calculate_file_hash(file_path)
-                    if actual_hash != file_entry["file_hash"]:
-                        return False, f"Hash mismatch for {file_entry['filename']}"
+                    if actual_hash != file_entry["hash"]:
+                        return False, f"Hash mismatch for {file_entry['path']}"
                         
                 except ValueError as e:
                     return False, f"Invalid file entry: {e}"
             
             return True, None
     
-    def extract_file(self, filename: str, destination: Path, verify_hash: bool = True):
-        """Extract a single file with validation and optional hash verification"""
-        clean_name = self._sanitize_filename(filename)
-        
+    def extract_file(self, path: str, destination: Path, verify_hash: bool = True):
+        """Extract a single file by path with validation and optional hash verification"""
         with self.shared_access():
             # Find file metadata (use no-lock version)
             metadata = self._get_metadata_no_lock()
@@ -166,25 +173,32 @@ class SyftMessage(SyftFileBackedView):
             
             file_meta = None
             for entry in files:
-                if entry["filename"] == clean_name:
+                if entry["path"] == path:
                     file_meta = entry
                     break
             
             if not file_meta:
-                raise ValueError(f"File not found in message: {filename}")
+                raise ValueError(f"File not found in message: {path}")
+            
+            # Get internal name
+            internal_name = file_meta.get("_internal_name")
+            if not internal_name:
+                internal_name = os.path.basename(path)
+            
+            clean_name = self._sanitize_filename(internal_name)
             
             # Validate source path
             source_path = self.files_dir / clean_name
             source_path = self._validate_path(source_path)
             
             if not source_path.exists():
-                raise ValueError(f"File data missing: {filename}")
+                raise ValueError(f"File data missing: {path}")
             
             # Verify hash if requested
             if verify_hash:
                 actual_hash = self.calculate_file_hash(source_path)
-                if actual_hash != file_meta["file_hash"]:
-                    raise ValueError(f"Hash mismatch for {filename}")
+                if actual_hash != file_meta["hash"]:
+                    raise ValueError(f"Hash mismatch for {path}")
             
             # Stream copy to destination
             destination = Path(destination).resolve()
@@ -216,23 +230,19 @@ class SyftMessage(SyftFileBackedView):
     # Convenience properties
     @property
     def message_id(self) -> Optional[str]:
-        return self.get_metadata().get("message_id")
+        return self.get_metadata().get("id")
     
     @property
     def sender_email(self) -> Optional[str]:
-        return self.get_metadata().get("sender_email")
+        return self.get_metadata().get("from")
     
     @property
     def recipient_email(self) -> Optional[str]:
-        return self.get_metadata().get("recipient_email")
+        return self.get_metadata().get("to")
     
     @property
-    def timestamp(self) -> Optional[float]:
-        return self.get_metadata().get("timestamp")
-    
-    @property
-    def message_type(self) -> Optional[str]:
-        return self.get_metadata().get("message_type")
+    def timestamp(self) -> Optional[int]:
+        return self.get_metadata().get("ts")
     
     @property
     def is_ready(self) -> bool:
