@@ -94,8 +94,7 @@ def process_file_event(event, event_type):
         message = sc.SyftMessage.create(
             sender_email=EMAIL,
             recipient_email=recipient_email,
-            message_root=OUTBOX_DIR,
-            message_type="file_update"
+            message_root=OUTBOX_DIR
         )
         
         # Add metadata about the event
@@ -110,7 +109,7 @@ def process_file_event(event, event_type):
             syftbox_path = f"/{EMAIL}/datasites/{file_path.relative_to(DATASITES_DIR)}"
             message.add_file(
                 source_path=file_path,
-                syftbox_path=syftbox_path,
+                path=syftbox_path,
                 permissions={
                     "read": [recipient_email],
                     "write": [EMAIL],

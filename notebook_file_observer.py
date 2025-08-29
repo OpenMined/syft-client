@@ -48,14 +48,13 @@ def create_observer():
                             msg = sc.SyftMessage.create(
                                 sender_email=EMAIL,
                                 recipient_email="recipient@example.com",
-                                message_root=OUTBOX_DIR,
-                                message_type="file_update"
+                                message_root=OUTBOX_DIR
                             )
                             
                             # Add file
                             msg.add_file(
                                 source_path=file_path,
-                                syftbox_path=f"/{EMAIL}/datasites/{file_path.relative_to(DATASITES_DIR)}",
+                                path=f"/{EMAIL}/datasites/{file_path.relative_to(DATASITES_DIR)}",
                                 permissions={"read": ["recipient@example.com"], "write": [EMAIL], "admin": [EMAIL]}
                             )
                             
