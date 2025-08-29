@@ -13,7 +13,7 @@ from syft_client.wizard import wizard
 from syft_client.syft_file_backed_view import SyftFileBackedView
 from syft_client.syft_message import SyftMessage
 
-__version__ = "0.1.0"
+__version__ = "0.1.5"
 
 __all__ = [
     "GDriveUnifiedClient", 
