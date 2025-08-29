@@ -158,4 +158,4 @@ SyftBox/
 *.tmp
 *.bak
 *.swp
-*~
+*~.claude/settings.local.json
