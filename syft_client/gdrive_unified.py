@@ -58,6 +58,8 @@ class GDriveUnifiedClient:
         self.verbose = verbose
         self.force_relogin = force_relogin
         self.local_syftbox_dir = None
+        self._syftbox_folder_id = None  # Cache for SyftBoxTransportService folder ID
+        self._folder_cache = {}  # General cache for folder paths to IDs
         
     def __repr__(self) -> str:
         """Pretty representation of the client"""
@@ -66,39 +68,15 @@ class GDriveUnifiedClient:
         
         # Get SyftBox info
         syftbox_info = "not created"
+        syftbox_id = None
         try:
-            results = self.service.files().list(
-                q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
-                fields="files(id)"
-            ).execute()
-            if results.get('files'):
+            # Use cached lookup
+            syftbox_id = self._get_syftbox_folder_id()
+            if syftbox_id:
                 syftbox_info = "✓ created"
         except:
             pass
         
-        # Count communication channels
-        channel_count = 0
-        if syftbox_info == "✓ created":
-            try:
-                # Search for syft_ folders
-                results = self.service.files().list(
-                    q="name contains 'syft_' and mimeType='application/vnd.google-apps.folder' and trashed=false",
-                    fields="files(name)"
-                ).execute()
-                
-                # Count unique channels (outgoing only)
-                channels = set()
-                for file in results.get('files', []):
-                    name = file['name']
-                    if name.startswith('syft_') and '_to_' in name and (name.endswith('_pending') or name.endswith('_outbox_inbox')):
-                        # Extract channel identifier
-                        parts = name.split('_to_')
-                        if len(parts) == 2:
-                            channel = parts[1].rsplit('_', 1)[0]  # Remove suffix
-                            channels.add(channel)
-                channel_count = len(channels)
-            except:
-                pass
         
         auth_method = "wallet" if self.target_email else self.auth_method
         
@@ -106,8 +84,7 @@ class GDriveUnifiedClient:
             f"<GDriveUnifiedClient(\n"
             f"  email='{self.my_email}',\n"
             f"  auth_method='{auth_method}',\n"
-            f"  syftbox={syftbox_info},\n"
-            f"  channels={channel_count}\n"
+            f"  syftbox={syftbox_info}\n"
             f")>"
         )
     
@@ -125,41 +102,13 @@ class GDriveUnifiedClient:
         syftbox_id = None
         syftbox_status = "❌ Not created"
         try:
-            results = self.service.files().list(
-                q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
-                fields="files(id)"
-            ).execute()
-            if results.get('files'):
-                syftbox_id = results['files'][0]['id']
+            # Use cached lookup
+            syftbox_id = self._get_syftbox_folder_id()
+            if syftbox_id:
                 syftbox_status = "✅ Created"
         except:
             pass
         
-        # Count communication channels
-        channel_count = 0
-        channel_list = []
-        if syftbox_id:
-            try:
-                # Search for syft_ folders
-                results = self.service.files().list(
-                    q="name contains 'syft_' and mimeType='application/vnd.google-apps.folder' and trashed=false",
-                    fields="files(name)"
-                ).execute()
-                
-                # Count unique channels (outgoing only)
-                channels = set()
-                for file in results.get('files', []):
-                    name = file['name']
-                    if name.startswith('syft_') and '_to_' in name and (name.endswith('_pending') or name.endswith('_outbox_inbox')):
-                        # Extract channel identifier
-                        parts = name.split('_to_')
-                        if len(parts) == 2:
-                            channel = parts[1].rsplit('_', 1)[0]  # Remove suffix
-                            channels.add(channel)
-                channel_count = len(channels)
-                channel_list = sorted(list(channels))
-            except:
-                pass
         
         auth_method = "wallet" if self.target_email else self.auth_method
         
@@ -204,32 +153,13 @@ class GDriveUnifiedClient:
                 </tr>
             """
         
-        html += f"""
-                <tr>
-                    <td style="padding: 5px 10px 5px 0; font-weight: bold; color: #555;">Channels:</td>
-                    <td style="padding: 5px;">{channel_count} active</td>
-                </tr>
+        html += """
             </table>
-        """
-        
-        if channel_list:
-            html += """
-            <details style="margin-top: 10px;">
-                <summary style="cursor: pointer; color: #1a73e8;">Show channels</summary>
-                <ul style="margin: 5px 0; padding-left: 20px;">
-            """
-            for channel in channel_list:
-                html += f"<li style='color: #666;'>{channel}</li>"
-            html += """
-                </ul>
-            </details>
-            """
-        
-        html += "</div>"
+        </div>"""
         
         return html
         
-    def authenticate(self) -> bool:
+    def authenticate(self, known_email: Optional[str] = None) -> bool:
         """
         Authenticate using the appropriate method
         
@@ -313,21 +243,42 @@ class GDriveUnifiedClient:
             
             # First, try to load cached token if we have a target email and not forcing relogin
             if self.target_email and not self.force_relogin:
-                from .auth import _get_stored_token_path, _save_token
+                from .auth import _get_stored_token_path, _save_token, _update_token_timestamp
                 token_path = _get_stored_token_path(self.target_email)
                 
                 if token_path and os.path.exists(token_path):
                     try:
+                        # Check token age from filename
+                        from pathlib import Path
+                        from datetime import datetime
+                        
+                        filename = Path(token_path).name
+                        timestamp_str = filename.replace("token_", "").replace(".json", "")
+                        token_time = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+                        token_age_minutes = (datetime.now() - token_time).total_seconds() / 60
+                        
                         with open(token_path, 'r') as token:
                             token_data = json.load(token)
                         creds = Credentials.from_authorized_user_info(token_data, self.SCOPES)
                         
-                        # Check if token needs refresh
+                        # Skip refresh check if token is less than 59 minutes old
+                        if token_age_minutes < 59:
+                            if self.verbose:
+                                print(f"✅ Using cached authentication token (created {int(token_age_minutes)} minutes ago)")
+                            self.service = build('drive', 'v3', credentials=creds)
+                            self.authenticated = True
+                            self._get_my_email(known_email=self.target_email)
+                            # Don't update timestamp for very recent tokens
+                            if token_age_minutes > 30:
+                                _update_token_timestamp(token_path)
+                            return True
+                        
+                        # For older tokens, check if they need refresh
                         if creds and creds.expired and creds.refresh_token:
                             if self.verbose:
                                 print("🔄 Refreshing expired token...")
                             creds.refresh(Request())
-                            # Save the refreshed token
+                            # Save the refreshed token as a new file
                             _save_token(self.target_email, {
                                 'type': 'authorized_user',
                                 'client_id': creds.client_id,
@@ -346,6 +297,8 @@ class GDriveUnifiedClient:
                             self.service = build('drive', 'v3', credentials=creds)
                             self.authenticated = True
                             self._get_my_email()
+                            # Update the token timestamp since it was successfully used
+                            _update_token_timestamp(token_path)
                             return True
                     except Exception as e:
                         if self.verbose:
@@ -426,8 +379,152 @@ class GDriveUnifiedClient:
         if not self.authenticated:
             raise RuntimeError("Client not authenticated. Call authenticate() first.")
     
-    def _get_my_email(self):
+    def _get_syftbox_folder_id(self, use_cache: bool = True) -> Optional[str]:
+        """
+        Get the SyftBoxTransportService folder ID, using cache if available
+        
+        Args:
+            use_cache: Whether to use cached value if available
+            
+        Returns:
+            Folder ID if found, None otherwise
+        """
+        self._ensure_authenticated()
+        
+        # Return cached value if available and cache is enabled
+        if use_cache and self._syftbox_folder_id:
+            return self._syftbox_folder_id
+        
+        try:
+            # Search for SyftBoxTransportService folder
+            results = self.service.files().list(
+                q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
+                fields="files(id)"
+            ).execute()
+            
+            syftbox_folders = results.get('files', [])
+            
+            if syftbox_folders:
+                # Cache and return the first folder ID
+                self._syftbox_folder_id = syftbox_folders[0]['id']
+                return self._syftbox_folder_id
+            
+            # Clear cache if folder not found
+            self._syftbox_folder_id = None
+            return None
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error getting SyftBox folder ID: {e}")
+            return None
+    
+    def _clear_syftbox_cache(self):
+        """Clear the cached SyftBox folder ID"""
+        self._syftbox_folder_id = None
+    
+    def _get_folder_id(self, folder_name: str, parent_id: str = 'root', use_cache: bool = True) -> Optional[str]:
+        """
+        Get folder ID by name and parent, using cache if available
+        
+        Args:
+            folder_name: Name of the folder
+            parent_id: Parent folder ID (default: 'root')
+            use_cache: Whether to use cached value if available
+            
+        Returns:
+            Folder ID if found, None otherwise
+        """
+        self._ensure_authenticated()
+        
+        # Create cache key from folder path
+        cache_key = f"{parent_id}/{folder_name}"
+        
+        # Return cached value if available and cache is enabled
+        if use_cache and cache_key in self._folder_cache:
+            return self._folder_cache[cache_key]
+        
+        try:
+            # Query for the folder
+            results = self.service.files().list(
+                q=f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and '{parent_id}' in parents and trashed=false",
+                fields="files(id)"
+            ).execute()
+            
+            folders = results.get('files', [])
+            
+            if folders:
+                # Cache and return the first folder ID
+                folder_id = folders[0]['id']
+                self._folder_cache[cache_key] = folder_id
+                return folder_id
+            
+            # Clear cache entry if folder not found
+            if cache_key in self._folder_cache:
+                del self._folder_cache[cache_key]
+            return None
+            
+        except Exception as e:
+            # On error, invalidate cache entry
+            if cache_key in self._folder_cache:
+                del self._folder_cache[cache_key]
+            if self.verbose:
+                print(f"❌ Error getting folder ID for {folder_name}: {e}")
+            return None
+    
+    def _invalidate_folder_cache(self, folder_name: Optional[str] = None, parent_id: Optional[str] = None):
+        """
+        Invalidate folder cache entries
+        
+        Args:
+            folder_name: Specific folder name to invalidate (optional)
+            parent_id: Specific parent ID to invalidate (optional)
+            If both are None, clears entire cache
+        """
+        if folder_name is None and parent_id is None:
+            # Clear entire cache
+            self._folder_cache.clear()
+        elif folder_name and parent_id:
+            # Clear specific entry
+            cache_key = f"{parent_id}/{folder_name}"
+            if cache_key in self._folder_cache:
+                del self._folder_cache[cache_key]
+        elif parent_id:
+            # Clear all entries under a parent
+            keys_to_delete = [k for k in self._folder_cache.keys() if k.startswith(f"{parent_id}/")]
+            for key in keys_to_delete:
+                del self._folder_cache[key]
+    
+    def _set_folder_cache(self, folder_name: str, folder_id: str, parent_id: str = 'root'):
+        """
+        Set a folder cache entry
+        
+        Args:
+            folder_name: Name of the folder
+            folder_id: ID of the folder
+            parent_id: Parent folder ID (default: 'root')
+        """
+        cache_key = f"{parent_id}/{folder_name}"
+        self._folder_cache[cache_key] = folder_id
+    
+    def get_cache_stats(self) -> Dict[str, int]:
+        """
+        Get cache statistics
+        
+        Returns:
+            Dictionary with cache statistics
+        """
+        return {
+            'folder_cache_entries': len(self._folder_cache),
+            'syftbox_cached': 1 if self._syftbox_folder_id else 0,
+            'total_cached_items': len(self._folder_cache) + (1 if self._syftbox_folder_id else 0)
+        }
+    
+    def _get_my_email(self, known_email: Optional[str] = None):
         """Get the authenticated user's email address"""
+        if known_email:
+            self.my_email = known_email
+            return
+
         try:
             about = self.service.about().get(fields="user(emailAddress)").execute()
             self.my_email = about['user']['emailAddress']
@@ -509,6 +606,9 @@ class GDriveUnifiedClient:
             ).execute()
             
             folder_id = folder.get('id')
+            if folder_id:
+                # Cache the newly created folder
+                self._set_folder_cache(name, folder_id, parent_id)
             if self.verbose:
                 print(f"✅ Created folder '{name}' (ID: {folder_id})")
             return folder_id
@@ -843,44 +943,33 @@ class GDriveUnifiedClient:
             print("🗑️  Deleting SyftBoxTransportService...")
         
         try:
-            # Search for SyftBoxTransportService folder(s) in root
-            results = self.service.files().list(
-                q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
-                fields="files(id, name)"
-            ).execute()
+            # Get folder ID using cache
+            folder_id = self._get_syftbox_folder_id()
             
-            syftbox_folders = results.get('files', [])
-            
-            if not syftbox_folders:
+            if not folder_id:
                 if self.verbose:
                     print("📁 No SyftBoxTransportService folder found to delete")
                 return True
             
-            # Delete all SyftBox folders found
-            deleted_count = 0
-            for folder in syftbox_folders:
-                folder_id = folder['id']
-                folder_name = folder['name']
-                
-                if self.verbose:
-                    print(f"🗑️  Deleting {folder_name} (ID: {folder_id})...")
-                
-                try:
-                    self.service.files().delete(fileId=folder_id).execute()
-                    deleted_count += 1
-                    if self.verbose:
-                        print(f"   ✅ Deleted successfully")
-                except HttpError as e:
-                    if self.verbose:
-                        print(f"   ❌ Error deleting: {e}")
+            if self.verbose:
+                print(f"🗑️  Deleting SyftBoxTransportService (ID: {folder_id})...")
             
-            if deleted_count > 0:
+            try:
+                self.service.files().delete(fileId=folder_id).execute()
+            
+                # Clear the cache after successful deletion
+                self._clear_syftbox_cache()
+                # Also invalidate all folders under SyftBox
+                self._invalidate_folder_cache(parent_id=folder_id)
+                
                 if self.verbose:
-                    print(f"\n✅ Delete complete! Deleted {deleted_count} SyftBoxTransportService folder(s)")
+                    print(f"   ✅ Deleted successfully")
+                    print(f"\n✅ Delete complete! Deleted SyftBoxTransportService folder")
                 return True
-            else:
+                
+            except HttpError as e:
                 if self.verbose:
-                    print("\n❌ No folders were deleted")
+                    print(f"   ❌ Error deleting: {e}")
                 return False
                 
         except HttpError as e:
@@ -903,8 +992,8 @@ class GDriveUnifiedClient:
         # First delete existing SyftBox
         self.delete_syftbox()
         
-        # Then create a new one
-        folder_id = self.setup_syftbox()
+        # Then create a new one — skip existence check since we just deleted it
+        folder_id = self.setup_syftbox(skip_syftbox_existence_check=True)
         
         # Always print success message for reset
         if folder_id:
@@ -955,7 +1044,7 @@ class GDriveUnifiedClient:
             print("📁 No credential files found to delete")
             return False
     
-    def setup_syftbox(self) -> Optional[str]:
+    def setup_syftbox(self, skip_syftbox_existence_check: bool = False) -> Optional[str]:
         """
         Set up SyftBoxTransportService folder structure (creates only if doesn't exist)
         
@@ -965,25 +1054,20 @@ class GDriveUnifiedClient:
         self._ensure_authenticated()
         
         try:
-            # Check if SyftBoxTransportService folder already exists
-            results = self.service.files().list(
-                q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
-                fields="files(id, name)"
-            ).execute()
-            
-            syftbox_folders = results.get('files', [])
-            
-            if syftbox_folders:
-                # Folder already exists
-                syftbox_id = syftbox_folders[0]['id']
+            if not skip_syftbox_existence_check:
+                # Try to get folder ID from cache first
+                syftbox_id = self._get_syftbox_folder_id()
+                
+                if syftbox_id:
+                    # Folder already exists
+                    if self.verbose:
+                        print(f"✅ SyftBoxTransportService folder already exists (ID: {syftbox_id})")
+                        print(f"🔗 Open in Google Drive: https://drive.google.com/drive/folders/{syftbox_id}")
+                    return syftbox_id
+                
+                # Create SyftBoxTransportService folder
                 if self.verbose:
-                    print(f"✅ SyftBoxTransportService folder already exists (ID: {syftbox_id})")
-                    print(f"🔗 Open in Google Drive: https://drive.google.com/drive/folders/{syftbox_id}")
-                return syftbox_id
-            
-            # Create SyftBoxTransportService folder
-            if self.verbose:
-                print("🚀 Creating SyftBoxTransportService folder...\n")
+                    print("🚀 Creating SyftBoxTransportService folder...\n")
             
             syftbox_id = self._create_folder("SyftBoxTransportService")
             if not syftbox_id:
@@ -991,6 +1075,8 @@ class GDriveUnifiedClient:
                     print("❌ Failed to create SyftBoxTransportService folder")
                 return None
             
+            # Cache the folder ID
+            self._syftbox_folder_id = syftbox_id
             
             if self.verbose:
                 print(f"\n✅ SyftBoxTransportService setup complete!")
@@ -1050,34 +1136,27 @@ class GDriveUnifiedClient:
             }
             
             # Create/check pending folder (private to sender)
-            results = self.service.files().list(
-                q=f"name='{pending_name}' and mimeType='application/vnd.google-apps.folder' and '{syftbox_id}' in parents and trashed=false",
-                fields="files(id)"
-            ).execute()
+            pending_id = self._get_folder_id(pending_name, parent_id=syftbox_id)
             
-            pending_folders = results.get('files', [])
-            if pending_folders:
-                folder_ids['pending'] = pending_folders[0]['id']
+            if pending_id:
+                folder_ids['pending'] = pending_id
                 if verbose:
                     print(f"✅ Pending folder already exists: {pending_name}")
             else:
                 pending_id = self._create_folder(pending_name, parent_id=syftbox_id)
                 if pending_id:
                     folder_ids['pending'] = pending_id
+                    # Cache the newly created folder
+                    self._set_folder_cache(pending_name, pending_id, parent_id=syftbox_id)
                     if verbose:
                         print(f"📁 Created pending folder: {pending_name}")
                         print(f"   ⏳ For preparing messages (private)")
             
             # Create/check outbox_inbox folder (shared with receiver)
-            results = self.service.files().list(
-                q=f"name='{outbox_inbox_name}' and mimeType='application/vnd.google-apps.folder' and '{syftbox_id}' in parents and trashed=false",
-                fields="files(id)"
-            ).execute()
+            outbox_id = self._get_folder_id(outbox_inbox_name, parent_id=syftbox_id)
             
-            outbox_folders = results.get('files', [])
-            if outbox_folders:
-                folder_ids['outbox_inbox'] = outbox_folders[0]['id']
-                outbox_id = outbox_folders[0]['id']
+            if outbox_id:
+                folder_ids['outbox_inbox'] = outbox_id
                 created = False
                 if verbose:
                     print(f"✅ Outbox/Inbox folder already exists: {outbox_inbox_name}")
@@ -1085,6 +1164,8 @@ class GDriveUnifiedClient:
                 outbox_id = self._create_folder(outbox_inbox_name, parent_id=syftbox_id)
                 if outbox_id:
                     folder_ids['outbox_inbox'] = outbox_id
+                    # Cache the newly created folder
+                    self._set_folder_cache(outbox_inbox_name, outbox_id, parent_id=syftbox_id)
                     created = True
                     if verbose:
                         print(f"📁 Created outbox/inbox folder: {outbox_inbox_name}")
@@ -1112,14 +1193,10 @@ class GDriveUnifiedClient:
             
             # Check for incoming archive folder (created by the other party)
             archive_name = f"syft_{their_email}_to_{my_email}_archive"
-            results = self.service.files().list(
-                q=f"name='{archive_name}' and mimeType='application/vnd.google-apps.folder' and '{syftbox_id}' in parents and trashed=false",
-                fields="files(id)"
-            ).execute()
+            archive_id = self._get_folder_id(archive_name, parent_id=syftbox_id)
             
-            archive_folders = results.get('files', [])
-            if archive_folders:
-                folder_ids['archive'] = archive_folders[0]['id']
+            if archive_id:
+                folder_ids['archive'] = archive_id
                 if verbose:
                     print(f"✅ Archive folder found: {archive_name}")
             else:
@@ -1298,29 +1375,19 @@ class GDriveUnifiedClient:
         outbox_inbox_name = f"syft_{self.my_email}_to_{recipient_email}_outbox_inbox"
         
         try:
-            # Get SyftBox ID first
-            results = self.service.files().list(
-                q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
-                fields="files(id)"
-            ).execute()
+            # Get SyftBox ID using cache
+            syftbox_id = self._get_syftbox_folder_id()
             
-            if not results.get('files'):
+            if not syftbox_id:
                 print("❌ SyftBoxTransportService not found")
                 return False
-                
-            syftbox_id = results['files'][0]['id']
             
-            # Find the outbox folder
-            results = self.service.files().list(
-                q=f"name='{outbox_inbox_name}' and mimeType='application/vnd.google-apps.folder' and '{syftbox_id}' in parents and trashed=false",
-                fields="files(id)"
-            ).execute()
+            # Find the outbox folder using cache
+            outbox_id = self._get_folder_id(outbox_inbox_name, parent_id=syftbox_id)
             
-            if not results.get('files'):
+            if not outbox_id:
                 print(f"❌ Outbox folder not found for {recipient_email}")
                 return False
-                
-            outbox_id = results['files'][0]['id']
             
             # Create a temporary directory for the SyftMessage
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -1446,17 +1513,8 @@ class GDriveUnifiedClient:
             return []
         
         try:
-            # First check if SyftBoxTransportService exists
-            syftbox_id = None
-            try:
-                results = self.service.files().list(
-                    q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
-                    fields="files(id)"
-                ).execute()
-                if results.get('files'):
-                    syftbox_id = results['files'][0]['id']
-            except:
-                pass
+            # First check if SyftBoxTransportService exists using cache
+            syftbox_id = self._get_syftbox_folder_id()
             
             if not syftbox_id:
                 # No SyftBoxTransportService = no friends
@@ -1551,17 +1609,8 @@ class GDriveUnifiedClient:
                         if recipient == self.my_email:
                             shared_with_me.add(sender)
             
-            # Check if SyftBoxTransportService exists
-            syftbox_id = None
-            try:
-                results = self.service.files().list(
-                    q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
-                    fields="files(id)"
-                ).execute()
-                if results.get('files'):
-                    syftbox_id = results['files'][0]['id']
-            except:
-                pass
+            # Check if SyftBoxTransportService exists using cache
+            syftbox_id = self._get_syftbox_folder_id()
             
             if syftbox_id:
                 # Get folders inside SyftBoxTransportService
@@ -1947,7 +1996,7 @@ def create_gdrive_client(email_or_auth_method: str = "auto", verbose: bool = Tru
     else:
         client = GDriveUnifiedClient(auth_method=email_or_auth_method, verbose=verbose, force_relogin=force_relogin)
     
-    if client.authenticate():
+    if client.authenticate(known_email=email_or_auth_method):
         return client
     else:
         raise RuntimeError("Failed to authenticate")
