@@ -286,8 +286,6 @@ class GDriveUnifiedClient:
                                 'refresh_token': creds.refresh_token,
                                 'token': creds.token,
                                 'token_uri': creds.token_uri,
-                                'client_id': creds.client_id,
-                                'client_secret': creds.client_secret,
                                 'scopes': creds.scopes
                             })
                         
@@ -350,8 +348,6 @@ class GDriveUnifiedClient:
                         'refresh_token': creds.refresh_token,
                         'token': creds.token,
                         'token_uri': creds.token_uri,
-                        'client_id': creds.client_id,
-                        'client_secret': creds.client_secret,
                         'scopes': creds.scopes
                     })
                     if self.verbose:
