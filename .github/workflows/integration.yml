@@ -394,9 +394,13 @@ jobs:
           TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
           TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
         run: |
+          # Sanitize email addresses for directory names (same as Python code does)
+          SANITIZED_USER1_EMAIL=$(echo "$TEST_USER1_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          SANITIZED_USER2_EMAIL=$(echo "$TEST_USER2_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          
           mkdir -p ~/.syft/test
-          mkdir -p ~/.syft/gdrive/$TEST_USER1_EMAIL
-          mkdir -p ~/.syft/gdrive/$TEST_USER2_EMAIL
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER1_EMAIL
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER2_EMAIL
           
           # Write credentials files (for backwards compatibility)
           echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > ~/.syft/test/service-account.json
@@ -549,9 +553,13 @@ jobs:
           TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
           TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
         run: |
+          # Sanitize email addresses for directory names (same as Python code does)
+          SANITIZED_USER1_EMAIL=$(echo "$TEST_USER1_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          SANITIZED_USER2_EMAIL=$(echo "$TEST_USER2_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          
           mkdir -p ~/.syft/test
-          mkdir -p ~/.syft/gdrive/$TEST_USER1_EMAIL
-          mkdir -p ~/.syft/gdrive/$TEST_USER2_EMAIL
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER1_EMAIL
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER2_EMAIL
           
           # Write credentials files (for backwards compatibility)
           echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > ~/.syft/test/service-account.json
