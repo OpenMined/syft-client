@@ -5,6 +5,11 @@ Unified Google Drive client with multiple authentication methods
 import os
 import json
 import io
+import tarfile
+import tempfile
+import shutil
+import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Union
 
@@ -35,7 +40,7 @@ class GDriveUnifiedClient:
     with high-level API for file operations and permissions
     """
     
-    SCOPES = ['https://www.googleapis.com/auth/drive']
+    SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
     
     def __init__(self, auth_method: str = "auto", credentials_file: str = "credentials.json", 
                  email: Optional[str] = None, verbose: bool = True, force_relogin: bool = False):
@@ -60,6 +65,14 @@ class GDriveUnifiedClient:
         self.local_syftbox_dir = None
         self._syftbox_folder_id = None  # Cache for SyftBoxTransportService folder ID
         self._folder_cache = {}  # General cache for folder paths to IDs
+        self._friends_cache = None  # Cache for friends list
+        self._friends_cache_time = None  # Timestamp for friends cache
+        self.creds = None  # Store credentials for background threads
+        self._sheets_service = None  # Cache for Google Sheets service
+        self._sheet_cache = {}  # Cache for sheet lookups
+        self._sheet_cache_time = {}  # Timestamps for sheet cache entries
+        self._spreadsheet_info_cache = {}  # Cache for spreadsheet properties
+        self._spreadsheet_info_cache_time = {}  # Timestamps for spreadsheet info cache
         
     def __repr__(self) -> str:
         """Pretty representation of the client"""
@@ -266,6 +279,7 @@ class GDriveUnifiedClient:
                             if self.verbose:
                                 print(f"✅ Using cached authentication token (created {int(token_age_minutes)} minutes ago)")
                             self.service = build('drive', 'v3', credentials=creds)
+                            self.creds = creds  # Store for background threads
                             self.authenticated = True
                             self._get_my_email(known_email=self.target_email)
                             # Don't update timestamp for very recent tokens
@@ -293,6 +307,7 @@ class GDriveUnifiedClient:
                             if self.verbose:
                                 print("✅ Using cached authentication token")
                             self.service = build('drive', 'v3', credentials=creds)
+                            self.creds = creds  # Store for background threads
                             self.authenticated = True
                             self._get_my_email()
                             # Update the token timestamp since it was successfully used
@@ -335,6 +350,7 @@ class GDriveUnifiedClient:
             )
             
             self.service = build('drive', 'v3', credentials=creds)
+            self.creds = creds  # Store for background threads
             self.authenticated = True
             self._get_my_email()
             
@@ -372,8 +388,24 @@ class GDriveUnifiedClient:
     
     def _ensure_authenticated(self):
         """Ensure client is authenticated before operations"""
+        import time
+        print("ENSUREAUTH-1 " + str(time.time()))
         if not self.authenticated:
             raise RuntimeError("Client not authenticated. Call authenticate() first.")
+        print("ENSUREAUTH-2 " + str(time.time()))
+    
+    def _get_sheets_service(self):
+        """Get or create cached Google Sheets service"""
+        import time
+        print("GETSHEETS-1 " + str(time.time()))
+        self._ensure_authenticated()
+        print("GETSHEETS-2 " + str(time.time()))
+        if self._sheets_service is None:
+            print("GETSHEETS-3 " + str(time.time()))
+            self._sheets_service = build('sheets', 'v4', credentials=self.creds)
+            print("GETSHEETS-4 " + str(time.time()))
+        print("GETSHEETS-5 " + str(time.time()))
+        return self._sheets_service
     
     def _get_syftbox_folder_id(self, use_cache: bool = True) -> Optional[str]:
         """
@@ -385,28 +417,36 @@ class GDriveUnifiedClient:
         Returns:
             Folder ID if found, None otherwise
         """
+        import time
+        print("GETFOLDERID-1 " + str(time.time()))
         self._ensure_authenticated()
+        print("GETFOLDERID-2 " + str(time.time()))
         
         # Return cached value if available and cache is enabled
         if use_cache and self._syftbox_folder_id:
+            print("GETFOLDERID-3 " + str(time.time()))
             return self._syftbox_folder_id
         
         try:
             # Search for SyftBoxTransportService folder
+            print("GETFOLDERID-4 " + str(time.time()))
             results = self.service.files().list(
                 q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
                 fields="files(id)"
             ).execute()
+            print("GETFOLDERID-5 " + str(time.time()))
             
             syftbox_folders = results.get('files', [])
             
             if syftbox_folders:
                 # Cache and return the first folder ID
                 self._syftbox_folder_id = syftbox_folders[0]['id']
+                print("GETFOLDERID-6 " + str(time.time()))
                 return self._syftbox_folder_id
             
             # Clear cache if folder not found
             self._syftbox_folder_id = None
+            print("GETFOLDERID-7 " + str(time.time()))
             return None
             
         except Exception as e:
@@ -417,6 +457,13 @@ class GDriveUnifiedClient:
     def _clear_syftbox_cache(self):
         """Clear the cached SyftBox folder ID"""
         self._syftbox_folder_id = None
+    
+    def _clear_sheet_cache(self):
+        """Clear the cached sheet lookups"""
+        self._sheet_cache = {}
+        self._sheet_cache_time = {}
+        self._spreadsheet_info_cache = {}
+        self._spreadsheet_info_cache_time = {}
     
     def _get_folder_id(self, folder_name: str, parent_id: str = 'root', use_cache: bool = True) -> Optional[str]:
         """
@@ -502,6 +549,91 @@ class GDriveUnifiedClient:
         cache_key = f"{parent_id}/{folder_name}"
         self._folder_cache[cache_key] = folder_id
     
+    def _invalidate_friends_cache(self):
+        """
+        Invalidate the friends cache to force a refresh on next access
+        """
+        self._friends_cache = None
+        self._friends_cache_time = None
+    
+    def reset_credentials(self):
+        """
+        Clear all cached credentials to force re-authentication with new scopes
+        """
+        if not self.my_email:
+            print("❌ Not authenticated - no credentials to reset")
+            return False
+        
+        try:
+            # Import the auth module functions
+            from .auth import _get_account_dir
+            
+            # Get the account directory
+            account_dir = _get_account_dir(self.my_email)
+            
+            if account_dir.exists():
+                # Remove all token files
+                token_count = 0
+                for token_file in account_dir.glob("token_*.json"):
+                    try:
+                        token_file.unlink()
+                        token_count += 1
+                    except:
+                        pass
+                
+                print(f"🗑️  Cleared {token_count} cached token(s) for {self.my_email}")
+                print(f"📝 Please re-authenticate to get new credentials with Sheets access:")
+                print(f"   client = login('{self.my_email}', force_relogin=True)")
+                
+                # Clear the current authentication
+                self.authenticated = False
+                self.service = None
+                self.creds = None
+                
+                return True
+            else:
+                print(f"📁 No credentials found for {self.my_email}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error resetting credentials: {e}")
+            return False
+    
+    def _archive_message_async(self, msg_file_id: str, archive_id: str, inbox_folder_id: str, msg_id: str, archive_name: str):
+        """
+        Archive a message in a background thread
+        
+        Args:
+            msg_file_id: File ID of the message to archive
+            archive_id: ID of the archive folder
+            inbox_folder_id: ID of the inbox folder (to remove from)
+            msg_id: Message ID for logging
+            archive_name: Archive folder name for logging
+        """
+        try:
+            # Note: We need to create a new service instance for thread safety
+            # The Google API client is not thread-safe
+            if hasattr(self, 'creds') and self.creds:
+                from googleapiclient.discovery import build
+                service = build('drive', 'v3', credentials=self.creds)
+                
+                result = service.files().update(
+                    fileId=msg_file_id,
+                    addParents=archive_id,
+                    removeParents=inbox_folder_id,
+                    fields='id, parents',
+                    supportsAllDrives=True
+                ).execute()
+                
+                if self.verbose:
+                    print(f"   ✅ [Background] Archived {msg_id} to {archive_name}")
+            else:
+                if self.verbose:
+                    print(f"   ⚠️  [Background] Could not archive {msg_id} - no credentials")
+        except Exception as e:
+            if self.verbose:
+                print(f"   ⚠️  [Background] Failed to archive {msg_id}: {str(e)[:100]}")
+    
     def get_cache_stats(self) -> Dict[str, int]:
         """
         Get cache statistics
@@ -509,10 +641,17 @@ class GDriveUnifiedClient:
         Returns:
             Dictionary with cache statistics
         """
+        import time
+        friends_cache_age = None
+        if self._friends_cache_time:
+            friends_cache_age = int(time.time() - self._friends_cache_time)
+        
         return {
             'folder_cache_entries': len(self._folder_cache),
             'syftbox_cached': 1 if self._syftbox_folder_id else 0,
-            'total_cached_items': len(self._folder_cache) + (1 if self._syftbox_folder_id else 0)
+            'friends_cached': len(self._friends_cache) if self._friends_cache else 0,
+            'friends_cache_age_seconds': friends_cache_age,
+            'total_cached_items': len(self._folder_cache) + (1 if self._syftbox_folder_id else 0) + (len(self._friends_cache) if self._friends_cache else 0)
         }
     
     def _get_my_email(self, known_email: Optional[str] = None):
@@ -567,11 +706,16 @@ class GDriveUnifiedClient:
     
     def get_syftbox_directory(self) -> Optional[Path]:
         """Get the local SyftBox directory path"""
+        import time
+        print("GETSYFTBOXDIR-1 " + str(time.time()))
         if self.local_syftbox_dir:
+            print("GETSYFTBOXDIR-2 " + str(time.time()))
             return self.local_syftbox_dir
         elif self.my_email:
             # Calculate the path even if not created yet
+            print("GETSYFTBOXDIR-3 " + str(time.time()))
             return Path.home() / f"SyftBox_{self.my_email}"
+        print("GETSYFTBOXDIR-4 " + str(time.time()))
         return None
     
     # ========== File Operations ==========
@@ -688,12 +832,13 @@ class GDriveUnifiedClient:
         Returns:
             File ID if successful, None otherwise
         """
+        
         self._ensure_authenticated()
         
         if not os.path.exists(local_path):
             print(f"❌ Local file not found: {local_path}")
             return None
-            
+        
         if name is None:
             name = os.path.basename(local_path)
         
@@ -715,120 +860,168 @@ class GDriveUnifiedClient:
             ).execute()
             
             file_id = file.get('id')
-            print(f"✅ Uploaded '{name}' (ID: {file_id})")
+            if self.verbose:
+                print(f"✅ Uploaded '{name}' (ID: {file_id})")
             return file_id
-            
+            print("8")
         except HttpError as e:
             print(f"❌ Error uploading file: {e}")
             return None
     
-    def _upload_folder_recursive(self, local_folder_path: str, parent_id: str, folder_name: str = None) -> bool:
+    def _upload_folder_as_archive(self, local_folder_path: str, parent_id: str, folder_name: str = None) -> Optional[str]:
         """
-        Recursively upload a folder and its contents to Google Drive
+        Upload a folder as a compressed archive to Google Drive
         
         Args:
             local_folder_path: Path to local folder
             parent_id: Parent folder ID in Google Drive
-            folder_name: Name for the folder in Drive (default: use local folder name)
+            folder_name: Name for the archive in Drive (default: use local folder name + .tar.gz)
             
         Returns:
-            True if successful, False otherwise
+            File ID if successful, None otherwise
         """
         self._ensure_authenticated()
         
         if not os.path.isdir(local_folder_path):
             print(f"❌ Not a directory: {local_folder_path}")
-            return False
+            return None
             
         if folder_name is None:
             folder_name = os.path.basename(local_folder_path)
         
         try:
-            # Create the folder in Google Drive
-            folder_metadata = {
-                'name': folder_name,
-                'mimeType': 'application/vnd.google-apps.folder',
-                'parents': [parent_id]
-            }
-            
-            folder = self.service.files().create(
-                body=folder_metadata,
-                fields='id'
-            ).execute()
-            
-            folder_id = folder.get('id')
-            if self.verbose:
-                print(f"   📁 Created folder: {folder_name}")
-            
-            # Separate files into regular files and lock files
-            regular_files = []
-            lock_files = []
-            subdirectories = []
-            
-            for item in os.listdir(local_folder_path):
-                item_path = os.path.join(local_folder_path, item)
+            # Create a temporary tar.gz file
+            with tempfile.NamedTemporaryFile(suffix='.tar.gz', delete=False) as tmp_file:
+                tmp_path = tmp_file.name
                 
-                if os.path.isfile(item_path):
-                    # Categorize lock files to upload last
-                    if item in ['lock.json', '.write_lock']:
-                        lock_files.append((item, item_path))
-                    else:
-                        regular_files.append((item, item_path))
-                elif os.path.isdir(item_path):
-                    subdirectories.append((item, item_path))
+            # Create the tar.gz archive
+            if self.verbose:
+                print(f"   📦 Creating archive for {folder_name}...")
             
-            # Upload subdirectories first
-            for item, item_path in subdirectories:
-                success = self._upload_folder_recursive(
-                    local_folder_path=item_path,
-                    parent_id=folder_id,
-                    folder_name=item
-                )
-                if not success:
-                    print(f"   ⚠️  Failed to upload folder: {item}")
+            with tarfile.open(tmp_path, 'w:gz') as tar:
+                # Add the entire folder to the archive
+                tar.add(local_folder_path, arcname=folder_name)
             
-            # Upload regular files
-            for item, item_path in regular_files:
-                file_id = self._upload_file(
-                    local_path=item_path,
-                    name=item,
-                    parent_id=folder_id,
-                    mimetype='application/octet-stream'
-                )
-                if not file_id:
-                    print(f"   ⚠️  Failed to upload file: {item}")
+            # Get file size for progress reporting
+            file_size = os.path.getsize(tmp_path)
+            if self.verbose:
+                size_mb = file_size / (1024 * 1024)
+                print(f"   📦 Archive size: {size_mb:.1f} MB")
             
-            # Upload lock files last (with lock.json being the very last)
-            # First upload .write_lock if it exists
-            for item, item_path in lock_files:
-                if item == '.write_lock':
-                    file_id = self._upload_file(
-                        local_path=item_path,
-                        name=item,
-                        parent_id=folder_id,
-                        mimetype='application/octet-stream'
-                    )
-                    if not file_id:
-                        print(f"   ⚠️  Failed to upload file: {item}")
+            # Upload the archive as a single file
+            archive_name = f"{folder_name}.tar.gz"
+            if self.verbose:
+                print(f"   📤 Uploading {archive_name}...")
             
-            # Finally upload lock.json
-            for item, item_path in lock_files:
-                if item == 'lock.json':
-                    file_id = self._upload_file(
-                        local_path=item_path,
-                        name=item,
-                        parent_id=folder_id,
-                        mimetype='application/octet-stream'
-                    )
-                    if not file_id:
-                        print(f"   ⚠️  Failed to upload file: {item}")
-                    elif self.verbose:
-                        print(f"   🔒 Uploaded lock file last: {item}")
+            file_id = self._upload_file(
+                local_path=tmp_path,
+                name=archive_name,
+                parent_id=parent_id,
+                mimetype='application/gzip'
+            )
+            
+            # Clean up temporary file
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+            
+            if file_id and self.verbose:
+                print(f"   ✅ Uploaded folder as {archive_name}")
+            
+            return file_id
+            
+        except Exception as e:
+            print(f"❌ Error creating/uploading archive: {e}")
+            # Clean up temporary file on error
+            try:
+                if 'tmp_path' in locals():
+                    os.unlink(tmp_path)
+            except:
+                pass
+            return None
+    def _download_archive_and_extract(self, file_id: str, local_parent: str, extract_name: str = None) -> bool:
+        """
+        Download a tar.gz archive and extract it
+        
+        Args:
+            file_id: Google Drive file ID of the archive
+            local_parent: Parent directory to extract into
+            extract_name: Name for the extracted folder (optional)
+            
+        Returns:
+            True if successful
+        """
+        self._ensure_authenticated()
+        
+        try:
+            # Create a temporary file for the archive
+            with tempfile.NamedTemporaryFile(suffix='.tar.gz', delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+            
+            # Download the archive file
+            if self.verbose:
+                print(f"      📥 Downloading tar.gz file...")
+            
+            request = self.service.files().get_media(fileId=file_id)
+            with io.FileIO(tmp_path, 'wb') as fh:
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while not done:
+                    status, done = downloader.next_chunk()
+                    if status and self.verbose:
+                        print(f"      📊 Download progress: {int(status.progress() * 100)}%")
+            
+            # Extract the archive
+            if self.verbose:
+                print(f"      📦 Extracting files...")
+            
+            with tarfile.open(tmp_path, 'r:gz') as tar:
+                # If extract_name is provided, extract to that specific folder
+                if extract_name:
+                    # Get the first member to find the archive's root folder
+                    members = tar.getmembers()
+                    if members:
+                        # Find the common prefix (root folder in archive)
+                        root_folder = members[0].name.split('/')[0]
+                        
+                        # Extract to a temporary location first
+                        with tempfile.TemporaryDirectory() as temp_dir:
+                            tar.extractall(temp_dir)
+                            
+                            # Move the extracted folder to the desired location with new name
+                            src_path = os.path.join(temp_dir, root_folder)
+                            dst_path = os.path.join(local_parent, extract_name)
+                            
+                            # Remove destination if it exists
+                            if os.path.exists(dst_path):
+                                shutil.rmtree(dst_path)
+                            
+                            # Move to final location
+                            shutil.move(src_path, dst_path)
+                else:
+                    # Extract directly to parent directory
+                    tar.extractall(local_parent)
+            
+            # Clean up temporary file
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+            
+            if self.verbose:
+                print(f"      ✅ Extraction complete")
             
             return True
             
         except Exception as e:
-            print(f"❌ Error uploading folder: {e}")
+            print(f"❌ Error downloading/extracting archive: {e}")
+            # Clean up temporary file on error
+            try:
+                if 'tmp_path' in locals():
+                    os.unlink(tmp_path)
+            except:
+                pass
             return False
     
     def _download_file(self, file_id: str, local_path: str) -> bool:
@@ -852,10 +1045,10 @@ class GDriveUnifiedClient:
                 done = False
                 while not done:
                     status, done = downloader.next_chunk()
-                    if status:
+                    if status and self.verbose:
                         print(f"Download progress: {int(status.progress() * 100)}%")
-            
-            print(f"✅ Downloaded to '{local_path}'")
+            if self.verbose:
+                print(f"✅ Downloaded to '{local_path}'")
             return True
             
         except HttpError as e:
@@ -899,27 +1092,34 @@ class GDriveUnifiedClient:
         Returns:
             True if successful
         """
+        import time
+        print("ADDPERM-1 " + str(time.time()))
         self._ensure_authenticated()
+        print("ADDPERM-2 " + str(time.time()))
         
         if role not in ['reader', 'writer', 'owner']:
             print(f"❌ Invalid role: {role}")
             return False
         
         try:
+            print("ADDPERM-3 " + str(time.time()))
             permission = {
                 'type': 'user',
                 'role': role,
                 'emailAddress': email
             }
             
+            print("ADDPERM-4 " + str(time.time()))
             self.service.permissions().create(
                 fileId=file_id,
                 body=permission,
                 sendNotificationEmail=False
             ).execute()
+            print("ADDPERM-5 " + str(time.time()))
             
             if verbose:
                 print(f"✅ Added {role} permission for {email}")
+            print("ADDPERM-6 " + str(time.time()))
             return True
             
         except HttpError as e:
@@ -1329,6 +1529,9 @@ class GDriveUnifiedClient:
             else:
                 print(f"✅ Added {friend_email} as a friend")
             
+            # Invalidate friends cache
+            self._invalidate_friends_cache()
+            
             return True
             
         except Exception as e:
@@ -1360,14 +1563,14 @@ class GDriveUnifiedClient:
         if not os.path.exists(path):
             print(f"❌ Path not found: {path}")
             return False
-        
+    
         is_directory = os.path.isdir(path)
         
         # Get the outbox folder ID
         if not self.my_email:
             print("❌ Could not determine your email address")
             return False
-            
+        
         outbox_inbox_name = f"syft_{self.my_email}_to_{recipient_email}_outbox_inbox"
         
         try:
@@ -1399,15 +1602,38 @@ class GDriveUnifiedClient:
                 if self.verbose:
                     print(f"📦 Creating message: {message.message_id}")
                 
+                # Check if the path is within a datasites directory
+                abs_path = os.path.abspath(path)
+                datasites_marker = os.sep + "datasites" + os.sep
+                
+                if datasites_marker in abs_path:
+                    # Extract the path relative to datasites
+                    parts = abs_path.split(datasites_marker, 1)
+                    if len(parts) == 2:
+                        relative_to_datasites = parts[1]
+                    else:
+                        relative_to_datasites = os.path.basename(path)
+                else:
+                    # Not in datasites, just use the filename
+                    relative_to_datasites = os.path.basename(path)
+                
                 # Add files to the message
                 if is_directory:
-                    # Add all files from the directory recursively
-                    base_name = os.path.basename(path.rstrip('/'))
-                    self._add_folder_to_message(message, path, base_name)
+                    # For directories, use the relative path if within datasites
+                    if datasites_marker in abs_path:
+                    
+                        self._add_folder_to_message(message, path, None, parent_path=relative_to_datasites)
+                        
+                    else:
+                        
+                        # Not in datasites, use directory name as base
+                        base_name = os.path.basename(path.rstrip('/'))
+                        self._add_folder_to_message(message, path, base_name)
+                        
                 else:
-                    # Add single file
-                    filename = os.path.basename(path)
-                    syftbox_path = f"/{self.my_email}/shared/{filename}"
+                    
+                    # Add single file with correct datasites path
+                    syftbox_path = f"datasites/{relative_to_datasites}"
                     message.add_file(
                         source_path=Path(path),
                         path=syftbox_path,
@@ -1416,8 +1642,9 @@ class GDriveUnifiedClient:
                             "write": [self.my_email]
                         }
                     )
+                    
                     if self.verbose:
-                        print(f"   📄 Added file: {filename}")
+                        print(f"   📄 Added file: {relative_to_datasites}")
                 
                 # Finalize the message
                 message.finalize()
@@ -1430,19 +1657,23 @@ class GDriveUnifiedClient:
                 ).execute()
                 
                 for existing in existing_messages.get('files', []):
+                    
                     try:
                         self.service.files().delete(fileId=existing['id']).execute()
+                        
                         if self.verbose:
                             print(f"   ♻️  Replacing existing message: {message_folder_name}")
                     except Exception as e:
+                        
                         if self.verbose:
                             print(f"   ⚠️  Could not delete existing message: {e}")
                 
                 # Upload the entire SyftMessage folder
-                success = self._upload_folder_recursive(str(message.path), outbox_id, message_folder_name)
+                file_id = self._upload_folder_as_archive(str(message.path), outbox_id, message_folder_name)
                 
-                if success:
-                    print(f"✅ Message sent to {recipient_email}")
+                if file_id:
+                    if self.verbose:
+                        print(f"✅ Message sent to {recipient_email}")
                     return True
                 else:
                     print(f"❌ Failed to upload message")
@@ -1472,7 +1703,13 @@ class GDriveUnifiedClient:
             if os.path.isfile(item_path):
                 # Calculate relative path for syftbox
                 relative_path = os.path.join(parent_path, item) if parent_path else item
-                syftbox_path = f"/{message.sender_email}/shared/{base_path}/{relative_path}"
+                
+                # Build syftbox path based on whether we have a base_path
+                if base_path:
+                    syftbox_path = f"datasites/{base_path}/{relative_path}"
+                else:
+                    # No base path, parent_path contains the full relative path
+                    syftbox_path = f"datasites/{relative_path}"
                 
                 try:
                     message.add_file(
@@ -1493,7 +1730,601 @@ class GDriveUnifiedClient:
                 # Recursively add subdirectory
                 new_parent = os.path.join(parent_path, item) if parent_path else item
                 self._add_folder_to_message(message, item_path, base_path, new_parent)
+
+    def update_inbox(self, inbox_dir: str = None, archive_messages: bool = True, fast_mode: bool = False) -> Dict[str, List[str]]:
+        """
+        Check all friend inboxes for new SyftMessage objects and download them
+        
+        Args:
+            inbox_dir: Local directory to store messages (default: {syftbox_dir}/inbox)
+            archive_messages: Whether to archive messages after downloading (default: True)
+            fast_mode: Skip validation and download everything (default: False)
+            
+        Returns:
+            Dict mapping friend emails to list of downloaded message IDs
+        """
+        from .syft_message import SyftMessage
+        from googleapiclient.http import BatchHttpRequest
+        import time
+        
+        self._ensure_authenticated()
+        
+        # Set default inbox directory using get_syftbox_directory
+        if inbox_dir is None:
+            syftbox_dir = self.get_syftbox_directory()
+            if syftbox_dir is None:
+                print("❌ Could not determine SyftBox directory")
+                return {}
+            inbox_dir = str(syftbox_dir / "inbox")
+        
+        # Create inbox directory if it doesn't exist
+        os.makedirs(inbox_dir, exist_ok=True)
+        
+        if not self.my_email:
+            print("❌ Could not determine your email address")
+            return {}
+        
+        # Get list of friends
+        friends_list = self.friends
+        if not friends_list:
+            if self.verbose:
+                print("No friends found - nothing to check")
+            return {}
+        
+        if self.verbose:
+            print(f"📥 Checking inboxes from {len(friends_list)} friend(s)...")
+        
+        # Get SyftBox folder ID
+        try:
+            results = self.service.files().list(
+                q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
+                fields="files(id)"
+            ).execute()
+            
+            if not results.get('files'):
+                print("❌ SyftBoxTransportService not found")
+                return {}
+                
+            syftbox_id = results['files'][0]['id']
+        except Exception as e:
+            print(f"❌ Error finding SyftBox folder: {e}")
+            return {}
+        
+        # Prepare batch request to check all inboxes
+        downloaded_messages = {}
+        
+        def process_batch_in_chunks(friends, chunk_size=100):
+            """Process friends in chunks of 100 (batch request limit)"""
+            for i in range(0, len(friends), chunk_size):
+                chunk = friends[i:i + chunk_size]
+                
+                # Create batch request
+                batch = self.service.new_batch_http_request()
+                callbacks = {}
+                
+                # Add requests for each friend's inbox
+                for friend_email in chunk:
+                    # Look for the inbox folder shared by this friend
+                    inbox_name = f"syft_{friend_email}_to_{self.my_email}_outbox_inbox"
+                    
+                    def make_callback(email, inbox):
+                        def callback(request_id, response, exception):
+                            if exception is None:
+                                callbacks[email] = (inbox, response)
+                            else:
+                                if self.verbose:
+                                    print(f"   ⚠️  Error checking {email}: {exception}")
+                                callbacks[email] = (inbox, None)
+                        return callback
+                    
+                    # First get the inbox folder ID, then search within it
+                    def make_inbox_callback(email, inbox):
+                        def callback(request_id, response, exception):
+                            if exception is None and response.get('files'):
+                                file_info = response['files'][0]
+                                inbox_id = file_info['id']
+                                
+                                # If it's a shortcut, get the target ID
+                                if file_info.get('mimeType') == 'application/vnd.google-apps.shortcut':
+                                    shortcut_details = file_info.get('shortcutDetails', {})
+                                    target_id = shortcut_details.get('targetId')
+                                    if target_id:
+                                        inbox_id = target_id
+                                        if self.verbose:
+                                            print(f"   📎 Found inbox shortcut for {email}, using target: {target_id}")
+                                
+                                callbacks[email] = (inbox, inbox_id)
+                            else:
+                                if self.verbose and exception:
+                                    print(f"   ⚠️  Error finding inbox for {email}: {exception}")
+                                callbacks[email] = (inbox, None)
+                        return callback
+                    
+                    # Find the inbox folder first (could be a folder or shortcut)
+                    batch.add(
+                        self.service.files().list(
+                            q=f"name='{inbox_name}' and (mimeType='application/vnd.google-apps.folder' or mimeType='application/vnd.google-apps.shortcut') and trashed=false",
+                            fields="files(id, mimeType, shortcutDetails)",
+                            pageSize=1
+                        ),
+                        callback=make_inbox_callback(friend_email, inbox_name)
+                    )
+                
+                # Execute batch request
+                try:
+                    batch.execute()
+                except Exception as e:
+                    print(f"❌ Batch request failed: {e}")
+                    continue
+                
+                # Process results - now we need to search within each inbox
+                for friend_email, (inbox_name, inbox_folder_id) in callbacks.items():
+                    if inbox_folder_id is None:
+                        continue
+                    
+                    # Now search for messages within this specific inbox folder
+                    try:
+                        # Just get ALL files in the folder - no filtering at all (fastest query)
+                        messages_response = self.service.files().list(
+                            q=f"'{inbox_folder_id}' in parents",
+                            fields="files(id, name)",
+                            pageSize=1000  # Get more at once
+                        ).execute()
+                        
+                        # Filter locally for tar.gz syft_message files
+                        all_files = messages_response.get('files', [])
+                        inbox_messages = [
+                            f for f in all_files 
+                            if f.get('name', '').startswith('syft_message_') and 
+                               f.get('name', '').endswith('.tar.gz')
+                        ]
+                        
+                        if inbox_messages:
+                            print(f"\n📬 Found {len(inbox_messages)} message(s) from {friend_email}")
+                            downloaded_messages[friend_email] = []
+                            
+                            # Download each message
+                            for msg in inbox_messages:
+                                msg_filename = msg['name']  # e.g., syft_message_12345.tar.gz
+                                msg_file_id = msg['id']
+                                
+                                # Extract message ID from filename (remove .tar.gz)
+                                msg_id = msg_filename.replace('.tar.gz', '')
+                                
+                                # Note: Archives are already finalized, no need to check for lock.json
+                                
+                                # Check if already extracted
+                                local_msg_path = os.path.join(inbox_dir, msg_id)
+                                already_downloaded = os.path.exists(local_msg_path)
+                                
+                                # In fast mode, skip if already downloaded
+                                if already_downloaded and (not archive_messages or fast_mode):
+                                    if self.verbose:
+                                        print(f"   ⏭️  Skipping {msg_id} - already downloaded")
+                                    continue
+                                
+                                # Download if not already downloaded
+                                download_success = True
+                                if not already_downloaded:
+                                    if self.verbose:
+                                        print(f"   📥 Processing {msg_id}...")
+                                    
+                                    # Download and extract the archive
+                                    download_success = self._download_archive_and_extract(msg_file_id, inbox_dir, msg_id)
+                                    if download_success:
+                                        downloaded_messages[friend_email].append(msg_id)
+                                else:
+                                    if self.verbose:
+                                        print(f"   📥 Already downloaded {msg_id}, checking for archiving...")
+                                
+                                if download_success:
+                                    # Validate the downloaded message (skip in fast mode)
+                                    is_valid = fast_mode  # In fast mode, assume valid
+                                    if not fast_mode:
+                                        try:
+                                            received_msg = SyftMessage(Path(local_msg_path))
+                                            is_valid, error = received_msg.validate()
+                                            if is_valid:
+                                                if self.verbose:
+                                                    print(f"   ✅ Valid message from {received_msg.sender_email}")
+                                            else:
+                                                print(f"   ❌ Invalid message: {error}")
+                                        except Exception as e:
+                                            print(f"   ❌ Error validating message: {e}")
+                                    
+                                    # Archive the message if it was valid and archiving is enabled
+                                    if is_valid and archive_messages:
+                                        # Archive folder follows pattern: syft_{sender}_to_{receiver}_archive
+                                        archive_name = f"syft_{friend_email}_to_{self.my_email}_archive"
+                                        
+                                        # Check if archive folder exists, create if not
+                                        try:
+                                            archive_results = self.service.files().list(
+                                                q=f"name='{archive_name}' and mimeType='application/vnd.google-apps.folder' and '{syftbox_id}' in parents and trashed=false",
+                                                fields="files(id)",
+                                                pageSize=1
+                                            ).execute()
+                                            
+                                            if archive_results.get('files'):
+                                                archive_id = archive_results['files'][0]['id']
+                                            else:
+                                                # Create archive folder
+                                                archive_id = self._create_folder(archive_name, parent_id=syftbox_id)
+                                                if self.verbose and archive_id:
+                                                    print(f"   📁 Created archive folder: {archive_name}")
+                                            
+                                            if archive_id:
+                                                # Move message archive file from inbox to archive folder (non-blocking)
+                                                if self.verbose:
+                                                    print(f"   📦 Scheduling background archive for {msg_id}...")
+                                                
+                                                # Create and start background thread for archiving
+                                                archive_thread = threading.Thread(
+                                                    target=self._archive_message_async,
+                                                    args=(msg_file_id, archive_id, inbox_folder_id, msg_id, archive_name),
+                                                    daemon=True  # Daemon thread will not block program exit
+                                                )
+                                                archive_thread.start()
+                                        except Exception as e:
+                                            if self.verbose:
+                                                print(f"   ⚠️  Error creating archive: {e}")
+                                else:
+                                    print(f"   ❌ Failed to download {msg_id}")
+                        else:
+                            if self.verbose:
+                                print(f"   📭 No messages from {friend_email}")
+                    except Exception as e:
+                        if self.verbose:
+                            print(f"   ⚠️  Error checking messages from {friend_email}: {e}")
+        
+        # Process all friends (in chunks if > 100)
+        process_batch_in_chunks(friends_list)
+        
+        # Summary
+        total_messages = sum(len(msgs) for msgs in downloaded_messages.values())
+        if total_messages > 0 and self.verbose:
+            print(f"\n✅ Downloaded {total_messages} message(s) to {inbox_dir}")
+        else:
+            print("✅ No messages to download")
+        
+        return downloaded_messages
     
+    def autoapprove_inbox(self, syftbox_dir: Optional[Path] = None) -> Dict[str, int]:
+        """
+        Automatically approve all messages in the inbox by moving them to the approved folder
+        
+        Args:
+            syftbox_dir: Optional SyftBox directory path (defaults to get_syftbox_directory())
+            
+        Returns:
+            Dict mapping message types to counts of approved messages
+        """
+        import shutil
+        from collections import defaultdict
+        import time
+        
+        print("AUTOAPPROVE-1 " + str(time.time()))
+        self._ensure_authenticated()
+        print("AUTOAPPROVE-2 " + str(time.time()))
+        
+        # Get SyftBox directory
+        if syftbox_dir is None:
+            print("AUTOAPPROVE-3 " + str(time.time()))
+            syftbox_dir = self.get_syftbox_directory()
+            print("AUTOAPPROVE-4 " + str(time.time()))
+            if syftbox_dir is None:
+                print("❌ Could not determine SyftBox directory")
+                return {}
+        
+        # Ensure we're working with the correct user's SyftBox
+        expected_dir_name = f"SyftBox_{self.my_email}"
+        if syftbox_dir.name != expected_dir_name:
+            print(f"❌ SyftBox directory name mismatch. Expected '{expected_dir_name}' but got '{syftbox_dir.name}'")
+            return {}
+        
+        inbox_dir = syftbox_dir / "inbox"
+        approved_dir = syftbox_dir / "approved"
+        
+        # Check if inbox exists
+        print("AUTOAPPROVE-5 " + str(time.time()))
+        if not inbox_dir.exists():
+            print(f"📥 No inbox found at {inbox_dir}")
+            return {}
+        
+        # Create approved directory if it doesn't exist
+        print("AUTOAPPROVE-6 " + str(time.time()))
+        approved_dir.mkdir(exist_ok=True)
+        
+        # Count messages by type
+        approved_counts = defaultdict(int)
+        total_moved = 0
+        
+        if self.verbose:
+            print(f"📥 Auto-approving messages from {inbox_dir}")
+        
+        # List all items in inbox
+        print("AUTOAPPROVE-7 " + str(time.time()))
+        try:
+            print("AUTOAPPROVE-8 " + str(time.time()))
+            for item in inbox_dir.iterdir():
+                if item.is_dir() and not item.name.startswith('.'):
+                    # Determine message type
+                    if item.name.startswith("syft_message_"):
+                        message_type = "syft_message"
+                    elif item.name.startswith("syft_") and "_to_" in item.name:
+                        message_type = "syft_folder"
+                    else:
+                        message_type = "other"
+                    
+                    # Move to approved folder
+                    print("AUTOAPPROVE-9 " + str(time.time()))
+                    dest_path = approved_dir / item.name
+                    
+                    # If destination exists, remove it first
+                    if dest_path.exists():
+                        if dest_path.is_dir():
+                            shutil.rmtree(dest_path)
+                        else:
+                            dest_path.unlink()
+                    
+                    # Move the folder
+                    print("AUTOAPPROVE-10 " + str(time.time()))
+                    shutil.move(str(item), str(dest_path))
+                    print("AUTOAPPROVE-11 " + str(time.time()))
+                    
+                    approved_counts[message_type] += 1
+                    total_moved += 1
+                    
+                    if self.verbose:
+                        print(f"   ✓ Approved: {item.name}")
+            
+            # Print summary
+            print("AUTOAPPROVE-12 " + str(time.time()))
+            if total_moved > 0:
+                if self.verbose:
+                    print(f"\n✅ Auto-approved {total_moved} message(s):")
+                    for msg_type, count in approved_counts.items():
+                        print(f"   - {msg_type}: {count}")
+            else:
+                print("✅ No messages to approve")
+                
+        except Exception as e:
+            print(f"❌ Error during auto-approval: {e}")
+        
+        print("AUTOAPPROVE-13 " + str(time.time()))
+        return dict(approved_counts)
+    
+    def merge_new_syncs(self, syftbox_dir: Optional[Path] = None) -> Dict[str, int]:
+        """
+        Merge approved SyftMessages into the datasites directory
+        
+        This method:
+        1. Reads all SyftMessage folders from the approved directory
+        2. Validates each message
+        3. Extracts files to their correct locations in datasites
+        4. Overwrites existing files if they exist
+        
+        Args:
+            syftbox_dir: Optional SyftBox directory path (defaults to get_syftbox_directory())
+            
+        Returns:
+            Dict with counts of processed messages and files
+        """
+        from .syft_message import SyftMessage
+        import shutil
+        from collections import defaultdict
+        import time
+        
+        print("MERGE-1 " + str(time.time()))
+        self._ensure_authenticated()
+        print("MERGE-2 " + str(time.time()))
+        
+        # Get SyftBox directory
+        if syftbox_dir is None:
+            print("MERGE-3 " + str(time.time()))
+            syftbox_dir = self.get_syftbox_directory()
+            print("MERGE-4 " + str(time.time()))
+            if syftbox_dir is None:
+                print("❌ Could not determine SyftBox directory")
+                return {}
+        
+        # Ensure we're working with the correct user's SyftBox
+        expected_dir_name = f"SyftBox_{self.my_email}"
+        if syftbox_dir.name != expected_dir_name:
+            print(f"❌ SyftBox directory name mismatch. Expected '{expected_dir_name}' but got '{syftbox_dir.name}'")
+            return {}
+        
+        approved_dir = syftbox_dir / "approved"
+        datasites_dir = syftbox_dir / "datasites"
+        
+        # Check if approved directory exists
+        print("MERGE-5 " + str(time.time()))
+        if not approved_dir.exists():
+            print(f"📥 No approved directory found at {approved_dir}")
+            return {}
+        
+        # Create datasites directory if it doesn't exist
+        print("MERGE-6 " + str(time.time()))
+        datasites_dir.mkdir(exist_ok=True)
+        
+        # Track statistics
+        stats = {
+            "messages_processed": 0,
+            "messages_skipped": 0,
+            "files_merged": 0,
+            "files_overwritten": 0,
+            "errors": 0
+        }
+        if self.verbose:
+            print(f"🔄 Merging approved syncs to {datasites_dir}")
+        
+        # Process each item in approved directory
+        print("MERGE-7 " + str(time.time()))
+        for item in approved_dir.iterdir():
+            
+            try:
+                # Load and validate the message
+                print("MERGE-8 " + str(time.time()))
+                message = SyftMessage(item)
+                print("MERGE-9 " + str(time.time()))
+                is_valid, error = message.validate()
+                print("MERGE-10 " + str(time.time()))
+                
+                if not is_valid:
+                    print(f"   ❌ Invalid message {item.name}: {error}")
+                    stats["errors"] += 1
+                    continue
+                
+                # Get message metadata
+                print("MERGE-11 " + str(time.time()))
+                metadata = message.get_metadata()
+                sender = metadata.get("from", "unknown")
+                print("MERGE-12 " + str(time.time()))
+                
+                if self.verbose:
+                    print(f"\n   📦 Processing message from {sender}")
+                
+                # Process each file in the message
+                print("MERGE-13 " + str(time.time()))
+                for file_entry in message.get_files():
+                    file_path = file_entry["path"]
+                    
+                    # Check if path starts with "datasites/"
+                    if not file_path.startswith("datasites/"):
+                        print(f"      ⚠️  Skipping file with non-datasites path: {file_path}")
+                        continue
+                    
+                    # Remove "datasites/" prefix to get the relative path
+                    relative_path = file_path[len("datasites/"):]
+                    dest_path = datasites_dir / relative_path
+                    
+                    # Check if file already exists
+                    file_exists = dest_path.exists()
+                    
+                    # Create parent directories if needed
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Extract the file
+                    try:
+                        print("MERGE-14 " + str(time.time()))
+                        message.extract_file(file_path, dest_path, verify_hash=True)
+                        print("MERGE-15 " + str(time.time()))
+                        
+                        if file_exists:
+                            stats["files_overwritten"] += 1
+                            if self.verbose:
+                                print(f"      ✓ Overwrote: {relative_path}")
+                        else:
+                            if self.verbose:
+                                print(f"      ✓ Added: {relative_path}")
+                        
+                        stats["files_merged"] += 1
+                        
+                    except Exception as e:
+                        print(f"      ❌ Error extracting {relative_path}: {e}")
+                        stats["errors"] += 1
+                
+                stats["messages_processed"] += 1
+                
+                # Move processed message to merged_archive
+                print("MERGE-16 " + str(time.time()))
+                merged_archive_dir = syftbox_dir / "merged_archive"
+                merged_archive_dir.mkdir(exist_ok=True)
+                
+                try:
+                    archive_path = merged_archive_dir / item.name
+                    
+                    # If archive already exists, remove it first
+                    if archive_path.exists():
+                        if archive_path.is_dir():
+                            shutil.rmtree(archive_path)
+                        else:
+                            archive_path.unlink()
+                    
+                    # Move to archive
+                    print("MERGE-17 " + str(time.time()))
+                    shutil.move(str(item), str(archive_path))
+                    print("MERGE-18 " + str(time.time()))
+                    
+                    if self.verbose:
+                        print(f"   📁 Archived to merged_archive/{item.name}")
+                        
+                except Exception as archive_error:
+                    print(f"   ⚠️  Could not archive {item.name}: {archive_error}")
+                
+            except Exception as e:
+                print(f"   ❌ Error processing {item.name}: {e}")
+                stats["errors"] += 1
+        
+        # Print summary
+        print("MERGE-19 " + str(time.time()))
+        if self.verbose:
+            print(f"\n✅ Merge completed:")
+            print(f"   - Messages processed: {stats['messages_processed']}")
+            print(f"   - Messages skipped: {stats['messages_skipped']}")
+            print(f"   - Files merged: {stats['files_merged']}")
+            print(f"   - Files overwritten: {stats['files_overwritten']}")
+            if stats['errors'] > 0:
+                print(f"   - Errors: {stats['errors']}")
+        
+        print("MERGE-20 " + str(time.time()))
+        return stats
+    
+    def _download_folder_recursive(self, folder_id: str, local_parent: str, folder_name: str) -> bool:
+        """
+        Recursively download a folder and its contents from Google Drive
+        
+        Args:
+            folder_id: Google Drive folder ID
+            local_parent: Local parent directory
+            folder_name: Name for the local folder
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        self._ensure_authenticated()
+        
+        local_folder_path = os.path.join(local_parent, folder_name)
+        
+        try:
+            # Create local folder
+            os.makedirs(local_folder_path, exist_ok=True)
+            
+            # List all items in the folder
+            results = self.service.files().list(
+                q=f"'{folder_id}' in parents and trashed=false",
+                fields="files(id, name, mimeType)"
+            ).execute()
+            
+            items = results.get('files', [])
+            
+            # Separate items into folders and files
+            folders = []
+            files = []
+            
+            for item in items:
+                if item['mimeType'] == 'application/vnd.google-apps.folder':
+                    folders.append(item)
+                else:
+                    files.append(item)
+            
+            # Download subfolders
+            for item in folders:
+                if not self._download_folder_recursive(item['id'], local_folder_path, item['name']):
+                    print(f"   ⚠️  Failed to download folder: {item['name']}")
+            
+            # Download files
+            for item in files:
+                local_file_path = os.path.join(local_folder_path, item['name'])
+                if not self._download_file(item['id'], local_file_path):
+                    print(f"   ⚠️  Failed to download file: {item['name']}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error downloading folder: {e}")
+            return False                
+
     @property
     def friends(self) -> List[str]:
         """
@@ -1507,6 +2338,14 @@ class GDriveUnifiedClient:
         
         if not self.my_email:
             return []
+        
+        # Check if cache is valid (less than 1 hour old)
+        import time
+        current_time = time.time()
+        if (self._friends_cache is not None and 
+            self._friends_cache_time is not None and 
+            current_time - self._friends_cache_time < 3600):  # 3600 seconds = 1 hour
+            return self._friends_cache
         
         try:
             # First check if SyftBoxTransportService exists using cache
@@ -1550,11 +2389,17 @@ class GDriveUnifiedClient:
             except:
                 pass
             
-            return sorted(list(friends_set))
+            # Cache the results
+            self._friends_cache = sorted(list(friends_set))
+            self._friends_cache_time = time.time()
+            return self._friends_cache
             
         except Exception as e:
             if self.verbose:
                 print(f"❌ Error listing friends: {e}")
+            # Return cached value if available, even if expired
+            if self._friends_cache is not None:
+                return self._friends_cache
             return []
     
     @property
@@ -1733,7 +2578,7 @@ class GDriveUnifiedClient:
                 result['shared_with_me'].append(folder_info)
             
             # Print summary if requested
-            if print_summary:
+            if print_summary and self.verbose:
                 print(f"\n📁 Found {len(result['my_drive'])} syft_ folders in My Drive:")
                 for folder in result['my_drive']:
                     print(f"   - {folder['name']}")
@@ -1974,6 +2819,671 @@ class GDriveUnifiedClient:
             return results
 
 # Convenience function for quick setup
+    # ========== Google Sheets Transport Methods ==========
+    
+    def _archive_sheet_messages_async(self, sheet_id: str, row_numbers: List[int]):
+        """
+        Move downloaded messages to Archive tab in background
+        
+        Args:
+            sheet_id: The spreadsheet ID
+            row_numbers: List of row numbers to archive
+        """
+        import time
+        print("ARCHIVE-1 " + str(time.time()))
+        def archive_worker():
+            import time
+            print("ARCHIVE-2 " + str(time.time()))
+            try:
+                print("ARCHIVE-3 " + str(time.time()))
+                sheets_service = build('sheets', 'v4', credentials=self.creds)
+                print("ARCHIVE-4 " + str(time.time()))
+                
+                # First, ensure Archive tab exists
+                try:
+                    # Check cache for spreadsheet info
+                    print("ARCHIVE-5 " + str(time.time()))
+                    spreadsheet = None
+                    if sheet_id in self._spreadsheet_info_cache and sheet_id in self._spreadsheet_info_cache_time:
+                        cache_age_minutes = (datetime.now() - self._spreadsheet_info_cache_time[sheet_id]).total_seconds() / 60
+                        if cache_age_minutes < 60:  # Cache valid for 1 hour
+                            spreadsheet = self._spreadsheet_info_cache[sheet_id]
+                    
+                    # If not cached, fetch from API
+                    if not spreadsheet:
+                        print("ARCHIVE-6 " + str(time.time()))
+                        spreadsheet = sheets_service.spreadsheets().get(
+                            spreadsheetId=sheet_id,
+                            fields='sheets.properties'
+                        ).execute()
+                        print("ARCHIVE-7 " + str(time.time()))
+                        # Cache the result
+                        self._spreadsheet_info_cache[sheet_id] = spreadsheet
+                        self._spreadsheet_info_cache_time[sheet_id] = datetime.now()
+                    
+                    # Check if Archive sheet exists and get messages sheet ID
+                    archive_exists = False
+                    messages_sheet_id = None
+                    for sheet in spreadsheet.get('sheets', []):
+                        if sheet['properties']['title'] == 'archive':
+                            archive_exists = True
+                        elif sheet['properties']['title'] == 'messages':
+                            messages_sheet_id = sheet['properties']['sheetId']
+                    
+                    # Create Archive sheet if it doesn't exist
+                    print("ARCHIVE-8 " + str(time.time()))
+                    if not archive_exists:
+                        request = {
+                            'addSheet': {
+                                'properties': {
+                                    'title': 'archive',
+                                    'gridProperties': {
+                                        'columnCount': 4,
+                                        'frozenRowCount': 1
+                                    }
+                                }
+                            }
+                        }
+                        
+                        print("ARCHIVE-9 " + str(time.time()))
+                        sheets_service.spreadsheets().batchUpdate(
+                            spreadsheetId=sheet_id,
+                            body={'requests': [request]}
+                        ).execute()
+                        print("ARCHIVE-10 " + str(time.time()))
+                        
+                        # No header row in archive either
+                        
+                        if self.verbose:
+                            print(f"   📁 Created Archive tab")
+                        
+                        # Invalidate the spreadsheet cache since we modified it
+                        if sheet_id in self._spreadsheet_info_cache:
+                            del self._spreadsheet_info_cache[sheet_id]
+                            del self._spreadsheet_info_cache_time[sheet_id]
+                
+                except Exception as e:
+                    print(f"   ⚠️  Error creating archive tab: {e}")
+                    return
+                
+                # Get the rows to archive
+                print("ARCHIVE-11 " + str(time.time()))
+                ranges = [f'messages!A{row}:E{row}' for row in sorted(row_numbers)]
+                
+                # Batch get all rows
+                print("ARCHIVE-12 " + str(time.time()))
+                result = sheets_service.spreadsheets().values().batchGet(
+                    spreadsheetId=sheet_id,
+                    ranges=ranges
+                ).execute()
+                print("ARCHIVE-13 " + str(time.time()))
+                
+                rows_to_archive = []
+                for value_range in result.get('valueRanges', []):
+                    values = value_range.get('values', [])
+                    if values:
+                        rows_to_archive.extend(values)
+                
+                if rows_to_archive:
+                    # Append to archive
+                    print("ARCHIVE-14 " + str(time.time()))
+                    sheets_service.spreadsheets().values().append(
+                        spreadsheetId=sheet_id,
+                        range='archive!A:D',
+                        valueInputOption='USER_ENTERED',
+                        insertDataOption='INSERT_ROWS',
+                        body={'values': rows_to_archive}
+                    ).execute()
+                    print("ARCHIVE-15 " + str(time.time()))
+                    
+                    # Clear the original rows - batch all deletes into one request
+                    if messages_sheet_id is not None:
+                        # Sort row numbers and group consecutive rows for efficient deletion
+                        sorted_rows = sorted(row_numbers, reverse=True)
+                        delete_requests = []
+                        
+                        # Create a delete request for each row (from bottom to top)
+                        for row_num in sorted_rows:
+                            delete_requests.append({
+                                'deleteDimension': {
+                                    'range': {
+                                        'sheetId': messages_sheet_id,
+                                        'dimension': 'ROWS',
+                                        'startIndex': row_num - 1,  # 0-based
+                                        'endIndex': row_num
+                                    }
+                                }
+                            })
+                        
+                        # Execute all deletes in a single batch
+                        if delete_requests:
+                            print("ARCHIVE-16 " + str(time.time()))
+                            sheets_service.spreadsheets().batchUpdate(
+                                spreadsheetId=sheet_id,
+                                body={'requests': delete_requests}
+                            ).execute()
+                            print("ARCHIVE-17 " + str(time.time()))
+                        
+                        if self.verbose:
+                            print(f"   🗄️  Archived {len(rows_to_archive)} messages to Archive tab")
+                    else:
+                        print(f"   ⚠️  Could not find messages sheet ID for archiving")
+                        
+            except Exception as e:
+                print(f"   ⚠️  Error archiving messages: {e}")
+        
+        # Start background thread
+        print("ARCHIVE-18 " + str(time.time()))
+        thread = threading.Thread(target=archive_worker, daemon=True)
+        thread.start()
+        print("ARCHIVE-19 " + str(time.time()))
+    
+    def _find_message_sheet(self, sheet_name: str, from_email: str = None) -> Optional[str]:
+        """
+        Find an existing Google Sheet for messages (without creating)
+        
+        Args:
+            sheet_name: Name of the sheet to find
+            from_email: Email of the sender (to search in shared files)
+            
+        Returns:
+            Spreadsheet ID if found, None otherwise
+        """
+        import time
+        print("FINDSHEET-1 " + str(time.time()))
+        self._ensure_authenticated()
+        print("FINDSHEET-2 " + str(time.time()))
+        
+        # Check cache first
+        print("FINDSHEET-3 " + str(time.time()))
+        cache_key = f"{sheet_name}:{from_email or 'none'}"
+        if cache_key in self._sheet_cache and cache_key in self._sheet_cache_time:
+            cache_age_minutes = (datetime.now() - self._sheet_cache_time[cache_key]).total_seconds() / 60
+            if cache_age_minutes < 60:  # Cache valid for 1 hour
+                cached_id = self._sheet_cache[cache_key]
+                if self.verbose:
+                    print(f"   📋 Using cached sheet ID: {cached_id}")
+                return cached_id
+        
+        try:
+            # First, search in SyftBox folder (for shortcuts or owned sheets)
+            print("FINDSHEET-4 " + str(time.time()))
+            syftbox_id = self._get_syftbox_folder_id()
+            print("FINDSHEET-5 " + str(time.time()))
+            if syftbox_id:
+                # Search for existing sheet or shortcut
+                print("FINDSHEET-6 " + str(time.time()))
+                results = self.service.files().list(
+                    q=f"name='{sheet_name}' and '{syftbox_id}' in parents and trashed=false",
+                    fields="files(id, mimeType, shortcutDetails)",
+                    pageSize=1
+                ).execute()
+                print("FINDSHEET-7 " + str(time.time()))
+                
+                if results.get('files'):
+                    file_info = results['files'][0]
+                    # If it's a shortcut, return the target ID
+                    if file_info.get('shortcutDetails'):
+                        sheet_id = file_info['shortcutDetails']['targetId']
+                    else:
+                        sheet_id = file_info['id']
+                    
+                    # Cache the result
+                    self._sheet_cache[cache_key] = sheet_id
+                    self._sheet_cache_time[cache_key] = datetime.now()
+                    print("FINDSHEET-8 " + str(time.time()))
+                    return sheet_id
+            
+            # If not found in SyftBox folder and we have a sender email, 
+            # search in "Shared with me" from that specific user
+            print("FINDSHEET-9 " + str(time.time()))
+            if from_email:
+                if self.verbose:
+                    print(f"   🔍 Searching in files shared by {from_email}...")
+                
+                # Search for sheets shared by the sender
+                print("FINDSHEET-10 " + str(time.time()))
+                results = self.service.files().list(
+                    q=f"name='{sheet_name}' and '{from_email}' in owners and mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe and trashed=false",
+                    fields="files(id, name)",
+                    pageSize=1
+                ).execute()
+                print("FINDSHEET-11 " + str(time.time()))
+                
+                if results.get('files'):
+                    shared_sheet_id = results['files'][0]['id']
+                    if self.verbose:
+                        print(f"   ✅ Found shared sheet: {shared_sheet_id}")
+                    
+                    # Create a shortcut in SyftBox folder if we have one
+                    if syftbox_id:
+                        try:
+                            shortcut_metadata = {
+                                'name': sheet_name,
+                                'mimeType': 'application/vnd.google-apps.shortcut',
+                                'shortcutDetails': {
+                                    'targetId': shared_sheet_id
+                                },
+                                'parents': [syftbox_id]
+                            }
+                            
+                            shortcut = self.service.files().create(
+                                body=shortcut_metadata,
+                                fields='id'
+                            ).execute()
+                            
+                            if self.verbose:
+                                print(f"   🔗 Created shortcut in SyftBox folder")
+                        except Exception as e:
+                            if self.verbose:
+                                print(f"   ⚠️  Could not create shortcut: {e}")
+                    
+                    # Cache the result
+                    self._sheet_cache[cache_key] = shared_sheet_id
+                    self._sheet_cache_time[cache_key] = datetime.now()
+                    print("FINDSHEET-12 " + str(time.time()))
+                    return shared_sheet_id
+            
+            print("FINDSHEET-13 " + str(time.time()))
+            return None
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error finding sheet: {e}")
+            return None
+    
+    def _get_or_create_message_sheet(self, sheet_name: str, recipient_email: str = None) -> Optional[str]:
+        """
+        Get or create a Google Sheet for messages
+        
+        Args:
+            sheet_name: Name of the sheet (e.g., syft_alice_to_bob_messages)
+            recipient_email: Email of recipient to grant write access (optional)
+            
+        Returns:
+            Spreadsheet ID if successful
+        """
+        import time
+        print("GETSHEET-1 " + str(time.time()))
+        self._ensure_authenticated()
+        print("GETSHEET-2 " + str(time.time()))
+        
+        # Check cache first for owned sheets
+        cache_key = f"owned:{sheet_name}"
+        if cache_key in self._sheet_cache and cache_key in self._sheet_cache_time:
+            cache_age_minutes = (datetime.now() - self._sheet_cache_time[cache_key]).total_seconds() / 60
+            if cache_age_minutes < 60:  # Cache valid for 1 hour
+                cached_id = self._sheet_cache[cache_key]
+                if self.verbose:
+                    print(f"   📋 Using cached owned sheet ID: {cached_id}")
+                return cached_id
+        
+        try:
+            # First check if sheet already exists in SyftBox folder
+            syftbox_id = self._get_syftbox_folder_id()
+            if not syftbox_id:
+                print("❌ SyftBox folder not found")
+                return None
+            # Search for existing sheet
+            results = self.service.files().list(
+                q=f"name='{sheet_name}' and '{syftbox_id}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false",
+                fields="files(id)",
+                pageSize=1
+            ).execute()
+            if results.get('files'):
+                sheet_id = results['files'][0]['id']
+                # Cache the result
+                self._sheet_cache[cache_key] = sheet_id
+                self._sheet_cache_time[cache_key] = datetime.now()
+                return sheet_id
+            # Create new sheet
+            try:
+                sheets_service = self._get_sheets_service()
+            except Exception as e:
+                print("❌ Google Sheets API not available. You may need to re-authenticate with sheets scope.")
+                print("   Run: client = login(email, force_relogin=True)")
+                return None
+            spreadsheet = {
+                'properties': {
+                    'title': sheet_name
+                },
+                'sheets': [{
+                    'properties': {
+                        'title': 'messages',
+                        'gridProperties': {
+                            'columnCount': 4
+                        }
+                    },
+                    # No initial data - no header row
+                }]
+            }
+            # Create the spreadsheet
+            sheet = sheets_service.spreadsheets().create(body=spreadsheet).execute()
+            sheet_id = sheet['spreadsheetId']
+            # Move to SyftBox folder
+            self.service.files().update(
+                fileId=sheet_id,
+                addParents=syftbox_id,
+                removeParents='root',
+                fields='id, parents'
+            ).execute()
+            # Grant recipient write access if specified
+            if recipient_email:
+                try:
+                    self._add_permission(sheet_id, recipient_email, role='writer', verbose=False)
+                    if self.verbose:
+                        print(f"   ✅ Granted write access to {recipient_email}")
+                except Exception as e:
+                    if self.verbose:
+                        print(f"   ⚠️  Could not grant access to {recipient_email}: {e}")
+            if self.verbose:
+                print(f"📊 Created message sheet: {sheet_name}")
+            
+            # Cache the newly created sheet
+            self._sheet_cache[cache_key] = sheet_id
+            self._sheet_cache_time[cache_key] = datetime.now()
+            
+            return sheet_id
+        except Exception as e:
+            print(f"❌ Error creating sheet: {e}")
+            return None
+    
+    def send_file_or_folder_via_sheets(self, path: str, recipient_email: str) -> bool:
+        """
+        Send a file or folder using Google Sheets as transport
+        
+        Args:
+            path: Path to file/folder to send
+            recipient_email: Recipient's email address
+            
+        Returns:
+            True if successful
+        """
+        from .syft_message import SyftMessage
+        import base64
+        import time
+        print("SEND-1 " + str(time.time()))
+        self._ensure_authenticated()
+        print("SEND-2 " + str(time.time()))
+        if recipient_email.lower() not in [f.lower() for f in self.friends]:
+            print(f"❌ {recipient_email} is not in your friends list")
+            return False
+        try:
+            # Create SyftMessage
+            print("SEND-5 " + str(time.time()))
+            with tempfile.TemporaryDirectory() as temp_dir:
+                print("SEND-6 " + str(time.time()))
+                temp_path = Path(temp_dir)
+                msg = SyftMessage.create(
+                    sender_email=self.my_email,
+                    recipient_email=recipient_email,
+                    message_root=temp_path
+                )
+                print("SEND-7 " + str(time.time()))
+                # Check if the path is within a datasites directory
+                print("SEND-8 " + str(time.time()))
+                abs_path = os.path.abspath(path)
+                print("SEND-9 " + str(time.time()))
+                datasites_marker = os.sep + "datasites" + os.sep
+                
+                if datasites_marker in abs_path:
+                    # Extract the path relative to datasites
+                    parts = abs_path.split(datasites_marker, 1)
+                    if len(parts) == 2:
+                        relative_to_datasites = parts[1]
+                    else:
+                        relative_to_datasites = os.path.basename(path)
+                else:
+                    # Not in datasites, just use the filename
+                    relative_to_datasites = os.path.basename(path)
+                
+                # Add the file or folder to the message
+                print("SEND-10 " + str(time.time()))
+                source_path = Path(path)
+                if source_path.is_file():
+                    print("SEND-11 " + str(time.time()))
+                    # Add single file
+                    # Add single file with correct datasites path
+                    syftbox_path = f"datasites/{relative_to_datasites}"
+                    msg.add_file(
+                        source_path=source_path,
+                        path=syftbox_path,
+                        permissions={
+                            "read": [recipient_email],
+                            "write": [self.my_email]
+                        }
+                    )
+                    print("SEND-12 " + str(time.time()))
+                elif source_path.is_dir():
+                    # Add all files in directory
+                    for file_path in source_path.rglob('*'):
+                        if file_path.is_file():
+                            if datasites_marker in abs_path:
+                                # Calculate path relative to the source directory
+                                rel_to_source = file_path.relative_to(source_path)
+                                syftbox_path = f"datasites/{relative_to_datasites}/{rel_to_source}"
+                            else:
+                                # Not in datasites, use directory name as base
+                                base_name = os.path.basename(path.rstrip('/'))
+                                rel_to_source = file_path.relative_to(source_path)
+                                syftbox_path = f"{base_name}/{rel_to_source}"
+                            
+                            msg.add_file(
+                                source_path=file_path,
+                                path=syftbox_path,
+                                permissions={
+                                    "read": [recipient_email],
+                                    "write": [self.my_email]
+                                }
+                            )
+                else:
+                    print(f"❌ Path not found: {path}")
+                    return False
+                # Finalize the message
+                print("SEND-13 " + str(time.time()))
+                msg.finalize()
+                print("SEND-14 " + str(time.time()))
+                # Create tar.gz archive
+                print("SEND-15 " + str(time.time()))
+                archive_path = os.path.join(temp_dir, f"{msg.message_id}.tar.gz")
+                print("SEND-16 " + str(time.time()))
+                with tarfile.open(archive_path, 'w:gz') as tar:
+                    print("SEND-17 " + str(time.time()))
+                    tar.add(str(msg.path), arcname=msg.message_id)
+                print("SEND-18 " + str(time.time()))
+                # Read and encode archive
+                print("SEND-19 " + str(time.time()))
+                with open(archive_path, 'rb') as f:
+                    archive_data = f.read()
+                print("SEND-20 " + str(time.time()))
+                # Base64 encode for sheets
+                encoded_data = base64.b64encode(archive_data).decode('utf-8')
+                print("SEND-21 " + str(time.time()))
+                # Get or create sheet (permissions are handled in the method)
+                print("SEND-22 " + str(time.time()))
+                sheet_name = f"syft_{self.my_email}_to_{recipient_email}_messages"
+                print("SEND-23 " + str(time.time()))
+                sheet_id = self._get_or_create_message_sheet(sheet_name, recipient_email)
+                print("SEND-24 " + str(time.time()))
+                if not sheet_id:
+                    return False
+                # Prepare row data
+                print("SEND-25 " + str(time.time()))
+                timestamp = datetime.now().isoformat()
+                print("SEND-26 " + str(time.time()))
+                message_data = {
+                    'values': [[
+                        timestamp,
+                        msg.message_id,
+                        str(len(archive_data)),
+                        encoded_data
+                    ]]
+                }
+                print("SEND-27 " + str(time.time()))
+                # Append to sheet in one API call
+                print("SEND-28 " + str(time.time()))
+                sheets_service = self._get_sheets_service()
+                print("SEND-29 " + str(time.time()))
+                sheets_service.spreadsheets().values().append(
+                    spreadsheetId=sheet_id,
+                    range='messages!A:D',
+                    valueInputOption='USER_ENTERED',
+                    insertDataOption='INSERT_ROWS',
+                    body=message_data
+                ).execute()
+                print("SEND-30 " + str(time.time()))
+                if self.verbose:
+                    print(f"📊 Sent message via sheets: {msg.message_id}")
+                    print(f"   Size: {len(archive_data)} bytes")
+                print("SEND-31 " + str(time.time()))
+                return True
+                
+        except Exception as e:
+            print(f"❌ Error sending via sheets: {e}")
+            return False
+    
+    def update_inbox_from_sheets(self, inbox_dir: str = None) -> Dict[str, List[str]]:
+        """
+        Check all friend sheets for new messages
+        
+        Args:
+            inbox_dir: Directory to extract messages to
+            
+        Returns:
+            Dict mapping friend emails to downloaded message IDs
+        """
+        import base64
+        import time
+        print("UPDATEINBOX-1 " + str(time.time()))
+        self._ensure_authenticated()
+        print("UPDATEINBOX-2 " + str(time.time()))
+        # Set default inbox directory
+        if inbox_dir is None:
+            print("UPDATEINBOX-3 " + str(time.time()))
+            syftbox_dir = self.get_syftbox_directory()
+            print("UPDATEINBOX-4 " + str(time.time()))
+            if syftbox_dir is None:
+                print("❌ Could not determine SyftBox directory")
+                return {}
+            inbox_dir = str(syftbox_dir / "inbox")
+        print("UPDATEINBOX-5 " + str(time.time()))
+        os.makedirs(inbox_dir, exist_ok=True)
+        if not self.friends:
+            return {}
+        downloaded_messages = {}
+        print("UPDATEINBOX-6 " + str(time.time()))
+        sheets_service = self._get_sheets_service()
+        print("UPDATEINBOX-7 " + str(time.time()))
+        # Build batch request for all friends
+        print("UPDATEINBOX-8 " + str(time.time()))
+        ranges = []
+        friend_sheets = {}
+        for friend_email in self.friends:
+            sheet_name = f"syft_{friend_email}_to_{self.my_email}_messages"
+            if self.verbose:
+                print(f"🔍 Looking for sheet: {sheet_name}")
+            # Pass the friend's email to search in shared files
+            print("UPDATEINBOX-9 " + str(time.time()))
+            sheet_id = self._find_message_sheet(sheet_name, from_email=friend_email)
+            print("UPDATEINBOX-10 " + str(time.time()))
+            if sheet_id:
+                ranges.append(f"messages!A:E")
+                friend_sheets[friend_email] = sheet_id
+                if self.verbose:
+                    print(f"   ✅ Found sheet ID: {sheet_id}")
+            else:
+                if self.verbose:
+                    print(f"   ❌ Sheet not found")
+        if not ranges:
+            return {}
+        print("UPDATEINBOX-11 " + str(time.time()))
+        try:
+            # Single batch get for all sheets
+            if self.verbose:
+                print(f"📊 Checking {len(friend_sheets)} friend sheets...")
+            for friend_email, sheet_id in friend_sheets.items():
+                try:
+                    # Get all rows from this friend's sheet
+                    print("UPDATEINBOX-12 " + str(time.time()))
+                    result = sheets_service.spreadsheets().values().get(
+                        spreadsheetId=sheet_id,
+                        range='messages!A:D'
+                    ).execute()
+                    print("UPDATEINBOX-13 " + str(time.time()))
+                    rows = result.get('values', [])
+                    if self.verbose:
+                        if len(rows) == 0:
+                            print(f"   📭 No messages")
+                        else:
+                            print(f"   📋 Found {len(rows)} message(s)")
+                    if len(rows) == 0:  # No messages
+                        continue
+                    # Process all messages (no header to skip)
+                    print("UPDATEINBOX-14 " + str(time.time()))
+                    pending_messages = []
+                    for i, row in enumerate(rows, start=1):
+                        if self.verbose and len(row) >= 2:
+                            print(f"   Row {i}: msg_id = '{row[1] if len(row) > 1 else 'N/A'}'")
+                        if len(row) >= 4:  # timestamp, msg_id, size, data
+                            pending_messages.append((i, row))
+                    if pending_messages:
+                        print(f"\n📬 Found {len(pending_messages)} message(s) from {friend_email}")
+                        downloaded_messages[friend_email] = []
+                        rows_to_archive = []
+                        print("UPDATEINBOX-15 " + str(time.time()))
+                        for row_num, row in pending_messages:
+                            timestamp, msg_id, size, encoded_data = row[:4]
+                            # Check if already downloaded
+                            local_path = os.path.join(inbox_dir, msg_id)
+                            if os.path.exists(local_path):
+                                if self.verbose:
+                                    print(f"   ⏭️  Skipping {msg_id} - already downloaded")
+                                continue
+                            try:
+                                if self.verbose:
+                                    print(f"   📥 Processing {msg_id}...")
+                                # Decode and extract
+                                print("UPDATEINBOX-16 " + str(time.time()))
+                                archive_data = base64.b64decode(encoded_data)
+                                print("UPDATEINBOX-17 " + str(time.time()))
+                                # Save to temp file and extract
+                                with tempfile.NamedTemporaryFile(suffix='.tar.gz', delete=False) as tmp:
+                                    tmp.write(archive_data)
+                                    tmp_path = tmp.name
+                                # Extract archive
+                                print("UPDATEINBOX-18 " + str(time.time()))
+                                with tarfile.open(tmp_path, 'r:gz') as tar:
+                                    tar.extractall(inbox_dir)
+                                print("UPDATEINBOX-19 " + str(time.time()))
+                                os.unlink(tmp_path)
+                                downloaded_messages[friend_email].append(msg_id)
+                                rows_to_archive.append(row_num)
+                                if self.verbose:
+                                    print(f"   ✅ Downloaded {msg_id}")
+                                    
+                            except Exception as e:
+                                print(f"   ❌ Error processing {msg_id}: {e}")
+                        
+                        # Dispatch archiving task if we downloaded any messages
+                        if rows_to_archive:
+                            if self.verbose:
+                                print(f"   🗄️  Dispatching archive task for {len(rows_to_archive)} messages...")
+                            print("UPDATEINBOX-20 " + str(time.time()))
+                            self._archive_sheet_messages_async(sheet_id, rows_to_archive)
+                            print("UPDATEINBOX-21 " + str(time.time()))
+                    
+                except Exception as e:
+                    if self.verbose:
+                        print(f"   ⚠️  Error checking {friend_email}: {e}")
+            
+            print("UPDATEINBOX-22 " + str(time.time()))
+            return downloaded_messages
+            
+        except Exception as e:
+            print(f"❌ Error updating from sheets: {e}")
+            return {}
+
+
 def create_gdrive_client(email_or_auth_method: str = "auto", verbose: bool = True, force_relogin: bool = False) -> GDriveUnifiedClient:
     """
     Create and authenticate a GDrive client

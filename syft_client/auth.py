@@ -403,6 +403,40 @@ def add_current_credentials_to_wallet() -> Optional[str]:
         return None
 
 
+def reset_credentials(email: str):
+    """
+    Clear all cached credentials for an account to force re-authentication
+    
+    This is useful when you need to get new credentials with additional scopes
+    (e.g., adding Google Sheets access)
+    
+    Args:
+        email: Email address to reset credentials for
+    """
+    if not email:
+        print("❌ Please specify an email to reset credentials for")
+        return
+    
+    # Clear all tokens for the account
+    account_dir = _get_account_dir(email)
+    if account_dir.exists():
+        token_count = 0
+        for token_file in account_dir.glob("token_*.json"):
+            try:
+                token_file.unlink()
+                token_count += 1
+            except:
+                pass
+        if token_count > 0:
+            print(f"🗑️  Cleared {token_count} cached token(s) for {email}")
+            print(f"📝 Please re-authenticate to get new credentials:")
+            print(f"   client = login('{email}', force_relogin=True)")
+        else:
+            print(f"📁 No cached tokens found for {email}")
+    else:
+        print(f"📁 No account found for {email}")
+
+
 def logout(email: Optional[str] = None, clear_tokens_only: bool = True):
     """
     Logout from an account (remove from wallet)
