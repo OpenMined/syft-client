@@ -2,7 +2,6 @@
 Base class for file-backed views in SyftBox with safety features
 """
 import json
-import yaml
 import hashlib
 import fcntl
 import contextlib
@@ -29,7 +28,7 @@ class SyftFileBackedView:
         self.schema_version = schema_version
         
         # Define standard paths
-        self.metadata_path = self.path / "metadata.yaml"
+        self.metadata_path = self.path / "metadata.json"
         self.lock_path = self.path / "lock.json"
         self.data_dir = self.path / "data"
         self.data_dir.mkdir(exist_ok=True)
@@ -78,7 +77,7 @@ class SyftFileBackedView:
         # Write to temporary file first
         with tempfile.NamedTemporaryFile(mode='w', dir=self.path, 
                                        delete=False, suffix='.tmp') as tmp:
-            yaml.dump(metadata, tmp, default_flow_style=False)
+            json.dump(metadata, tmp, indent=2)
             tmp_path = tmp.name
         
         # Atomic rename (POSIX compliant)
@@ -94,7 +93,7 @@ class SyftFileBackedView:
         if not self.metadata_path.exists():
             return {"_schema_version": self.schema_version}
         with open(self.metadata_path, 'r') as f:
-            return yaml.safe_load(f) or {}
+            return json.load(f)
     
     def update_metadata(self, updates: Dict[str, Any]):
         """Update specific metadata fields atomically"""
@@ -109,7 +108,7 @@ class SyftFileBackedView:
             # Write atomically
             with tempfile.NamedTemporaryFile(mode='w', dir=self.path, 
                                            delete=False, suffix='.tmp') as tmp:
-                yaml.dump(metadata, tmp, default_flow_style=False)
+                json.dump(metadata, tmp, indent=2)
                 tmp_path = tmp.name
             
             os.replace(tmp_path, self.metadata_path)

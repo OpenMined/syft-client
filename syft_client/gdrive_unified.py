@@ -9,6 +9,8 @@ import tarfile
 import tempfile
 import shutil
 import threading
+import yaml
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Union
@@ -73,6 +75,9 @@ class GDriveUnifiedClient:
         self._sheet_cache_time = {}  # Timestamps for sheet cache entries
         self._spreadsheet_info_cache = {}  # Cache for spreadsheet properties
         self._spreadsheet_info_cache_time = {}  # Timestamps for spreadsheet info cache
+        self._metadata_cache = {}  # Cache for parsed message metadata
+        self._path_cache = {}  # Cache for string paths
+        self._dir_structure = set()  # Pre-created directories
         
     def __repr__(self) -> str:
         """Pretty representation of the client"""
@@ -388,7 +393,6 @@ class GDriveUnifiedClient:
     
     def _ensure_authenticated(self):
         """Ensure client is authenticated before operations"""
-        import time
         print("ENSUREAUTH-1 " + str(time.time()))
         if not self.authenticated:
             raise RuntimeError("Client not authenticated. Call authenticate() first.")
@@ -396,7 +400,6 @@ class GDriveUnifiedClient:
     
     def _get_sheets_service(self):
         """Get or create cached Google Sheets service"""
-        import time
         print("GETSHEETS-1 " + str(time.time()))
         self._ensure_authenticated()
         print("GETSHEETS-2 " + str(time.time()))
@@ -417,7 +420,6 @@ class GDriveUnifiedClient:
         Returns:
             Folder ID if found, None otherwise
         """
-        import time
         print("GETFOLDERID-1 " + str(time.time()))
         self._ensure_authenticated()
         print("GETFOLDERID-2 " + str(time.time()))
@@ -641,7 +643,6 @@ class GDriveUnifiedClient:
         Returns:
             Dictionary with cache statistics
         """
-        import time
         friends_cache_age = None
         if self._friends_cache_time:
             friends_cache_age = int(time.time() - self._friends_cache_time)
@@ -706,7 +707,6 @@ class GDriveUnifiedClient:
     
     def get_syftbox_directory(self) -> Optional[Path]:
         """Get the local SyftBox directory path"""
-        import time
         print("GETSYFTBOXDIR-1 " + str(time.time()))
         if self.local_syftbox_dir:
             print("GETSYFTBOXDIR-2 " + str(time.time()))
@@ -850,7 +850,8 @@ class GDriveUnifiedClient:
             
             media = MediaIoBaseUpload(
                 io.FileIO(local_path, 'rb'),
-                mimetype=mimetype
+                mimetype=mimetype,
+                resumable=True  # Enable resumable uploads for large files
             )
             
             file = self.service.files().create(
@@ -1092,7 +1093,6 @@ class GDriveUnifiedClient:
         Returns:
             True if successful
         """
-        import time
         print("ADDPERM-1 " + str(time.time()))
         self._ensure_authenticated()
         print("ADDPERM-2 " + str(time.time()))
@@ -1538,6 +1538,135 @@ class GDriveUnifiedClient:
             print(f"❌ Error adding friend: {e}")
             return False
     
+    def send_file_or_folder_auto(self, path: str, recipient_email: str) -> bool:
+        """
+        Send a file or folder automatically choosing the best transport method
+        
+        Small files (<3.5MB compressed) use sheets for faster delivery
+        Large files use direct Google Drive upload
+        
+        Args:
+            path: Path to the file or folder to send
+            recipient_email: Email address of the recipient (must be a friend)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        import tempfile
+        
+        self._ensure_authenticated()
+        
+        # Check if recipient is in friends list
+        if recipient_email not in self.friends:
+            print(f"❌ We don't have an outbox for {recipient_email}")
+            return False
+        
+        # Create a temporary directory to check size
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Prepare the message to check size
+            result = self._prepare_message(path, recipient_email, temp_dir)
+            if not result:
+                return False
+            
+            message_id, archive_path, archive_size = result
+            
+            # Decide which method to use based on size
+            # 3.5MB limit for sheets (accounting for base64 encoding overhead)
+            if archive_size <= 3.5 * 1024 * 1024:
+                if self.verbose:
+                    print(f"📊 Using sheets transport (size: {archive_size / (1024*1024):.1f}MB)")
+                # Small file - use sheets (faster)
+                return self.send_file_or_folder_via_sheets(path, recipient_email)
+            else:
+                if self.verbose:
+                    print(f"📦 Using direct upload (size: {archive_size / (1024*1024):.1f}MB)")
+                # Large file - use direct upload
+                return self.send_file_or_folder(path, recipient_email)
+    
+    def _prepare_message(self, path: str, recipient_email: str, temp_dir: str) -> Optional[tuple]:
+        """
+        Prepare a SyftMessage archive for sending
+        
+        Args:
+            path: Path to the file or folder to send
+            recipient_email: Email address of the recipient
+            temp_dir: Temporary directory to create the message in
+            
+        Returns:
+            Tuple of (message_id, archive_path, archive_size) if successful, None otherwise
+        """
+        from .syft_message import SyftMessage
+        
+        # Check if path exists
+        if not os.path.exists(path):
+            print(f"❌ Path not found: {path}")
+            return None
+        
+        is_directory = os.path.isdir(path)
+        temp_path = Path(temp_dir)
+        
+        # Create SyftMessage
+        message = SyftMessage.create(
+            sender_email=self.my_email,
+            recipient_email=recipient_email,
+            message_root=temp_path
+        )
+        
+        if self.verbose:
+            print(f"📦 Creating message: {message.message_id}")
+        
+        # Check if the path is within a datasites directory
+        abs_path = os.path.abspath(path)
+        datasites_marker = os.sep + "datasites" + os.sep
+        
+        if datasites_marker in abs_path:
+            # Extract the path relative to datasites
+            parts = abs_path.split(datasites_marker, 1)
+            if len(parts) == 2:
+                relative_to_datasites = parts[1]
+            else:
+                relative_to_datasites = os.path.basename(path)
+        else:
+            # Not in datasites, just use the filename
+            relative_to_datasites = os.path.basename(path)
+        
+        # Add files to the message
+        if is_directory:
+            # For directories, use the relative path if within datasites
+            if datasites_marker in abs_path:
+                self._add_folder_to_message(message, path, None, parent_path=relative_to_datasites)
+            else:
+                # Not in datasites, use directory name as base
+                base_name = os.path.basename(path.rstrip('/'))
+                self._add_folder_to_message(message, path, base_name)
+        else:
+            # Add single file with correct datasites path
+            syftbox_path = f"datasites/{relative_to_datasites}"
+            message.add_file(
+                source_path=Path(path),
+                path=syftbox_path,
+                permissions={
+                    "read": [recipient_email],
+                    "write": [self.my_email]
+                }
+            )
+            
+            if self.verbose:
+                print(f"   📄 Added file: {relative_to_datasites}")
+        
+        # Finalize the message
+        message.finalize()
+        
+        # Create tar.gz archive
+        archive_path = os.path.join(temp_dir, f"{message.message_id}.tar.gz")
+        with tarfile.open(archive_path, 'w:gz') as tar:
+            tar.add(str(message.path), arcname=message.message_id)
+        
+        # Get archive size
+        archive_size = os.path.getsize(archive_path)
+        
+        return (message.message_id, archive_path, archive_size)
+    
     def send_file_or_folder(self, path: str, recipient_email: str) -> bool:
         """
         Send a file or folder to a friend by creating a SyftMessage
@@ -1549,7 +1678,6 @@ class GDriveUnifiedClient:
         Returns:
             bool: True if successful, False otherwise
         """
-        from .syft_message import SyftMessage
         import tempfile
         
         self._ensure_authenticated()
@@ -1558,13 +1686,6 @@ class GDriveUnifiedClient:
         if recipient_email not in self.friends:
             print(f"❌ We don't have an outbox for {recipient_email}")
             return False
-        
-        # Check if path exists
-        if not os.path.exists(path):
-            print(f"❌ Path not found: {path}")
-            return False
-    
-        is_directory = os.path.isdir(path)
         
         # Get the outbox folder ID
         if not self.my_email:
@@ -1590,86 +1711,35 @@ class GDriveUnifiedClient:
             
             # Create a temporary directory for the SyftMessage
             with tempfile.TemporaryDirectory() as temp_dir:
-                temp_path = Path(temp_dir)
+                # Prepare the message
+                result = self._prepare_message(path, recipient_email, temp_dir)
+                if not result:
+                    return False
                 
-                # Create SyftMessage
-                message = SyftMessage.create(
-                    sender_email=self.my_email,
-                    recipient_email=recipient_email,
-                    message_root=temp_path
-                )
+                message_id, archive_path, archive_size = result
                 
-                if self.verbose:
-                    print(f"📦 Creating message: {message.message_id}")
-                
-                # Check if the path is within a datasites directory
-                abs_path = os.path.abspath(path)
-                datasites_marker = os.sep + "datasites" + os.sep
-                
-                if datasites_marker in abs_path:
-                    # Extract the path relative to datasites
-                    parts = abs_path.split(datasites_marker, 1)
-                    if len(parts) == 2:
-                        relative_to_datasites = parts[1]
-                    else:
-                        relative_to_datasites = os.path.basename(path)
-                else:
-                    # Not in datasites, just use the filename
-                    relative_to_datasites = os.path.basename(path)
-                
-                # Add files to the message
-                if is_directory:
-                    # For directories, use the relative path if within datasites
-                    if datasites_marker in abs_path:
-                    
-                        self._add_folder_to_message(message, path, None, parent_path=relative_to_datasites)
-                        
-                    else:
-                        
-                        # Not in datasites, use directory name as base
-                        base_name = os.path.basename(path.rstrip('/'))
-                        self._add_folder_to_message(message, path, base_name)
-                        
-                else:
-                    
-                    # Add single file with correct datasites path
-                    syftbox_path = f"datasites/{relative_to_datasites}"
-                    message.add_file(
-                        source_path=Path(path),
-                        path=syftbox_path,
-                        permissions={
-                            "read": [recipient_email],
-                            "write": [self.my_email]
-                        }
-                    )
-                    
+                # Check size before uploading (5MB limit for sheets)
+                if archive_size > 5 * 1024 * 1024:
                     if self.verbose:
-                        print(f"   📄 Added file: {relative_to_datasites}")
-                
-                # Finalize the message
-                message.finalize()
+                        print(f"📦 Message size: {archive_size / (1024*1024):.1f}MB - using direct upload")
                 
                 # Check if there's already a message with this ID and delete it
-                message_folder_name = message.message_id
                 existing_messages = self.service.files().list(
-                    q=f"name='{message_folder_name}' and '{outbox_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                    q=f"name='{message_id}' and '{outbox_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
                     fields="files(id, name)"
                 ).execute()
                 
                 for existing in existing_messages.get('files', []):
-                    
                     try:
                         self.service.files().delete(fileId=existing['id']).execute()
-                        
                         if self.verbose:
-                            print(f"   ♻️  Replacing existing message: {message_folder_name}")
+                            print(f"   ♻️  Replacing existing message: {message_id}")
                     except Exception as e:
-                        
                         if self.verbose:
                             print(f"   ⚠️  Could not delete existing message: {e}")
                 
                 # Upload the entire SyftMessage folder
-                file_id = self._upload_folder_as_archive(str(message.path), outbox_id, message_folder_name)
+                file_id = self._upload_folder_as_archive(str(Path(temp_dir) / message_id), outbox_id, message_id)
                 
                 if file_id:
                     if self.verbose:
@@ -1745,7 +1815,6 @@ class GDriveUnifiedClient:
         """
         from .syft_message import SyftMessage
         from googleapiclient.http import BatchHttpRequest
-        import time
         
         self._ensure_authenticated()
         
@@ -2001,7 +2070,6 @@ class GDriveUnifiedClient:
         """
         import shutil
         from collections import defaultdict
-        import time
         
         print("AUTOAPPROVE-1 " + str(time.time()))
         self._ensure_authenticated()
@@ -2094,6 +2162,180 @@ class GDriveUnifiedClient:
         print("AUTOAPPROVE-13 " + str(time.time()))
         return dict(approved_counts)
     
+    def _extract_message_directly(self, message_path: Path, datasites_dir: Path) -> Dict[str, int]:
+        """
+        Extract files directly from a message without creating SyftMessage object
+        
+        Args:
+            message_path: Path to the message directory
+            datasites_dir: Path to datasites directory
+            
+        Returns:
+            Dict with counts of files processed
+        """
+        print("MERGE-8a " + str(time.time()))
+        stats = {
+            "files_merged": 0,
+            "files_overwritten": 0,
+            "errors": 0
+        }
+        
+        # Check memory cache first
+        message_id = str(message_path.name)
+        metadata = None
+        
+        print("MERGE-8a1 " + str(time.time()))
+        if message_id in self._metadata_cache:
+            # Use cached metadata (instant!)
+            metadata = self._metadata_cache[message_id]
+            print("MERGE-8b-cached " + str(time.time()))
+        else:
+            # Need to read from disk
+            json_metadata_path = str(message_path) + "/metadata.json"  # String ops
+            yaml_metadata_path = str(message_path) + "/metadata.yaml"
+            
+            print("MERGE-8b " + str(time.time()))
+            
+            # Try JSON first (no existence check - just try to open)
+            try:
+                with open(json_metadata_path, 'r') as f:
+                    print("MERGE-8b-json-opened " + str(time.time()))
+                    metadata = json.load(f)
+                    print("MERGE-8b2-json " + str(time.time()))
+                    # Cache it
+                    self._metadata_cache[message_id] = metadata
+            except FileNotFoundError:
+                print("MERGE-8b-json-not-found " + str(time.time()))
+                # JSON doesn't exist, try YAML
+                try:
+                    print("MERGE-8b1-yaml-start " + str(time.time()))
+                    with open(yaml_metadata_path, 'r') as f:
+                        metadata = yaml.safe_load(f) or {}
+                    print("MERGE-8b2-yaml " + str(time.time()))
+                    # Cache it
+                    self._metadata_cache[message_id] = metadata
+                    
+                    # Convert to JSON for next time (write in background to not block)
+                    try:
+                        def write_json_cache():
+                            time.sleep(0.2)  # Delay to avoid I/O contention
+                            with open(json_metadata_path, 'w') as f:
+                                json.dump(metadata, f, indent=2)
+                        
+                        # Start background thread to write JSON cache
+                        cache_thread = threading.Thread(target=write_json_cache)
+                        cache_thread.daemon = True
+                        cache_thread.start()
+                    except:
+                        pass  # Ignore cache write errors
+                except FileNotFoundError:
+                    # Neither file exists
+                    return stats
+            except Exception as e:
+                stats["errors"] += 1
+                return stats
+        
+        if not metadata:
+            return stats
+        
+        print("MERGE-8c " + str(time.time()))
+        # Get sender for logging
+        sender = metadata.get("from", "unknown")
+        print("MERGE-8c1 " + str(time.time()))
+        if self.verbose:
+            print(f"\n   📦 Processing message from {sender}")
+        
+        print("MERGE-8c2 " + str(time.time()))
+        # Process files directly
+        files_info = metadata.get("files", [])
+        print("MERGE-8c3 " + str(time.time()))
+        
+        # Use string operations instead of Path objects
+        files_dir_str = str(message_path) + "/data/files"
+        datasites_dir_str = str(datasites_dir)
+        
+        print("MERGE-8d " + str(time.time()))
+        
+        # First pass: validate and prepare all operations
+        operations = []
+        for file_entry in files_info:
+            try:
+                file_path = file_entry["path"]
+                
+                # Check if path starts with "datasites/"
+                if not file_path.startswith("datasites/"):
+                    print(f"      ⚠️  Skipping file with non-datasites path: {file_path}")
+                    continue
+                
+                # Get source and destination paths using strings
+                internal_name = file_entry.get("_internal_name", os.path.basename(file_path))
+                source_path_str = files_dir_str + "/" + internal_name
+                
+                # Calculate destination
+                relative_path = file_path[len("datasites/"):]
+                dest_path_str = datasites_dir_str + "/" + relative_path
+                
+                operations.append({
+                    'source': source_path_str,
+                    'dest': dest_path_str,
+                    'relative_path': relative_path
+                })
+            except Exception as e:
+                print(f"      ❌ Error preparing file: {e}")
+                stats["errors"] += 1
+        
+        print("MERGE-8e " + str(time.time()))
+        
+        # Pre-compute unique parent directories using string operations
+        unique_parents = set()
+        for op in operations:
+            parent_dir = os.path.dirname(op['dest'])
+            unique_parents.add(parent_dir)
+        
+        # Create directories only if not already created
+        for parent_dir in unique_parents:
+            if parent_dir not in self._dir_structure:
+                try:
+                    os.makedirs(parent_dir, exist_ok=True)
+                    self._dir_structure.add(parent_dir)
+                except:
+                    pass  # Directory might already exist
+        
+        print("MERGE-8e2 " + str(time.time()))
+        
+        # Second pass: Use hard links (instant!) instead of move
+        for op in operations:
+            try:
+                # Try hard link first (instant operation)
+                try:
+                    os.link(op['source'], op['dest'])
+                    stats["files_merged"] += 1
+                    if self.verbose:
+                        print(f"      ✓ Linked: {op['relative_path']}")
+                except FileExistsError:
+                    # Destination exists, remove and retry
+                    os.unlink(op['dest'])
+                    os.link(op['source'], op['dest'])
+                    stats["files_overwritten"] += 1
+                    if self.verbose:
+                        print(f"      ✓ Re-linked: {op['relative_path']}")
+                except OSError as e:
+                    # Hard link failed (maybe cross-filesystem), fall back to move
+                    shutil.move(op['source'], op['dest'])
+                    stats["files_merged"] += 1
+                    if self.verbose:
+                        print(f"      ✓ Moved: {op['relative_path']}")
+                        
+            except FileNotFoundError:
+                print(f"      ❌ Source file not found: {op['source']}")
+                stats["errors"] += 1
+            except Exception as e:
+                print(f"      ❌ Error linking file: {e}")
+                stats["errors"] += 1
+        
+        print("MERGE-8f " + str(time.time()))
+        return stats
+    
     def merge_new_syncs(self, syftbox_dir: Optional[Path] = None) -> Dict[str, int]:
         """
         Merge approved SyftMessages into the datasites directory
@@ -2113,7 +2355,6 @@ class GDriveUnifiedClient:
         from .syft_message import SyftMessage
         import shutil
         from collections import defaultdict
-        import time
         
         print("MERGE-1 " + str(time.time()))
         self._ensure_authenticated()
@@ -2158,106 +2399,94 @@ class GDriveUnifiedClient:
         if self.verbose:
             print(f"🔄 Merging approved syncs to {datasites_dir}")
         
-        # Process each item in approved directory
+        # Process each item in approved directory using faster os.scandir
         print("MERGE-7 " + str(time.time()))
-        for item in approved_dir.iterdir():
-            
-            try:
-                # Load and validate the message
-                print("MERGE-8 " + str(time.time()))
-                message = SyftMessage(item)
-                print("MERGE-9 " + str(time.time()))
-                is_valid, error = message.validate()
-                print("MERGE-10 " + str(time.time()))
-                
-                if not is_valid:
-                    print(f"   ❌ Invalid message {item.name}: {error}")
-                    stats["errors"] += 1
-                    continue
-                
-                # Get message metadata
-                print("MERGE-11 " + str(time.time()))
-                metadata = message.get_metadata()
-                sender = metadata.get("from", "unknown")
-                print("MERGE-12 " + str(time.time()))
-                
-                if self.verbose:
-                    print(f"\n   📦 Processing message from {sender}")
-                
-                # Process each file in the message
-                print("MERGE-13 " + str(time.time()))
-                for file_entry in message.get_files():
-                    file_path = file_entry["path"]
-                    
-                    # Check if path starts with "datasites/"
-                    if not file_path.startswith("datasites/"):
-                        print(f"      ⚠️  Skipping file with non-datasites path: {file_path}")
-                        continue
-                    
-                    # Remove "datasites/" prefix to get the relative path
-                    relative_path = file_path[len("datasites/"):]
-                    dest_path = datasites_dir / relative_path
-                    
-                    # Check if file already exists
-                    file_exists = dest_path.exists()
-                    
-                    # Create parent directories if needed
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    
-                    # Extract the file
-                    try:
-                        print("MERGE-14 " + str(time.time()))
-                        message.extract_file(file_path, dest_path, verify_hash=True)
-                        print("MERGE-15 " + str(time.time()))
-                        
-                        if file_exists:
-                            stats["files_overwritten"] += 1
-                            if self.verbose:
-                                print(f"      ✓ Overwrote: {relative_path}")
-                        else:
-                            if self.verbose:
-                                print(f"      ✓ Added: {relative_path}")
-                        
-                        stats["files_merged"] += 1
-                        
-                    except Exception as e:
-                        print(f"      ❌ Error extracting {relative_path}: {e}")
-                        stats["errors"] += 1
-                
-                stats["messages_processed"] += 1
-                
-                # Move processed message to merged_archive
-                print("MERGE-16 " + str(time.time()))
-                merged_archive_dir = syftbox_dir / "merged_archive"
-                merged_archive_dir.mkdir(exist_ok=True)
+        items_processed = 0
+        with os.scandir(str(approved_dir)) as entries:
+            for entry in entries:
                 
                 try:
-                    archive_path = merged_archive_dir / item.name
+                    # Skip non-directories
+                    if not entry.is_dir():
+                        continue
                     
-                    # If archive already exists, remove it first
-                    if archive_path.exists():
-                        if archive_path.is_dir():
-                            shutil.rmtree(archive_path)
-                        else:
-                            archive_path.unlink()
+                    items_processed += 1
+                    if items_processed == 1:
+                        print("MERGE-7a-first-item " + str(time.time()))
                     
-                    # Move to archive
-                    print("MERGE-17 " + str(time.time()))
-                    shutil.move(str(item), str(archive_path))
-                    print("MERGE-18 " + str(time.time()))
+                    print("MERGE-8 " + str(time.time()))
                     
-                    if self.verbose:
-                        print(f"   📁 Archived to merged_archive/{item.name}")
+                    # Convert DirEntry to Path for compatibility
+                    item = Path(entry.path)
+                    
+                    # Use optimized direct extraction (no SyftMessage object)
+                    file_stats = self._extract_message_directly(item, datasites_dir)
+                    
+                    print("MERGE-9 " + str(time.time()))
+                    
+                    # Update overall stats
+                    stats["files_merged"] += file_stats["files_merged"]
+                    stats["files_overwritten"] += file_stats["files_overwritten"]
+                    stats["errors"] += file_stats["errors"]
+                    
+                    if file_stats["files_merged"] > 0 or file_stats["files_overwritten"] > 0:
+                        stats["messages_processed"] += 1
+                    else:
+                        stats["messages_skipped"] += 1
+                    
+                    # Move processed message to merged_archive
+                    print("MERGE-10 " + str(time.time()))
+                    merged_archive_dir = syftbox_dir / "merged_archive"
+                    merged_archive_dir.mkdir(exist_ok=True)
+                    
+                    try:
+                        archive_path = merged_archive_dir / item.name
+                    
+                        # If archive already exists, remove it first
+                        if archive_path.exists():
+                            if archive_path.is_dir():
+                                shutil.rmtree(archive_path)
+                            else:
+                                archive_path.unlink()
                         
-                except Exception as archive_error:
-                    print(f"   ⚠️  Could not archive {item.name}: {archive_error}")
-                
-            except Exception as e:
-                print(f"   ❌ Error processing {item.name}: {e}")
-                stats["errors"] += 1
+                        # Move to archive (instant operation)
+                        print("MERGE-11 " + str(time.time()))
+                        shutil.move(str(item), str(archive_path))
+                        print("MERGE-12 " + str(time.time()))
+                        
+                        # The original folder is now empty (files were moved)
+                        # Schedule async re-extraction from the archive file if it exists
+                        archive_file = None
+                        # Look for corresponding .tar.gz file in archive or inbox
+                        for archive_dir in [syftbox_dir / "archive", syftbox_dir / "inbox"]:
+                            if archive_dir.exists():
+                                potential_archive = archive_dir / f"{item.name}.tar.gz"
+                                if potential_archive.exists():
+                                    archive_file = potential_archive
+                                    break
+                        
+                        # Since we used hard links, the files still exist in approved
+                        # We don't need to restore from archive immediately
+                        # Just clean up if the directory is truly empty
+                        try:
+                            # Check if directory has any remaining files/subdirs
+                            if not any(item.iterdir()):
+                                item.rmdir()  # Remove if empty
+                        except:
+                            pass  # Directory not empty or other error
+                        
+                        if self.verbose:
+                            print(f"   📁 Moved to merged_archive/{item.name}")
+                            
+                    except Exception as archive_error:
+                        print(f"   ⚠️  Could not archive {item.name}: {archive_error}")
+                    
+                except Exception as e:
+                    print(f"   ❌ Error processing {item.name}: {e}")
+                    stats["errors"] += 1
         
         # Print summary
-        print("MERGE-19 " + str(time.time()))
+        print("MERGE-13 " + str(time.time()))
         if self.verbose:
             print(f"\n✅ Merge completed:")
             print(f"   - Messages processed: {stats['messages_processed']}")
@@ -2267,7 +2496,7 @@ class GDriveUnifiedClient:
             if stats['errors'] > 0:
                 print(f"   - Errors: {stats['errors']}")
         
-        print("MERGE-20 " + str(time.time()))
+        print("MERGE-14 " + str(time.time()))
         return stats
     
     def _download_folder_recursive(self, folder_id: str, local_parent: str, folder_name: str) -> bool:
@@ -2340,7 +2569,6 @@ class GDriveUnifiedClient:
             return []
         
         # Check if cache is valid (less than 1 hour old)
-        import time
         current_time = time.time()
         if (self._friends_cache is not None and 
             self._friends_cache_time is not None and 
@@ -2829,10 +3057,8 @@ class GDriveUnifiedClient:
             sheet_id: The spreadsheet ID
             row_numbers: List of row numbers to archive
         """
-        import time
         print("ARCHIVE-1 " + str(time.time()))
         def archive_worker():
-            import time
             print("ARCHIVE-2 " + str(time.time()))
             try:
                 print("ARCHIVE-3 " + str(time.time()))
@@ -2972,9 +3198,13 @@ class GDriveUnifiedClient:
             except Exception as e:
                 print(f"   ⚠️  Error archiving messages: {e}")
         
-        # Start background thread
+        # Start background thread with a small delay to avoid GIL contention
         print("ARCHIVE-18 " + str(time.time()))
-        thread = threading.Thread(target=archive_worker, daemon=True)
+        def delayed_start():
+            time.sleep(0.1)  # Small delay to let main operation complete
+            archive_worker()
+        
+        thread = threading.Thread(target=delayed_start, daemon=True)
         thread.start()
         print("ARCHIVE-19 " + str(time.time()))
     
@@ -2989,7 +3219,6 @@ class GDriveUnifiedClient:
         Returns:
             Spreadsheet ID if found, None otherwise
         """
-        import time
         print("FINDSHEET-1 " + str(time.time()))
         self._ensure_authenticated()
         print("FINDSHEET-2 " + str(time.time()))
@@ -3103,7 +3332,6 @@ class GDriveUnifiedClient:
         Returns:
             Spreadsheet ID if successful
         """
-        import time
         print("GETSHEET-1 " + str(time.time()))
         self._ensure_authenticated()
         print("GETSHEET-2 " + str(time.time()))
@@ -3199,9 +3427,7 @@ class GDriveUnifiedClient:
         Returns:
             True if successful
         """
-        from .syft_message import SyftMessage
         import base64
-        import time
         print("SEND-1 " + str(time.time()))
         self._ensure_authenticated()
         print("SEND-2 " + str(time.time()))
@@ -3209,87 +3435,22 @@ class GDriveUnifiedClient:
             print(f"❌ {recipient_email} is not in your friends list")
             return False
         try:
-            # Create SyftMessage
             print("SEND-5 " + str(time.time()))
             with tempfile.TemporaryDirectory() as temp_dir:
                 print("SEND-6 " + str(time.time()))
-                temp_path = Path(temp_dir)
-                msg = SyftMessage.create(
-                    sender_email=self.my_email,
-                    recipient_email=recipient_email,
-                    message_root=temp_path
-                )
-                print("SEND-7 " + str(time.time()))
-                # Check if the path is within a datasites directory
-                print("SEND-8 " + str(time.time()))
-                abs_path = os.path.abspath(path)
-                print("SEND-9 " + str(time.time()))
-                datasites_marker = os.sep + "datasites" + os.sep
-                
-                if datasites_marker in abs_path:
-                    # Extract the path relative to datasites
-                    parts = abs_path.split(datasites_marker, 1)
-                    if len(parts) == 2:
-                        relative_to_datasites = parts[1]
-                    else:
-                        relative_to_datasites = os.path.basename(path)
-                else:
-                    # Not in datasites, just use the filename
-                    relative_to_datasites = os.path.basename(path)
-                
-                # Add the file or folder to the message
-                print("SEND-10 " + str(time.time()))
-                source_path = Path(path)
-                if source_path.is_file():
-                    print("SEND-11 " + str(time.time()))
-                    # Add single file
-                    # Add single file with correct datasites path
-                    syftbox_path = f"datasites/{relative_to_datasites}"
-                    msg.add_file(
-                        source_path=source_path,
-                        path=syftbox_path,
-                        permissions={
-                            "read": [recipient_email],
-                            "write": [self.my_email]
-                        }
-                    )
-                    print("SEND-12 " + str(time.time()))
-                elif source_path.is_dir():
-                    # Add all files in directory
-                    for file_path in source_path.rglob('*'):
-                        if file_path.is_file():
-                            if datasites_marker in abs_path:
-                                # Calculate path relative to the source directory
-                                rel_to_source = file_path.relative_to(source_path)
-                                syftbox_path = f"datasites/{relative_to_datasites}/{rel_to_source}"
-                            else:
-                                # Not in datasites, use directory name as base
-                                base_name = os.path.basename(path.rstrip('/'))
-                                rel_to_source = file_path.relative_to(source_path)
-                                syftbox_path = f"{base_name}/{rel_to_source}"
-                            
-                            msg.add_file(
-                                source_path=file_path,
-                                path=syftbox_path,
-                                permissions={
-                                    "read": [recipient_email],
-                                    "write": [self.my_email]
-                                }
-                            )
-                else:
-                    print(f"❌ Path not found: {path}")
+                # Prepare the message (shared logic)
+                result = self._prepare_message(path, recipient_email, temp_dir)
+                if not result:
                     return False
-                # Finalize the message
-                print("SEND-13 " + str(time.time()))
-                msg.finalize()
-                print("SEND-14 " + str(time.time()))
-                # Create tar.gz archive
-                print("SEND-15 " + str(time.time()))
-                archive_path = os.path.join(temp_dir, f"{msg.message_id}.tar.gz")
-                print("SEND-16 " + str(time.time()))
-                with tarfile.open(archive_path, 'w:gz') as tar:
-                    print("SEND-17 " + str(time.time()))
-                    tar.add(str(msg.path), arcname=msg.message_id)
+                
+                message_id, archive_path, archive_size = result
+                
+                # Check size limit for sheets (5MB base64 encoded ~= 3.75MB raw)
+                if archive_size > 3.5 * 1024 * 1024:
+                    print(f"❌ File too large for sheets transport: {archive_size / (1024*1024):.1f}MB (limit: 3.5MB)")
+                    print(f"   Consider using send_file_or_folder() instead for larger files")
+                    return False
+                
                 print("SEND-18 " + str(time.time()))
                 # Read and encode archive
                 print("SEND-19 " + str(time.time()))
@@ -3314,7 +3475,7 @@ class GDriveUnifiedClient:
                 message_data = {
                     'values': [[
                         timestamp,
-                        msg.message_id,
+                        message_id,
                         str(len(archive_data)),
                         encoded_data
                     ]]
@@ -3333,7 +3494,7 @@ class GDriveUnifiedClient:
                 ).execute()
                 print("SEND-30 " + str(time.time()))
                 if self.verbose:
-                    print(f"📊 Sent message via sheets: {msg.message_id}")
+                    print(f"📊 Sent message via sheets: {message_id}")
                     print(f"   Size: {len(archive_data)} bytes")
                 print("SEND-31 " + str(time.time()))
                 return True
@@ -3353,7 +3514,6 @@ class GDriveUnifiedClient:
             Dict mapping friend emails to downloaded message IDs
         """
         import base64
-        import time
         print("UPDATEINBOX-1 " + str(time.time()))
         self._ensure_authenticated()
         print("UPDATEINBOX-2 " + str(time.time()))
@@ -3456,6 +3616,17 @@ class GDriveUnifiedClient:
                                     tar.extractall(inbox_dir)
                                 print("UPDATEINBOX-19 " + str(time.time()))
                                 os.unlink(tmp_path)
+                                
+                                # Pre-cache metadata if it's JSON
+                                extracted_path = Path(inbox_dir) / msg_id
+                                json_metadata_path = extracted_path / "metadata.json"
+                                if json_metadata_path.exists():
+                                    try:
+                                        with open(json_metadata_path, 'r') as f:
+                                            self._metadata_cache[msg_id] = json.load(f)
+                                    except:
+                                        pass  # Ignore cache errors
+                                
                                 downloaded_messages[friend_email].append(msg_id)
                                 rows_to_archive.append(row_num)
                                 if self.verbose:
