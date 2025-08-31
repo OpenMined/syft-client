@@ -718,6 +718,38 @@ class GDriveUnifiedClient:
         print("GETSYFTBOXDIR-4 " + str(time.time()))
         return None
     
+    def resolve_syft_path(self, path: str) -> str:
+        """
+        Resolve a syft:// URL to a full file path
+        
+        Supports:
+        - syft://filename.txt -> /path/to/SyftBox_email/datasites/filename.txt
+        - syft://folder/filename.txt -> /path/to/SyftBox_email/datasites/folder/filename.txt
+        - Regular paths are returned unchanged
+        
+        Args:
+            path: Path that may start with syft://
+            
+        Returns:
+            Resolved full path
+        """
+        if not path.startswith("syft://"):
+            # Not a syft URL, return as-is
+            return path
+        
+        # Get SyftBox directory
+        syftbox_dir = self.get_syftbox_directory()
+        if not syftbox_dir:
+            raise ValueError("Could not determine SyftBox directory")
+        
+        # Extract the relative path after syft://
+        relative_path = path[7:]  # Remove "syft://"
+        
+        # Build the full path (always in datasites)
+        full_path = syftbox_dir / "datasites" / relative_path
+        
+        return str(full_path)
+    
     # ========== File Operations ==========
     
     def _create_folder(self, name: str, parent_id: str = 'root') -> Optional[str]:
@@ -1542,11 +1574,11 @@ class GDriveUnifiedClient:
         """
         Send a file or folder automatically choosing the best transport method
         
-        Small files (<3.5MB compressed) use sheets for faster delivery
+        Small files (<37.5KB compressed) use sheets for faster delivery
         Large files use direct Google Drive upload
         
         Args:
-            path: Path to the file or folder to send
+            path: Path to the file or folder to send (supports syft:// URLs)
             recipient_email: Email address of the recipient (must be a friend)
             
         Returns:
@@ -1556,6 +1588,9 @@ class GDriveUnifiedClient:
         
         self._ensure_authenticated()
         
+        # Resolve syft:// URLs
+        resolved_path = self.resolve_syft_path(path)
+        
         # Check if recipient is in friends list
         if recipient_email not in self.friends:
             print(f"❌ We don't have an outbox for {recipient_email}")
@@ -1564,24 +1599,92 @@ class GDriveUnifiedClient:
         # Create a temporary directory to check size
         with tempfile.TemporaryDirectory() as temp_dir:
             # Prepare the message to check size
-            result = self._prepare_message(path, recipient_email, temp_dir)
+            result = self._prepare_message(resolved_path, recipient_email, temp_dir)
             if not result:
                 return False
             
             message_id, archive_path, archive_size = result
             
             # Decide which method to use based on size
-            # 3.5MB limit for sheets (accounting for base64 encoding overhead)
-            if archive_size <= 3.5 * 1024 * 1024:
+            # Google Sheets has a 50,000 character limit per cell
+            # Base64 encoding increases size by ~33% (4/3 ratio)
+            # So max raw size = 50,000 / (4/3) = 37,500 bytes
+            max_sheets_size = 37_500  # Conservative limit to stay under 50k chars
+            if archive_size <= max_sheets_size:
                 if self.verbose:
-                    print(f"📊 Using sheets transport (size: {archive_size / (1024*1024):.1f}MB)")
+                    print(f"📊 Using sheets transport (size: {archive_size:,} bytes)")
                 # Small file - use sheets (faster)
-                return self.send_file_or_folder_via_sheets(path, recipient_email)
+                return self.send_file_or_folder_via_sheets(resolved_path, recipient_email)
             else:
                 if self.verbose:
-                    print(f"📦 Using direct upload (size: {archive_size / (1024*1024):.1f}MB)")
+                    if archive_size < 1024 * 1024:
+                        print(f"📦 Using direct upload (size: {archive_size:,} bytes)")
+                    else:
+                        print(f"📦 Using direct upload (size: {archive_size / (1024*1024):.1f}MB)")
                 # Large file - use direct upload
-                return self.send_file_or_folder(path, recipient_email)
+                return self.send_file_or_folder(resolved_path, recipient_email)
+    
+    def send_file_or_folder_to_friends(self, path: str) -> Dict[str, bool]:
+        """
+        Send a file or folder to all friends using the best transport method
+        
+        Args:
+            path: Path to the file or folder to send (supports syft:// URLs)
+            
+        Returns:
+            Dict mapping friend emails to success status
+        """
+        self._ensure_authenticated()
+        
+        # Resolve syft:// URLs
+        resolved_path = self.resolve_syft_path(path)
+        
+        # Check if path exists
+        if not os.path.exists(resolved_path):
+            print(f"❌ Path not found: {resolved_path}")
+            if path.startswith("syft://"):
+                print(f"   (resolved from: {path})")
+            return {}
+        
+        # Get list of friends
+        friends_list = self.friends
+        if not friends_list:
+            print("❌ No friends to send to. Add friends first with add_friend()")
+            return {}
+        
+        print(f"📤 Sending {os.path.basename(resolved_path)} to {len(friends_list)} friend(s)...")
+        
+        results = {}
+        successful = 0
+        failed = 0
+        
+        for i, friend_email in enumerate(friends_list, 1):
+            print(f"\n[{i}/{len(friends_list)}] Sending to {friend_email}...")
+            
+            try:
+                # Use auto method to choose best transport
+                success = self.send_file_or_folder_auto(resolved_path, friend_email)
+                results[friend_email] = success
+                
+                if success:
+                    print(f"   ✅ Successfully sent to {friend_email}")
+                    successful += 1
+                else:
+                    print(f"   ❌ Failed to send to {friend_email}")
+                    failed += 1
+                    
+            except Exception as e:
+                print(f"   ❌ Error sending to {friend_email}: {str(e)}")
+                results[friend_email] = False
+                failed += 1
+        
+        # Summary
+        print(f"\n📊 Summary:")
+        print(f"   ✅ Successful: {successful}")
+        print(f"   ❌ Failed: {failed}")
+        print(f"   📨 Total: {len(friends_list)}")
+        
+        return results
     
     def _prepare_message(self, path: str, recipient_email: str, temp_dir: str) -> Optional[tuple]:
         """
@@ -1602,6 +1705,25 @@ class GDriveUnifiedClient:
             print(f"❌ Path not found: {path}")
             return None
         
+        # Validate that the file is within THIS client's SyftBox folder
+        abs_path = os.path.abspath(path)
+        expected_syftbox = self.get_syftbox_directory()
+        
+        if expected_syftbox is None:
+            print(f"❌ Error: Could not determine SyftBox directory")
+            return None
+        
+        expected_syftbox_str = str(expected_syftbox)
+        
+        # Check if the file is within this specific client's SyftBox
+        if not abs_path.startswith(expected_syftbox_str + os.sep):
+            print(f"❌ Error: Files must be within YOUR SyftBox folder to be sent")
+            print(f"   Your SyftBox: {expected_syftbox_str}")
+            print(f"   File path: {path}")
+            print(f"   Tip: Move your file to {expected_syftbox_str}/datasites/ or use syft:// URLs")
+            print(f"   Example: syft://filename.txt")
+            return None
+        
         is_directory = os.path.isdir(path)
         temp_path = Path(temp_dir)
         
@@ -1616,18 +1738,19 @@ class GDriveUnifiedClient:
             print(f"📦 Creating message: {message.message_id}")
         
         # Check if the path is within a datasites directory
-        abs_path = os.path.abspath(path)
         datasites_marker = os.sep + "datasites" + os.sep
         
-        if datasites_marker in abs_path:
-            # Extract the path relative to datasites
-            parts = abs_path.split(datasites_marker, 1)
-            if len(parts) == 2:
-                relative_to_datasites = parts[1]
-            else:
-                relative_to_datasites = os.path.basename(path)
+        if datasites_marker not in abs_path:
+            print(f"❌ Error: Files must be within a SyftBox datasites folder to be sent")
+            print(f"   Path: {path}")
+            print(f"   Tip: Move your file to {self.get_syftbox_directory()}/datasites/")
+            return None
+        
+        # Extract the path relative to datasites
+        parts = abs_path.split(datasites_marker, 1)
+        if len(parts) == 2:
+            relative_to_datasites = parts[1]
         else:
-            # Not in datasites, just use the filename
             relative_to_datasites = os.path.basename(path)
         
         # Add files to the message
@@ -3445,9 +3568,10 @@ class GDriveUnifiedClient:
                 
                 message_id, archive_path, archive_size = result
                 
-                # Check size limit for sheets (5MB base64 encoded ~= 3.75MB raw)
-                if archive_size > 3.5 * 1024 * 1024:
-                    print(f"❌ File too large for sheets transport: {archive_size / (1024*1024):.1f}MB (limit: 3.5MB)")
+                # Check size limit for sheets (50k char limit per cell)
+                max_sheets_size = 37_500  # Conservative limit to stay under 50k chars after base64
+                if archive_size > max_sheets_size:
+                    print(f"❌ File too large for sheets transport: {archive_size:,} bytes (limit: {max_sheets_size:,} bytes)")
                     print(f"   Consider using send_file_or_folder() instead for larger files")
                     return False
                 
