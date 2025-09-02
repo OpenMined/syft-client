@@ -5,6 +5,7 @@ File watcher functionality for automatic synchronization
 import syft_serve as ss
 import os
 from pathlib import Path
+import requests
 
 
 def create_watcher_sender_endpoint(email):
@@ -143,7 +144,8 @@ def create_watcher_sender_endpoint(email):
                        ],
                        endpoints={"/": hello})
     
-    print(f"Server created at: {server.url}")
+    # print(f"Server created at: {server.url}")
+    requests.get(server.url)
     return server
 
 
