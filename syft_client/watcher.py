@@ -126,14 +126,15 @@ def create_watcher_sender_endpoint(email):
             "email": email
         }
     
-    # Get the package installation path
+    # Get the package parent directory path
     import syft_client
-    syft_client_path = os.path.dirname(os.path.abspath(syft_client.__file__))
+    syft_client_module_path = os.path.dirname(os.path.abspath(syft_client.__file__))
+    syft_client_parent_path = os.path.dirname(syft_client_module_path)
     
     # Create the server with dependencies
     server = ss.create(server_name, 
                        dependencies=[
-                           syft_client_path,  # Use the installed package path
+                           syft_client_parent_path,  # Use the parent directory containing syft_client
                            "watchdog", 
                            "google-api-python-client", 
                            "google-auth", 
