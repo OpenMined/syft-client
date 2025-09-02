@@ -202,8 +202,9 @@ class GDriveUnifiedClient:
                 return self._auth_credentials()
             else:
                 if self.verbose:
-                    print(f"❌ No stored credentials found for {self.target_email}")
-                    print(f"   Use login('{self.target_email}', 'path/to/credentials.json')")
+                    if self.verbose:
+                        print(f"❌ No stored credentials found for {self.target_email}")
+                        print(f"   Use login('{self.target_email}', 'path/to/credentials.json')")
                 return False
         
         if self.auth_method == "auto":
@@ -214,9 +215,10 @@ class GDriveUnifiedClient:
                 return self._auth_credentials()
             else:
                 if self.verbose:
-                    print("❌ No authentication method available")
-                    print("   - Not in Google Colab")
-                    print(f"   - No {self.credentials_file} found")
+                    if self.verbose:
+                        print("❌ No authentication method available")
+                        print("   - Not in Google Colab")
+                        print(f"   - No {self.credentials_file} found")
                 return False
                 
         elif self.auth_method == "credentials":
@@ -224,24 +226,28 @@ class GDriveUnifiedClient:
             
         else:
             if self.verbose:
-                print(f"❌ Unknown auth method: {self.auth_method}")
+                if self.verbose:
+                    print(f"❌ Unknown auth method: {self.auth_method}")
             return False
     
     def _auth_colab(self) -> bool:
         """Authenticate using Google Colab"""
         try:
             if self.verbose:
-                print("🔐 Authenticating with Google Colab...")
+                if self.verbose:
+                    print("🔐 Authenticating with Google Colab...")
             colab_auth.authenticate_user()
             self.service = build('drive', 'v3')
             self.authenticated = True
             self._get_my_email()
             if self.verbose:
-                print("✅ Authenticated via Google Colab")
+                if self.verbose:
+                    print("✅ Authenticated via Google Colab")
             return True
         except Exception as e:
             if self.verbose:
-                print(f"❌ Colab authentication failed: {e}")
+                if self.verbose:
+                    print(f"❌ Colab authentication failed: {e}")
             return False
     
     def _auth_credentials(self) -> bool:
@@ -249,15 +255,18 @@ class GDriveUnifiedClient:
         try:
             if self.verbose:
                 if self.target_email:
-                    print(f"🔐 Authenticating as {self.target_email}...")
+                    if self.verbose:
+                        print(f"🔐 Authenticating as {self.target_email}...")
                 else:
-                    print("🔐 Authenticating with credentials.json...")
+                    if self.verbose:
+                        print("🔐 Authenticating with credentials.json...")
 
             creds = None
             
             # Check if force_relogin is set
             if self.force_relogin and self.verbose:
-                print("🔄 Force relogin requested - ignoring cached token")
+                if self.verbose:
+                    print("🔄 Force relogin requested - ignoring cached token")
             
             # First, try to load cached token if we have a target email and not forcing relogin
             if self.target_email and not self.force_relogin:
@@ -282,7 +291,8 @@ class GDriveUnifiedClient:
                         # Skip refresh check if token is less than 59 minutes old
                         if token_age_minutes < 59:
                             if self.verbose:
-                                print(f"✅ Using cached authentication token (created {int(token_age_minutes)} minutes ago)")
+                                if self.verbose:
+                                    print(f"✅ Using cached authentication token (created {int(token_age_minutes)} minutes ago)")
                             self.service = build('drive', 'v3', credentials=creds)
                             self.creds = creds  # Store for background threads
                             self.authenticated = True
@@ -295,7 +305,8 @@ class GDriveUnifiedClient:
                         # For older tokens, check if they need refresh
                         if creds and creds.expired and creds.refresh_token:
                             if self.verbose:
-                                print("🔄 Refreshing expired token...")
+                                if self.verbose:
+                                    print("🔄 Refreshing expired token...")
                             creds.refresh(Request())
                             # Save the refreshed token as a new file
                             _save_token(self.target_email, {
@@ -310,7 +321,8 @@ class GDriveUnifiedClient:
                         
                         if creds and creds.valid:
                             if self.verbose:
-                                print("✅ Using cached authentication token")
+                                if self.verbose:
+                                    print("✅ Using cached authentication token")
                             self.service = build('drive', 'v3', credentials=creds)
                             self.creds = creds  # Store for background threads
                             self.authenticated = True
@@ -320,13 +332,15 @@ class GDriveUnifiedClient:
                             return True
                     except Exception as e:
                         if self.verbose:
-                            print(f"⚠️  Could not use cached token: {e}")
+                            if self.verbose:
+                                print(f"⚠️  Could not use cached token: {e}")
                         creds = None
             
             # If no valid cached token, do the full OAuth flow
             if not os.path.exists(self.credentials_file):
                 if self.verbose:
-                    print(f"❌ {self.credentials_file} not found")
+                    if self.verbose:
+                        print(f"❌ {self.credentials_file} not found")
                 return False
                 
             flow = InstalledAppFlow.from_client_secrets_file(
@@ -334,9 +348,10 @@ class GDriveUnifiedClient:
             
             # Run the OAuth flow
             if self.verbose:
-                print(f"\n🌐 Opening browser for authentication...")
-                if self.target_email:
-                    print(f"   📧 Please select or sign in as: {self.target_email}")
+                if self.verbose:
+                    print(f"\n🌐 Opening browser for authentication...")
+                    if self.target_email:
+                        print(f"   📧 Please select or sign in as: {self.target_email}")
                     print(f"   ⚠️  Make sure to choose the correct account!")
             
             # Configure messages based on verbose setting
@@ -393,21 +408,21 @@ class GDriveUnifiedClient:
     
     def _ensure_authenticated(self):
         """Ensure client is authenticated before operations"""
-        print("ENSUREAUTH-1 " + str(time.time()))
+        # print("ENSUREAUTH-1 " + str(time.time()))
         if not self.authenticated:
             raise RuntimeError("Client not authenticated. Call authenticate() first.")
-        print("ENSUREAUTH-2 " + str(time.time()))
+        # print("ENSUREAUTH-2 " + str(time.time()))
     
     def _get_sheets_service(self):
         """Get or create cached Google Sheets service"""
-        print("GETSHEETS-1 " + str(time.time()))
+        # print("GETSHEETS-1 " + str(time.time()))
         self._ensure_authenticated()
-        print("GETSHEETS-2 " + str(time.time()))
+        # print("GETSHEETS-2 " + str(time.time()))
         if self._sheets_service is None:
-            print("GETSHEETS-3 " + str(time.time()))
+            # print("GETSHEETS-3 " + str(time.time()))
             self._sheets_service = build('sheets', 'v4', credentials=self.creds)
-            print("GETSHEETS-4 " + str(time.time()))
-        print("GETSHEETS-5 " + str(time.time()))
+            # print("GETSHEETS-4 " + str(time.time()))
+        # print("GETSHEETS-5 " + str(time.time()))
         return self._sheets_service
     
     def _get_syftbox_folder_id(self, use_cache: bool = True) -> Optional[str]:
@@ -420,35 +435,35 @@ class GDriveUnifiedClient:
         Returns:
             Folder ID if found, None otherwise
         """
-        print("GETFOLDERID-1 " + str(time.time()))
+        # print("GETFOLDERID-1 " + str(time.time()))
         self._ensure_authenticated()
-        print("GETFOLDERID-2 " + str(time.time()))
+        # print("GETFOLDERID-2 " + str(time.time()))
         
         # Return cached value if available and cache is enabled
         if use_cache and self._syftbox_folder_id:
-            print("GETFOLDERID-3 " + str(time.time()))
+            # print("GETFOLDERID-3 " + str(time.time()))
             return self._syftbox_folder_id
         
         try:
             # Search for SyftBoxTransportService folder
-            print("GETFOLDERID-4 " + str(time.time()))
+            # print("GETFOLDERID-4 " + str(time.time()))
             results = self.service.files().list(
                 q="name='SyftBoxTransportService' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false",
                 fields="files(id)"
             ).execute()
-            print("GETFOLDERID-5 " + str(time.time()))
+            # print("GETFOLDERID-5 " + str(time.time()))
             
             syftbox_folders = results.get('files', [])
             
             if syftbox_folders:
                 # Cache and return the first folder ID
                 self._syftbox_folder_id = syftbox_folders[0]['id']
-                print("GETFOLDERID-6 " + str(time.time()))
+                # print("GETFOLDERID-6 " + str(time.time()))
                 return self._syftbox_folder_id
             
             # Clear cache if folder not found
             self._syftbox_folder_id = None
-            print("GETFOLDERID-7 " + str(time.time()))
+            # print("GETFOLDERID-7 " + str(time.time()))
             return None
             
         except Exception as e:
@@ -707,15 +722,15 @@ class GDriveUnifiedClient:
     
     def get_syftbox_directory(self) -> Optional[Path]:
         """Get the local SyftBox directory path"""
-        print("GETSYFTBOXDIR-1 " + str(time.time()))
+        # print("GETSYFTBOXDIR-1 " + str(time.time()))
         if self.local_syftbox_dir:
-            print("GETSYFTBOXDIR-2 " + str(time.time()))
+            # print("GETSYFTBOXDIR-2 " + str(time.time()))
             return self.local_syftbox_dir
         elif self.my_email:
             # Calculate the path even if not created yet
-            print("GETSYFTBOXDIR-3 " + str(time.time()))
+            # print("GETSYFTBOXDIR-3 " + str(time.time()))
             return Path.home() / f"SyftBox_{self.my_email}"
-        print("GETSYFTBOXDIR-4 " + str(time.time()))
+        # print("GETSYFTBOXDIR-4 " + str(time.time()))
         return None
     
     def resolve_syft_path(self, path: str) -> str:
@@ -1125,33 +1140,33 @@ class GDriveUnifiedClient:
         Returns:
             True if successful
         """
-        print("ADDPERM-1 " + str(time.time()))
+        # print("ADDPERM-1 " + str(time.time()))
         self._ensure_authenticated()
-        print("ADDPERM-2 " + str(time.time()))
+        # print("ADDPERM-2 " + str(time.time()))
         
         if role not in ['reader', 'writer', 'owner']:
             print(f"❌ Invalid role: {role}")
             return False
         
         try:
-            print("ADDPERM-3 " + str(time.time()))
+            # print("ADDPERM-3 " + str(time.time()))
             permission = {
                 'type': 'user',
                 'role': role,
                 'emailAddress': email
             }
             
-            print("ADDPERM-4 " + str(time.time()))
+            # print("ADDPERM-4 " + str(time.time()))
             self.service.permissions().create(
                 fileId=file_id,
                 body=permission,
                 sendNotificationEmail=False
             ).execute()
-            print("ADDPERM-5 " + str(time.time()))
+            # print("ADDPERM-5 " + str(time.time()))
             
             if verbose:
                 print(f"✅ Added {role} permission for {email}")
-            print("ADDPERM-6 " + str(time.time()))
+            # print("ADDPERM-6 " + str(time.time()))
             return True
             
         except HttpError as e:
@@ -1652,14 +1667,16 @@ class GDriveUnifiedClient:
             print("❌ No friends to send to. Add friends first with add_friend()")
             return {}
         
-        print(f"📤 Sending {os.path.basename(resolved_path)} to {len(friends_list)} friend(s)...")
+        if self.verbose:
+            print(f"📤 Sending {os.path.basename(resolved_path)} to {len(friends_list)} friend(s)...")
         
         results = {}
         successful = 0
         failed = 0
         
         for i, friend_email in enumerate(friends_list, 1):
-            print(f"\n[{i}/{len(friends_list)}] Sending to {friend_email}...")
+            if self.verbose:
+                print(f"\n[{i}/{len(friends_list)}] Sending to {friend_email}...")
             
             try:
                 # Use auto method to choose best transport
@@ -1667,22 +1684,26 @@ class GDriveUnifiedClient:
                 results[friend_email] = success
                 
                 if success:
-                    print(f"   ✅ Successfully sent to {friend_email}")
+                    if self.verbose:
+                        print(f"   ✅ Successfully sent to {friend_email}")
                     successful += 1
                 else:
-                    print(f"   ❌ Failed to send to {friend_email}")
+                    if self.verbose:
+                        print(f"   ❌ Failed to send to {friend_email}")
                     failed += 1
                     
             except Exception as e:
-                print(f"   ❌ Error sending to {friend_email}: {str(e)}")
+                if self.verbose:
+                    print(f"   ❌ Error sending to {friend_email}: {str(e)}")
                 results[friend_email] = False
                 failed += 1
         
         # Summary
-        print(f"\n📊 Summary:")
-        print(f"   ✅ Successful: {successful}")
-        print(f"   ❌ Failed: {failed}")
-        print(f"   📨 Total: {len(friends_list)}")
+        if self.verbose:
+            print(f"\n📊 Summary:")
+            print(f"   ✅ Successful: {successful}")
+            print(f"   ❌ Failed: {failed}")
+            print(f"   📨 Total: {len(friends_list)}")
         
         return results
     
@@ -2072,7 +2093,8 @@ class GDriveUnifiedClient:
                         ]
                         
                         if inbox_messages:
-                            print(f"\n📬 Found {len(inbox_messages)} message(s) from {friend_email}")
+                            if self.verbose:
+                                print(f"\n📬 Found {len(inbox_messages)} message(s) from {friend_email}")
                             downloaded_messages[friend_email] = []
                             
                             # Download each message
@@ -2176,7 +2198,7 @@ class GDriveUnifiedClient:
         total_messages = sum(len(msgs) for msgs in downloaded_messages.values())
         if total_messages > 0 and self.verbose:
             print(f"\n✅ Downloaded {total_messages} message(s) to {inbox_dir}")
-        else:
+        elif total_messages == 0 and self.verbose:
             print("✅ No messages to download")
         
         return downloaded_messages
@@ -2194,15 +2216,15 @@ class GDriveUnifiedClient:
         import shutil
         from collections import defaultdict
         
-        print("AUTOAPPROVE-1 " + str(time.time()))
+        # print("AUTOAPPROVE-1 " + str(time.time()))
         self._ensure_authenticated()
-        print("AUTOAPPROVE-2 " + str(time.time()))
+        # print("AUTOAPPROVE-2 " + str(time.time()))
         
         # Get SyftBox directory
         if syftbox_dir is None:
-            print("AUTOAPPROVE-3 " + str(time.time()))
+            # print("AUTOAPPROVE-3 " + str(time.time()))
             syftbox_dir = self.get_syftbox_directory()
-            print("AUTOAPPROVE-4 " + str(time.time()))
+            # print("AUTOAPPROVE-4 " + str(time.time()))
             if syftbox_dir is None:
                 print("❌ Could not determine SyftBox directory")
                 return {}
@@ -2217,13 +2239,13 @@ class GDriveUnifiedClient:
         approved_dir = syftbox_dir / "approved"
         
         # Check if inbox exists
-        print("AUTOAPPROVE-5 " + str(time.time()))
+        # print("AUTOAPPROVE-5 " + str(time.time()))
         if not inbox_dir.exists():
             print(f"📥 No inbox found at {inbox_dir}")
             return {}
         
         # Create approved directory if it doesn't exist
-        print("AUTOAPPROVE-6 " + str(time.time()))
+        # print("AUTOAPPROVE-6 " + str(time.time()))
         approved_dir.mkdir(exist_ok=True)
         
         # Count messages by type
@@ -2234,9 +2256,9 @@ class GDriveUnifiedClient:
             print(f"📥 Auto-approving messages from {inbox_dir}")
         
         # List all items in inbox
-        print("AUTOAPPROVE-7 " + str(time.time()))
+        # print("AUTOAPPROVE-7 " + str(time.time()))
         try:
-            print("AUTOAPPROVE-8 " + str(time.time()))
+            # print("AUTOAPPROVE-8 " + str(time.time()))
             for item in inbox_dir.iterdir():
                 if item.is_dir() and not item.name.startswith('.'):
                     # Determine message type
@@ -2248,7 +2270,7 @@ class GDriveUnifiedClient:
                         message_type = "other"
                     
                     # Move to approved folder
-                    print("AUTOAPPROVE-9 " + str(time.time()))
+                    # print("AUTOAPPROVE-9 " + str(time.time()))
                     dest_path = approved_dir / item.name
                     
                     # If destination exists, remove it first
@@ -2259,9 +2281,9 @@ class GDriveUnifiedClient:
                             dest_path.unlink()
                     
                     # Move the folder
-                    print("AUTOAPPROVE-10 " + str(time.time()))
+                    # print("AUTOAPPROVE-10 " + str(time.time()))
                     shutil.move(str(item), str(dest_path))
-                    print("AUTOAPPROVE-11 " + str(time.time()))
+                    # print("AUTOAPPROVE-11 " + str(time.time()))
                     
                     approved_counts[message_type] += 1
                     total_moved += 1
@@ -2270,7 +2292,7 @@ class GDriveUnifiedClient:
                         print(f"   ✓ Approved: {item.name}")
             
             # Print summary
-            print("AUTOAPPROVE-12 " + str(time.time()))
+            # print("AUTOAPPROVE-12 " + str(time.time()))
             if total_moved > 0:
                 if self.verbose:
                     print(f"\n✅ Auto-approved {total_moved} message(s):")
@@ -2282,7 +2304,7 @@ class GDriveUnifiedClient:
         except Exception as e:
             print(f"❌ Error during auto-approval: {e}")
         
-        print("AUTOAPPROVE-13 " + str(time.time()))
+        # print("AUTOAPPROVE-13 " + str(time.time()))
         return dict(approved_counts)
     
     def _extract_message_directly(self, message_path: Path, datasites_dir: Path) -> Dict[str, int]:
@@ -2296,7 +2318,7 @@ class GDriveUnifiedClient:
         Returns:
             Dict with counts of files processed
         """
-        print("MERGE-8a " + str(time.time()))
+        # print("MERGE-8a " + str(time.time()))
         stats = {
             "files_merged": 0,
             "files_overwritten": 0,
@@ -2307,34 +2329,34 @@ class GDriveUnifiedClient:
         message_id = str(message_path.name)
         metadata = None
         
-        print("MERGE-8a1 " + str(time.time()))
+        # print("MERGE-8a1 " + str(time.time()))
         if message_id in self._metadata_cache:
             # Use cached metadata (instant!)
             metadata = self._metadata_cache[message_id]
-            print("MERGE-8b-cached " + str(time.time()))
+            # print("MERGE-8b-cached " + str(time.time()))
         else:
             # Need to read from disk
             json_metadata_path = str(message_path) + "/metadata.json"  # String ops
             yaml_metadata_path = str(message_path) + "/metadata.yaml"
             
-            print("MERGE-8b " + str(time.time()))
+            # print("MERGE-8b " + str(time.time()))
             
             # Try JSON first (no existence check - just try to open)
             try:
                 with open(json_metadata_path, 'r') as f:
-                    print("MERGE-8b-json-opened " + str(time.time()))
+                    # print("MERGE-8b-json-opened " + str(time.time()))
                     metadata = json.load(f)
-                    print("MERGE-8b2-json " + str(time.time()))
+                    # print("MERGE-8b2-json " + str(time.time()))
                     # Cache it
                     self._metadata_cache[message_id] = metadata
             except FileNotFoundError:
-                print("MERGE-8b-json-not-found " + str(time.time()))
+                # print("MERGE-8b-json-not-found " + str(time.time()))
                 # JSON doesn't exist, try YAML
                 try:
-                    print("MERGE-8b1-yaml-start " + str(time.time()))
+                    # print("MERGE-8b1-yaml-start " + str(time.time()))
                     with open(yaml_metadata_path, 'r') as f:
                         metadata = yaml.safe_load(f) or {}
-                    print("MERGE-8b2-yaml " + str(time.time()))
+                    # print("MERGE-8b2-yaml " + str(time.time()))
                     # Cache it
                     self._metadata_cache[message_id] = metadata
                     
@@ -2361,23 +2383,23 @@ class GDriveUnifiedClient:
         if not metadata:
             return stats
         
-        print("MERGE-8c " + str(time.time()))
+        # print("MERGE-8c " + str(time.time()))
         # Get sender for logging
         sender = metadata.get("from", "unknown")
-        print("MERGE-8c1 " + str(time.time()))
+        # print("MERGE-8c1 " + str(time.time()))
         if self.verbose:
             print(f"\n   📦 Processing message from {sender}")
         
-        print("MERGE-8c2 " + str(time.time()))
+        # print("MERGE-8c2 " + str(time.time()))
         # Process files directly
         files_info = metadata.get("files", [])
-        print("MERGE-8c3 " + str(time.time()))
+        # print("MERGE-8c3 " + str(time.time()))
         
         # Use string operations instead of Path objects
         files_dir_str = str(message_path) + "/data/files"
         datasites_dir_str = str(datasites_dir)
         
-        print("MERGE-8d " + str(time.time()))
+        # print("MERGE-8d " + str(time.time()))
         
         # First pass: validate and prepare all operations
         operations = []
@@ -2407,7 +2429,7 @@ class GDriveUnifiedClient:
                 print(f"      ❌ Error preparing file: {e}")
                 stats["errors"] += 1
         
-        print("MERGE-8e " + str(time.time()))
+        # print("MERGE-8e " + str(time.time()))
         
         # Pre-compute unique parent directories using string operations
         unique_parents = set()
@@ -2424,7 +2446,7 @@ class GDriveUnifiedClient:
                 except:
                     pass  # Directory might already exist
         
-        print("MERGE-8e2 " + str(time.time()))
+        # print("MERGE-8e2 " + str(time.time()))
         
         # Second pass: Use hard links (instant!) instead of move
         for op in operations:
@@ -2456,7 +2478,7 @@ class GDriveUnifiedClient:
                 print(f"      ❌ Error linking file: {e}")
                 stats["errors"] += 1
         
-        print("MERGE-8f " + str(time.time()))
+        # print("MERGE-8f " + str(time.time()))
         return stats
     
     def merge_new_syncs(self, syftbox_dir: Optional[Path] = None) -> Dict[str, int]:
@@ -2479,15 +2501,15 @@ class GDriveUnifiedClient:
         import shutil
         from collections import defaultdict
         
-        print("MERGE-1 " + str(time.time()))
+        # print("MERGE-1 " + str(time.time()))
         self._ensure_authenticated()
-        print("MERGE-2 " + str(time.time()))
+        # print("MERGE-2 " + str(time.time()))
         
         # Get SyftBox directory
         if syftbox_dir is None:
-            print("MERGE-3 " + str(time.time()))
+            # print("MERGE-3 " + str(time.time()))
             syftbox_dir = self.get_syftbox_directory()
-            print("MERGE-4 " + str(time.time()))
+            # print("MERGE-4 " + str(time.time()))
             if syftbox_dir is None:
                 print("❌ Could not determine SyftBox directory")
                 return {}
@@ -2502,13 +2524,13 @@ class GDriveUnifiedClient:
         datasites_dir = syftbox_dir / "datasites"
         
         # Check if approved directory exists
-        print("MERGE-5 " + str(time.time()))
+        # print("MERGE-5 " + str(time.time()))
         if not approved_dir.exists():
             print(f"📥 No approved directory found at {approved_dir}")
             return {}
         
         # Create datasites directory if it doesn't exist
-        print("MERGE-6 " + str(time.time()))
+        # print("MERGE-6 " + str(time.time()))
         datasites_dir.mkdir(exist_ok=True)
         
         # Track statistics
@@ -2523,7 +2545,7 @@ class GDriveUnifiedClient:
             print(f"🔄 Merging approved syncs to {datasites_dir}")
         
         # Process each item in approved directory using faster os.scandir
-        print("MERGE-7 " + str(time.time()))
+        # print("MERGE-7 " + str(time.time()))
         items_processed = 0
         with os.scandir(str(approved_dir)) as entries:
             for entry in entries:
@@ -2535,9 +2557,10 @@ class GDriveUnifiedClient:
                     
                     items_processed += 1
                     if items_processed == 1:
-                        print("MERGE-7a-first-item " + str(time.time()))
+                        # print("MERGE-7a-first-item " + str(time.time()))
+                        pass
                     
-                    print("MERGE-8 " + str(time.time()))
+                    # print("MERGE-8 " + str(time.time()))
                     
                     # Convert DirEntry to Path for compatibility
                     item = Path(entry.path)
@@ -2545,7 +2568,7 @@ class GDriveUnifiedClient:
                     # Use optimized direct extraction (no SyftMessage object)
                     file_stats = self._extract_message_directly(item, datasites_dir)
                     
-                    print("MERGE-9 " + str(time.time()))
+                    # print("MERGE-9 " + str(time.time()))
                     
                     # Update overall stats
                     stats["files_merged"] += file_stats["files_merged"]
@@ -2558,7 +2581,7 @@ class GDriveUnifiedClient:
                         stats["messages_skipped"] += 1
                     
                     # Move processed message to merged_archive
-                    print("MERGE-10 " + str(time.time()))
+                    # print("MERGE-10 " + str(time.time()))
                     merged_archive_dir = syftbox_dir / "merged_archive"
                     merged_archive_dir.mkdir(exist_ok=True)
                     
@@ -2573,9 +2596,9 @@ class GDriveUnifiedClient:
                                 archive_path.unlink()
                         
                         # Move to archive (instant operation)
-                        print("MERGE-11 " + str(time.time()))
+                        # print("MERGE-11 " + str(time.time()))
                         shutil.move(str(item), str(archive_path))
-                        print("MERGE-12 " + str(time.time()))
+                        # print("MERGE-12 " + str(time.time()))
                         
                         # The original folder is now empty (files were moved)
                         # Schedule async re-extraction from the archive file if it exists
@@ -2609,7 +2632,7 @@ class GDriveUnifiedClient:
                     stats["errors"] += 1
         
         # Print summary
-        print("MERGE-13 " + str(time.time()))
+        # print("MERGE-13 " + str(time.time()))
         if self.verbose:
             print(f"\n✅ Merge completed:")
             print(f"   - Messages processed: {stats['messages_processed']}")
@@ -2619,7 +2642,7 @@ class GDriveUnifiedClient:
             if stats['errors'] > 0:
                 print(f"   - Errors: {stats['errors']}")
         
-        print("MERGE-14 " + str(time.time()))
+        # print("MERGE-14 " + str(time.time()))
         return stats
     
     def _download_folder_recursive(self, folder_id: str, local_parent: str, folder_name: str) -> bool:
@@ -3180,18 +3203,18 @@ class GDriveUnifiedClient:
             sheet_id: The spreadsheet ID
             row_numbers: List of row numbers to archive
         """
-        print("ARCHIVE-1 " + str(time.time()))
+        # print("ARCHIVE-1 " + str(time.time()))
         def archive_worker():
-            print("ARCHIVE-2 " + str(time.time()))
+            # print("ARCHIVE-2 " + str(time.time()))
             try:
-                print("ARCHIVE-3 " + str(time.time()))
+                # print("ARCHIVE-3 " + str(time.time()))
                 sheets_service = build('sheets', 'v4', credentials=self.creds)
-                print("ARCHIVE-4 " + str(time.time()))
+                # print("ARCHIVE-4 " + str(time.time()))
                 
                 # First, ensure Archive tab exists
                 try:
                     # Check cache for spreadsheet info
-                    print("ARCHIVE-5 " + str(time.time()))
+                    # print("ARCHIVE-5 " + str(time.time()))
                     spreadsheet = None
                     if sheet_id in self._spreadsheet_info_cache and sheet_id in self._spreadsheet_info_cache_time:
                         cache_age_minutes = (datetime.now() - self._spreadsheet_info_cache_time[sheet_id]).total_seconds() / 60
@@ -3200,12 +3223,12 @@ class GDriveUnifiedClient:
                     
                     # If not cached, fetch from API
                     if not spreadsheet:
-                        print("ARCHIVE-6 " + str(time.time()))
+                        # print("ARCHIVE-6 " + str(time.time()))
                         spreadsheet = sheets_service.spreadsheets().get(
                             spreadsheetId=sheet_id,
                             fields='sheets.properties'
                         ).execute()
-                        print("ARCHIVE-7 " + str(time.time()))
+                        # print("ARCHIVE-7 " + str(time.time()))
                         # Cache the result
                         self._spreadsheet_info_cache[sheet_id] = spreadsheet
                         self._spreadsheet_info_cache_time[sheet_id] = datetime.now()
@@ -3220,7 +3243,7 @@ class GDriveUnifiedClient:
                             messages_sheet_id = sheet['properties']['sheetId']
                     
                     # Create Archive sheet if it doesn't exist
-                    print("ARCHIVE-8 " + str(time.time()))
+                    # print("ARCHIVE-8 " + str(time.time()))
                     if not archive_exists:
                         request = {
                             'addSheet': {
@@ -3234,12 +3257,12 @@ class GDriveUnifiedClient:
                             }
                         }
                         
-                        print("ARCHIVE-9 " + str(time.time()))
+                        # print("ARCHIVE-9 " + str(time.time()))
                         sheets_service.spreadsheets().batchUpdate(
                             spreadsheetId=sheet_id,
                             body={'requests': [request]}
                         ).execute()
-                        print("ARCHIVE-10 " + str(time.time()))
+                        # print("ARCHIVE-10 " + str(time.time()))
                         
                         # No header row in archive either
                         
@@ -3256,16 +3279,16 @@ class GDriveUnifiedClient:
                     return
                 
                 # Get the rows to archive
-                print("ARCHIVE-11 " + str(time.time()))
+                # print("ARCHIVE-11 " + str(time.time()))
                 ranges = [f'messages!A{row}:E{row}' for row in sorted(row_numbers)]
                 
                 # Batch get all rows
-                print("ARCHIVE-12 " + str(time.time()))
+                # print("ARCHIVE-12 " + str(time.time()))
                 result = sheets_service.spreadsheets().values().batchGet(
                     spreadsheetId=sheet_id,
                     ranges=ranges
                 ).execute()
-                print("ARCHIVE-13 " + str(time.time()))
+                # print("ARCHIVE-13 " + str(time.time()))
                 
                 rows_to_archive = []
                 for value_range in result.get('valueRanges', []):
@@ -3275,7 +3298,7 @@ class GDriveUnifiedClient:
                 
                 if rows_to_archive:
                     # Append to archive
-                    print("ARCHIVE-14 " + str(time.time()))
+                    # print("ARCHIVE-14 " + str(time.time()))
                     sheets_service.spreadsheets().values().append(
                         spreadsheetId=sheet_id,
                         range='archive!A:D',
@@ -3283,7 +3306,7 @@ class GDriveUnifiedClient:
                         insertDataOption='INSERT_ROWS',
                         body={'values': rows_to_archive}
                     ).execute()
-                    print("ARCHIVE-15 " + str(time.time()))
+                    # print("ARCHIVE-15 " + str(time.time()))
                     
                     # Clear the original rows - batch all deletes into one request
                     if messages_sheet_id is not None:
@@ -3306,12 +3329,12 @@ class GDriveUnifiedClient:
                         
                         # Execute all deletes in a single batch
                         if delete_requests:
-                            print("ARCHIVE-16 " + str(time.time()))
+                            # print("ARCHIVE-16 " + str(time.time()))
                             sheets_service.spreadsheets().batchUpdate(
                                 spreadsheetId=sheet_id,
                                 body={'requests': delete_requests}
                             ).execute()
-                            print("ARCHIVE-17 " + str(time.time()))
+                            # print("ARCHIVE-17 " + str(time.time()))
                         
                         if self.verbose:
                             print(f"   🗄️  Archived {len(rows_to_archive)} messages to Archive tab")
@@ -3322,14 +3345,14 @@ class GDriveUnifiedClient:
                 print(f"   ⚠️  Error archiving messages: {e}")
         
         # Start background thread with a small delay to avoid GIL contention
-        print("ARCHIVE-18 " + str(time.time()))
+        # print("ARCHIVE-18 " + str(time.time()))
         def delayed_start():
             time.sleep(0.1)  # Small delay to let main operation complete
             archive_worker()
         
         thread = threading.Thread(target=delayed_start, daemon=True)
         thread.start()
-        print("ARCHIVE-19 " + str(time.time()))
+        # print("ARCHIVE-19 " + str(time.time()))
     
     def _find_message_sheet(self, sheet_name: str, from_email: str = None) -> Optional[str]:
         """
@@ -3342,12 +3365,12 @@ class GDriveUnifiedClient:
         Returns:
             Spreadsheet ID if found, None otherwise
         """
-        print("FINDSHEET-1 " + str(time.time()))
+        # print("FINDSHEET-1 " + str(time.time()))
         self._ensure_authenticated()
-        print("FINDSHEET-2 " + str(time.time()))
+        # print("FINDSHEET-2 " + str(time.time()))
         
         # Check cache first
-        print("FINDSHEET-3 " + str(time.time()))
+        # print("FINDSHEET-3 " + str(time.time()))
         cache_key = f"{sheet_name}:{from_email or 'none'}"
         if cache_key in self._sheet_cache and cache_key in self._sheet_cache_time:
             cache_age_minutes = (datetime.now() - self._sheet_cache_time[cache_key]).total_seconds() / 60
@@ -3359,18 +3382,18 @@ class GDriveUnifiedClient:
         
         try:
             # First, search in SyftBox folder (for shortcuts or owned sheets)
-            print("FINDSHEET-4 " + str(time.time()))
+        # print("FINDSHEET-4 " + str(time.time()))
             syftbox_id = self._get_syftbox_folder_id()
-            print("FINDSHEET-5 " + str(time.time()))
+        # print("FINDSHEET-5 " + str(time.time()))
             if syftbox_id:
                 # Search for existing sheet or shortcut
-                print("FINDSHEET-6 " + str(time.time()))
+        # print("FINDSHEET-6 " + str(time.time()))
                 results = self.service.files().list(
                     q=f"name='{sheet_name}' and '{syftbox_id}' in parents and trashed=false",
                     fields="files(id, mimeType, shortcutDetails)",
                     pageSize=1
                 ).execute()
-                print("FINDSHEET-7 " + str(time.time()))
+        # print("FINDSHEET-7 " + str(time.time()))
                 
                 if results.get('files'):
                     file_info = results['files'][0]
@@ -3383,24 +3406,24 @@ class GDriveUnifiedClient:
                     # Cache the result
                     self._sheet_cache[cache_key] = sheet_id
                     self._sheet_cache_time[cache_key] = datetime.now()
-                    print("FINDSHEET-8 " + str(time.time()))
+        # print("FINDSHEET-8 " + str(time.time()))
                     return sheet_id
             
             # If not found in SyftBox folder and we have a sender email, 
             # search in "Shared with me" from that specific user
-            print("FINDSHEET-9 " + str(time.time()))
+        # print("FINDSHEET-9 " + str(time.time()))
             if from_email:
                 if self.verbose:
                     print(f"   🔍 Searching in files shared by {from_email}...")
                 
                 # Search for sheets shared by the sender
-                print("FINDSHEET-10 " + str(time.time()))
+        # print("FINDSHEET-10 " + str(time.time()))
                 results = self.service.files().list(
                     q=f"name='{sheet_name}' and '{from_email}' in owners and mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe and trashed=false",
                     fields="files(id, name)",
                     pageSize=1
                 ).execute()
-                print("FINDSHEET-11 " + str(time.time()))
+        # print("FINDSHEET-11 " + str(time.time()))
                 
                 if results.get('files'):
                     shared_sheet_id = results['files'][0]['id']
@@ -3433,10 +3456,10 @@ class GDriveUnifiedClient:
                     # Cache the result
                     self._sheet_cache[cache_key] = shared_sheet_id
                     self._sheet_cache_time[cache_key] = datetime.now()
-                    print("FINDSHEET-12 " + str(time.time()))
+        # print("FINDSHEET-12 " + str(time.time()))
                     return shared_sheet_id
             
-            print("FINDSHEET-13 " + str(time.time()))
+        # print("FINDSHEET-13 " + str(time.time()))
             return None
             
         except Exception as e:
@@ -3455,9 +3478,9 @@ class GDriveUnifiedClient:
         Returns:
             Spreadsheet ID if successful
         """
-        print("GETSHEET-1 " + str(time.time()))
+        # print("GETSHEET-1 " + str(time.time()))
         self._ensure_authenticated()
-        print("GETSHEET-2 " + str(time.time()))
+        # print("GETSHEET-2 " + str(time.time()))
         
         # Check cache first for owned sheets
         cache_key = f"owned:{sheet_name}"
@@ -3551,16 +3574,16 @@ class GDriveUnifiedClient:
             True if successful
         """
         import base64
-        print("SEND-1 " + str(time.time()))
+        # print("SEND-1 " + str(time.time()))
         self._ensure_authenticated()
-        print("SEND-2 " + str(time.time()))
+        # print("SEND-2 " + str(time.time()))
         if recipient_email.lower() not in [f.lower() for f in self.friends]:
             print(f"❌ {recipient_email} is not in your friends list")
             return False
         try:
-            print("SEND-5 " + str(time.time()))
+            # print("SEND-5 " + str(time.time()))
             with tempfile.TemporaryDirectory() as temp_dir:
-                print("SEND-6 " + str(time.time()))
+                # print("SEND-6 " + str(time.time()))
                 # Prepare the message (shared logic)
                 result = self._prepare_message(path, recipient_email, temp_dir)
                 if not result:
@@ -3575,27 +3598,27 @@ class GDriveUnifiedClient:
                     print(f"   Consider using send_file_or_folder() instead for larger files")
                     return False
                 
-                print("SEND-18 " + str(time.time()))
+                # print("SEND-18 " + str(time.time()))
                 # Read and encode archive
-                print("SEND-19 " + str(time.time()))
+                # print("SEND-19 " + str(time.time()))
                 with open(archive_path, 'rb') as f:
                     archive_data = f.read()
-                print("SEND-20 " + str(time.time()))
+                # print("SEND-20 " + str(time.time()))
                 # Base64 encode for sheets
                 encoded_data = base64.b64encode(archive_data).decode('utf-8')
-                print("SEND-21 " + str(time.time()))
+                # print("SEND-21 " + str(time.time()))
                 # Get or create sheet (permissions are handled in the method)
-                print("SEND-22 " + str(time.time()))
+                # print("SEND-22 " + str(time.time()))
                 sheet_name = f"syft_{self.my_email}_to_{recipient_email}_messages"
-                print("SEND-23 " + str(time.time()))
+                # print("SEND-23 " + str(time.time()))
                 sheet_id = self._get_or_create_message_sheet(sheet_name, recipient_email)
-                print("SEND-24 " + str(time.time()))
+                # print("SEND-24 " + str(time.time()))
                 if not sheet_id:
                     return False
                 # Prepare row data
-                print("SEND-25 " + str(time.time()))
+                # print("SEND-25 " + str(time.time()))
                 timestamp = datetime.now().isoformat()
-                print("SEND-26 " + str(time.time()))
+                # print("SEND-26 " + str(time.time()))
                 message_data = {
                     'values': [[
                         timestamp,
@@ -3604,11 +3627,11 @@ class GDriveUnifiedClient:
                         encoded_data
                     ]]
                 }
-                print("SEND-27 " + str(time.time()))
+                # print("SEND-27 " + str(time.time()))
                 # Append to sheet in one API call
-                print("SEND-28 " + str(time.time()))
+                # print("SEND-28 " + str(time.time()))
                 sheets_service = self._get_sheets_service()
-                print("SEND-29 " + str(time.time()))
+                # print("SEND-29 " + str(time.time()))
                 sheets_service.spreadsheets().values().append(
                     spreadsheetId=sheet_id,
                     range='messages!A:D',
@@ -3616,11 +3639,11 @@ class GDriveUnifiedClient:
                     insertDataOption='INSERT_ROWS',
                     body=message_data
                 ).execute()
-                print("SEND-30 " + str(time.time()))
+                # print("SEND-30 " + str(time.time()))
                 if self.verbose:
                     print(f"📊 Sent message via sheets: {message_id}")
                     print(f"   Size: {len(archive_data)} bytes")
-                print("SEND-31 " + str(time.time()))
+                # print("SEND-31 " + str(time.time()))
                 return True
                 
         except Exception as e:
@@ -3638,28 +3661,28 @@ class GDriveUnifiedClient:
             Dict mapping friend emails to downloaded message IDs
         """
         import base64
-        print("UPDATEINBOX-1 " + str(time.time()))
+        # print("UPDATEINBOX-1 " + str(time.time()))
         self._ensure_authenticated()
-        print("UPDATEINBOX-2 " + str(time.time()))
+        # print("UPDATEINBOX-2 " + str(time.time()))
         # Set default inbox directory
         if inbox_dir is None:
-            print("UPDATEINBOX-3 " + str(time.time()))
+            # print("UPDATEINBOX-3 " + str(time.time()))
             syftbox_dir = self.get_syftbox_directory()
-            print("UPDATEINBOX-4 " + str(time.time()))
+            # print("UPDATEINBOX-4 " + str(time.time()))
             if syftbox_dir is None:
                 print("❌ Could not determine SyftBox directory")
                 return {}
             inbox_dir = str(syftbox_dir / "inbox")
-        print("UPDATEINBOX-5 " + str(time.time()))
+        # print("UPDATEINBOX-5 " + str(time.time()))
         os.makedirs(inbox_dir, exist_ok=True)
         if not self.friends:
             return {}
         downloaded_messages = {}
-        print("UPDATEINBOX-6 " + str(time.time()))
+        # print("UPDATEINBOX-6 " + str(time.time()))
         sheets_service = self._get_sheets_service()
-        print("UPDATEINBOX-7 " + str(time.time()))
+        # print("UPDATEINBOX-7 " + str(time.time()))
         # Build batch request for all friends
-        print("UPDATEINBOX-8 " + str(time.time()))
+        # print("UPDATEINBOX-8 " + str(time.time()))
         ranges = []
         friend_sheets = {}
         for friend_email in self.friends:
@@ -3667,9 +3690,9 @@ class GDriveUnifiedClient:
             if self.verbose:
                 print(f"🔍 Looking for sheet: {sheet_name}")
             # Pass the friend's email to search in shared files
-            print("UPDATEINBOX-9 " + str(time.time()))
+            # print("UPDATEINBOX-9 " + str(time.time()))
             sheet_id = self._find_message_sheet(sheet_name, from_email=friend_email)
-            print("UPDATEINBOX-10 " + str(time.time()))
+            # print("UPDATEINBOX-10 " + str(time.time()))
             if sheet_id:
                 ranges.append(f"messages!A:E")
                 friend_sheets[friend_email] = sheet_id
@@ -3680,7 +3703,7 @@ class GDriveUnifiedClient:
                     print(f"   ❌ Sheet not found")
         if not ranges:
             return {}
-        print("UPDATEINBOX-11 " + str(time.time()))
+        # print("UPDATEINBOX-11 " + str(time.time()))
         try:
             # Single batch get for all sheets
             if self.verbose:
@@ -3688,12 +3711,12 @@ class GDriveUnifiedClient:
             for friend_email, sheet_id in friend_sheets.items():
                 try:
                     # Get all rows from this friend's sheet
-                    print("UPDATEINBOX-12 " + str(time.time()))
+                    # print("UPDATEINBOX-12 " + str(time.time()))
                     result = sheets_service.spreadsheets().values().get(
                         spreadsheetId=sheet_id,
                         range='messages!A:D'
                     ).execute()
-                    print("UPDATEINBOX-13 " + str(time.time()))
+                    # print("UPDATEINBOX-13 " + str(time.time()))
                     rows = result.get('values', [])
                     if self.verbose:
                         if len(rows) == 0:
@@ -3703,7 +3726,7 @@ class GDriveUnifiedClient:
                     if len(rows) == 0:  # No messages
                         continue
                     # Process all messages (no header to skip)
-                    print("UPDATEINBOX-14 " + str(time.time()))
+                    # print("UPDATEINBOX-14 " + str(time.time()))
                     pending_messages = []
                     for i, row in enumerate(rows, start=1):
                         if self.verbose and len(row) >= 2:
@@ -3711,10 +3734,11 @@ class GDriveUnifiedClient:
                         if len(row) >= 4:  # timestamp, msg_id, size, data
                             pending_messages.append((i, row))
                     if pending_messages:
-                        print(f"\n📬 Found {len(pending_messages)} message(s) from {friend_email}")
+                        if self.verbose:
+                            print(f"\n📬 Found {len(pending_messages)} message(s) from {friend_email}")
                         downloaded_messages[friend_email] = []
                         rows_to_archive = []
-                        print("UPDATEINBOX-15 " + str(time.time()))
+                        # print("UPDATEINBOX-15 " + str(time.time()))
                         for row_num, row in pending_messages:
                             timestamp, msg_id, size, encoded_data = row[:4]
                             # Check if already downloaded
@@ -3727,18 +3751,18 @@ class GDriveUnifiedClient:
                                 if self.verbose:
                                     print(f"   📥 Processing {msg_id}...")
                                 # Decode and extract
-                                print("UPDATEINBOX-16 " + str(time.time()))
+                                # print("UPDATEINBOX-16 " + str(time.time()))
                                 archive_data = base64.b64decode(encoded_data)
-                                print("UPDATEINBOX-17 " + str(time.time()))
+                                # print("UPDATEINBOX-17 " + str(time.time()))
                                 # Save to temp file and extract
                                 with tempfile.NamedTemporaryFile(suffix='.tar.gz', delete=False) as tmp:
                                     tmp.write(archive_data)
                                     tmp_path = tmp.name
                                 # Extract archive
-                                print("UPDATEINBOX-18 " + str(time.time()))
+                                # print("UPDATEINBOX-18 " + str(time.time()))
                                 with tarfile.open(tmp_path, 'r:gz') as tar:
                                     tar.extractall(inbox_dir)
-                                print("UPDATEINBOX-19 " + str(time.time()))
+                                # print("UPDATEINBOX-19 " + str(time.time()))
                                 os.unlink(tmp_path)
                                 
                                 # Pre-cache metadata if it's JSON
@@ -3757,26 +3781,117 @@ class GDriveUnifiedClient:
                                     print(f"   ✅ Downloaded {msg_id}")
                                     
                             except Exception as e:
-                                print(f"   ❌ Error processing {msg_id}: {e}")
+                                if self.verbose:
+                                    print(f"   ❌ Error processing {msg_id}: {e}")
                         
                         # Dispatch archiving task if we downloaded any messages
                         if rows_to_archive:
                             if self.verbose:
                                 print(f"   🗄️  Dispatching archive task for {len(rows_to_archive)} messages...")
-                            print("UPDATEINBOX-20 " + str(time.time()))
+                            # print("UPDATEINBOX-20 " + str(time.time()))
                             self._archive_sheet_messages_async(sheet_id, rows_to_archive)
-                            print("UPDATEINBOX-21 " + str(time.time()))
+                            # print("UPDATEINBOX-21 " + str(time.time()))
                     
                 except Exception as e:
                     if self.verbose:
                         print(f"   ⚠️  Error checking {friend_email}: {e}")
             
-            print("UPDATEINBOX-22 " + str(time.time()))
+            # print("UPDATEINBOX-22 " + str(time.time()))
             return downloaded_messages
             
         except Exception as e:
-            print(f"❌ Error updating from sheets: {e}")
+            if self.verbose:
+                print(f"❌ Error updating from sheets: {e}")
             return {}
+    
+    def launch_watcher_sender(self) -> Dict[str, any]:
+        """
+        Launch a background file watcher that automatically sends file changes to all friends
+        
+        Returns:
+            Dict with status, message, and server URL
+        """
+        import threading
+        import time
+        
+        result = {"status": "pending", "message": "Launching watcher...", "url": None}
+        
+        def _launch_watcher():
+            try:
+                # Import here to avoid circular dependencies
+                from . import watcher
+                
+                # Create the watcher endpoint
+                server = watcher.create_watcher_sender_endpoint(self.my_email)
+                
+                # Update result
+                result["status"] = "started"
+                result["message"] = f"Watcher launched successfully for {self.my_email}"
+                result["url"] = server.url
+                
+                if self.verbose:
+                    print(f"✅ Watcher launched at: {server.url}")
+                    
+            except Exception as e:
+                result["status"] = "error"
+                result["message"] = f"Failed to launch watcher: {str(e)}"
+                if self.verbose:
+                    print(f"❌ Failed to launch watcher: {e}")
+        
+        # Launch in background thread
+        thread = threading.Thread(target=_launch_watcher, daemon=True)
+        thread.start()
+        
+        # Give it a moment to start
+        time.sleep(0.1)
+        
+        return result
+    
+    def terminate_watcher_sender(self) -> Dict[str, any]:
+        """
+        Terminate the background file watcher
+        
+        Returns:
+            Dict with status and message
+        """
+        import threading
+        import time
+        
+        result = {"status": "pending", "message": "Terminating watcher..."}
+        
+        def _terminate_watcher():
+            try:
+                # Import here to avoid circular dependencies
+                from . import watcher
+                
+                # Destroy the watcher endpoint
+                success = watcher.destroy_watcher_sender_endpoint(self.my_email)
+                
+                if success:
+                    result["status"] = "terminated"
+                    result["message"] = f"Watcher terminated successfully for {self.my_email}"
+                    if self.verbose:
+                        print(f"✅ Watcher terminated for {self.my_email}")
+                else:
+                    result["status"] = "not_found"
+                    result["message"] = f"No watcher found for {self.my_email}"
+                    if self.verbose:
+                        print(f"⚠️  No watcher found for {self.my_email}")
+                        
+            except Exception as e:
+                result["status"] = "error"
+                result["message"] = f"Failed to terminate watcher: {str(e)}"
+                if self.verbose:
+                    print(f"❌ Failed to terminate watcher: {e}")
+        
+        # Launch in background thread
+        thread = threading.Thread(target=_terminate_watcher, daemon=True)
+        thread.start()
+        
+        # Give it a moment to complete
+        time.sleep(0.1)
+        
+        return result
 
 
 def create_gdrive_client(email_or_auth_method: str = "auto", verbose: bool = True, force_relogin: bool = False) -> GDriveUnifiedClient:
