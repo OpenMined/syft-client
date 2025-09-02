@@ -3892,6 +3892,113 @@ class GDriveUnifiedClient:
         time.sleep(0.1)
         
         return result
+    
+    def launch_receiver(self, interval_seconds: float = 1.0) -> Dict[str, any]:
+        """
+        Launch a background receiver that automatically processes incoming messages
+        
+        Args:
+            interval_seconds: How often to run sync operations (default: 1 second)
+            
+        Returns:
+            Dict with status, message, and server URL
+        """
+        import threading
+        import time
+        
+        result = {"status": "pending", "message": "Launching receiver...", "url": None}
+        
+        def _launch_receiver():
+            try:
+                # Import here to avoid circular dependencies
+                from . import receiver
+                
+                # Create the receiver endpoint
+                server = receiver.create_receiver_endpoint(self.my_email, interval_seconds)
+                
+                # Update result
+                result["status"] = "started"
+                result["message"] = f"Receiver launched successfully for {self.my_email} (interval: {interval_seconds}s)"
+                result["url"] = server.url
+                
+                if self.verbose:
+                    print(f"✅ Receiver launched at: {server.url}")
+                    
+            except Exception as e:
+                result["status"] = "error"
+                result["message"] = f"Failed to launch receiver: {str(e)}"
+                if self.verbose:
+                    print(f"❌ Failed to launch receiver: {e}")
+        
+        # Launch in background thread
+        thread = threading.Thread(target=_launch_receiver, daemon=True)
+        thread.start()
+        
+        # Give it a moment to start
+        time.sleep(0.1)
+        
+        return result
+    
+    def terminate_receiver(self) -> Dict[str, any]:
+        """
+        Terminate the background receiver
+        
+        Returns:
+            Dict with status and message
+        """
+        import threading
+        import time
+        
+        result = {"status": "pending", "message": "Terminating receiver..."}
+        
+        def _terminate_receiver():
+            try:
+                # Import here to avoid circular dependencies
+                from . import receiver
+                
+                # Destroy the receiver endpoint
+                success = receiver.destroy_receiver_endpoint(self.my_email)
+                
+                if success:
+                    result["status"] = "terminated"
+                    result["message"] = f"Receiver terminated successfully for {self.my_email}"
+                    if self.verbose:
+                        print(f"✅ Receiver terminated for {self.my_email}")
+                else:
+                    result["status"] = "not_found"
+                    result["message"] = f"No receiver found for {self.my_email}"
+                    if self.verbose:
+                        print(f"⚠️  No receiver found for {self.my_email}")
+                        
+            except Exception as e:
+                result["status"] = "error"
+                result["message"] = f"Failed to terminate receiver: {str(e)}"
+                if self.verbose:
+                    print(f"❌ Failed to terminate receiver: {e}")
+        
+        # Launch in background thread
+        thread = threading.Thread(target=_terminate_receiver, daemon=True)
+        thread.start()
+        
+        # Give it a moment to complete
+        time.sleep(0.1)
+        
+        return result
+    
+    def get_receiver_stats(self) -> Dict[str, any]:
+        """
+        Get statistics from the running receiver
+        
+        Returns:
+            Dict with receiver statistics or None if not running
+        """
+        try:
+            from . import receiver
+            return receiver.get_receiver_stats(self.my_email)
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Failed to get receiver stats: {e}")
+            return None
 
 
 def create_gdrive_client(email_or_auth_method: str = "auto", verbose: bool = True, force_relogin: bool = False) -> GDriveUnifiedClient:
