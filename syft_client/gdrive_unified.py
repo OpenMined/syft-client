@@ -4174,41 +4174,33 @@ class GDriveUnifiedClient:
         Returns:
             Dict with status, message, and server URL
         """
-        import threading
-        import time
-        
-        result = {"status": "pending", "message": "Launching watcher...", "url": None}
-        
-        def _launch_watcher():
-            try:
-                # Import here to avoid circular dependencies
-                from . import watcher
-                
-                # Create the watcher endpoint
-                server = watcher.create_watcher_sender_endpoint(self.my_email)
-                
-                # Update result
-                result["status"] = "started"
-                result["message"] = f"Watcher launched successfully for {self.my_email}"
-                result["url"] = server.url
-                
-                if self.verbose:
-                    print(f"✅ Watcher launched at: {server.url}")
-                    
-            except Exception as e:
-                result["status"] = "error"
-                result["message"] = f"Failed to launch watcher: {str(e)}"
-                if self.verbose:
-                    print(f"❌ Failed to launch watcher: {e}")
-        
-        # Launch in background thread
-        thread = threading.Thread(target=_launch_watcher, daemon=True)
-        thread.start()
-        
-        # Give it a moment to start
-        time.sleep(0.1)
-        
-        return result
+        try:
+            # Import here to avoid circular dependencies
+            from . import watcher
+            
+            # Create the watcher endpoint (blocks until server is ready)
+            server = watcher.create_watcher_sender_endpoint(self.my_email)
+            
+            result = {
+                "status": "started",
+                "message": f"Watcher launched successfully for {self.my_email}",
+                "url": server.url
+            }
+            
+            if self.verbose:
+                print(f"✅ Watcher launched at: {server.url}")
+            
+            return result
+            
+        except Exception as e:
+            result = {
+                "status": "error",
+                "message": f"Failed to launch watcher: {str(e)}",
+                "url": None
+            }
+            if self.verbose:
+                print(f"❌ Failed to launch watcher: {e}")
+            return result
     
     def terminate_watcher_sender(self) -> Dict[str, any]:
         """
@@ -4266,41 +4258,33 @@ class GDriveUnifiedClient:
         Returns:
             Dict with status, message, and server URL
         """
-        import threading
-        import time
-        
-        result = {"status": "pending", "message": "Launching receiver...", "url": None}
-        
-        def _launch_receiver():
-            try:
-                # Import here to avoid circular dependencies
-                from . import receiver
+        try:
+            # Import here to avoid circular dependencies
+            from . import receiver
+            
+            # Create the receiver endpoint (blocks until server is ready)
+            server = receiver.create_receiver_endpoint(self.my_email, interval_seconds)
+            
+            result = {
+                "status": "started",
+                "message": f"Receiver launched successfully for {self.my_email} (interval: {interval_seconds}s)",
+                "url": server.url
+            }
+            
+            if self.verbose:
+                print(f"✅ Receiver launched at: {server.url}")
                 
-                # Create the receiver endpoint
-                server = receiver.create_receiver_endpoint(self.my_email, interval_seconds)
-                
-                # Update result
-                result["status"] = "started"
-                result["message"] = f"Receiver launched successfully for {self.my_email} (interval: {interval_seconds}s)"
-                result["url"] = server.url
-                
-                if self.verbose:
-                    print(f"✅ Receiver launched at: {server.url}")
-                    
-            except Exception as e:
-                result["status"] = "error"
-                result["message"] = f"Failed to launch receiver: {str(e)}"
-                if self.verbose:
-                    print(f"❌ Failed to launch receiver: {e}")
-        
-        # Launch in background thread
-        thread = threading.Thread(target=_launch_receiver, daemon=True)
-        thread.start()
-        
-        # Give it a moment to start
-        time.sleep(0.1)
-        
-        return result
+            return result
+            
+        except Exception as e:
+            result = {
+                "status": "error",
+                "message": f"Failed to launch receiver: {str(e)}",
+                "url": None
+            }
+            if self.verbose:
+                print(f"❌ Failed to launch receiver: {e}")
+            return result
     
     def terminate_receiver(self) -> Dict[str, any]:
         """
