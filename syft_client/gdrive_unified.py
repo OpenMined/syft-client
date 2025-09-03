@@ -2307,6 +2307,168 @@ class GDriveUnifiedClient:
         # print("AUTOAPPROVE-13 " + str(time.time()))
         return dict(approved_counts)
     
+    def _get_sync_history_path(self, file_path: Path) -> Path:
+        """
+        Get the sync history directory path for a file
+        
+        Args:
+            file_path: Path to the file in datasites
+            
+        Returns:
+            Path to the sync history directory
+        """
+        # Create .sync_history directory in the same directory as the file
+        return file_path.parent / ".sync_history" / file_path.name
+    
+    def _get_sync_timestamp(self, message_path: Path) -> Optional[float]:
+        """
+        Get the timestamp from a SyftMessage
+        
+        Args:
+            message_path: Path to the message directory
+            
+        Returns:
+            Timestamp as float or None if not found
+        """
+        # Try to get from cached metadata first
+        message_id = str(message_path.name)
+        if message_id in self._metadata_cache:
+            metadata = self._metadata_cache[message_id]
+            return metadata.get("timestamp")
+        
+        # Try reading metadata files
+        for metadata_file in ["metadata.json", "metadata.yaml"]:
+            metadata_path = message_path / metadata_file
+            if metadata_path.exists():
+                try:
+                    if metadata_file.endswith(".json"):
+                        with open(metadata_path, 'r') as f:
+                            metadata = json.load(f)
+                    else:
+                        with open(metadata_path, 'r') as f:
+                            metadata = yaml.safe_load(f) or {}
+                    return metadata.get("timestamp")
+                except:
+                    continue
+        
+        return None
+    
+    def _should_apply_sync(self, file_path: Path, message_path: Path) -> bool:
+        """
+        Check if a sync should be applied based on history
+        
+        Args:
+            file_path: Path to the file in datasites
+            message_path: Path to the incoming message
+            
+        Returns:
+            True if sync should be applied, False otherwise
+        """
+        history_path = self._get_sync_history_path(file_path)
+        
+        # If no history exists, always apply
+        if not history_path.exists():
+            return True
+        
+        # Get timestamp of incoming message
+        incoming_timestamp = self._get_sync_timestamp(message_path)
+        if incoming_timestamp is None:
+            # If no timestamp, apply it (for backward compatibility)
+            return True
+        
+        # Check existing syncs in history
+        try:
+            for entry in os.listdir(history_path):
+                entry_path = history_path / entry
+                if entry_path.is_dir() and entry.endswith(".syftmessage"):
+                    # Get timestamp of existing sync
+                    existing_timestamp = self._get_sync_timestamp(entry_path)
+                    if existing_timestamp and existing_timestamp >= incoming_timestamp:
+                        # We already have a sync that's newer or equal
+                        if self.verbose:
+                            print(f"      ⏭️  Skipping older sync for: {file_path.name}")
+                        return False
+        except:
+            # If we can't read history, apply the sync
+            return True
+        
+        return True
+    
+    def _store_sync_history(self, file_path: Path, message_path: Path) -> None:
+        """
+        Store a copy of the SyftMessage in sync history
+        
+        Args:
+            file_path: Path to the file in datasites
+            message_path: Path to the message directory
+        """
+        history_path = self._get_sync_history_path(file_path)
+        
+        # Create history directory
+        history_path.mkdir(parents=True, exist_ok=True)
+        
+        # Create unique name for this sync
+        timestamp = self._get_sync_timestamp(message_path) or time.time()
+        sync_name = f"{timestamp}_{message_path.name}.syftmessage"
+        sync_dest = history_path / sync_name
+        
+        # Copy the message directory to history
+        try:
+            if not sync_dest.exists():
+                shutil.copytree(message_path, sync_dest)
+        except Exception as e:
+            if self.verbose:
+                print(f"      ⚠️  Could not store sync history: {e}")
+    
+    def _clean_sync_history_for_datasite(self, datasite_path: Path, keep_latest: bool = True) -> int:
+        """
+        Clean up sync history for a datasite when receiving a full update
+        
+        Args:
+            datasite_path: Path to the datasite directory
+            keep_latest: Whether to keep the latest sync (default: True)
+            
+        Returns:
+            Number of sync history entries cleaned
+        """
+        cleaned_count = 0
+        
+        # Walk through all .sync_history directories in the datasite
+        for root, dirs, files in os.walk(datasite_path):
+            if ".sync_history" in dirs:
+                history_dir = Path(root) / ".sync_history"
+                
+                # Process each file's history
+                for file_history in history_dir.iterdir():
+                    if file_history.is_dir():
+                        syncs = []
+                        
+                        # Collect all syncs for this file
+                        for sync_entry in file_history.iterdir():
+                            if sync_entry.is_dir() and sync_entry.name.endswith(".syftmessage"):
+                                timestamp = self._get_sync_timestamp(sync_entry)
+                                if timestamp:
+                                    syncs.append((timestamp, sync_entry))
+                        
+                        # Sort by timestamp
+                        syncs.sort(key=lambda x: x[0])
+                        
+                        # Remove all but the latest if keep_latest is True
+                        to_remove = syncs[:-1] if keep_latest and syncs else syncs
+                        
+                        for _, sync_path in to_remove:
+                            try:
+                                shutil.rmtree(sync_path)
+                                cleaned_count += 1
+                            except Exception as e:
+                                if self.verbose:
+                                    print(f"⚠️  Could not remove sync history: {e}")
+        
+        if self.verbose and cleaned_count > 0:
+            print(f"🧹 Cleaned {cleaned_count} old sync history entries")
+        
+        return cleaned_count
+
     def _extract_message_directly(self, message_path: Path, datasites_dir: Path) -> Dict[str, int]:
         """
         Extract files directly from a message without creating SyftMessage object
@@ -2451,12 +2613,20 @@ class GDriveUnifiedClient:
         # Second pass: Use hard links (instant!) instead of move
         for op in operations:
             try:
+                # Check sync history before applying
+                dest_path = Path(op['dest'])
+                if not self._should_apply_sync(dest_path, message_path):
+                    stats["messages_skipped"] = stats.get("messages_skipped", 0) + 1
+                    continue
+                
                 # Try hard link first (instant operation)
                 try:
                     os.link(op['source'], op['dest'])
                     stats["files_merged"] += 1
                     if self.verbose:
                         print(f"      ✓ Linked: {op['relative_path']}")
+                    # Store in sync history after successful merge
+                    self._store_sync_history(dest_path, message_path)
                 except FileExistsError:
                     # Destination exists, remove and retry
                     os.unlink(op['dest'])
@@ -2464,12 +2634,16 @@ class GDriveUnifiedClient:
                     stats["files_overwritten"] += 1
                     if self.verbose:
                         print(f"      ✓ Re-linked: {op['relative_path']}")
+                    # Store in sync history after successful merge
+                    self._store_sync_history(dest_path, message_path)
                 except OSError as e:
                     # Hard link failed (maybe cross-filesystem), fall back to move
                     shutil.move(op['source'], op['dest'])
                     stats["files_merged"] += 1
                     if self.verbose:
                         print(f"      ✓ Moved: {op['relative_path']}")
+                    # Store in sync history after successful merge
+                    self._store_sync_history(dest_path, message_path)
                         
             except FileNotFoundError:
                 print(f"      ❌ Source file not found: {op['source']}")
@@ -2575,8 +2749,14 @@ class GDriveUnifiedClient:
                     stats["files_overwritten"] += file_stats["files_overwritten"]
                     stats["errors"] += file_stats["errors"]
                     
+                    # Check if any files were skipped due to sync history
+                    files_skipped_due_to_history = file_stats.get("messages_skipped", 0)
+                    
                     if file_stats["files_merged"] > 0 or file_stats["files_overwritten"] > 0:
                         stats["messages_processed"] += 1
+                    elif files_skipped_due_to_history > 0:
+                        # Message was skipped due to sync history
+                        stats["messages_skipped"] += 1
                     else:
                         stats["messages_skipped"] += 1
                     
