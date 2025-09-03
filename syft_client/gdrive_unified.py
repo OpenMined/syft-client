@@ -2449,14 +2449,14 @@ class GDriveUnifiedClient:
     
     def _is_file_from_recent_sync(self, file_path: Union[str, Path], threshold_seconds: int = 60) -> bool:
         """
-        Check if a file's current content matches a recent sync
+        Check if a file's current content matches the most recent sync
         
         Args:
             file_path: Path to the file to check
             threshold_seconds: How recent the sync must be (default: 60 seconds)
             
         Returns:
-            True if file matches a recent sync, False otherwise
+            True if file matches the most recent sync within threshold, False otherwise
         """
         file_path = Path(file_path)
         
@@ -2470,63 +2470,77 @@ class GDriveUnifiedClient:
         if not history_path.exists():
             return False
         
-        # Check recent syncs
         current_time = time.time()
         
         try:
-            # Find all sync entries
+            # Collect all sync entries with their timestamps
+            syncs = []
             for sync_entry in history_path.iterdir():
                 if sync_entry.is_dir() and sync_entry.name.endswith(".syftmessage"):
-                    # Extract timestamp from filename
                     try:
                         # Filename format: <timestamp>_<message_id>.syftmessage
                         timestamp_str = sync_entry.name.split('_')[0]
                         sync_timestamp = float(timestamp_str)
-                        
-                        # Check if sync is recent enough
-                        if current_time - sync_timestamp > threshold_seconds:
-                            continue
-                        
-                        # Find the file in the sync
-                        sync_files_dir = sync_entry / "data" / "files"
-                        if not sync_files_dir.exists():
-                            continue
-                        
-                        # Read metadata to find the internal name
-                        metadata = None
-                        for metadata_file in ["metadata.json", "metadata.yaml"]:
-                            metadata_path = sync_entry / metadata_file
-                            if metadata_path.exists():
-                                try:
-                                    if metadata_file.endswith(".json"):
-                                        with open(metadata_path, 'r') as f:
-                                            metadata = json.load(f)
-                                    else:
-                                        with open(metadata_path, 'r') as f:
-                                            metadata = yaml.safe_load(f) or {}
-                                    break
-                                except:
-                                    continue
-                        
-                        if not metadata:
-                            continue
-                        
-                        # Find the file entry
-                        files_info = metadata.get("files", [])
-                        for file_entry in files_info:
-                            if file_entry.get("path", "").endswith(file_path.name):
-                                internal_name = file_entry.get("_internal_name", file_path.name)
-                                sync_file_path = sync_files_dir / internal_name
-                                
-                                if sync_file_path.exists():
-                                    sync_hash = self._compute_file_hash(sync_file_path)
-                                    if sync_hash == current_hash:
-                                        if self.verbose:
-                                            print(f"🔄 File {file_path.name} matches recent sync from {sync_timestamp:.0f}s ago")
-                                        return True
+                        syncs.append((sync_timestamp, sync_entry))
                     except (ValueError, IndexError):
-                        # Skip entries with invalid timestamp format
                         continue
+            
+            # Sort by timestamp to get most recent first
+            syncs.sort(key=lambda x: x[0], reverse=True)
+            
+            # Check only the most recent sync
+            if syncs:
+                sync_timestamp, sync_entry = syncs[0]
+                
+                # Check if the most recent sync is within threshold
+                if current_time - sync_timestamp > threshold_seconds:
+                    # Most recent sync is too old
+                    return False
+                
+                # Check if the most recent sync matches current content
+                sync_files_dir = sync_entry / "data" / "files"
+                if not sync_files_dir.exists():
+                    return False
+                
+                # Read metadata to find the internal name
+                metadata = None
+                for metadata_file in ["metadata.json", "metadata.yaml"]:
+                    metadata_path = sync_entry / metadata_file
+                    if metadata_path.exists():
+                        try:
+                            if metadata_file.endswith(".json"):
+                                with open(metadata_path, 'r') as f:
+                                    metadata = json.load(f)
+                            else:
+                                with open(metadata_path, 'r') as f:
+                                    metadata = yaml.safe_load(f) or {}
+                            break
+                        except:
+                            continue
+                
+                if not metadata:
+                    return False
+                
+                # Find the file entry
+                files_info = metadata.get("files", [])
+                for file_entry in files_info:
+                    if file_entry.get("path", "").endswith(file_path.name):
+                        internal_name = file_entry.get("_internal_name", file_path.name)
+                        sync_file_path = sync_files_dir / internal_name
+                        
+                        if sync_file_path.exists():
+                            sync_hash = self._compute_file_hash(sync_file_path)
+                            if sync_hash == current_hash:
+                                if self.verbose:
+                                    age_seconds = current_time - sync_timestamp
+                                    print(f"🔄 File {file_path.name} matches most recent sync from {age_seconds:.0f}s ago")
+                                return True
+                            else:
+                                # Most recent sync doesn't match - file has been edited
+                                if self.verbose:
+                                    print(f"✏️  File {file_path.name} has been edited since last sync")
+                                return False
+            
         except Exception as e:
             if self.verbose:
                 print(f"⚠️  Error checking sync history: {e}")
@@ -2534,16 +2548,16 @@ class GDriveUnifiedClient:
         
         return False
     
-    def _get_recent_sync_info(self, file_path: Union[str, Path], threshold_seconds: int = 60) -> Optional[Dict[str, any]]:
+    def _get_recent_sync_info(self, file_path: Union[str, Path], threshold_seconds: Optional[int] = None) -> Optional[Dict[str, any]]:
         """
         Get information about the most recent sync for a file
         
         Args:
             file_path: Path to the file
-            threshold_seconds: How recent the sync must be
+            threshold_seconds: If provided, only return info if sync is within this threshold
             
         Returns:
-            Dict with sync info or None if no recent sync
+            Dict with sync info or None if no sync found (or too old if threshold provided)
         """
         file_path = Path(file_path)
         history_path = self._get_sync_history_path(file_path)
@@ -2552,29 +2566,42 @@ class GDriveUnifiedClient:
             return None
         
         current_time = time.time()
-        most_recent_sync = None
         
         try:
+            # Collect all sync entries with their timestamps
+            syncs = []
             for sync_entry in history_path.iterdir():
                 if sync_entry.is_dir() and sync_entry.name.endswith(".syftmessage"):
                     try:
                         timestamp_str = sync_entry.name.split('_')[0]
                         sync_timestamp = float(timestamp_str)
-                        
-                        if current_time - sync_timestamp <= threshold_seconds:
-                            if most_recent_sync is None or sync_timestamp > most_recent_sync["timestamp"]:
-                                most_recent_sync = {
-                                    "timestamp": sync_timestamp,
-                                    "age_seconds": current_time - sync_timestamp,
-                                    "sync_path": sync_entry,
-                                    "sync_id": sync_entry.name
-                                }
+                        syncs.append((sync_timestamp, sync_entry))
                     except:
                         continue
+            
+            if not syncs:
+                return None
+            
+            # Sort by timestamp to get most recent first
+            syncs.sort(key=lambda x: x[0], reverse=True)
+            sync_timestamp, sync_entry = syncs[0]
+            
+            # Check threshold if provided
+            age_seconds = current_time - sync_timestamp
+            if threshold_seconds is not None and age_seconds > threshold_seconds:
+                return None
+            
+            return {
+                "timestamp": sync_timestamp,
+                "age_seconds": age_seconds,
+                "sync_path": sync_entry,
+                "sync_id": sync_entry.name,
+                "is_most_recent": True
+            }
         except:
             pass
         
-        return most_recent_sync
+        return None
 
     def _clean_sync_history_for_datasite(self, datasite_path: Path, keep_latest: bool = True) -> int:
         """
