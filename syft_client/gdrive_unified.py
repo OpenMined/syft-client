@@ -1238,6 +1238,9 @@ class GDriveUnifiedClient:
         # Then create a new one — skip existence check since we just deleted it
         folder_id = self.setup_syftbox(skip_syftbox_existence_check=True)
         
+        # Ensure local SyftBox directory structure exists
+        self._create_local_syftbox_directory()
+        
         # Always print success message for reset
         if folder_id:
             print("✅ SyftBoxTransportService has been reset (deleted and recreated)")
@@ -1320,6 +1323,9 @@ class GDriveUnifiedClient:
             
             # Cache the folder ID
             self._syftbox_folder_id = syftbox_id
+            
+            # Ensure local SyftBox directory structure exists
+            self._create_local_syftbox_directory()
             
             if self.verbose:
                 print(f"\n✅ SyftBoxTransportService setup complete!")
@@ -1910,7 +1916,7 @@ class GDriveUnifiedClient:
         for item in os.listdir(folder_path):
             item_path = os.path.join(folder_path, item)
             
-            # Skip hidden files
+            # Skip hidden files and directories
             if item.startswith('.'):
                 continue
                 
@@ -2420,6 +2426,156 @@ class GDriveUnifiedClient:
             if self.verbose:
                 print(f"      ⚠️  Could not store sync history: {e}")
     
+    def _compute_file_hash(self, file_path: Union[str, Path]) -> Optional[str]:
+        """
+        Compute SHA256 hash of a file
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            Hex string of file hash or None if error
+        """
+        import hashlib
+        try:
+            sha256_hash = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                # Read in chunks to handle large files
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
+            return sha256_hash.hexdigest()
+        except Exception:
+            return None
+    
+    def _is_file_from_recent_sync(self, file_path: Union[str, Path], threshold_seconds: int = 60) -> bool:
+        """
+        Check if a file's current content matches a recent sync
+        
+        Args:
+            file_path: Path to the file to check
+            threshold_seconds: How recent the sync must be (default: 60 seconds)
+            
+        Returns:
+            True if file matches a recent sync, False otherwise
+        """
+        file_path = Path(file_path)
+        
+        # Get current file hash
+        current_hash = self._compute_file_hash(file_path)
+        if not current_hash:
+            return False
+        
+        # Get sync history path
+        history_path = self._get_sync_history_path(file_path)
+        if not history_path.exists():
+            return False
+        
+        # Check recent syncs
+        current_time = time.time()
+        
+        try:
+            # Find all sync entries
+            for sync_entry in history_path.iterdir():
+                if sync_entry.is_dir() and sync_entry.name.endswith(".syftmessage"):
+                    # Extract timestamp from filename
+                    try:
+                        # Filename format: <timestamp>_<message_id>.syftmessage
+                        timestamp_str = sync_entry.name.split('_')[0]
+                        sync_timestamp = float(timestamp_str)
+                        
+                        # Check if sync is recent enough
+                        if current_time - sync_timestamp > threshold_seconds:
+                            continue
+                        
+                        # Find the file in the sync
+                        sync_files_dir = sync_entry / "data" / "files"
+                        if not sync_files_dir.exists():
+                            continue
+                        
+                        # Read metadata to find the internal name
+                        metadata = None
+                        for metadata_file in ["metadata.json", "metadata.yaml"]:
+                            metadata_path = sync_entry / metadata_file
+                            if metadata_path.exists():
+                                try:
+                                    if metadata_file.endswith(".json"):
+                                        with open(metadata_path, 'r') as f:
+                                            metadata = json.load(f)
+                                    else:
+                                        with open(metadata_path, 'r') as f:
+                                            metadata = yaml.safe_load(f) or {}
+                                    break
+                                except:
+                                    continue
+                        
+                        if not metadata:
+                            continue
+                        
+                        # Find the file entry
+                        files_info = metadata.get("files", [])
+                        for file_entry in files_info:
+                            if file_entry.get("path", "").endswith(file_path.name):
+                                internal_name = file_entry.get("_internal_name", file_path.name)
+                                sync_file_path = sync_files_dir / internal_name
+                                
+                                if sync_file_path.exists():
+                                    sync_hash = self._compute_file_hash(sync_file_path)
+                                    if sync_hash == current_hash:
+                                        if self.verbose:
+                                            print(f"🔄 File {file_path.name} matches recent sync from {sync_timestamp:.0f}s ago")
+                                        return True
+                    except (ValueError, IndexError):
+                        # Skip entries with invalid timestamp format
+                        continue
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️  Error checking sync history: {e}")
+            return False
+        
+        return False
+    
+    def _get_recent_sync_info(self, file_path: Union[str, Path], threshold_seconds: int = 60) -> Optional[Dict[str, any]]:
+        """
+        Get information about the most recent sync for a file
+        
+        Args:
+            file_path: Path to the file
+            threshold_seconds: How recent the sync must be
+            
+        Returns:
+            Dict with sync info or None if no recent sync
+        """
+        file_path = Path(file_path)
+        history_path = self._get_sync_history_path(file_path)
+        
+        if not history_path.exists():
+            return None
+        
+        current_time = time.time()
+        most_recent_sync = None
+        
+        try:
+            for sync_entry in history_path.iterdir():
+                if sync_entry.is_dir() and sync_entry.name.endswith(".syftmessage"):
+                    try:
+                        timestamp_str = sync_entry.name.split('_')[0]
+                        sync_timestamp = float(timestamp_str)
+                        
+                        if current_time - sync_timestamp <= threshold_seconds:
+                            if most_recent_sync is None or sync_timestamp > most_recent_sync["timestamp"]:
+                                most_recent_sync = {
+                                    "timestamp": sync_timestamp,
+                                    "age_seconds": current_time - sync_timestamp,
+                                    "sync_path": sync_entry,
+                                    "sync_id": sync_entry.name
+                                }
+                    except:
+                        continue
+        except:
+            pass
+        
+        return most_recent_sync
+
     def _clean_sync_history_for_datasite(self, datasite_path: Path, keep_latest: bool = True) -> int:
         """
         Clean up sync history for a datasite when receiving a full update
