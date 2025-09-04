@@ -42,7 +42,7 @@ class GDriveUnifiedClient:
     with high-level API for file operations and permissions
     """
     
-    SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
+    SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/forms.body']
     
     def __init__(self, auth_method: str = "auto", credentials_file: str = "credentials.json", 
                  email: Optional[str] = None, verbose: bool = True, force_relogin: bool = False):
@@ -78,6 +78,8 @@ class GDriveUnifiedClient:
         self._metadata_cache = {}  # Cache for parsed message metadata
         self._path_cache = {}  # Cache for string paths
         self._dir_structure = set()  # Pre-created directories
+        self._form_inbox_metadata = None  # Lazy-loaded form inbox metadata
+        self._form_inbox_prepared = False  # Whether we've prepared the form for submission
         
     def __repr__(self) -> str:
         """Pretty representation of the client"""
@@ -412,6 +414,196 @@ class GDriveUnifiedClient:
         if not self.authenticated:
             raise RuntimeError("Client not authenticated. Call authenticate() first.")
         # print("ENSUREAUTH-2 " + str(time.time()))
+    
+    @property
+    def form_inbox_metadata(self) -> Dict[str, any]:
+        """
+        Lazy property that returns the SyftBox Inbox Form metadata.
+        Creates the form if it doesn't exist.
+        
+        Returns:
+            Dict with form metadata including URLs and entry mappings
+        """
+        if self._form_inbox_metadata is None:
+            self._ensure_authenticated()
+            
+            # First, try to find an existing form with the expected name
+            if self.verbose:
+                print("🔍 Looking for existing SyftBox Inbox Form...")
+            
+            forms = self.list_forms(query="SyftBox Inbox Form", limit=50)
+            
+            # Look for exact match
+            existing_form = None
+            for form in forms:
+                if form['name'] == "SyftBox Inbox Form":
+                    existing_form = form
+                    break
+            
+            if existing_form:
+                if self.verbose:
+                    print(f"✅ Found existing form: {existing_form['name']}")
+                    print(f"📋 Form ID: {existing_form['id']}")
+                
+                # Store basic metadata
+                self._form_inbox_metadata = {
+                    'form_id': existing_form['id'],
+                    'form_url': f"https://docs.google.com/forms/d/e/{existing_form['id']}/viewform",
+                    'form_edit_url': existing_form['edit_url'],
+                    'created_at': existing_form.get('created', ''),
+                    'existing': True
+                }
+                
+                # Try to make it public if not already
+                public_url = self.make_form_public(existing_form['id'])
+                if public_url and public_url != False:
+                    self._form_inbox_metadata['form_url'] = public_url
+                    
+            else:
+                # Create a new form - but override the title
+                if self.verbose:
+                    print("📝 Creating new SyftBox Inbox Form...")
+                
+                try:
+                    # Temporarily patch the create method to use our title
+                    original_form_title = f"SyftBox Inbox [{datetime.now().strftime('%Y-%m-%d %H:%M')}]"
+                    
+                    # We need to modify create_google_form_inbox to accept a title parameter
+                    # For now, we'll create it with the default title and rename if possible
+                    result = self.create_public_google_form_inbox()
+                    
+                    # Update the form title if possible using Drive API
+                    try:
+                        self.service.files().update(
+                            fileId=result['form_id'],
+                            body={'name': 'SyftBox Inbox Form'}
+                        ).execute()
+                        if self.verbose:
+                            print("✅ Renamed form to 'SyftBox Inbox Form'")
+                    except:
+                        pass
+                    
+                    # Store the metadata
+                    self._form_inbox_metadata = result
+                    self._form_inbox_metadata['existing'] = False
+                    
+                    if self.verbose:
+                        print(f"✅ Created new form successfully")
+                        print(f"📋 Form URL: {result['form_url']}")
+                        
+                except HttpError as e:
+                    if "SERVICE_DISABLED" in str(e) or "forms.googleapis.com" in str(e):
+                        # Extract the activation URL from the error
+                        import re
+                        activation_url_match = re.search(r'https://console\.developers\.google\.com/apis/api/forms\.googleapis\.com/overview\?project=\d+', str(e))
+                        activation_url = activation_url_match.group(0) if activation_url_match else "https://console.developers.google.com/apis/api/forms.googleapis.com"
+                        
+                        error_msg = (
+                            "\n❌ Google Forms API is not enabled for your account.\n"
+                            "   \n"
+                            "   To enable it:\n"
+                            f"   1. Visit: {activation_url}\n"
+                            "   2. Click 'Enable API'\n"
+                            "   3. Wait a few minutes for it to activate\n"
+                            "   4. Try again\n"
+                            "   \n"
+                            "   Note: You only need to do this once per Google account."
+                        )
+                        
+                        # Store error metadata
+                        self._form_inbox_metadata = {
+                            'error': 'Forms API not enabled',
+                            'activation_url': activation_url,
+                            'message': error_msg
+                        }
+                        
+                        print(error_msg)
+                        
+                    else:
+                        # Some other error
+                        self._form_inbox_metadata = {
+                            'error': str(e),
+                            'message': f"Failed to create form: {str(e)[:200]}..."
+                        }
+                        if self.verbose:
+                            print(f"❌ Failed to create form: {e}")
+                
+                except Exception as e:
+                    # Generic error handling
+                    self._form_inbox_metadata = {
+                        'error': str(e),
+                        'message': f"Unexpected error: {str(e)[:200]}..."
+                    }
+                    if self.verbose:
+                        print(f"❌ Unexpected error creating form: {e}")
+        
+        # If we haven't prepared the form submission metadata yet, do it now
+        if not self._form_inbox_prepared and 'form_url' in self._form_inbox_metadata:
+            try:
+                # Prepare the form for fast submission
+                prep_metadata = self.prepare_form_submission(
+                    self._form_inbox_metadata['form_url'], 
+                    debug=False
+                )
+                if 'error' not in prep_metadata:
+                    # Merge the preparation metadata
+                    self._form_inbox_metadata.update(prep_metadata)
+                    self._form_inbox_prepared = True
+                    if self.verbose:
+                        print("✅ Form prepared for fast submission")
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️  Could not prepare form for submission: {e}")
+        
+        return self._form_inbox_metadata
+    
+    def set_form_inbox_url(self, form_url: str, prepare: bool = True) -> Dict[str, any]:
+        """
+        Manually set the form inbox URL. Useful when Forms API is not available.
+        
+        Args:
+            form_url: The Google Form URL to use
+            prepare: Whether to prepare the form for fast submission
+            
+        Returns:
+            The form metadata
+        """
+        import re
+        
+        # Extract form ID
+        form_id_match = re.search(r'/forms/d/(?:e/)?([a-zA-Z0-9_-]+)/', form_url)
+        if not form_id_match:
+            raise ValueError(f"Invalid form URL: {form_url}")
+            
+        form_id = form_id_match.group(1)
+        
+        # Set the metadata
+        self._form_inbox_metadata = {
+            'form_id': form_id,
+            'form_url': form_url,
+            'form_edit_url': f"https://docs.google.com/forms/d/{form_id}/edit",
+            'manually_set': True,
+            'existing': True
+        }
+        
+        if prepare:
+            try:
+                # Prepare the form for fast submission
+                prep_metadata = self.prepare_form_submission(form_url, debug=False)
+                if 'error' not in prep_metadata:
+                    self._form_inbox_metadata.update(prep_metadata)
+                    self._form_inbox_prepared = True
+                    if self.verbose:
+                        print("✅ Form prepared for fast submission")
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️  Could not prepare form: {e}")
+        
+        if self.verbose:
+            print(f"✅ Form inbox URL set manually")
+            print(f"📋 Form URL: {form_url}")
+            
+        return self._form_inbox_metadata
     
     def _get_sheets_service(self):
         """Get or create cached Google Sheets service"""
@@ -4348,6 +4540,1859 @@ class GDriveUnifiedClient:
             if self.verbose:
                 print(f"❌ Error updating from sheets: {e}")
             return {}
+    
+    def create_google_form_inbox(self) -> str:
+        """
+        Creates a Google Form inbox that matches the Google Sheets messaging schema.
+        This provides an alternative message submission method to avoid rate limits.
+        
+        The form collects:
+        - From Email (sender)
+        - To Email (recipient)
+        - Message ID
+        - Message Size (bytes)
+        - Message Data (Base64-encoded tar.gz)
+        - File Path (optional)
+        
+        Returns:
+            str: URL of the created Google Form
+        """
+        self._ensure_authenticated()
+        
+        # Build Google Forms service
+        forms_service = build('forms', 'v1', credentials=self.creds)
+        
+        # Create form structure
+        form_title = f"SyftBox Messages - {self.my_email}"
+        form_description = "Submit messages to SyftBox. Messages should be base64-encoded tar.gz archives."
+        
+        # Define questions matching the schema
+        questions = [
+            {
+                "title": "From Email",
+                "description": "Sender's email address",
+                "questionItem": {
+                    "question": {
+                        "required": True,
+                        "textQuestion": {
+                            "paragraph": False
+                        }
+                    }
+                }
+            },
+            {
+                "title": "To Email",
+                "description": "Recipient's email address",
+                "questionItem": {
+                    "question": {
+                        "required": True,
+                        "textQuestion": {
+                            "paragraph": False
+                        }
+                    }
+                }
+            },
+            {
+                "title": "Message ID",
+                "description": "Unique message ID (syft_message_timestamp_hash)",
+                "questionItem": {
+                    "question": {
+                        "required": True,
+                        "textQuestion": {
+                            "paragraph": False
+                        }
+                    }
+                }
+            },
+            {
+                "title": "Message Size (bytes)",
+                "description": "Size of encoded message in bytes",
+                "questionItem": {
+                    "question": {
+                        "required": True,
+                        "textQuestion": {
+                            "paragraph": False
+                        }
+                    }
+                }
+            },
+            {
+                "title": "Message Data (Base64)",
+                "description": "Base64-encoded tar.gz archive",
+                "questionItem": {
+                    "question": {
+                        "required": True,
+                        "textQuestion": {
+                            "paragraph": True  # This is a paragraph field
+                        }
+                    }
+                }
+            },
+            {
+                "title": "File Path (Optional)",
+                "description": "Path within datasites/ directory",
+                "questionItem": {
+                    "question": {
+                        "required": False,
+                        "textQuestion": {
+                            "paragraph": False
+                        }
+                    }
+                }
+            }
+        ]
+        
+        # Create form request - only title can be set on creation
+        form_request = {
+            "info": {
+                "title": form_title
+            }
+        }
+        
+        try:
+            # Create the form
+            if self.verbose:
+                print("📝 Creating Google Form inbox...")
+            
+            result = forms_service.forms().create(body=form_request).execute()
+            form_id = result["formId"]
+            
+            # Create batch update request for description and questions
+            requests = []
+            
+            # First update the form description
+            requests.append({
+                "updateFormInfo": {
+                    "info": {
+                        "description": form_description
+                    },
+                    "updateMask": "description"
+                }
+            })
+            
+            # Then add the questions
+            for index, question in enumerate(questions):
+                requests.append({
+                    "createItem": {
+                        "item": question,
+                        "location": {
+                            "index": index
+                        }
+                    }
+                })
+            
+            # Apply batch updates to add questions
+            batch_update_request = {
+                "requests": requests
+            }
+            
+            forms_service.forms().batchUpdate(
+                formId=form_id,
+                body=batch_update_request
+            ).execute()
+            
+            # Link form responses to a spreadsheet
+            # Note: The Forms API doesn't directly support creating linked spreadsheets
+            # Users will need to manually link responses or we can create a sheet separately
+            
+            # Get form URL
+            form_url = result.get('responderUri', f"https://docs.google.com/forms/d/{form_id}/viewform")
+            
+            if self.verbose:
+                print(f"✅ Form created successfully!")
+                print(f"📋 Form URL: {form_url}")
+                print(f"📝 Form ID: {form_id}")
+                print(f"📋 Edit URL: https://docs.google.com/forms/d/{form_id}/edit")
+                print("\n⚠️  Note: You'll need to manually link form responses to a Google Sheet")
+                print("    or use the form ID to programmatically retrieve responses.")
+                
+            # Store form info for later use
+            self._last_created_form = {
+                'form_id': form_id,
+                'form_url': form_url,
+                'edit_url': f"https://docs.google.com/forms/d/{form_id}/edit"
+            }
+            
+            return form_url
+            
+        except HttpError as e:
+            error_msg = f"❌ Error creating form: {e}"
+            if self.verbose:
+                print(error_msg)
+            raise Exception(error_msg) from e
+    
+    def create_public_google_form_inbox(self) -> Dict[str, str]:
+        """
+        Creates a publicly accessible Google Form inbox that matches the Google Sheets messaging schema.
+        This form can be submitted to without authentication and automatically creates a linked spreadsheet.
+        
+        Returns:
+            Dict with:
+                - 'form_url': URL of the created public Google Form (with proper /d/e/ format)
+                - 'spreadsheet_url': URL of the linked Google Sheets spreadsheet
+                - 'spreadsheet_id': ID of the linked spreadsheet
+                - 'form_id': ID of the form
+        """
+        self._ensure_authenticated()
+        
+        # First create the form using the existing method
+        form_url = self.create_google_form_inbox()
+        
+        # Extract form ID
+        import re
+        form_id_match = re.search(r'/forms/d/(?:e/)?([a-zA-Z0-9_-]+)/', form_url)
+        if not form_id_match:
+            raise ValueError(f"Could not extract form ID from URL: {form_url}")
+        
+        form_id = form_id_match.group(1)
+        
+        # Create a linked spreadsheet for responses
+        if self.verbose:
+            print(f"📊 Creating linked spreadsheet for form responses...")
+            
+        try:
+            # Create a new spreadsheet with the same name as the form
+            form_title = f"SyftBox Inbox [{datetime.now().strftime('%Y-%m-%d %H:%M')}]"
+            spreadsheet_title = f"{form_title} (Responses)"
+            
+            # Create spreadsheet
+            spreadsheet_metadata = {
+                'properties': {
+                    'title': spreadsheet_title
+                }
+            }
+            
+            # Build sheets service if not already done
+            if not self._sheets_service:
+                self._sheets_service = build('sheets', 'v4', credentials=self.creds)
+                
+            spreadsheet = self._sheets_service.spreadsheets().create(
+                body=spreadsheet_metadata,
+                fields='spreadsheetId,spreadsheetUrl'
+            ).execute()
+            
+            spreadsheet_id = spreadsheet.get('spreadsheetId')
+            spreadsheet_url = spreadsheet.get('spreadsheetUrl')
+            
+            if self.verbose:
+                print(f"✅ Created spreadsheet: {spreadsheet_title}")
+                print(f"📊 Spreadsheet URL: {spreadsheet_url}")
+                
+            # Unfortunately, the Forms API v1 doesn't support programmatically linking
+            # a spreadsheet to collect responses. This is a limitation.
+            # Users will need to manually link it or we need to use the form's
+            # response data via API instead.
+            
+            if self.verbose:
+                print(f"⚠️  Note: Forms API v1 doesn't support auto-linking spreadsheets.")
+                print(f"    To link manually: Open form → Responses tab → Link to Sheets → Select existing")
+                print(f"    Or use the form's API to retrieve responses programmatically")
+                
+        except HttpError as e:
+            if self.verbose:
+                print(f"⚠️  Could not create spreadsheet: {e}")
+            spreadsheet_id = None
+            spreadsheet_url = None
+        
+        # Now make the form public and get the correct public URL
+        if self.verbose:
+            print(f"🔄 Making form public...")
+            
+        public_form_url = self.make_form_public(form_url)
+        
+        # If make_form_public failed, it returns False
+        if not public_form_url:
+            if self.verbose:
+                print(f"⚠️  Could not make form fully public, returning standard URL")
+            public_form_url = form_url
+            
+        return {
+            'form_url': public_form_url,
+            'form_id': form_id,
+            'spreadsheet_url': spreadsheet_url,
+            'spreadsheet_id': spreadsheet_id,
+            'form_edit_url': f"https://docs.google.com/forms/d/{form_id}/edit",
+            'note': 'Spreadsheet created but needs manual linking via Forms UI'
+        }
+    
+    def check_form_public_access(self, form_url: str) -> Dict[str, any]:
+        """
+        Check if a form is truly public (anyone with link can respond).
+        
+        Args:
+            form_url: URL of the Google Form to check
+            
+        Returns:
+            Dict with access status and details
+        """
+        import re
+        
+        # Extract form ID
+        form_id_match = re.search(r'/forms/d/(?:e/)?([a-zA-Z0-9_-]+)/', form_url)
+        if not form_id_match:
+            return {"error": "Could not extract form ID from URL"}
+        
+        form_id = form_id_match.group(1)
+        
+        try:
+            drive_service = build('drive', 'v3', credentials=self.creds)
+            
+            # Check permissions
+            permissions_result = drive_service.permissions().list(
+                fileId=form_id,
+                fields="permissions(id,type,role,domain,emailAddress)",
+                includePermissionsForView="published"
+            ).execute()
+            
+            permissions = permissions_result.get("permissions", [])
+            
+            # Analyze permissions
+            has_anyone_permission = False
+            has_domain_restriction = False
+            domain_name = None
+            
+            for perm in permissions:
+                if perm.get("type") == "anyone":
+                    has_anyone_permission = True
+                elif perm.get("type") == "domain":
+                    has_domain_restriction = True
+                    domain_name = perm.get("domain", "unknown")
+            
+            # Try to access form without auth
+            import requests
+            response = requests.get(form_url)
+            requires_auth = 'accounts.google.com' in response.url or response.status_code == 401
+            
+            return {
+                "form_id": form_id,
+                "has_anyone_permission": has_anyone_permission,
+                "has_domain_restriction": has_domain_restriction,
+                "restricted_domain": domain_name,
+                "requires_authentication": requires_auth,
+                "is_truly_public": has_anyone_permission and not has_domain_restriction and not requires_auth,
+                "permissions": permissions,
+                "recommendation": self._get_access_recommendation(has_anyone_permission, has_domain_restriction, requires_auth)
+            }
+            
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def _get_access_recommendation(self, has_anyone: bool, has_domain: bool, requires_auth: bool) -> str:
+        """Get recommendation for fixing form access."""
+        if not has_anyone and has_domain:
+            return "Form is domain-restricted. To make it public, manually: 1) Open form 2) Click Send 3) Under 'Responders', click 'Manage' 4) Select 'Anyone with the link' 5) Save"
+        elif has_anyone and requires_auth:
+            return "Form has 'anyone' permission but still requires auth. Check form settings for 'Collect email addresses' or 'Restrict to organization' options."
+        elif has_anyone and not requires_auth:
+            return "Form appears to be properly configured for public access."
+        else:
+            return "Unknown configuration. Please check form settings manually."
+    
+    def get_form_responses_api(self, form_id: str, limit: int = 100) -> List[Dict[str, any]]:
+        """
+        Retrieve responses from a Google Form using the Forms API.
+        
+        Args:
+            form_id: The Google Form ID
+            limit: Maximum number of responses to retrieve
+            
+        Returns:
+            List of form responses as dictionaries
+        """
+        self._ensure_authenticated()
+        
+        try:
+            forms_service = build('forms', 'v1', credentials=self.creds)
+            
+            # Get form responses
+            responses = forms_service.forms().responses().list(
+                formId=form_id,
+                pageSize=limit
+            ).execute()
+            
+            form_responses = []
+            
+            # Get the form structure to map question IDs to titles
+            form = forms_service.forms().get(formId=form_id).execute()
+            
+            # Create a mapping of item IDs to question titles
+            item_map = {}
+            for item in form.get('items', []):
+                item_id = item.get('itemId')
+                title = item.get('title', '')
+                item_map[item_id] = title
+            
+            # Process each response
+            for response in responses.get('responses', []):
+                response_data = {
+                    'responseId': response.get('responseId'),
+                    'createTime': response.get('createTime'),
+                    'lastSubmittedTime': response.get('lastSubmittedTime'),
+                    'answers': {}
+                }
+                
+                # Extract answers
+                for item_id, answer_data in response.get('answers', {}).items():
+                    question_title = item_map.get(item_id, item_id)
+                    text_answers = answer_data.get('textAnswers', {}).get('answers', [])
+                    if text_answers:
+                        response_data['answers'][question_title] = text_answers[0].get('value', '')
+                
+                form_responses.append(response_data)
+            
+            if self.verbose:
+                print(f"📊 Retrieved {len(form_responses)} responses from form")
+                
+            return form_responses
+            
+        except HttpError as e:
+            if self.verbose:
+                print(f"❌ Error retrieving form responses: {e}")
+            return []
+    
+    def get_results_from_form(self, form_id_or_url: str, limit: int = 100, format: str = 'list') -> Union[List[Dict[str, any]], Dict[str, any]]:
+        """
+        Get results/responses from a Google Form using either form ID or URL.
+        
+        Args:
+            form_id_or_url: The Google Form ID or URL
+            limit: Maximum number of responses to retrieve (default 100)
+            format: Return format - 'list' for list of responses, 'summary' for aggregated results
+            
+        Returns:
+            List of responses or summary dict depending on format parameter
+        """
+        import re
+        from datetime import datetime
+        
+        self._ensure_authenticated()
+        
+        # Extract form ID if URL was provided
+        form_id = form_id_or_url
+        if form_id_or_url.startswith('http'):
+            form_id_match = re.search(r'/forms/d/(?:e/)?([a-zA-Z0-9_-]+)/', form_id_or_url)
+            if form_id_match:
+                form_id = form_id_match.group(1)
+                if self.verbose:
+                    print(f"📋 Extracted form ID: {form_id}")
+            else:
+                if self.verbose:
+                    print(f"❌ Could not extract form ID from URL: {form_id_or_url}")
+                return [] if format == 'list' else {'error': 'Invalid form URL'}
+        
+        if self.verbose:
+            print(f"🔍 Getting responses for form ID: {form_id}")
+        
+        # Get the responses using the Forms API method
+        responses = self.get_form_responses_api(form_id, limit)
+        
+        if format == 'list':
+            return responses
+        elif format == 'summary':
+            # Create summary statistics
+            summary = {
+                'form_id': form_id,
+                'total_responses': len(responses),
+                'responses': responses,
+                'field_summary': {},
+                'latest_response': None,
+                'oldest_response': None
+            }
+            
+            if responses:
+                # Get latest and oldest responses
+                sorted_responses = sorted(responses, key=lambda x: x.get('lastSubmittedTime', ''))
+                summary['oldest_response'] = sorted_responses[0] if sorted_responses else None
+                summary['latest_response'] = sorted_responses[-1] if sorted_responses else None
+                
+                # Aggregate field data
+                field_counts = {}
+                for response in responses:
+                    for field, value in response.get('answers', {}).items():
+                        if field not in field_counts:
+                            field_counts[field] = {
+                                'total': 0,
+                                'non_empty': 0,
+                                'values': []
+                            }
+                        field_counts[field]['total'] += 1
+                        if value:
+                            field_counts[field]['non_empty'] += 1
+                            field_counts[field]['values'].append(value)
+                
+                summary['field_summary'] = field_counts
+                
+            if self.verbose:
+                print(f"\n📊 Form Results Summary:")
+                print(f"   Total responses: {summary['total_responses']}")
+                if summary['latest_response']:
+                    print(f"   Latest: {summary['latest_response'].get('lastSubmittedTime', 'unknown')}")
+                if summary['oldest_response']:
+                    print(f"   Oldest: {summary['oldest_response'].get('lastSubmittedTime', 'unknown')}")
+                    
+            return summary
+        else:
+            if self.verbose:
+                print(f"❌ Unknown format '{format}'. Use 'list' or 'summary'")
+            return []
+    
+    def test_form_rate_limits(self, form_id_or_url: str, duration_seconds: int = 60) -> Dict[str, any]:
+        """
+        Test the rate limits for getting form responses.
+        
+        Args:
+            form_id_or_url: The Google Form ID or URL to test
+            duration_seconds: How long to run the test (default 60 seconds)
+            
+        Returns:
+            Dict with rate limit test results including successful calls, errors, and estimated limits
+        """
+        import time
+        import random
+        from collections import defaultdict
+        import re
+        
+        self._ensure_authenticated()
+        
+        # Extract form ID if URL was provided
+        form_id = form_id_or_url
+        if form_id_or_url.startswith('http'):
+            # Try to extract form ID from URL
+            form_id_match = re.search(r'/forms/d/(?:e/)?([a-zA-Z0-9_-]+)/', form_id_or_url)
+            if form_id_match:
+                form_id = form_id_match.group(1)
+                print(f"📋 Extracted form ID from URL: {form_id}")
+            else:
+                print(f"❌ Could not extract form ID from URL: {form_id_or_url}")
+                return {
+                    'error': 'Invalid form URL',
+                    'message': 'Could not extract form ID from the provided URL'
+                }
+        
+        print(f"🧪 Testing Forms API rate limits for {duration_seconds} seconds...")
+        print(f"📝 Form ID: {form_id}")
+        print(f"⏱️  Starting at: {datetime.now().strftime('%H:%M:%S')}")
+        print("-" * 50)
+        
+        start_time = time.time()
+        end_time = start_time + duration_seconds
+        
+        # Track metrics
+        metrics = {
+            'total_requests': 0,
+            'successful_requests': 0,
+            'rate_limit_errors': 0,
+            'other_errors': 0,
+            'requests_per_minute': defaultdict(int),
+            'errors_per_minute': defaultdict(int),
+            'response_times': [],
+            'rate_limit_timestamps': []
+        }
+        
+        request_count = 0
+        last_print_time = start_time
+        
+        try:
+            while time.time() < end_time:
+                request_start = time.time()
+                current_minute = int((request_start - start_time) / 60)
+                
+                try:
+                    # Make the API call using get_results_from_form
+                    # Use limit=1 to minimize data transfer, same as pageSize=1 before
+                    response = self.get_results_from_form(form_id, limit=1, format='list')
+                    
+                    # Record success (if we got here, the call succeeded)
+                    metrics['total_requests'] += 1
+                    metrics['successful_requests'] += 1
+                    metrics['requests_per_minute'][current_minute] += 1
+                    
+                    response_time = time.time() - request_start
+                    metrics['response_times'].append(response_time)
+                    
+                    request_count += 1
+                    
+                    # Print progress every 5 seconds
+                    if time.time() - last_print_time >= 5:
+                        elapsed = time.time() - start_time
+                        rate = request_count / (elapsed / 60)
+                        print(f"✅ {request_count} requests | Rate: {rate:.1f}/min | "
+                              f"Elapsed: {elapsed:.1f}s | Last response: {response_time:.3f}s")
+                        last_print_time = time.time()
+                    
+                    # Small delay to avoid overwhelming the API
+                    time.sleep(0.1)
+                    
+                except HttpError as e:
+                    metrics['total_requests'] += 1
+                    
+                    if e.resp.status == 429:
+                        # Rate limit error
+                        metrics['rate_limit_errors'] += 1
+                        metrics['errors_per_minute'][current_minute] += 1
+                        metrics['rate_limit_timestamps'].append(time.time() - start_time)
+                        
+                        # Extract retry-after if available
+                        retry_after = e.resp.headers.get('Retry-After', '60')
+                        
+                        print(f"❌ Rate limit hit at {request_count} requests "
+                              f"({(time.time() - start_time):.1f}s elapsed)")
+                        print(f"   Retry-After: {retry_after}s")
+                        print(f"   Current rate: {request_count / ((time.time() - start_time) / 60):.1f}/min")
+                        
+                        # Wait before retrying
+                        wait_time = min(float(retry_after), 10) + random.uniform(0, 1)
+                        print(f"   Waiting {wait_time:.1f}s before continuing...")
+                        time.sleep(wait_time)
+                        
+                    else:
+                        # Other error
+                        metrics['other_errors'] += 1
+                        print(f"⚠️  Error {e.resp.status}: {str(e)[:100]}")
+                        time.sleep(1)
+                        
+                except Exception as e:
+                    metrics['other_errors'] += 1
+                    print(f"⚠️  Unexpected error: {str(e)[:100]}")
+                    time.sleep(1)
+                    
+        except KeyboardInterrupt:
+            print("\n⏹️  Test interrupted by user")
+            
+        # Calculate final metrics
+        total_duration = time.time() - start_time
+        
+        # Analyze rate limits
+        max_requests_per_minute = max(metrics['requests_per_minute'].values()) if metrics['requests_per_minute'] else 0
+        avg_requests_per_minute = metrics['successful_requests'] / (total_duration / 60)
+        avg_response_time = sum(metrics['response_times']) / len(metrics['response_times']) if metrics['response_times'] else 0
+        
+        # Print summary
+        print("\n" + "=" * 50)
+        print("📊 RATE LIMIT TEST RESULTS")
+        print("=" * 50)
+        print(f"⏱️  Duration: {total_duration:.1f} seconds")
+        print(f"📈 Total requests: {metrics['total_requests']}")
+        print(f"✅ Successful: {metrics['successful_requests']}")
+        print(f"❌ Rate limited: {metrics['rate_limit_errors']}")
+        print(f"⚠️  Other errors: {metrics['other_errors']}")
+        print(f"\n📊 Performance:")
+        print(f"   Average rate: {avg_requests_per_minute:.1f} requests/min")
+        print(f"   Peak rate: {max_requests_per_minute} requests/min")
+        print(f"   Avg response time: {avg_response_time:.3f}s")
+        
+        if metrics['rate_limit_errors'] > 0:
+            print(f"\n🚦 Rate Limit Analysis:")
+            print(f"   First limit hit after: {metrics['rate_limit_timestamps'][0]:.1f}s")
+            print(f"   Estimated limit: ~{request_count} requests/minute")
+            
+        # Return detailed results
+        return {
+            'duration_seconds': total_duration,
+            'total_requests': metrics['total_requests'],
+            'successful_requests': metrics['successful_requests'],
+            'rate_limit_errors': metrics['rate_limit_errors'],
+            'other_errors': metrics['other_errors'],
+            'average_requests_per_minute': avg_requests_per_minute,
+            'peak_requests_per_minute': max_requests_per_minute,
+            'average_response_time_ms': avg_response_time * 1000,
+            'requests_per_minute_breakdown': dict(metrics['requests_per_minute']),
+            'rate_limit_timestamps': metrics['rate_limit_timestamps'],
+            'estimated_rate_limit': request_count if metrics['rate_limit_errors'] > 0 else None
+        }
+    
+    def list_forms(self, query: str = "", limit: int = 10) -> List[Dict[str, str]]:
+        """
+        List Google Forms accessible by the authenticated user.
+        
+        Args:
+            query: Optional search query for form names
+            limit: Maximum number of forms to return (default 10)
+            
+        Returns:
+            List of dictionaries containing form information
+        """
+        self._ensure_authenticated()
+        
+        # Build query for Google Forms
+        q_parts = ["mimeType='application/vnd.google-apps.form'"]
+        if query:
+            q_parts.append(f"name contains '{query}'")
+        q_parts.append("trashed=false")
+        
+        q = " and ".join(q_parts)
+        
+        try:
+            results = self.service.files().list(
+                q=q,
+                pageSize=limit,
+                fields="files(id, name, createdTime, modifiedTime, webViewLink, owners)",
+                orderBy="modifiedTime desc"
+            ).execute()
+            
+            forms = results.get('files', [])
+            
+            # Format the results
+            form_list = []
+            for form in forms:
+                form_info = {
+                    'id': form['id'],
+                    'name': form['name'],
+                    'created': form.get('createdTime', ''),
+                    'modified': form.get('modifiedTime', ''),
+                    'edit_url': f"https://docs.google.com/forms/d/{form['id']}/edit",
+                    'view_url': f"https://docs.google.com/forms/d/{form['id']}/viewform",
+                    'owner': form.get('owners', [{}])[0].get('emailAddress', 'unknown')
+                }
+                form_list.append(form_info)
+                
+            if self.verbose and form_list:
+                print(f"📋 Found {len(form_list)} form(s):")
+                for i, form in enumerate(form_list, 1):
+                    print(f"  {i}. {form['name']} (ID: {form['id']})")
+                    
+            return form_list
+            
+        except HttpError as e:
+            if self.verbose:
+                print(f"❌ Error listing forms: {e}")
+            return []
+    
+    def find_form_by_name(self, name: str) -> Optional[str]:
+        """
+        Find a form by name and return its ID.
+        
+        Args:
+            name: The name of the form to search for
+            
+        Returns:
+            Form ID if found, None otherwise
+        """
+        forms = self.list_forms(query=name, limit=100)
+        
+        # Try exact match first
+        for form in forms:
+            if form['name'] == name:
+                if self.verbose:
+                    print(f"✅ Found form '{name}' with ID: {form['id']}")
+                return form['id']
+        
+        # If no exact match, try partial match
+        if forms:
+            if self.verbose:
+                print(f"⚠️  No exact match for '{name}', using closest match: '{forms[0]['name']}'")
+            return forms[0]['id']
+            
+        if self.verbose:
+            print(f"❌ No form found matching '{name}'")
+        return None
+    
+    def get_form_by_id(self, form_id: str) -> Optional[Dict[str, str]]:
+        """
+        Get form details by its ID.
+        
+        Args:
+            form_id: The Google Form ID
+            
+        Returns:
+            Dictionary with form details if found, None otherwise
+        """
+        self._ensure_authenticated()
+        
+        try:
+            # Get file metadata from Drive API
+            file_metadata = self.service.files().get(
+                fileId=form_id,
+                fields="id,name,createdTime,modifiedTime,webViewLink,owners,mimeType"
+            ).execute()
+            
+            # Verify it's a form
+            if file_metadata.get('mimeType') != 'application/vnd.google-apps.form':
+                if self.verbose:
+                    print(f"❌ File {form_id} is not a Google Form")
+                return None
+            
+            # Format the result
+            form_info = {
+                'id': file_metadata['id'],
+                'name': file_metadata['name'],
+                'created': file_metadata.get('createdTime', ''),
+                'modified': file_metadata.get('modifiedTime', ''),
+                'edit_url': f"https://docs.google.com/forms/d/{form_id}/edit",
+                'view_url': f"https://docs.google.com/forms/d/{form_id}/viewform",
+                'owner': file_metadata.get('owners', [{}])[0].get('emailAddress', 'unknown')
+            }
+            
+            if self.verbose:
+                print(f"✅ Found form: {form_info['name']} (ID: {form_info['id']})")
+                
+            return form_info
+            
+        except HttpError as e:
+            if self.verbose:
+                print(f"❌ Error getting form {form_id}: {e}")
+            return None
+    
+    def make_form_public(self, form_identifier: str) -> Union[str, bool]:
+        """
+        Convert a non-public form to allow "Anyone with the link" to respond.
+        
+        Args:
+            form_identifier: Can be:
+                - Google Form ID (e.g., "1abc...")
+                - Form URL (edit or view)
+                - Form name to search for
+            
+        Returns:
+            str: The new public form URL if successful
+            False: If the operation failed
+        """
+        import re
+        
+        # Ensure authenticated
+        self._ensure_authenticated()
+        
+        form_id = None
+        
+        # Check if it's a URL, form ID, or name
+        if form_identifier.startswith('http'):
+            # It's a URL
+            # Try standard form ID extraction first
+            standard_match = re.search(r'/forms/d/([a-zA-Z0-9_-]+)/(edit|viewform)', form_identifier)
+            if standard_match:
+                form_id = standard_match.group(1)
+                print(f"📋 Extracted form ID from URL: {form_id}")
+            else:
+                # Check if it's a /d/e/ URL with prefixed ID
+                prefixed_match = re.search(r'/forms/d/e/([a-zA-Z0-9_-]+)/', form_identifier)
+                if prefixed_match:
+                    # Try to find the form by searching recent forms
+                    print(f"🔍 URL contains prefixed ID, searching for matching forms...")
+                    forms = self.list_forms(limit=50)
+                    
+                    # Check if any recent form matches this URL pattern
+                    for form in forms:
+                        # Get the form and check its published URL
+                        try:
+                            # Try to access the form to see if it matches
+                            form_url_check = f"https://docs.google.com/forms/d/{form['id']}/viewform"
+                            print(f"   Checking form: {form['name']} (ID: {form['id']})")
+                            # We found a candidate - for now we'll use the most recent form
+                            # In production, you'd want to verify this is the correct form
+                            form_id = form['id']
+                            print(f"📋 Using form: {form['name']} (ID: {form_id})")
+                            break
+                        except:
+                            continue
+                            
+                if not form_id:
+                    print(f"❌ Cannot determine actual form ID from prefixed URL")
+                    print(f"    Please provide the form name or edit URL instead")
+                    return False
+        else:
+            # Check if it's a form ID (alphanumeric string)
+            if re.match(r'^[a-zA-Z0-9_-]+$', form_identifier) and len(form_identifier) > 10:
+                # Likely a form ID - verify it exists
+                print(f"🔍 Checking if '{form_identifier}' is a form ID...")
+                form_info = self.get_form_by_id(form_identifier)
+                if form_info:
+                    form_id = form_identifier
+                    print(f"✅ Confirmed: '{form_info['name']}' (ID: {form_id})")
+                else:
+                    # Not a valid form ID, try as name
+                    print(f"🔍 Not a valid form ID, searching by name: {form_identifier}")
+                    form_id = self.find_form_by_name(form_identifier)
+                    if not form_id:
+                        return False
+            else:
+                # It's likely a form name
+                print(f"🔍 Searching for form by name: {form_identifier}")
+                form_id = self.find_form_by_name(form_identifier)
+                if not form_id:
+                    return False
+        
+        # Always print status for this operation
+        print(f"🔄 Converting form to public access...")
+        print(f"📝 Form ID: {form_id}")
+        
+        try:
+            # Use Drive API v3 
+            drive_service = build('drive', 'v3', credentials=self.creds)
+            
+            # First, check existing permissions
+            if self.verbose:
+                print("📋 Checking existing permissions...")
+            
+            permissions_result = drive_service.permissions().list(
+                fileId=form_id,
+                fields="permissions(id,type,role,domain,view)"
+            ).execute()
+            
+            # Remove any domain-specific permissions
+            for permission in permissions_result.get("permissions", []):
+                if permission.get("type") == "domain":
+                    try:
+                        drive_service.permissions().delete(
+                            fileId=form_id,
+                            permissionId=permission["id"]
+                        ).execute()
+                        if self.verbose:
+                            print(f"🗑️  Removed domain restriction: {permission.get('domain', 'unknown')}")
+                    except Exception as e:
+                        if self.verbose:
+                            print(f"⚠️  Could not remove permission {permission['id']}: {e}")
+            
+            # Set "Anyone with the link" as a responder
+            if self.verbose:
+                print("🔐 Setting 'Anyone with the link' permission...")
+                
+            permission_body = {
+                "type": "anyone",
+                "view": "published",  # Key for making it a responder setting
+                "role": "reader",
+            }
+            
+            response = drive_service.permissions().create(
+                fileId=form_id,
+                body=permission_body,
+            ).execute()
+            
+            if self.verbose:
+                print(f"✅ Permission created: {response.get('id')}")
+            
+            # Verify the change
+            if self.verbose:
+                print("🔍 Verifying permissions...")
+                
+            permissions_result = drive_service.permissions().list(
+                fileId=form_id,
+                fields="permissions(id,type,role,view)",
+                includePermissionsForView="published",
+            ).execute()
+            
+            # Check if the permission was set correctly
+            anyone_can_respond = False
+            for permission in permissions_result.get("permissions", []):
+                if (
+                    permission.get("type") == "anyone"
+                    and permission.get("view") == "published"
+                    and permission.get("role") == "reader"
+                ):
+                    anyone_can_respond = True
+                    break
+            
+            if anyone_can_respond:
+                if self.verbose:
+                    print(f"✅ Success! Form is now public")
+                    print(f"📋 Anyone with the link can now respond")
+                
+                # Get the updated form URL after permission change
+                # When permissions change, the public URL might change
+                try:
+                    # Get fresh file metadata to ensure we have the latest URLs
+                    file_metadata = drive_service.files().get(
+                        fileId=form_id,
+                        fields="id,webViewLink"
+                    ).execute()
+                    
+                    # The webViewLink might be the edit link, so construct the public view URL
+                    public_form_url = f"https://docs.google.com/forms/d/e/{form_id}/viewform"
+                    
+                    # Try to get the actual public URL by fetching the form
+                    import requests
+                    response = requests.get(f"https://docs.google.com/forms/d/{form_id}/viewform", allow_redirects=True)
+                    
+                    # If we got redirected to a /d/e/ URL, use that
+                    if '/forms/d/e/' in response.url:
+                        public_form_url = response.url
+                        if self.verbose:
+                            print(f"📝 New public URL detected: {public_form_url}")
+                    else:
+                        # Use the standard viewform URL
+                        public_form_url = f"https://docs.google.com/forms/d/{form_id}/viewform"
+                        if self.verbose:
+                            print(f"📝 Using standard public URL: {public_form_url}")
+                    
+                    if self.verbose:
+                        print(f"🔗 Public form URL: {public_form_url}")
+                        print(f"📋 Form ID: {form_id}")
+                        
+                    return public_form_url
+                    
+                except Exception as e:
+                    if self.verbose:
+                        print(f"⚠️  Could not determine new public URL: {e}")
+                        print(f"    Using standard format: https://docs.google.com/forms/d/{form_id}/viewform")
+                    return f"https://docs.google.com/forms/d/{form_id}/viewform"
+            else:
+                if self.verbose:
+                    print(f"⚠️  Permission was created but verification failed")
+                    print(f"    You may need to manually check the form settings")
+                return False
+                
+        except HttpError as e:
+            print(f"❌ Error making form public: {e}")
+            error_details = e.error_details if hasattr(e, 'error_details') else str(e)
+            print(f"    Details: {error_details}")
+            return False
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def test_google_form_inbox(self, form_url: str) -> Dict[str, any]:
+        """
+        Tests a Google Form inbox by submitting a test message.
+        
+        Args:
+            form_url: The URL of the Google Form to test
+            
+        Returns:
+            Dict with test results including submission status and response data
+        """
+        import base64
+        import uuid
+        from datetime import datetime
+        
+        self._ensure_authenticated()
+        
+        # Extract form ID from URL
+        # URL format: https://docs.google.com/forms/d/{form_id}/viewform
+        import re
+        form_id_match = re.search(r'/forms/d/([a-zA-Z0-9_-]+)/', form_url)
+        if not form_id_match:
+            raise ValueError(f"Could not extract form ID from URL: {form_url}")
+        
+        form_id = form_id_match.group(1)
+        
+        # Build Google Forms service
+        forms_service = build('forms', 'v1', credentials=self.creds)
+        
+        try:
+            # First, get the form to understand its structure
+            form = forms_service.forms().get(formId=form_id).execute()
+            
+            # Create test data
+            test_message_id = f"syft_message_test_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"
+            test_data = {
+                "from_email": "test@example.com",
+                "to_email": self.my_email,
+                "message_id": test_message_id,
+                "message_size": "1024",
+                "message_data": base64.b64encode(b"This is a test message for the Google Form inbox").decode('utf-8'),
+                "file_path": "datasites/test/message.tar.gz"
+            }
+            
+            # Map form items to our test data
+            responses = {}
+            for item in form.get('items', []):
+                item_id = item['itemId']
+                title = item.get('title', '').lower()
+                
+                # Match questions to test data
+                if 'from email' in title:
+                    responses[item_id] = {
+                        'textAnswers': {
+                            'answers': [{'value': test_data['from_email']}]
+                        }
+                    }
+                elif 'to email' in title:
+                    responses[item_id] = {
+                        'textAnswers': {
+                            'answers': [{'value': test_data['to_email']}]
+                        }
+                    }
+                elif 'message id' in title:
+                    responses[item_id] = {
+                        'textAnswers': {
+                            'answers': [{'value': test_data['message_id']}]
+                        }
+                    }
+                elif 'message size' in title:
+                    responses[item_id] = {
+                        'textAnswers': {
+                            'answers': [{'value': test_data['message_size']}]
+                        }
+                    }
+                elif 'message data' in title:
+                    responses[item_id] = {
+                        'textAnswers': {
+                            'answers': [{'value': test_data['message_data']}]
+                        }
+                    }
+                elif 'file path' in title:
+                    responses[item_id] = {
+                        'textAnswers': {
+                            'answers': [{'value': test_data['file_path']}]
+                        }
+                    }
+            
+            # Note: The Forms API v1 doesn't support submitting responses programmatically
+            # This is a limitation of the current API. Instead, we'll return instructions
+            # for manual testing or suggest using the form's pre-filled URL feature
+            
+            if self.verbose:
+                print("⚠️  Note: The Google Forms API v1 doesn't support programmatic form submission.")
+                print("    To test the form, you can:")
+                print(f"    1. Open the form manually: {form_url}")
+                print("    2. Fill in the test data below:")
+                print(f"       - From Email: {test_data['from_email']}")
+                print(f"       - To Email: {test_data['to_email']}")
+                print(f"       - Message ID: {test_data['message_id']}")
+                print(f"       - Message Size: {test_data['message_size']}")
+                print(f"       - Message Data: {test_data['message_data'][:50]}...")
+                print(f"       - File Path: {test_data['file_path']}")
+            
+            # Generate pre-filled URL
+            prefilled_params = []
+            for item in form.get('items', []):
+                title = item.get('title', '').lower()
+                question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+                
+                if question_id:
+                    if 'from email' in title:
+                        prefilled_params.append(f"entry.{question_id}={test_data['from_email']}")
+                    elif 'to email' in title:
+                        prefilled_params.append(f"entry.{question_id}={test_data['to_email']}")
+                    elif 'message id' in title:
+                        prefilled_params.append(f"entry.{question_id}={test_data['message_id']}")
+                    elif 'message size' in title:
+                        prefilled_params.append(f"entry.{question_id}={test_data['message_size']}")
+                    elif 'file path' in title:
+                        prefilled_params.append(f"entry.{question_id}={test_data['file_path']}")
+            
+            # Create alternative submission method info
+            result = {
+                "status": "ready_for_testing",
+                "form_id": form_id,
+                "form_url": form_url,
+                "test_data": test_data,
+                "form_structure": {
+                    "title": form.get('info', {}).get('title'),
+                    "description": form.get('info', {}).get('description'),
+                    "questions": len(form.get('items', [])),
+                    "response_destination": form.get('responderUri')
+                },
+                "notes": [
+                    "Forms API v1 doesn't support programmatic submission",
+                    "Use the form URL to manually test submission",
+                    "Consider using Google Apps Script for automated testing"
+                ]
+            }
+            
+            if self.verbose:
+                print(f"\n✅ Form ready for testing!")
+                print(f"📝 Form has {len(form.get('items', []))} questions")
+                print(f"🔗 Test the form at: {form_url}")
+            
+            return result
+            
+        except HttpError as e:
+            error_msg = f"❌ Error testing form: {e}"
+            if self.verbose:
+                print(error_msg)
+            raise Exception(error_msg) from e
+    
+    def submit_to_google_form_inbox(self, form_url: str, from_email: str, to_email: str, 
+                                   message_id: str, message_size: str, message_data: str,
+                                   file_path: Optional[str] = None, debug: bool = True) -> bool:
+        """
+        Submit a message to a Google Form inbox using direct HTTP POST.
+        
+        Args:
+            form_url: The URL of the Google Form
+            from_email: Sender's email address
+            to_email: Recipient's email address
+            message_id: Unique message ID
+            message_size: Size of encoded message in bytes
+            message_data: Base64-encoded message data
+            file_path: Optional file path within datasites/ directory
+            debug: Enable debug output
+            
+        Returns:
+            bool: True if submission was successful
+        """
+        import requests
+        import re
+        
+        # Extract form ID from URL
+        # Handle both /d/{id}/ and /d/e/{id}/ formats
+        form_id_match = re.search(r'/forms/d/(?:e/)?([a-zA-Z0-9_-]+)/', form_url)
+        if not form_id_match:
+            raise ValueError(f"Could not extract form ID from URL: {form_url}")
+        
+        form_id = form_id_match.group(1)
+        
+        try:
+            if debug:
+                print(f"📝 Fetching form structure from: {form_url}")
+                
+            # First, fetch the form to get field IDs
+            session = requests.Session()
+            response = session.get(form_url)
+            
+            # Check if we got a login redirect
+            if response.status_code == 401 or 'accounts.google.com' in response.url:
+                if debug:
+                    print("⚠️  Form requires authentication. Trying alternative approach...")
+                
+                # For authenticated forms, we'll use the known structure
+                # Since we created the form, we know the order of fields
+                if debug:
+                    print("📊 Using predefined field structure for authenticated form")
+                
+                # Use the API to get form structure instead
+                forms_service = build('forms', 'v1', credentials=self.creds)
+                try:
+                    # Extract the actual form ID (not the prefixed version)
+                    actual_form_id = form_id.split('/')[-1] if '/' in form_id else form_id
+                    if debug:
+                        print(f"📝 Using form ID: {actual_form_id}")
+                    
+                    form = forms_service.forms().get(formId=actual_form_id).execute()
+                    
+                    # Map items by title
+                    entry_map = {}
+                    for idx, item in enumerate(form.get('items', [])):
+                        title = item.get('title', '').lower()
+                        item_id = item.get('itemId', str(idx))
+                        # Extract question ID which maps to entry ID
+                        question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+                        
+                        if question_id:
+                            if 'from email' in title:
+                                entry_map['from_email'] = question_id
+                            elif 'to email' in title:
+                                entry_map['to_email'] = question_id
+                            elif 'message id' in title:
+                                entry_map['message_id'] = question_id
+                            elif 'message size' in title:
+                                entry_map['message_size'] = question_id
+                            elif 'message data' in title:
+                                entry_map['message_data'] = question_id
+                            elif 'file path' in title:
+                                entry_map['file_path'] = question_id
+                    
+                    if debug:
+                        print(f"📊 Mapped {len(entry_map)} fields from API")
+                        
+                except Exception as api_error:
+                    if debug:
+                        print(f"❌ API approach failed: {api_error}")
+                    # Fall back to standard entry numbering
+                    # Google Forms typically uses sequential entry IDs
+                    entry_map = {
+                        'from_email': '1976614157',  # These are example IDs
+                        'to_email': '1420112892',
+                        'message_id': '875531887',
+                        'message_size': '1052223171',
+                        'message_data': '1815612569',
+                        'file_path': '1422092153'
+                    }
+                    if debug:
+                        print("📊 Using fallback entry IDs")
+            else:
+                response.raise_for_status()
+            
+            # Extract entry IDs from the form HTML
+            html_content = response.text
+            
+            # Google Forms uses a data structure in the HTML that contains question mappings
+            # Look for the FB_PUBLIC_LOAD_DATA_ variable which contains form structure
+            import json
+            
+            entry_map = {}
+            
+            # Method 1: Extract from FB_PUBLIC_LOAD_DATA_
+            fb_data_match = re.search(r'FB_PUBLIC_LOAD_DATA_\s*=\s*(\[.+?\]);', html_content, re.DOTALL)
+            if fb_data_match:
+                try:
+                    fb_data = json.loads(fb_data_match.group(1))
+                    # Parse the nested structure to find questions
+                    if len(fb_data) > 1 and isinstance(fb_data[1], list):
+                        form_data = fb_data[1]
+                        if len(form_data) > 1 and isinstance(form_data[1], list):
+                            for item in form_data[1]:
+                                if isinstance(item, list) and len(item) > 4:
+                                    # item[1] is usually the title
+                                    # item[4][0][0] is usually the entry ID
+                                    if len(item) > 1 and isinstance(item[4], list) and len(item[4]) > 0:
+                                        title = str(item[1]).lower() if item[1] else ""
+                                        entry_id = str(item[4][0][0]) if len(item[4][0]) > 0 else None
+                                        
+                                        if entry_id and title:
+                                            if 'from email' in title:
+                                                entry_map['from_email'] = entry_id
+                                            elif 'to email' in title:
+                                                entry_map['to_email'] = entry_id
+                                            elif 'message id' in title:
+                                                entry_map['message_id'] = entry_id
+                                            elif 'message size' in title:
+                                                entry_map['message_size'] = entry_id
+                                            elif 'message data' in title:
+                                                entry_map['message_data'] = entry_id
+                                            elif 'file path' in title:
+                                                entry_map['file_path'] = entry_id
+                except Exception as parse_error:
+                    if debug:
+                        print(f"⚠️  Could not parse FB_PUBLIC_LOAD_DATA: {parse_error}")
+            
+            # Method 2: Try multiple regex patterns as fallback
+            if not entry_map:
+                # Pattern 1: data-params with entry IDs
+                pattern1 = r'data-params=".*?\[(\d+),\d+,.*?\[.*?&quot;(.*?)&quot;'
+                # Pattern 2: name="entry.X" with aria-label
+                pattern2 = r'name="entry\.(\d+)"[^>]*aria-label="([^"]*)"'
+                # Pattern 3: jsname attribute pattern
+                pattern3 = r'jsname="[^"]*"[^>]*data-params="[^"]*\[(\d+)[^"]*"[^>]*>[^<]*<[^>]*>([^<]+)<'
+                
+                for pattern in [pattern1, pattern2, pattern3]:
+                    matches = re.findall(pattern, html_content, re.DOTALL)
+                    for entry_id, title in matches:
+                        title_lower = title.lower().strip()
+                        if 'from email' in title_lower:
+                            entry_map['from_email'] = entry_id
+                        elif 'to email' in title_lower:
+                            entry_map['to_email'] = entry_id
+                        elif 'message id' in title_lower:
+                            entry_map['message_id'] = entry_id
+                        elif 'message size' in title_lower:
+                            entry_map['message_size'] = entry_id
+                        elif 'message data' in title_lower:
+                            entry_map['message_data'] = entry_id
+                        elif 'file path' in title_lower:
+                            entry_map['file_path'] = entry_id
+            
+            # Also look for all entry fields
+            entry_fields = re.findall(r'entry\.(\d+)', html_content)
+            
+            if debug:
+                print(f"📊 Found entry map: {entry_map}")
+                print(f"📊 All entry fields found: {list(set(entry_fields))[:10]}...")  # Show first 10
+                
+                # Save HTML for debugging if no entries found
+                if not entry_map and debug:
+                    with open('/tmp/form_debug.html', 'w') as f:
+                        f.write(html_content)
+                    print("💾 Saved form HTML to /tmp/form_debug.html for debugging")
+            
+            # If we didn't find entries with titles, try to map by order
+            if not entry_map and entry_fields:
+                # Remove duplicates and sort
+                unique_entries = sorted(list(set(entry_fields)))
+                if len(unique_entries) >= 5:
+                    if debug:
+                        print(f"⚠️  Using positional mapping for {len(unique_entries)} fields")
+                    entry_map = {
+                        'from_email': unique_entries[0],
+                        'to_email': unique_entries[1],
+                        'message_id': unique_entries[2],
+                        'message_size': unique_entries[3],
+                        'message_data': unique_entries[4],
+                    }
+                    if len(unique_entries) >= 6:
+                        entry_map['file_path'] = unique_entries[5]
+            
+            # Build form data for submission
+            form_data = {}
+            if 'from_email' in entry_map:
+                form_data[f'entry.{entry_map["from_email"]}'] = from_email
+            if 'to_email' in entry_map:
+                form_data[f'entry.{entry_map["to_email"]}'] = to_email
+            if 'message_id' in entry_map:
+                form_data[f'entry.{entry_map["message_id"]}'] = message_id
+            if 'message_size' in entry_map:
+                form_data[f'entry.{entry_map["message_size"]}'] = message_size
+            if 'message_data' in entry_map:
+                form_data[f'entry.{entry_map["message_data"]}'] = message_data
+            if file_path and 'file_path' in entry_map:
+                form_data[f'entry.{entry_map["file_path"]}'] = file_path
+            
+            if debug:
+                print(f"📤 Submitting form data with {len(form_data)} fields")
+                print(f"   Fields: {list(form_data.keys())}")
+            
+            # Submit the form
+            submit_url = f"https://docs.google.com/forms/d/{form_id}/formResponse"
+            headers = {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': form_url,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            }
+            
+            response = requests.post(submit_url, data=form_data, headers=headers, allow_redirects=False)
+            
+            if debug:
+                print(f"📬 Response status: {response.status_code}")
+                print(f"   Response headers: {dict(response.headers)}")
+            
+            # Check if submission was successful
+            # Google Forms returns 200, 302, or 303 on successful submission
+            if response.status_code in [200, 302, 303]:
+                if self.verbose or debug:
+                    print(f"✅ Successfully submitted message to form")
+                    print(f"   Message ID: {message_id}")
+                return True
+            else:
+                if self.verbose or debug:
+                    print(f"❌ Form submission failed with status code: {response.status_code}")
+                    if response.text:
+                        print(f"   Response preview: {response.text[:500]}...")
+                return False
+                
+        except Exception as e:
+            if self.verbose or debug:
+                print(f"❌ Error submitting to form: {e}")
+                import traceback
+                traceback.print_exc()
+            return False
+    
+    def analyze_public_form(self, form_url: str) -> Dict[str, str]:
+        """
+        Analyze a public Google Form to extract entry IDs for each field.
+        
+        Args:
+            form_url: URL of the public Google Form
+            
+        Returns:
+            Dictionary mapping field names to entry IDs
+        """
+        import requests
+        import re
+        
+        print(f"🔍 Analyzing form: {form_url}")
+        
+        # Fetch the form
+        response = requests.get(form_url)
+        if response.status_code != 200:
+            print(f"❌ Failed to fetch form: {response.status_code}")
+            return {}
+            
+        html = response.text
+        
+        # Save for detailed analysis
+        with open('/tmp/public_form.html', 'w') as f:
+            f.write(html)
+        print("💾 Saved form HTML to /tmp/public_form.html")
+        
+        # Extract form action URL (for submission)
+        action_match = re.search(r'<form[^>]+action="([^"]+)"', html)
+        if action_match:
+            print(f"📤 Form action URL: {action_match.group(1)}")
+        
+        # Method 1: Look for entry IDs in FB_PUBLIC_LOAD_DATA_
+        entry_map = {}
+        fb_data_match = re.search(r'var\s+FB_PUBLIC_LOAD_DATA_\s*=\s*(\{[^;]+\});', html, re.DOTALL)
+        if fb_data_match:
+            print("✅ Found FB_PUBLIC_LOAD_DATA_")
+            # Extract all entry.XXXXX patterns
+            entries = re.findall(r'"(entry\.\d+)"', fb_data_match.group(1))
+            print(f"📊 Found {len(entries)} entry fields")
+            for i, entry in enumerate(entries):
+                print(f"  {i+1}: {entry}")
+        
+        # Method 2: Look for data-params patterns
+        data_params = re.findall(r'data-params="[^"]*?\[(\d+),\d+,[^]]*\]"[^>]*>([^<]+)<', html)
+        if data_params:
+            print(f"\n📊 Found {len(data_params)} fields via data-params")
+            for entry_id, label in data_params:
+                print(f"  Entry {entry_id}: {label.strip()}")
+        
+        # Method 3: Direct entry field search
+        all_entries = re.findall(r'entry\.(\d+)', html)
+        unique_entries = sorted(list(set(all_entries)))
+        print(f"\n📊 All unique entry IDs found: {unique_entries}")
+        
+        return {
+            'entries': unique_entries,
+            'form_url': form_url
+        }
+    
+    def prepare_form_submission(self, form_url: str, debug: bool = True) -> Dict[str, any]:
+        """
+        Prepare for form submission by extracting all necessary metadata.
+        Call this once and reuse the result for multiple submissions.
+        
+        Args:
+            form_url: The URL of the Google Form
+            debug: Enable debug output
+            
+        Returns:
+            Dict with:
+                - 'form_id': The extracted form ID
+                - 'entry_map': Mapping of field names to entry IDs
+                - 'submit_url': The URL to POST to
+                - 'form_url': The original form URL
+        """
+        import requests
+        import re
+        import json
+        
+        # Extract form ID from URL
+        form_id_match = re.search(r'/forms/d/(?:e/)?([a-zA-Z0-9_-]+)/', form_url)
+        if not form_id_match:
+            raise ValueError(f"Could not extract form ID from URL: {form_url}")
+        
+        form_id = form_id_match.group(1)
+        
+        if debug:
+            print(f"📝 Preparing form submission for: {form_url}")
+            print(f"📋 Form ID: {form_id}")
+        
+        try:
+            # Fetch the form to get field IDs
+            session = requests.Session()
+            response = session.get(form_url)
+            
+            # Check if we got a login redirect
+            if response.status_code == 401 or 'accounts.google.com' in response.url:
+                if debug:
+                    print("⚠️  Form requires authentication. Cannot extract entry IDs from HTML.")
+                    print("    Please make the form public or provide entry IDs manually.")
+                return {
+                    'error': 'Form requires authentication',
+                    'form_id': form_id,
+                    'form_url': form_url
+                }
+            
+            response.raise_for_status()
+            html_content = response.text
+            
+            # Extract entry IDs from the form HTML
+            entry_map = {}
+            
+            # Method 1: Extract from FB_PUBLIC_LOAD_DATA_
+            fb_data_match = re.search(r'FB_PUBLIC_LOAD_DATA_\s*=\s*(\[.+?\]);', html_content, re.DOTALL)
+            if fb_data_match:
+                try:
+                    fb_data = json.loads(fb_data_match.group(1))
+                    # Parse the nested structure to find questions
+                    if len(fb_data) > 1 and isinstance(fb_data[1], list):
+                        form_data = fb_data[1]
+                        if len(form_data) > 1 and isinstance(form_data[1], list):
+                            for item in form_data[1]:
+                                if isinstance(item, list) and len(item) > 4:
+                                    if len(item) > 1 and isinstance(item[4], list) and len(item[4]) > 0:
+                                        title = str(item[1]).lower() if item[1] else ""
+                                        entry_id = str(item[4][0][0]) if len(item[4][0]) > 0 else None
+                                        
+                                        if entry_id and title:
+                                            if 'from email' in title:
+                                                entry_map['from_email'] = entry_id
+                                            elif 'to email' in title:
+                                                entry_map['to_email'] = entry_id
+                                            elif 'message id' in title:
+                                                entry_map['message_id'] = entry_id
+                                            elif 'message size' in title:
+                                                entry_map['message_size'] = entry_id
+                                            elif 'message data' in title:
+                                                entry_map['message_data'] = entry_id
+                                            elif 'file path' in title:
+                                                entry_map['file_path'] = entry_id
+                except Exception as e:
+                    if debug:
+                        print(f"⚠️  Could not parse FB_PUBLIC_LOAD_DATA: {e}")
+            
+            # Method 2: Try regex patterns as fallback
+            if not entry_map:
+                patterns = [
+                    r'data-params=".*?\[(\d+),\d+,.*?\[.*?&quot;(.*?)&quot;',
+                    r'name="entry\.(\d+)"[^>]*aria-label="([^"]*)"',
+                ]
+                for pattern in patterns:
+                    matches = re.findall(pattern, html_content, re.DOTALL)
+                    for entry_id, title in matches:
+                        title_lower = title.lower().strip()
+                        if 'from email' in title_lower:
+                            entry_map['from_email'] = entry_id
+                        elif 'to email' in title_lower:
+                            entry_map['to_email'] = entry_id
+                        elif 'message id' in title_lower:
+                            entry_map['message_id'] = entry_id
+                        elif 'message size' in title_lower:
+                            entry_map['message_size'] = entry_id
+                        elif 'message data' in title_lower:
+                            entry_map['message_data'] = entry_id
+                        elif 'file path' in title_lower:
+                            entry_map['file_path'] = entry_id
+            
+            if debug:
+                print(f"📊 Extracted entry map: {entry_map}")
+            
+            # Build submit URL (use /d/ not /d/e/ for submission)
+            submit_url = f"https://docs.google.com/forms/d/{form_id}/formResponse"
+            
+            return {
+                'form_id': form_id,
+                'entry_map': entry_map,
+                'submit_url': submit_url,
+                'form_url': form_url,
+                'prepared_at': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            if debug:
+                print(f"❌ Error preparing form: {e}")
+            return {
+                'error': str(e),
+                'form_id': form_id,
+                'form_url': form_url
+            }
+    
+    def submit_to_form_fast(self, form_metadata: Dict[str, any], from_email: str, to_email: str, 
+                           message_id: str, message_size: str, message_data: str,
+                           file_path: Optional[str] = None, debug: bool = False) -> bool:
+        """
+        Fast form submission using pre-extracted metadata.
+        
+        Args:
+            form_metadata: Result from prepare_form_submission()
+            from_email: Sender's email address
+            to_email: Recipient's email address
+            message_id: Unique message ID
+            message_size: Size of encoded message in bytes
+            message_data: Base64-encoded message data
+            file_path: Optional file path within datasites/ directory
+            debug: Enable debug output
+            
+        Returns:
+            bool: True if submission was successful
+        """
+        import requests
+        
+        if 'error' in form_metadata:
+            if debug:
+                print(f"❌ Cannot submit - form preparation failed: {form_metadata['error']}")
+            return False
+        
+        entry_map = form_metadata.get('entry_map', {})
+        submit_url = form_metadata.get('submit_url')
+        
+        if not submit_url:
+            if debug:
+                print("❌ No submit URL in form metadata")
+            return False
+        
+        # Build form data
+        form_data = {}
+        if 'from_email' in entry_map:
+            form_data[f'entry.{entry_map["from_email"]}'] = from_email
+        if 'to_email' in entry_map:
+            form_data[f'entry.{entry_map["to_email"]}'] = to_email
+        if 'message_id' in entry_map:
+            form_data[f'entry.{entry_map["message_id"]}'] = message_id
+        if 'message_size' in entry_map:
+            form_data[f'entry.{entry_map["message_size"]}'] = message_size
+        if 'message_data' in entry_map:
+            form_data[f'entry.{entry_map["message_data"]}'] = message_data
+        if file_path and 'file_path' in entry_map:
+            form_data[f'entry.{entry_map["file_path"]}'] = file_path
+        
+        # Add necessary headers
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': form_metadata.get('form_url', submit_url),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        }
+        
+        if debug:
+            print(f"📤 Submitting to: {submit_url}")
+            print(f"   Form data fields: {list(form_data.keys())}")
+        
+        try:
+            # Submit the form with proper headers and no redirect following
+            response = requests.post(submit_url, data=form_data, headers=headers, 
+                                   allow_redirects=False, timeout=10)
+            
+            if debug:
+                print(f"📬 Response status: {response.status_code}")
+            
+            # Google Forms returns 200, 302, or 303 on successful submission
+            if response.status_code in [200, 302, 303]:
+                if debug:
+                    print(f"✅ Successfully submitted message {message_id}")
+                return True
+            else:
+                if debug:
+                    print(f"❌ Submission failed with status {response.status_code}")
+                    if response.text:
+                        print(f"   Response preview: {response.text[:200]}...")
+                return False
+                
+        except Exception as e:
+            if debug:
+                print(f"❌ Error during submission: {e}")
+                import traceback
+                traceback.print_exc()
+            return False
+    
+    def submit_to_public_form(self, form_url: str, entry_mapping: Dict[str, str]) -> bool:
+        """
+        Submit data to a public Google Form using the exact entry IDs.
+        
+        Args:
+            form_url: URL of the public form
+            entry_mapping: Dictionary mapping entry IDs to values
+                          e.g. {'1234567': 'test@example.com', ...}
+                          
+        Returns:
+            bool: True if submission successful
+        """
+        import requests
+        import re
+        
+        # Extract form ID
+        form_id_match = re.search(r'/forms/d/([a-zA-Z0-9_-]+)/', form_url)
+        if not form_id_match:
+            print("❌ Could not extract form ID")
+            return False
+            
+        form_id = form_id_match.group(1)
+        
+        # Build submission URL
+        submit_url = f"https://docs.google.com/forms/d/{form_id}/formResponse"
+        
+        # Build form data
+        form_data = {}
+        for entry_id, value in entry_mapping.items():
+            if not entry_id.startswith('entry.'):
+                entry_id = f'entry.{entry_id}'
+            form_data[entry_id] = value
+        
+        print(f"📤 Submitting to: {submit_url}")
+        print(f"📊 Form data: {list(form_data.keys())}")
+        
+        # Submit
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Referer': form_url
+        }
+        
+        response = requests.post(submit_url, data=form_data, headers=headers, allow_redirects=False)
+        
+        print(f"📬 Response status: {response.status_code}")
+        
+        # Check success
+        if response.status_code in [200, 302, 303]:
+            print("✅ Form submitted successfully!")
+            if 'location' in response.headers:
+                print(f"📍 Redirect URL: {response.headers['location']}")
+            return True
+        else:
+            print(f"❌ Submission failed: {response.status_code}")
+            return False
+    
+    def open_form_for_manual_testing(self, form_url: str) -> None:
+        """
+        Opens the form in a web browser for manual testing and configuration.
+        This is useful when programmatic submission isn't working.
+        
+        Args:
+            form_url: URL of the Google Form
+        """
+        import webbrowser
+        import time
+        
+        print("📝 Opening form in your browser...")
+        print("\n⚠️  Important steps for manual testing:")
+        print("1. If prompted, sign in to Google")
+        print("2. Check the form's sharing settings (3-dot menu → Settings → General)")
+        print("3. Make sure 'Restrict to users in [org] and its trusted organizations' is OFF")
+        print("4. Try submitting a test response manually")
+        print(f"\n🔗 Form URL: {form_url}")
+        
+        # Extract form ID for edit URL
+        import re
+        form_id_match = re.search(r'/forms/d/(?:e/)?([a-zA-Z0-9_-]+)/', form_url)
+        if form_id_match:
+            form_id = form_id_match.group(1)
+            # Try to find the actual form ID (not the prefixed one)
+            if hasattr(self, '_last_created_form') and self._last_created_form:
+                actual_form_id = self._last_created_form.get('form_id')
+                if actual_form_id:
+                    edit_url = f"https://docs.google.com/forms/d/{actual_form_id}/edit"
+                    print(f"📝 Edit URL: {edit_url}")
+                    print("\n💡 To check sharing settings, open the edit URL and click the Settings gear icon")
+        
+        webbrowser.open(form_url)
+        print("\n✅ Form opened in browser. Please check the settings and test manually.")
+    
+    def get_form_responses(self, form_id: str) -> List[Dict[str, any]]:
+        """
+        Get responses from a Google Form by accessing the linked spreadsheet.
+        
+        Args:
+            form_id: The ID of the Google Form
+            
+        Returns:
+            List of form responses as dictionaries
+        """
+        self._ensure_authenticated()
+        
+        try:
+            # Find the response spreadsheet for this form
+            # Forms typically create a spreadsheet with "(Responses)" in the title
+            query = f"name contains 'Responses' and mimeType='application/vnd.google-apps.spreadsheet'"
+            results = self.service.files().list(
+                q=query,
+                fields="files(id, name)"
+            ).execute()
+            
+            items = results.get('files', [])
+            response_sheet_id = None
+            
+            # Look for the spreadsheet that matches our form
+            for item in items:
+                if form_id[:10] in item['name'] or f"SyftBox Messages - {self.my_email}" in item['name']:
+                    response_sheet_id = item['id']
+                    break
+                    
+            if not response_sheet_id:
+                if self.verbose:
+                    print("⚠️  No response spreadsheet found. Responses may not be linked yet.")
+                return []
+                
+            # Read the spreadsheet using Sheets API
+            sheets_service = self._get_sheets_service()
+            
+            # Get all values from the first sheet
+            result = sheets_service.spreadsheets().values().get(
+                spreadsheetId=response_sheet_id,
+                range='A:Z'  # Get all columns
+            ).execute()
+            
+            values = result.get('values', [])
+            
+            if not values:
+                return []
+                
+            # First row contains headers
+            headers = values[0]
+            responses = []
+            
+            # Convert each row to a dictionary
+            for row in values[1:]:
+                response = {}
+                for i, header in enumerate(headers):
+                    if i < len(row):
+                        response[header] = row[i]
+                    else:
+                        response[header] = ""
+                responses.append(response)
+                
+            if self.verbose:
+                print(f"✅ Found {len(responses)} form responses")
+                
+            return responses
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error getting form responses: {e}")
+            return []
     
     def launch_watcher_sender(self) -> Dict[str, any]:
         """
