@@ -13,7 +13,7 @@ def create_receiver_endpoint(email, interval_seconds=1.0):
     
     Args:
         email: Email address of the user
-        interval_seconds: How often to run the sync operations (default: 1 second)
+        interval_seconds: How often to check for changes with Sheets API
     
     Returns:
         Server object
@@ -48,6 +48,7 @@ def create_receiver_endpoint(email, interval_seconds=1.0):
         try:
             client = sc.login(email, verbose=False, force_relogin=False)
             print(f"Login successful! Starting auto-sync receiver...", flush=True)
+            print(f"   Polling interval: {interval_seconds}s", flush=True)
         except Exception as e:
             return f"Login failed: {type(e).__name__}: {str(e)}"
         
@@ -59,8 +60,16 @@ def create_receiver_endpoint(email, interval_seconds=1.0):
             "approve_count": 0,
             "merge_count": 0,
             "error_count": 0,
-            "last_error": None
+            "last_error": None,
+            "sheets_api_calls": 0,
+            "changes_detected": 0
         }
+        
+        # Track API states for change detection
+        api_states = {}  # Will store {friend_email: {sheet_id, last_content_hash, last_row_count}}
+        
+        # Timing control
+        last_call_time = 0
         
         # Store stats for access
         import sys
@@ -80,17 +89,100 @@ def create_receiver_endpoint(email, interval_seconds=1.0):
         
         atexit.register(cleanup_receiver)
         
+        # Helper function to compute hash of content
+        def compute_content_hash(content):
+            import hashlib
+            if isinstance(content, str):
+                content = content.encode('utf-8')
+            elif isinstance(content, list):
+                content = str(content).encode('utf-8')
+            return hashlib.md5(content).hexdigest()
+        
         # Main receiver loop
         while current_module.receiver_running:
             try:
-                # Update inbox from sheets
-                try:
-                    result = client.update_inbox_from_sheets()
-                    if result:
-                        stats["update_count"] += 1
-                except Exception as e:
-                    stats["error_count"] += 1
-                    stats["last_error"] = f"update_inbox: {str(e)}"
+                current_time = time.time()
+                elapsed = current_time - last_call_time
+                
+                # Check if enough time has passed for next call
+                if elapsed >= interval_seconds:
+                    changes_detected = False
+                    
+                    # Get friends list
+                    if not hasattr(client, 'friends') or not client.friends:
+                        # No friends to check
+                        last_call_time = current_time
+                        time.sleep(interval_seconds)
+                        continue
+                    
+                    # Use Sheets API to check for changes
+                    try:
+                        stats["sheets_api_calls"] += 1
+                        
+                        # Get sheets service
+                        sheets_service = client._get_sheets_service()
+                        
+                        for friend_email in client.friends:
+                            try:
+                                # Find friend's sheet
+                                sheet_name = f"syft_{friend_email}_to_{client.my_email}_messages"
+                                sheet_id = client._find_message_sheet(sheet_name, from_email=friend_email)
+                                
+                                if not sheet_id:
+                                    continue
+                                
+                                # Get current content
+                                result = sheets_service.spreadsheets().values().get(
+                                    spreadsheetId=sheet_id,
+                                    range='messages!A:D'
+                                ).execute()
+                                
+                                rows = result.get('values', [])
+                                current_row_count = len(rows)
+                                current_hash = compute_content_hash(rows)
+                                
+                                # Get previous state
+                                friend_state = api_states.get(friend_email, {})
+                                last_hash = friend_state.get("last_content_hash")
+                                last_row_count = friend_state.get("last_row_count", 0)
+                                
+                                # Check for changes
+                                if last_hash is None or current_hash != last_hash:
+                                    changes_detected = True
+                                    stats["changes_detected"] += 1
+                                    print(f"📊 Change detected from {friend_email}: {last_row_count} → {current_row_count} rows", flush=True)
+                                
+                                # Update state
+                                api_states[friend_email] = {
+                                    "sheet_id": sheet_id,
+                                    "last_content_hash": current_hash,
+                                    "last_row_count": current_row_count
+                                }
+                                
+                            except Exception as e:
+                                # Log but don't fail the whole check
+                                print(f"Error checking {friend_email}: {e}", flush=True)
+                        
+                        # Update timing
+                        last_call_time = current_time
+                        
+                        # If changes detected, process them
+                        if changes_detected:
+                            # Update inbox from sheets
+                            result = client.update_inbox_from_sheets()
+                            if result:
+                                stats["update_count"] += 1
+                        
+                    except Exception as e:
+                        stats["error_count"] += 1
+                        stats["last_error"] = f"api_check: {str(e)}"
+                        print(f"Error during API check: {e}", flush=True)
+                        # Update timing even on error to avoid tight loop
+                        last_call_time = current_time
+                    
+                else:
+                    # Not enough time elapsed, small sleep
+                    time.sleep(0.01)  # 10ms
                 
                 # Auto-approve inbox items
                 try:

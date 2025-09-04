@@ -62,6 +62,10 @@ def create_watcher_sender_endpoint(email):
                 if not event.is_directory:
                     self._handle_file_event(event, "modified")
             
+            def on_deleted(self, event):
+                if not event.is_directory:
+                    self._handle_file_event(event, "deleted")
+            
             def _handle_file_event(self, event, event_type):
                 # Skip hidden files (starting with .)
                 filename = os.path.basename(event.src_path)
@@ -78,29 +82,47 @@ def create_watcher_sender_endpoint(email):
                 if filename.endswith(('.tmp', '.swp', '.DS_Store', '~')):
                     return
                 
-                # Check if this file change is from a recent sync
-                # This prevents infinite sync loops where syncs echo back and forth
-                if hasattr(client, '_is_file_from_recent_sync'):
-                    # Get sync echo prevention threshold from env or default to 60 seconds
-                    threshold = int(os.environ.get('SYFT_SYNC_ECHO_THRESHOLD', '60'))
-                    
-                    # Skip echo prevention if threshold is 0 or negative
-                    if threshold > 0 and client._is_file_from_recent_sync(event.src_path, threshold_seconds=threshold):
-                        print(f"Skipping echo: {filename} (matches recent sync)", flush=True)
-                        return
+                # For deletions, we can't check file content (it's gone)
+                if event_type != "deleted":
+                    # Check if this file change is from a recent sync
+                    # This prevents infinite sync loops where syncs echo back and forth
+                    if hasattr(client, '_is_file_from_recent_sync'):
+                        # Get sync echo prevention threshold from env or default to 60 seconds
+                        threshold = int(os.environ.get('SYFT_SYNC_ECHO_THRESHOLD', '60'))
+                        
+                        # Skip echo prevention if threshold is 0 or negative
+                        if threshold > 0 and client._is_file_from_recent_sync(event.src_path, threshold_seconds=threshold):
+                            print(f"Skipping echo: {filename} (matches recent sync)", flush=True)
+                            return
                 
-                # Send the file to all friends
+                # Send the file or deletion to all friends
                 try:
-                    print(f"Sending {event_type}: {filename}", flush=True)
-                    # Send using the batch method if available, otherwise fallback
-                    if hasattr(client, 'send_file_or_folder_to_friends'):
-                        results = client.send_file_or_folder_to_friends(event.src_path)
+                    if event_type == "deleted":
+                        print(f"Sending deletion: {filename}", flush=True)
+                        # Send deletion message
+                        if hasattr(client, 'send_deletion_to_friends'):
+                            results = client.send_deletion_to_friends(event.src_path)
+                        else:
+                            # Fallback: send to each friend individually
+                            results = {}
+                            for friend in client.friends:
+                                if hasattr(client, 'send_deletion'):
+                                    success = client.send_deletion(event.src_path, friend)
+                                    results[friend] = success
+                                else:
+                                    print(f"Warning: Deletion not supported in this client version", flush=True)
+                                    return
                     else:
-                        # Fallback: send to each friend individually
-                        results = {}
-                        for friend in client.friends:
-                            success = client.send_file_or_folder_auto(event.src_path, friend)
-                            results[friend] = success
+                        print(f"Sending {event_type}: {filename}", flush=True)
+                        # Send file using the batch method if available, otherwise fallback
+                        if hasattr(client, 'send_file_or_folder_to_friends'):
+                            results = client.send_file_or_folder_to_friends(event.src_path)
+                        else:
+                            # Fallback: send to each friend individually
+                            results = {}
+                            for friend in client.friends:
+                                success = client.send_file_or_folder_auto(event.src_path, friend)
+                                results[friend] = success
                     
                     # Report results
                     successful = sum(1 for success in results.values() if success)

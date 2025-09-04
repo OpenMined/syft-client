@@ -1713,6 +1713,131 @@ class GDriveUnifiedClient:
         
         return results
     
+    def send_deletion(self, path: str, recipient_email: str) -> bool:
+        """
+        Send a deletion message for a file to a specific recipient
+        
+        Args:
+            path: Path to the deleted file (supports syft:// URLs)
+            recipient_email: Email address of the recipient
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        self._ensure_authenticated()
+        
+        # Resolve syft:// URLs
+        resolved_path = self.resolve_syft_path(path)
+        
+        # Check if recipient is in friends list
+        if recipient_email not in self.friends:
+            print(f"❌ We don't have an outbox for {recipient_email}")
+            return False
+        
+        # Extract path relative to datasites
+        abs_path = os.path.abspath(resolved_path)
+        datasites_marker = os.sep + "datasites" + os.sep
+        
+        if datasites_marker not in abs_path:
+            print(f"❌ Error: Path must be within a SyftBox datasites folder")
+            return False
+        
+        # Get the syftbox path (e.g., "datasites/user/project/file.txt")
+        parts = abs_path.split(datasites_marker, 1)
+        if len(parts) == 2:
+            syftbox_path = f"datasites/{parts[1]}"
+        else:
+            print(f"❌ Error: Could not determine syftbox path")
+            return False
+        
+        if self.verbose:
+            print(f"🗑️  Sending deletion of {os.path.basename(resolved_path)} to {recipient_email}...")
+        
+        # Create deletion message
+        from .syft_message import SyftMessage
+        import tempfile
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Create SyftMessage
+            message = SyftMessage.create(
+                sender_email=self.my_email,
+                recipient_email=recipient_email,
+                message_root=temp_path
+            )
+            
+            # Set deletion metadata
+            metadata = message.get_metadata()
+            metadata["action"] = "delete"
+            metadata["files"] = [{
+                "path": syftbox_path,
+                "deleted_at": time.time(),
+                "hash": None  # Could compute if file still existed
+            }]
+            message.set_metadata(metadata)
+            
+            # Create archive
+            archive_path = message.create_archive(temp_path / f"{message.message_id}.tar.gz")
+            
+            # Send via sheets (deletions are always small)
+            return self._send_via_sheets(archive_path, recipient_email, message.message_id)
+    
+    def send_deletion_to_friends(self, path: str) -> Dict[str, bool]:
+        """
+        Send a deletion message for a file to all friends
+        
+        Args:
+            path: Path to the deleted file (supports syft:// URLs)
+            
+        Returns:
+            Dict mapping friend emails to success status
+        """
+        self._ensure_authenticated()
+        
+        # Get list of friends
+        friends_list = self.friends
+        if not friends_list:
+            print("❌ No friends to send to. Add friends first with add_friend()")
+            return {}
+        
+        if self.verbose:
+            print(f"🗑️  Sending deletion of {os.path.basename(path)} to {len(friends_list)} friend(s)...")
+        
+        results = {}
+        successful = 0
+        failed = 0
+        
+        for i, friend_email in enumerate(friends_list, 1):
+            if self.verbose:
+                print(f"\n[{i}/{len(friends_list)}] Sending deletion to {friend_email}...")
+            
+            try:
+                success = self.send_deletion(path, friend_email)
+                results[friend_email] = success
+                
+                if success:
+                    successful += 1
+                    if self.verbose:
+                        print(f"   ✅ Success")
+                else:
+                    failed += 1
+                    
+            except Exception as e:
+                if self.verbose:
+                    print(f"   ❌ Error: {str(e)}")
+                results[friend_email] = False
+                failed += 1
+        
+        # Summary
+        if self.verbose:
+            print(f"\n📊 Summary:")
+            print(f"   ✅ Successful: {successful}")
+            print(f"   ❌ Failed: {failed}")
+            print(f"   📨 Total: {len(friends_list)}")
+        
+        return results
+    
     def _prepare_message(self, path: str, recipient_email: str, temp_dir: str) -> Optional[tuple]:
         """
         Prepare a SyftMessage archive for sending
@@ -2736,7 +2861,58 @@ class GDriveUnifiedClient:
             print(f"\n   📦 Processing message from {sender}")
         
         # print("MERGE-8c2 " + str(time.time()))
-        # Process files directly
+        
+        # Check if this is a deletion message
+        action = metadata.get("action", "update")
+        
+        if action == "delete":
+            # Handle deletion
+            files_info = metadata.get("files", [])
+            stats["files_deleted"] = 0
+            
+            for file_entry in files_info:
+                try:
+                    file_path = file_entry["path"]
+                    
+                    # Check if path starts with "datasites/"
+                    if not file_path.startswith("datasites/"):
+                        print(f"      ⚠️  Skipping deletion with non-datasites path: {file_path}")
+                        continue
+                    
+                    # Calculate local path
+                    relative_path = file_path[len("datasites/"):]
+                    dest_path = Path(datasites_dir) / relative_path
+                    
+                    if dest_path.exists():
+                        # Optional: verify hash if provided
+                        expected_hash = file_entry.get("hash")
+                        if expected_hash:
+                            actual_hash = self._compute_file_hash(dest_path)
+                            if actual_hash != expected_hash:
+                                print(f"      ⚠️  Skipping deletion - file has different content: {relative_path}")
+                                continue
+                        
+                        # Store in sync history before deleting
+                        self._store_sync_history(dest_path, message_path)
+                        
+                        # Delete the file
+                        dest_path.unlink()
+                        stats["files_deleted"] += 1
+                        
+                        if self.verbose:
+                            print(f"      🗑️  Deleted: {relative_path}")
+                    else:
+                        if self.verbose:
+                            print(f"      ⏭️  File already deleted: {relative_path}")
+                            
+                except Exception as e:
+                    print(f"      ❌ Error deleting file: {e}")
+                    stats["errors"] += 1
+            
+            # Return early for deletion messages
+            return stats
+        
+        # Process files directly (for create/update messages)
         files_info = metadata.get("files", [])
         # print("MERGE-8c3 " + str(time.time()))
         
@@ -2931,6 +3107,8 @@ class GDriveUnifiedClient:
                     stats["files_merged"] += file_stats["files_merged"]
                     stats["files_overwritten"] += file_stats["files_overwritten"]
                     stats["errors"] += file_stats["errors"]
+                    if "files_deleted" in file_stats:
+                        stats["files_deleted"] = stats.get("files_deleted", 0) + file_stats["files_deleted"]
                     
                     # Check if any files were skipped due to sync history
                     files_skipped_due_to_history = file_stats.get("messages_skipped", 0)
@@ -3002,6 +3180,8 @@ class GDriveUnifiedClient:
             print(f"   - Messages skipped: {stats['messages_skipped']}")
             print(f"   - Files merged: {stats['files_merged']}")
             print(f"   - Files overwritten: {stats['files_overwritten']}")
+            if "files_deleted" in stats and stats['files_deleted'] > 0:
+                print(f"   - Files deleted: {stats['files_deleted']}")
             if stats['errors'] > 0:
                 print(f"   - Errors: {stats['errors']}")
         
@@ -4013,6 +4193,8 @@ class GDriveUnifiedClient:
             print(f"❌ Error sending via sheets: {e}")
             return False
     
+    
+    
     def update_inbox_from_sheets(self, inbox_dir: str = None) -> Dict[str, List[str]]:
         """
         Check all friend sheets for new messages
@@ -4253,7 +4435,8 @@ class GDriveUnifiedClient:
         Launch a background receiver that automatically processes incoming messages
         
         Args:
-            interval_seconds: How often to run sync operations (default: 1 second)
+            interval_seconds: How often to check for changes (default: 1 second)
+                            Sheets API will be polled at this interval
             
         Returns:
             Dict with status, message, and server URL
@@ -4273,6 +4456,7 @@ class GDriveUnifiedClient:
             
             if self.verbose:
                 print(f"✅ Receiver launched at: {server.url}")
+                print(f"   Polling interval: {interval_seconds}s")
                 
             return result
             
@@ -4346,6 +4530,392 @@ class GDriveUnifiedClient:
             if self.verbose:
                 print(f"❌ Failed to get receiver stats: {e}")
             return None
+    
+    def test_rate_limit(self, sheet_url: str) -> Dict[str, any]:
+        """
+        Test rate limits by alternating between Sheets API and Drive API
+        to see if they share the same rate limiter
+        
+        Args:
+            sheet_url: Google Sheets URL to test
+                      Format: https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit...
+        
+        Returns:
+            Dict with test results showing performance of alternating API calls
+        """
+        if not self.authenticated:
+            raise ValueError("Client must be authenticated first")
+        
+        # Extract sheet ID from URL
+        import re
+        match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url)
+        if not match:
+            return {
+                "error": "Invalid Google Sheets URL format",
+                "calls_made": 0
+            }
+        
+        sheet_id = match.group(1)
+        print(f"\n🧪 Testing rate limits by alternating between APIs")
+        print(f"   Sheet ID: {sheet_id}")
+        print(f"   Strategy: Alternate between Sheets API and Drive API")
+        
+        # Initialize services
+        sheets_service = self._get_sheets_service()
+        
+        # Track statistics
+        successful_calls = {
+            "sheets": 0,
+            "drive": 0,
+            "total": 0
+        }
+        total_calls = 0
+        start_time = time.time()
+        errors = []
+        rate_limits_hit = {
+            "sheets": False,
+            "drive": False
+        }
+        last_modified_time = None
+        last_row_count = 0
+        last_drive_content = None
+        
+        print("\n   Starting alternating API calls...")
+        print("   S = Sheets API success, D = Drive API success, X = Error")
+        print("   Progress: ", end="", flush=True)
+        
+        while True:
+            try:
+                # Check if 90 seconds have elapsed
+                elapsed = time.time() - start_time
+                if elapsed >= 90:
+                    print(f"\n\n   ⏱️  90-second time limit reached!")
+                    print(f"\n   📊 Final Statistics:")
+                    print(f"      - Total successful calls: {successful_calls['total']}")
+                    print(f"      - Sheets API calls: {successful_calls['sheets']}")
+                    print(f"      - Drive API calls: {successful_calls['drive']}")
+                    print(f"      - Time elapsed: {elapsed:.2f} seconds")
+                    print(f"      - Overall rate: {successful_calls['total']/elapsed:.2f} calls/sec")
+                    print(f"      - Rate limits hit: Sheets={rate_limits_hit['sheets']}, Drive={rate_limits_hit['drive']}")
+                    
+                    return {
+                        "time_limit_reached": True,
+                        "successful_calls": successful_calls,
+                        "total_calls": total_calls,
+                        "elapsed_seconds": elapsed,
+                        "avg_calls_per_second": successful_calls["total"] / elapsed if elapsed > 0 else 0,
+                        "rate_limits_hit": rate_limits_hit
+                    }
+                
+                total_calls += 1
+                
+                # Skip API if it already hit rate limit
+                skip_this_call = False
+                
+                # Determine which API to use
+                use_sheets = total_calls % 2 == 1
+                
+                if use_sheets and rate_limits_hit["sheets"]:
+                    skip_this_call = True
+                    use_sheets = False  # Try Drive instead
+                elif not use_sheets and rate_limits_hit["drive"]:
+                    skip_this_call = True
+                    use_sheets = True  # Try Sheets instead
+                
+                # If both hit limits, we're done
+                if rate_limits_hit["sheets"] and rate_limits_hit["drive"]:
+                    elapsed = time.time() - start_time
+                    print(f"\n\n   🛑 Both APIs hit rate limits!")
+                    print(f"\n   📊 Final Statistics:")
+                    print(f"      - Total successful calls: {successful_calls['total']}")
+                    print(f"      - Sheets API calls: {successful_calls['sheets']}")
+                    print(f"      - Drive API calls: {successful_calls['drive']}")
+                    print(f"      - Time elapsed: {elapsed:.2f} seconds")
+                    print(f"      - Overall rate: {successful_calls['total']/elapsed:.2f} calls/sec")
+                    
+                    return {
+                        "both_rate_limits_hit": True,
+                        "successful_calls": successful_calls,
+                        "total_calls": total_calls,
+                        "elapsed_seconds": elapsed,
+                        "avg_calls_per_second": successful_calls["total"] / elapsed if elapsed > 0 else 0
+                    }
+                
+                if use_sheets and not rate_limits_hit["sheets"]:
+                    # Use Sheets API
+                    result = sheets_service.spreadsheets().values().get(
+                        spreadsheetId=sheet_id,
+                        range='messages!A1:A100',  # Small range
+                        majorDimension='ROWS'
+                    ).execute()
+                    
+                    rows = result.get('values', [])
+                    current_row_count = len(rows)
+                    
+                    # Check if row count changed
+                    if current_row_count != last_row_count:
+                        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                        print(f"\n   📊 [SHEETS API] Change detected at {timestamp}!")
+                        print(f"      - Row count: {last_row_count} → {current_row_count}")
+                        print("   Progress: ", end="", flush=True)
+                    
+                    last_row_count = current_row_count
+                    successful_calls["sheets"] += 1
+                    successful_calls["total"] += 1
+                    print("S", end="", flush=True)
+                    
+                elif not use_sheets and not rate_limits_hit["drive"]:
+                    # Use Drive API to export sheet content
+                    try:
+                        # Export as CSV to get actual content
+                        export_response = self.service.files().export(
+                            fileId=sheet_id,
+                            mimeType='text/csv'
+                        ).execute()
+                        
+                        # Convert bytes to string
+                        current_drive_content = export_response.decode('utf-8') if isinstance(export_response, bytes) else export_response
+                        
+                        # Check if content changed
+                        if last_drive_content is not None and current_drive_content != last_drive_content:
+                            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                            print(f"\n   📄 [DRIVE API] Change detected at {timestamp}!")
+                            
+                            # Show what changed (first few lines)
+                            old_lines = last_drive_content.split('\n')[:5]
+                            new_lines = current_drive_content.split('\n')[:5]
+                            if old_lines != new_lines:
+                                print(f"      - Content changed (showing first 5 lines)")
+                            print("   Progress: ", end="", flush=True)
+                        
+                        last_drive_content = current_drive_content
+                        successful_calls["drive"] += 1
+                        successful_calls["total"] += 1
+                        print("D", end="", flush=True)
+                        
+                    except HttpError as e:
+                        if e.resp.status == 403 and "Export only supports Docs Editors" in str(e):
+                            # Fallback to just getting metadata if export not supported
+                            file_metadata = self.service.files().get(
+                                fileId=sheet_id,
+                                fields='modifiedTime,name,size'
+                            ).execute()
+                            
+                            current_modified_time = file_metadata.get('modifiedTime')
+                            if last_modified_time and current_modified_time != last_modified_time:
+                                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                                print(f"\n   📝 [DRIVE API] ModifiedTime changed at {timestamp}: {current_modified_time}")
+                                print("   Progress: ", end="", flush=True)
+                            last_modified_time = current_modified_time
+                            
+                            successful_calls["drive"] += 1
+                            successful_calls["total"] += 1
+                            print("d", end="", flush=True)  # lowercase d for metadata only
+                        else:
+                            raise
+                
+                # Print detailed progress every 20 calls
+                if successful_calls["total"] % 20 == 0:
+                    elapsed = time.time() - start_time
+                    total_rate = successful_calls["total"] / elapsed
+                    sheets_rate = successful_calls["sheets"] / elapsed
+                    drive_rate = successful_calls["drive"] / elapsed
+                    
+                    print(f"\n   ✓ {successful_calls['total']} total calls ({total_rate:.1f}/sec)")
+                    print(f"      - Sheets API: {successful_calls['sheets']} calls ({sheets_rate:.1f}/sec)")
+                    print(f"      - Drive API: {successful_calls['drive']} calls ({drive_rate:.1f}/sec)")
+                    print(f"      - Last row count: {last_row_count}")
+                    print("   Progress: ", end="", flush=True)
+                
+            except HttpError as e:
+                # Check if it's a rate limit error
+                if e.resp.status == 429:
+                    # Determine which API hit the limit
+                    api_that_failed = "Sheets API" if use_sheets else "Drive API"
+                    
+                    # Mark this API as rate limited
+                    if use_sheets:
+                        rate_limits_hit["sheets"] = True
+                        print("X(S)", end="", flush=True)
+                    else:
+                        rate_limits_hit["drive"] = True
+                        print("X(D)", end="", flush=True)
+                    
+                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                    print(f"\n   🚫 [{api_that_failed}] Rate limit hit at {timestamp}")
+                    
+                    # Extract quota details
+                    try:
+                        import ast
+                        error_details = ast.literal_eval(e.error_details)
+                        for detail in error_details:
+                            if detail.get('@type') == 'type.googleapis.com/google.rpc.ErrorInfo':
+                                metadata = detail.get('metadata', {})
+                                print(f"      - Quota limit: {metadata.get('quota_limit_value', 'unknown')} requests")
+                                print(f"      - Service: {metadata.get('service', 'unknown')}")
+                    except:
+                        pass
+                    
+                    print("   Progress: ", end="", flush=True)
+                    
+                    # Continue with the other API if available
+                    continue
+                else:
+                    # Other error
+                    errors.append(str(e))
+                    if len(errors) > 5:
+                        elapsed = time.time() - start_time
+                        print(f"\n\n   ❌ Too many errors")
+                        return {
+                            "error": "Too many non-rate-limit errors",
+                            "errors": errors,
+                            "successful_calls": successful_calls,
+                            "total_calls": total_calls,
+                            "elapsed_seconds": elapsed
+                        }
+            
+            except Exception as e:
+                # Unexpected error
+                elapsed = time.time() - start_time
+                print(f"\n\n   ❌ Unexpected error: {e}")
+                return {
+                    "error": f"Unexpected error: {str(e)}",
+                    "successful_calls": successful_calls,
+                    "total_calls": total_calls,
+                    "elapsed_seconds": elapsed
+                }
+            
+    
+    def test_latency(self, other_client: 'GDriveUnifiedClient', num_tests: int = 5) -> Dict[str, float]:
+        """
+        Test file propagation latency between two authenticated clients
+        
+        Args:
+            other_client: Another authenticated GDriveUnifiedClient instance
+            num_tests: Number of test iterations (default: 5)
+            
+        Returns:
+            Dictionary with latency statistics
+        """
+        import random
+        import shutil
+        import tempfile
+        
+        if not self.authenticated or not other_client.authenticated:
+            raise ValueError("Both clients must be authenticated")
+        
+        print(f"📊 Testing latency: {self.my_email} → {other_client.my_email}")
+        print(f"   Running {num_tests} tests...\n")
+        
+        latencies = []
+        
+        # Use hardcoded paths like the working script
+        source_base = Path.home() / f"SyftBox_{self.my_email}"
+        target_base = Path.home() / f"SyftBox_{other_client.my_email}"
+        
+        # Write to sender's datasites folder
+        source_datasites = source_base / "datasites"
+        source_datasites.mkdir(parents=True, exist_ok=True)
+        
+        # Target will be in receiver's datasites folder
+        target_datasites = target_base / "datasites"
+        
+        # Create a temp directory for staging files
+        temp_dir = tempfile.mkdtemp()
+        
+        for i in range(num_tests):
+            # Generate unique test filename
+            random_number = random.randint(100000, 999999)
+            test_filename = f"testdata_{random_number}.txt"
+            test_content = f"Test {random_number} at {time.time()}"
+            
+            # Create file in temp directory first
+            temp_file = Path(temp_dir) / test_filename
+            final_source_file = source_datasites / test_filename
+            target_file = target_datasites / test_filename
+            
+            print(f"   Test {i+1}/{num_tests}: ", end="", flush=True)
+            
+            # Write file to temp location
+            with open(temp_file, 'w') as f:
+                f.write(test_content)
+            
+            # Move file to datasites (atomic operation)
+            start_time = time.time()
+            shutil.move(str(temp_file), str(final_source_file))
+            
+            # Poll for file appearance
+            max_wait_time = 60  # 60 seconds timeout
+            poll_interval = 0.1  # 100ms
+            
+            while time.time() - start_time < max_wait_time:
+                if target_file.exists():
+                    # Verify content matches
+                    try:
+                        with open(target_file, 'r') as f:
+                            received_content = f.read()
+                        
+                        if received_content == test_content:
+                            end_time = time.time()
+                            latency = end_time - start_time
+                            latencies.append(latency)
+                            print(f"✅ {latency:.2f}s")
+                            break
+                    except:
+                        pass  # File might be partially written
+                
+                time.sleep(poll_interval)
+            else:
+                print(f"❌ Timeout (>{max_wait_time}s)")
+            
+            # Clean up test files
+            try:
+                final_source_file.unlink()
+                if target_file.exists():
+                    target_file.unlink()
+            except:
+                pass
+            
+            # Small delay between tests
+            if i < num_tests - 1:
+                time.sleep(1)
+        
+        # Clean up temp directory
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
+        
+        # Calculate statistics
+        if latencies:
+            avg_latency = sum(latencies) / len(latencies)
+            min_latency = min(latencies)
+            max_latency = max(latencies)
+            
+            print(f"\n📈 Results:")
+            print(f"   Average latency: {avg_latency:.2f}s")
+            print(f"   Min latency: {min_latency:.2f}s")
+            print(f"   Max latency: {max_latency:.2f}s")
+            print(f"   Successful: {len(latencies)}/{num_tests}")
+            
+            return {
+                "average": avg_latency,
+                "min": min_latency,
+                "max": max_latency,
+                "successful": len(latencies),
+                "total": num_tests,
+                "all_latencies": latencies
+            }
+        else:
+            print("\n❌ All tests failed")
+            return {
+                "average": None,
+                "min": None,
+                "max": None,
+                "successful": 0,
+                "total": num_tests,
+                "all_latencies": []
+            }
 
 
 def create_gdrive_client(email_or_auth_method: str = "auto", verbose: bool = True, force_relogin: bool = False) -> GDriveUnifiedClient:
