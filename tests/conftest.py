@@ -281,31 +281,37 @@ def integration_test_clients(test_users):
             print(f"   User2 email: {user2_email}")
             
             # Check if tokens exist (they should be pre-configured by CI)
-            user1_token_path = os.path.expanduser(f"~/.syft/gdrive/{user1_email}/token.json")
-            user2_token_path = os.path.expanduser(f"~/.syft/gdrive/{user2_email}/token.json")
+            # Need to use sanitized email addresses for directory names (same as CI workflow)
+            sanitized_user1_email = user1_email.replace("@", "_at_").replace(".", "_")
+            sanitized_user2_email = user2_email.replace("@", "_at_").replace(".", "_")
+            
+            user1_token_path = os.path.expanduser(f"~/.syft/gdrive/{sanitized_user1_email}/token.json")
+            user2_token_path = os.path.expanduser(f"~/.syft/gdrive/{sanitized_user2_email}/token.json")
             print(f"   User1 token: {user1_token_path} (exists: {os.path.exists(user1_token_path)})")
             print(f"   User2 token: {user2_token_path} (exists: {os.path.exists(user2_token_path)})")
             
             # In CI, login should work directly with pre-configured tokens
             # No need to provide credentials_path as tokens are already in wallet
+            # IMPORTANT: Don't use force_relogin=True in CI because it would try to open a browser
             print(f"🔐 Logging in user1 with pre-configured token...")
-            user1 = sc.login(user1_email, verbose=False, force_relogin=True)
+            user1 = sc.login(user1_email, verbose=False, force_relogin=False)  # Use False in CI
             print(f"✅ User1 logged in successfully")
             
             print(f"🔐 Logging in user2 with pre-configured token...")
-            user2 = sc.login(user2_email, verbose=False, force_relogin=True)
+            user2 = sc.login(user2_email, verbose=False, force_relogin=False)  # Use False in CI
             print(f"✅ User2 logged in successfully")
         else:
             # Local development - try with credentials files if they exist
+            # Use force_relogin=False to avoid browser popups in automated tests
             if os.path.exists(user1_creds):
-                user1 = sc.login(user1_email, credentials_path=user1_creds, force_relogin=True)
+                user1 = sc.login(user1_email, credentials_path=user1_creds, force_relogin=False)
             else:
-                user1 = sc.login(user1_email, force_relogin=True)
+                user1 = sc.login(user1_email, force_relogin=False)
                 
             if os.path.exists(user2_creds):
-                user2 = sc.login(user2_email, credentials_path=user2_creds, force_relogin=True)
+                user2 = sc.login(user2_email, credentials_path=user2_creds, force_relogin=False)
             else:
-                user2 = sc.login(user2_email, force_relogin=True)
+                user2 = sc.login(user2_email, force_relogin=False)
         
         # Clean slate
         user1.reset_syftbox()
