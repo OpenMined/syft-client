@@ -7,6 +7,7 @@ import time
 from typing import Dict, Any
 
 import syft_client as sc
+from tests.utils.audit_logger import CIAuditLogger
 
 
 @pytest.mark.integration
@@ -19,6 +20,14 @@ class TestTwoUserWorkflow:
         user1 = integration_test_clients['user1']
         user2 = integration_test_clients['user2']
         
+        # Initialize audit loggers for both users
+        audit1 = CIAuditLogger(user1, "bidirectional_friend_setup")
+        audit2 = CIAuditLogger(user2, "bidirectional_friend_setup")
+        
+        # Log test start
+        audit1.log_test_start({"test_type": "friend_setup", "partner": user2.my_email})
+        audit2.log_test_start({"test_type": "friend_setup", "partner": user1.my_email})
+        
         # Verify initial state - no friends
         assert len(user1.friends) == 0, f"User1 should have no friends initially, got: {user1.friends}"
         assert len(user2.friends) == 0, f"User2 should have no friends initially, got: {user2.friends}"
@@ -28,6 +37,9 @@ class TestTwoUserWorkflow:
         print(f"\n🤝 User1 ({user1.my_email}) adding User2 ({user2.my_email}) as friend...")
         result1 = user1.add_friend(user2.my_email, verbose=True)
         assert result1 is True, "User1 should successfully add User2 as friend"
+        
+        # Log the friend addition
+        audit1.log_communication(user1.my_email, user2.my_email, "Friend request sent")
         
         # Give Google Drive a moment to propagate changes - with retry logic for CI reliability
         max_retries = 3
@@ -68,6 +80,9 @@ class TestTwoUserWorkflow:
         result2 = user2.add_friend(user1.my_email, verbose=True)
         assert result2 is True, "User2 should successfully add User1 as friend"
         
+        # Log the friend addition completion
+        audit2.log_communication(user2.my_email, user1.my_email, "Friend request accepted")
+        
         # Give Google Drive a moment to propagate changes
         time.sleep(5)  # Increased from 2 to 5 seconds for better reliability
         
@@ -79,6 +94,58 @@ class TestTwoUserWorkflow:
         assert user2.my_email in user1_friends_final, f"User2 should remain in User1's friends: {user1_friends_final}"
         assert user1.my_email in user2_friends_final, f"User1 should be in User2's friends: {user2_friends_final}"
         assert len(user2_requests_final) == 0, f"User2 should have no pending requests after adding User1: {user2_requests_final}"
+        
+        # Create proof messages in communication folders
+        try:
+            # Get folder IDs for proof messages
+            syftbox_id_1 = user1.setup_syftbox()
+            syftbox_id_2 = user2.setup_syftbox()
+            
+            # User1 creates proof in their outbox
+            outbox_name = f"syft_{user1.my_email}_to_{user2.my_email}_outbox_inbox"
+            results = user1.service.files().list(
+                q=f"name='{outbox_name}' and '{syftbox_id_1}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                fields="files(id)"
+            ).execute()
+            
+            if results.get('files'):
+                audit1.create_proof_message(results['files'][0]['id'], "bidirectional_setup_proof")
+            
+            # User2 creates proof in their outbox  
+            outbox_name_2 = f"syft_{user2.my_email}_to_{user1.my_email}_outbox_inbox"
+            results2 = user2.service.files().list(
+                q=f"name='{outbox_name_2}' and '{syftbox_id_2}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                fields="files(id)"
+            ).execute()
+            
+            if results2.get('files'):
+                audit2.create_proof_message(results2['files'][0]['id'], "bidirectional_setup_proof")
+                
+        except Exception as e:
+            print(f"⚠️ Could not create proof messages: {e}")
+        
+        # Log test completion
+        audit1.log_test_result("bidirectional_friend_setup", "PASSED", {
+            "user1_friends": user1_friends_final,
+            "user2_friends": user2_friends_final
+        })
+        audit2.log_test_result("bidirectional_friend_setup", "PASSED", {
+            "connection_established": True
+        })
+        
+        # Write to audit ledgers
+        audit1.write_audit_ledger({
+            "test": "bidirectional_friend_setup",
+            "result": "PASSED",
+            "all_passed": True,
+            "friends_connected": [user1.my_email, user2.my_email]
+        })
+        audit2.write_audit_ledger({
+            "test": "bidirectional_friend_setup", 
+            "result": "PASSED",
+            "all_passed": True,
+            "friends_connected": [user1.my_email, user2.my_email]
+        })
         
         print(f"✅ Bidirectional connection established successfully!")
         print(f"   User1 friends: {user1_friends_final}")
