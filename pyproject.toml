@@ -1,0 +1,35 @@
+[project]
+name = "syft-beach"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "syft-client",
+    "syft-job",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+syft-client = { workspace = true }
+syft-job = { workspace = true }
+
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.ruff]
+exclude = [".archive"]
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]
+
+[dependency-groups]
+dev = ["pytest>=8.3.4"]
+cli = ["syft-http-bridge[cli]"]
