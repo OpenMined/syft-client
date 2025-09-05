@@ -130,8 +130,9 @@ class TestDependencyImports:
     def test_optional_colab_import(self):
         """Test that Colab imports are handled gracefully"""
         # This should not raise an error even if Colab is not available
-        from syft_client.gdrive_unified import IN_COLAB
-        assert isinstance(IN_COLAB, bool)
+        from syft_client.gdrive_unified import _is_colab
+        result = _is_colab()
+        assert isinstance(result, bool)
     
     def test_syft_widget_import_graceful(self):
         """Test that syft_widget import is handled gracefully"""

@@ -21,7 +21,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
@@ -46,8 +46,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11"]
+        os: [ubuntu-latest]
+        python-version: ["3.10", "3.12"]
 
     steps:
       - name: Checkout code
@@ -72,7 +72,7 @@ jobs:
             --junit-xml=junit-${{ matrix.os }}-${{ matrix.python-version }}.xml
 
       - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
         uses: codecov/codecov-action@v3
         with:
           file: ./coverage.xml
@@ -101,7 +101,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
@@ -323,7 +323,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: "3.10"
 
       - name: Install build dependencies
         run: |

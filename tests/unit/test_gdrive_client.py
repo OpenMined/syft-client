@@ -70,9 +70,9 @@ class TestGDriveUnifiedClientInit:
 class TestAuthentication:
     """Test authentication methods"""
     
-    @patch('syft_client.gdrive_unified.IN_COLAB', True)
+    @patch('syft_client.gdrive_unified._is_colab', return_value=True)
     @patch('syft_client.gdrive_unified.build')
-    def test_authenticate_colab_method(self, mock_build):
+    def test_authenticate_colab_method(self, mock_build, mock_is_colab):
         """Test Colab authentication method"""
         client = GDriveUnifiedClient(auth_method="colab")
         
@@ -90,9 +90,10 @@ class TestAuthentication:
         
         assert result is True
         mock_auth.assert_called_once()
+        mock_is_colab.assert_called()
     
-    @patch('syft_client.gdrive_unified.IN_COLAB', False)
-    def test_authenticate_colab_not_available(self):
+    @patch('syft_client.gdrive_unified._is_colab', return_value=False)
+    def test_authenticate_colab_not_available(self, mock_is_colab):
         """Test Colab authentication when not in Colab environment"""
         client = GDriveUnifiedClient(auth_method="colab")
         
@@ -100,6 +101,7 @@ class TestAuthentication:
         
         assert result is False
         assert client.authenticated is False
+        mock_is_colab.assert_called()
     
     @patch('syft_client.gdrive_unified.InstalledAppFlow')
     @patch('syft_client.gdrive_unified.build')
