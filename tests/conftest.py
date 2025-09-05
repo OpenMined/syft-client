@@ -353,6 +353,18 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "slow: mark test as slow running"
     )
+    config.addinivalue_line(
+        "markers", "two_user: mark test as requiring two users"
+    )
+    config.addinivalue_line(
+        "markers", "auth: mark test as authentication related"
+    )
+    config.addinivalue_line(
+        "markers", "syftbox: mark test as SyftBox functionality test"
+    )
+    config.addinivalue_line(
+        "markers", "cleanup: mark test as cleanup/teardown test"
+    )
 
 def pytest_collection_modifyitems(config, items):
     """Modify test collection based on environment"""
