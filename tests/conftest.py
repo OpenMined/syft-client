@@ -211,14 +211,15 @@ def temp_credentials_file():
     """Create a temporary credentials file for testing"""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         creds_data = {
-            "type": "service_account",
-            "project_id": "test-project",
-            "private_key_id": "test-key-id",
-            "private_key": "-----BEGIN PRIVATE KEY-----\ntest-key\n-----END PRIVATE KEY-----\n",
-            "client_email": "test@test-project.iam.gserviceaccount.com",
-            "client_id": "test-client-id",
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token"
+            "installed": {
+                "client_id": "test-client-id.apps.googleusercontent.com",
+                "project_id": "test-project",
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_secret": "test-client-secret",
+                "redirect_uris": ["http://localhost"]
+            }
         }
         json.dump(creds_data, f)
         temp_path = f.name
