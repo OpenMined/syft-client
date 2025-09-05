@@ -516,9 +516,9 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
           SYFT_TEST_MODE: integration
         run: |
-          pytest tests/integration/test_friend_management.py -v --tb=short \
-            -m "integration and friends" \
-            --junit-xml=junit-friends.xml || true
+          # Friend management tests are part of test_two_user_workflow.py
+          echo "Friend management tests are included in two-user workflow tests"
+          echo "Skipping separate friend management test file (does not exist)"
 
       - name: Run edge cases and stress tests
         env:
@@ -527,9 +527,9 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
           SYFT_TEST_MODE: integration
         run: |
-          pytest tests/integration/test_edge_cases.py -v --tb=short \
-            -m "integration and slow" \
-            --junit-xml=junit-edge-cases.xml || true
+          # Edge cases and stress tests are part of test_two_user_workflow.py
+          echo "Edge cases and stress tests are included in two-user workflow tests"
+          echo "Skipping separate edge cases test file (does not exist)"
 
       - name: Generate test report
         if: always()
@@ -560,7 +560,7 @@ jobs:
             
             passed = total_tests - total_failures - total_errors
             print(f'- ✅ Passed: {passed}')
-            print(f'- ❌ Failed: {total_failures}')  
+            print(f'- ❌ Failed: {total_failures}')
             print(f'- 💥 Errors: {total_errors}')
             print(f'- 📊 Total: {total_tests}')
             " >> test-report.md
