@@ -1,6 +1,14 @@
 name: Integration Tests
 
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'syft_client/**'
+      - 'tests/**'
+      - '.github/workflows/integration.yml'
+      - 'requirements.txt'
+      - 'pyproject.toml'
   pull_request:
     branches: [ main ]
     paths:
@@ -35,12 +43,11 @@ env:
   FORCE_COLOR: 1
 
 jobs:
-  # Login-only test that runs on every PR
-  login-test:
-    name: Login Test (PR Check)
+  post-merge-tests:
+    name: Post-Merge Live Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_scope == 'login-only')
+    timeout-minutes: 30
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
       - name: Checkout code
@@ -66,7 +73,7 @@ jobs:
           TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
           TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
         run: |
-          echo "🔍 Setting up test credentials for login test..."
+          echo "🚀 Setting up credentials for post-merge live tests..."
           
           # Sanitize email addresses for directory names
           SANITIZED_USER1_EMAIL=$(echo "$TEST_USER1_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
@@ -76,7 +83,7 @@ jobs:
           mkdir -p ~/.syft/gdrive/$SANITIZED_USER1_EMAIL
           mkdir -p ~/.syft/gdrive/$SANITIZED_USER2_EMAIL
           
-          # Write credentials and tokens
+          # Write all credentials and tokens
           echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > ~/.syft/test/service-account.json
           echo "$TEST_USER1_CREDENTIALS" > ~/.syft/test/user1-creds.json
           echo "$TEST_USER2_CREDENTIALS" > ~/.syft/test/user2-creds.json
@@ -92,33 +99,161 @@ jobs:
           
           chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/credentials.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
           
-          echo "✅ Credentials configured for login test"
+          echo "✅ Credentials configured for post-merge testing"
 
-      - name: Run login-only test
+      - name: Run critical smoke tests
         env:
           TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
           TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
           GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
           SYFT_TEST_MODE: integration
         run: |
-          echo "🔐 Running login authentication test..."
+          echo "🔥 Running critical smoke tests after merge..."
+          
+          # Test 1: Login functionality (CRITICAL - must pass)
+          echo "📌 Test 1: Login Authentication"
           pytest tests/integration/test_login_only.py -v --tb=short \
             -m "integration" \
-            --junit-xml=junit-login.xml
-          echo "✅ Login test completed"
+            --junit-xml=junit-smoke-login.xml
+          
+          # Test 2: Two-user workflow (CRITICAL - must pass)
+          echo "📌 Test 2: Two-User Workflow"
+          pytest tests/integration/test_two_user_workflow.py::TestTwoUserWorkflow::test_bidirectional_friend_setup -v --tb=short \
+            --junit-xml=junit-smoke-two-user.xml
 
-      - name: Upload test results
+      - name: Run live API tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          echo "🌐 Running live API verification tests..."
+          
+          # Create a Python script to test live functionality
+          cat > test_live_api.py << 'EOF'
+          import syft_client as sc
+          import os
+          import sys
+          
+          def test_live_api():
+              """Test that the API works with live Google Drive"""
+              user1_email = os.environ.get('TEST_USER1_EMAIL')
+              user2_email = os.environ.get('TEST_USER2_EMAIL')
+              
+              print("🔍 Testing live API functionality...")
+              
+              # Test 1: Can authenticate
+              print("  1️⃣ Testing authentication...")
+              try:
+                  user1 = sc.login(user1_email, verbose=False, force_relogin=False)
+                  assert user1.authenticated, "User1 authentication failed"
+                  print(f"     ✅ User1 authenticated: {user1.my_email}")
+              except Exception as e:
+                  print(f"     ❌ Authentication failed: {e}")
+                  return False
+              
+              # Test 2: Can access Google Drive API
+              print("  2️⃣ Testing Google Drive API access...")
+              try:
+                  result = user1.service.files().list(pageSize=1, fields="files(id,name)").execute()
+                  print(f"     ✅ Google Drive API accessible")
+              except Exception as e:
+                  print(f"     ❌ API access failed: {e}")
+                  return False
+              
+              # Test 3: Can create and delete folders
+              print("  3️⃣ Testing folder operations...")
+              try:
+                  test_folder_id = user1._create_folder("test_post_merge_folder")
+                  assert test_folder_id, "Folder creation failed"
+                  print(f"     ✅ Created test folder: {test_folder_id}")
+                  
+                  # Clean up
+                  user1.service.files().delete(fileId=test_folder_id).execute()
+                  print(f"     ✅ Deleted test folder")
+              except Exception as e:
+                  print(f"     ❌ Folder operations failed: {e}")
+                  return False
+              
+              # Test 4: SyftBox exists or can be created
+              print("  4️⃣ Testing SyftBox functionality...")
+              try:
+                  if not user1._folder_exists("SyftBoxTransportService"):
+                      user1.reset_syftbox()
+                  assert user1._folder_exists("SyftBoxTransportService"), "SyftBox not found"
+                  print(f"     ✅ SyftBox verified")
+              except Exception as e:
+                  print(f"     ❌ SyftBox test failed: {e}")
+                  return False
+              
+              print("\n✅ All live API tests passed!")
+              return True
+          
+          if __name__ == "__main__":
+              success = test_live_api()
+              sys.exit(0 if success else 1)
+          EOF
+          
+          python test_live_api.py
+
+      - name: Generate merge test report
+        if: always()
+        run: |
+          echo "## 🚀 Post-Merge Test Results" > merge-test-report.md
+          echo "" >> merge-test-report.md
+          echo "### Merge Information" >> merge-test-report.md
+          echo "- Commit: ${{ github.sha }}" >> merge-test-report.md
+          echo "- Author: ${{ github.actor }}" >> merge-test-report.md
+          echo "- Timestamp: $(date -u)" >> merge-test-report.md
+          echo "" >> merge-test-report.md
+          echo "### Test Summary" >> merge-test-report.md
+          
+          # Parse test results if available
+          if ls junit-smoke-*.xml 1> /dev/null 2>&1; then
+            python -c "
+            import xml.etree.ElementTree as ET
+            import glob
+            
+            for file in glob.glob('junit-smoke-*.xml'):
+                try:
+                    tree = ET.parse(file)
+                    root = tree.getroot()
+                    name = file.replace('junit-smoke-', '').replace('.xml', '')
+                    tests = root.attrib.get('tests', '0')
+                    failures = root.attrib.get('failures', '0')
+                    if failures == '0':
+                        print(f'- ✅ {name}: All {tests} tests passed')
+                    else:
+                        print(f'- ❌ {name}: {failures}/{tests} tests failed')
+                except:
+                    pass
+            " >> merge-test-report.md
+          fi
+
+      - name: Upload post-merge test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: login-test-results
-          path: junit-login.xml
+          name: post-merge-test-results
+          path: |
+            junit-smoke-*.xml
+            merge-test-report.md
+            test_live_api.py
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ POST-MERGE TESTS FAILED!"
+          echo "Critical functionality may be broken in production."
+          echo "Please review the test results and fix immediately."
+          # Add Slack/email notification here if configured
 
   integration-full:
     name: Full Integration Test Suite
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_scope == 'full')
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_scope == 'full')
     
     steps:
       - name: Checkout code
@@ -301,30 +436,6 @@ jobs:
               print(f'⚠️  Pre-cleanup warning: {e}')
           "
 
-      # TODO: Re-enable these tests after login is stable
-      # - name: Run authentication tests
-      #   env:
-      #     TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
-      #     TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
-      #     GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
-      #     SYFT_TEST_MODE: integration
-      #   run: |
-      #     pytest tests/integration/test_auth.py -v --tb=short \
-      #       -m "integration and auth" \
-      #       --junit-xml=junit-auth.xml
-
-      # - name: Run SyftBox operations tests
-      #   env:
-      #     TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
-      #     TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
-      #     GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
-      #     SYFT_TEST_MODE: integration
-      #   run: |
-      #     pytest tests/integration/test_syftbox_ops.py -v --tb=short \
-      #       -m "integration and syftbox" \
-      #       --junit-xml=junit-syftbox.xml
-      
-      # For now, just run the login test in the full suite
       - name: Run login test
         env:
           TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
@@ -332,10 +443,32 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
           SYFT_TEST_MODE: integration
         run: |
-          echo "🔐 Running login test in full suite..."
+          echo "🔐 Running login authentication test..."
           pytest tests/integration/test_login_only.py -v --tb=short \
             -m "integration" \
             --junit-xml=junit-login.xml
+
+      - name: Run authentication tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration/test_auth.py -v --tb=short \
+            -m "integration and auth" \
+            --junit-xml=junit-auth.xml || true
+
+      - name: Run SyftBox operations tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration/test_syftbox_ops.py -v --tb=short \
+            -m "integration and syftbox" \
+            --junit-xml=junit-syftbox.xml || true
 
       - name: Debug credential setup (main job)
         run: |
@@ -363,41 +496,40 @@ jobs:
             ls -la ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/
           fi
 
-      # TODO: Re-enable these tests after login is stable
-      # - name: Run two-user workflow tests
-      #   env:
-      #     TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
-      #     TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
-      #     GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
-      #     SYFT_TEST_MODE: integration
-      #   run: |
-      #     pytest tests/integration/test_two_user_workflow.py -v --tb=short \
-      #       -m "integration and two_user" \
-      #       --junit-xml=junit-two-user.xml \
-      #       --capture=no \
-      #       ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+      - name: Run two-user workflow tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration/test_two_user_workflow.py -v --tb=short \
+            -m "integration and two_user" \
+            --junit-xml=junit-two-user.xml \
+            --capture=no \
+            ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
 
-      # - name: Run friend management tests
-      #   env:
-      #     TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
-      #     TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
-      #     GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
-      #     SYFT_TEST_MODE: integration
-      #   run: |
-      #     pytest tests/integration/test_friend_management.py -v --tb=short \
-      #       -m "integration and friends" \
-      #       --junit-xml=junit-friends.xml
+      - name: Run friend management tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration/test_friend_management.py -v --tb=short \
+            -m "integration and friends" \
+            --junit-xml=junit-friends.xml || true
 
-      # - name: Run edge cases and stress tests
-      #   env:
-      #     TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
-      #     TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
-      #     GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
-      #     SYFT_TEST_MODE: integration
-      #   run: |
-      #     pytest tests/integration/test_edge_cases.py -v --tb=short \
-      #       -m "integration and slow" \
-      #       --junit-xml=junit-edge-cases.xml
+      - name: Run edge cases and stress tests
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          pytest tests/integration/test_edge_cases.py -v --tb=short \
+            -m "integration and slow" \
+            --junit-xml=junit-edge-cases.xml || true
 
       - name: Generate test report
         if: always()
@@ -466,6 +598,84 @@ jobs:
             junit-*.xml
             test-report.md
             ~/.syft/test/*.log
+
+  login-only:
+    name: Login Test Only
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_scope == 'login-only'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Setup test credentials
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          TEST_USER1_CREDENTIALS: ${{ secrets.TEST_USER1_CREDENTIALS }}
+          TEST_USER2_CREDENTIALS: ${{ secrets.TEST_USER2_CREDENTIALS }}
+          TEST_USER1_TOKEN: ${{ secrets.TEST_USER1_TOKEN }}
+          TEST_USER2_TOKEN: ${{ secrets.TEST_USER2_TOKEN }}
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+        run: |
+          echo "🔍 Setting up test credentials for login-only test..."
+          
+          # Sanitize email addresses for directory names
+          SANITIZED_USER1_EMAIL=$(echo "$TEST_USER1_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          SANITIZED_USER2_EMAIL=$(echo "$TEST_USER2_EMAIL" | sed 's/@/_at_/g' | sed 's/\./_/g')
+          
+          mkdir -p ~/.syft/test
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER1_EMAIL
+          mkdir -p ~/.syft/gdrive/$SANITIZED_USER2_EMAIL
+          
+          # Write all necessary files
+          echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > ~/.syft/test/service-account.json
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/test/user1-creds.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/test/user2-creds.json
+          
+          echo "$TEST_USER1_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/credentials.json
+          echo "$TEST_USER2_CREDENTIALS" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/credentials.json
+          
+          echo "$TEST_USER1_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/token.json
+          echo "$TEST_USER2_TOKEN" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/token.json
+          
+          echo "{\"email\": \"$TEST_USER1_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER1_EMAIL/account_info.json
+          echo "{\"email\": \"$TEST_USER2_EMAIL\"}" > ~/.syft/gdrive/$SANITIZED_USER2_EMAIL/account_info.json
+          
+          chmod 600 ~/.syft/test/*.json ~/.syft/gdrive/*/credentials.json ~/.syft/gdrive/*/token.json ~/.syft/gdrive/*/account_info.json
+          
+          echo "✅ Credentials configured successfully"
+
+      - name: Run login-only test
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+          SYFT_TEST_MODE: integration
+        run: |
+          echo "🔐 Running login-only test..."
+          pytest tests/integration/test_login_only.py -v --tb=short \
+            -m "integration" \
+            --junit-xml=junit-login.xml
+          echo "✅ Login test completed successfully"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-only-results
+          path: junit-login.xml
 
   two-user-workflow-only:
     name: Two-User Workflow Test
@@ -752,12 +962,25 @@ jobs:
   notify-results:
     name: Notify Results
     runs-on: ubuntu-latest
-    needs: [login-test, integration-full, two-user-workflow-only, cleanup-only]
-    if: always() && github.event_name == 'schedule'
+    needs: [post-merge-tests, integration-full, login-only, two-user-workflow-only, cleanup-only]
+    if: |
+      always() && (
+        github.event_name == 'schedule' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      )
     
     steps:
-      - name: Notify on failure
-        if: needs.integration-full.result == 'failure'
+      - name: Notify on post-merge failure
+        if: github.event_name == 'push' && needs.post-merge-tests.result == 'failure'
+        run: |
+          echo "🚨 CRITICAL: Post-merge tests failed!"
+          echo "Production code may be broken!"
+          echo "Commit: ${{ github.sha }}"
+          echo "Author: ${{ github.actor }}"
+          # Add urgent notification logic here (Slack, PagerDuty, etc.)
+          
+      - name: Notify on nightly failure
+        if: github.event_name == 'schedule' && needs.integration-full.result == 'failure'
         run: |
           echo "💥 Nightly integration tests failed!"
           echo "Check the workflow logs for details."
