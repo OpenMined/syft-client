@@ -140,8 +140,9 @@ jobs:
         run: |
           python -c "
           import syft_client
-          print(f'✅ Python {python_version} compatibility OK')
-          " python_version="${{ matrix.python-version }}"
+          import sys
+          print(f'✅ Python {sys.version.split()[0]} compatibility OK')
+          "
 
       - name: Run minimal unit tests
         run: |
