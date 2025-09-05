@@ -121,6 +121,54 @@ jobs:
           pytest tests/integration/test_two_user_workflow.py::TestTwoUserWorkflow::test_bidirectional_friend_setup -v --tb=short \
             --junit-xml=junit-smoke-two-user.xml
 
+      - name: Display audit logs
+        if: always()
+        env:
+          TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
+          TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
+        run: |
+          echo "📚 Listing CI Audit Logs created in Google Drive..."
+          python -c "
+          import syft_client as sc
+          import os
+          
+          user1_email = os.environ.get('TEST_USER1_EMAIL')
+          user2_email = os.environ.get('TEST_USER2_EMAIL')
+          
+          print('🔍 Checking audit logs for both test users...')
+          
+          for email in [user1_email, user2_email]:
+              try:
+                  user = sc.login(email, verbose=False, force_relogin=False)
+                  print(f'\\n📁 Audit logs for {email}:')
+                  
+                  # List files in CI_AUDIT_LOGS_DO_NOT_DELETE folder at root
+                  results = user.service.files().list(
+                      q=\"name='CI_AUDIT_LOGS_DO_NOT_DELETE' and 'root' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false\",
+                      fields=\"files(id)\"
+                  ).execute()
+                  
+                  if results.get('files'):
+                      audit_folder_id = results['files'][0]['id']
+                      
+                      # List audit files
+                      audit_files = user.service.files().list(
+                          q=f\"'{audit_folder_id}' in parents and trashed=false\",
+                          fields=\"files(id,name,createdTime)\",
+                          orderBy=\"createdTime desc\"
+                      ).execute()
+                      
+                      for file in audit_files.get('files', []):
+                          print(f\"   - {file['name']} (created: {file['createdTime']})  \")
+                  else:
+                      print('   No audit logs folder found')
+              except Exception as e:
+                  print(f'   Error checking {email}: {e}')
+          
+          print('\\n✅ Audit log listing complete')
+          "
+
       - name: Run live API tests
         env:
           TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
