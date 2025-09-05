@@ -541,29 +541,29 @@ jobs:
           # Count passed/failed tests from JUnit files
           if ls junit-*.xml 1> /dev/null 2>&1; then
             python -c "
-            import xml.etree.ElementTree as ET
-            import glob
-            
-            total_tests = 0
-            total_failures = 0
-            total_errors = 0
-            
-            for file in glob.glob('junit-*.xml'):
-                try:
-                    tree = ET.parse(file)
-                    root = tree.getroot()
-                    total_tests += int(root.attrib.get('tests', 0))
-                    total_failures += int(root.attrib.get('failures', 0))
-                    total_errors += int(root.attrib.get('errors', 0))
-                except:
-                    pass
-            
-            passed = total_tests - total_failures - total_errors
-            print(f'- ✅ Passed: {passed}')
-            print(f'- ❌ Failed: {total_failures}')
-            print(f'- 💥 Errors: {total_errors}')
-            print(f'- 📊 Total: {total_tests}')
-            " >> test-report.md
+import xml.etree.ElementTree as ET
+import glob
+
+total_tests = 0
+total_failures = 0
+total_errors = 0
+
+for file in glob.glob('junit-*.xml'):
+    try:
+        tree = ET.parse(file)
+        root = tree.getroot()
+        total_tests += int(root.attrib.get('tests', 0))
+        total_failures += int(root.attrib.get('failures', 0))
+        total_errors += int(root.attrib.get('errors', 0))
+    except:
+        pass
+
+passed = total_tests - total_failures - total_errors
+print(f'- ✅ Passed: {passed}')
+print(f'- ❌ Failed: {total_failures}')
+print(f'- 💥 Errors: {total_errors}')
+print(f'- 📊 Total: {total_tests}')
+" >> test-report.md
           fi
           
           echo "" >> test-report.md

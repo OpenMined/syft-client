@@ -29,16 +29,39 @@ class TestTwoUserWorkflow:
         result1 = user1.add_friend(user2.my_email, verbose=True)
         assert result1 is True, "User1 should successfully add User2 as friend"
         
-        # Give Google Drive a moment to propagate changes
-        time.sleep(2)
+        # Give Google Drive a moment to propagate changes - with retry logic for CI reliability
+        max_retries = 3
+        retry_delay = 5
         
         # Verify User1's perspective
         user1_friends = user1.friends
+        print(f"   User1 friends after adding: {user1_friends}")
         assert user2.my_email in user1_friends, f"User2 should be in User1's friends list: {user1_friends}"
         
-        # Verify User2 sees the friend request
-        user2_requests = user2.friend_requests
-        assert user1.my_email in user2_requests, f"User1 should be in User2's friend requests: {user2_requests}"
+        # Verify User2 sees the friend request with retry logic
+        for attempt in range(max_retries):
+            time.sleep(retry_delay)
+            user2_requests = user2.friend_requests
+            print(f"   Attempt {attempt + 1}/{max_retries}: User2 friend_requests: {user2_requests}")
+            
+            if user1.my_email in user2_requests:
+                print(f"   ✅ Friend request detected on attempt {attempt + 1}")
+                break
+            elif attempt == max_retries - 1:
+                # Final attempt - let's debug what folders actually exist
+                print(f"   🔍 Final attempt failed. Debugging folder structure...")
+                try:
+                    all_folders = user2._list_syft_folders()
+                    print(f"   User2 shared_with_me folders:")
+                    for folder in all_folders.get('shared_with_me', []):
+                        print(f"     - {folder['name']}")
+                    print(f"   User2 my_drive folders:")
+                    for folder in all_folders.get('my_drive', []):
+                        print(f"     - {folder['name']}")
+                except Exception as debug_e:
+                    print(f"   ⚠️ Error debugging folders: {debug_e}")
+                
+                assert user1.my_email in user2_requests, f"User1 should be in User2's friend requests after {max_retries} attempts: {user2_requests}"
         
         # Step 2: User2 adds User1 back (completes the connection)
         print(f"\n🤝 User2 ({user2.my_email}) adding User1 ({user1.my_email}) back...")
@@ -46,7 +69,7 @@ class TestTwoUserWorkflow:
         assert result2 is True, "User2 should successfully add User1 as friend"
         
         # Give Google Drive a moment to propagate changes
-        time.sleep(2)
+        time.sleep(5)  # Increased from 2 to 5 seconds for better reliability
         
         # Step 3: Verify bidirectional connection
         user1_friends_final = user1.friends
