@@ -457,7 +457,7 @@ jobs:
         run: |
           pytest tests/integration/test_auth.py -v --tb=short \
             -m "integration and auth" \
-            --junit-xml=junit-auth.xml || true
+            --junit-xml=junit-auth.xml
 
       - name: Run SyftBox operations tests
         env:
