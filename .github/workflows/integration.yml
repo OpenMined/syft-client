@@ -197,40 +197,6 @@ jobs:
           
           python test_live_api.py
 
-      - name: Generate merge test report
-        if: always()
-        run: |
-          echo "## 🚀 Post-Merge Test Results" > merge-test-report.md
-          echo "" >> merge-test-report.md
-          echo "### Merge Information" >> merge-test-report.md
-          echo "- Commit: ${{ github.sha }}" >> merge-test-report.md
-          echo "- Author: ${{ github.actor }}" >> merge-test-report.md
-          echo "- Timestamp: $(date -u)" >> merge-test-report.md
-          echo "" >> merge-test-report.md
-          echo "### Test Summary" >> merge-test-report.md
-          
-          # Parse test results if available
-          if ls junit-smoke-*.xml 1> /dev/null 2>&1; then
-            python -c "
-            import xml.etree.ElementTree as ET
-            import glob
-            
-            for file in glob.glob('junit-smoke-*.xml'):
-                try:
-                    tree = ET.parse(file)
-                    root = tree.getroot()
-                    name = file.replace('junit-smoke-', '').replace('.xml', '')
-                    tests = root.attrib.get('tests', '0')
-                    failures = root.attrib.get('failures', '0')
-                    if failures == '0':
-                        print(f'- ✅ {name}: All {tests} tests passed')
-                    else:
-                        print(f'- ❌ {name}: {failures}/{tests} tests failed')
-                except:
-                    pass
-            " >> merge-test-report.md
-          fi
-
       - name: Upload post-merge test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -238,7 +204,6 @@ jobs:
           name: post-merge-test-results
           path: |
             junit-smoke-*.xml
-            merge-test-report.md
             test_live_api.py
 
       - name: Notify on failure
@@ -531,46 +496,6 @@ jobs:
           echo "Edge cases and stress tests are included in two-user workflow tests"
           echo "Skipping separate edge cases test file (does not exist)"
 
-      - name: Generate test report
-        if: always()
-        run: |
-          echo "## 🧪 Integration Test Results" > test-report.md
-          echo "" >> test-report.md
-          echo "### Test Summary" >> test-report.md
-          
-          # Count passed/failed tests from JUnit files
-          if ls junit-*.xml 1> /dev/null 2>&1; then
-            python -c "
-import xml.etree.ElementTree as ET
-import glob
-
-total_tests = 0
-total_failures = 0
-total_errors = 0
-
-for file in glob.glob('junit-*.xml'):
-    try:
-        tree = ET.parse(file)
-        root = tree.getroot()
-        total_tests += int(root.attrib.get('tests', 0))
-        total_failures += int(root.attrib.get('failures', 0))
-        total_errors += int(root.attrib.get('errors', 0))
-    except:
-        pass
-
-passed = total_tests - total_failures - total_errors
-print(f'- ✅ Passed: {passed}')
-print(f'- ❌ Failed: {total_failures}')
-print(f'- 💥 Errors: {total_errors}')
-print(f'- 📊 Total: {total_tests}')
-" >> test-report.md
-          fi
-          
-          echo "" >> test-report.md
-          echo "### Test Environment" >> test-report.md
-          echo "- Python Version: $(python --version)" >> test-report.md
-          echo "- OS: Ubuntu Latest" >> test-report.md
-          echo "- Timestamp: $(date -u)" >> test-report.md
 
       - name: Post-cleanup test environment
         if: always()
@@ -596,7 +521,6 @@ print(f'- 📊 Total: {total_tests}')
           name: integration-test-results-full
           path: |
             junit-*.xml
-            test-report.md
             ~/.syft/test/*.log
 
   login-only:
