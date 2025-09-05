@@ -8,7 +8,7 @@ Based on the Beach RFC specifications for transport-agnostic communication.
 """
 
 from syft_client.gdrive_unified import GDriveUnifiedClient, create_gdrive_client
-from syft_client.auth import login, list_accounts, logout, add_current_credentials_to_wallet
+from syft_client.auth import login, list_accounts, logout, add_current_credentials_to_wallet, reset_credentials
 from syft_client.wizard import wizard
 from syft_client.syft_file_backed_view import SyftFileBackedView
 from syft_client.syft_message import SyftMessage
@@ -21,6 +21,7 @@ __all__ = [
     "login",
     "list_accounts",
     "logout",
+    "reset_credentials",
     "add_current_credentials_to_wallet",
     "wizard",
     "SyftFileBackedView",

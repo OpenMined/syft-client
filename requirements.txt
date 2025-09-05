@@ -5,4 +5,4 @@ google-auth-httplib2
 syft-widget
 pyyaml
 watchdog
-syft-serve
+syft-serve>=0.2.8

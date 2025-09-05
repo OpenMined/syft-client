@@ -22,7 +22,10 @@
       "Bash(uv run:*)",
       "Bash(uv add:*)",
       "Bash(timeout 5 uv run:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(pip3 list:*)",
+      "Bash(source:*)",
+      "Bash(/Users/atrask/Library/Python/3.9/bin/python3 -c \"import cProfile; import syft_client as sc; cProfile.run(''sc.login(\"\"andrew@openmined.org\"\")'', ''login.prof'')\")"
     ],
     "deny": []
   }
