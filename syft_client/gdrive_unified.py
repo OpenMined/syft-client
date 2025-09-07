@@ -84,7 +84,7 @@ class GDriveUnifiedClient:
     def __repr__(self) -> str:
         """Pretty representation of the client"""
         if not self.authenticated:
-            return f"<GDriveUnifiedClient(not authenticated)>"
+            return f"<GDriveUnifiedClient(not authenticated) - run .wizard() to create credentials>"
         
         # Get SyftBox info
         syftbox_info = "not created"
@@ -115,6 +115,12 @@ class GDriveUnifiedClient:
             <div style="border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 5px; background-color: #f9f9f9;">
                 <h3 style="margin-top: 0;">🔐 GDriveUnifiedClient</h3>
                 <p style="color: #666;"><em>Not authenticated</em></p>
+                <p style="margin-top: 10px;">
+                    <code style="background: #f0f0f0; padding: 2px 5px; border-radius: 3px;">
+                        client.wizard()
+                    </code> 
+                    to create credentials
+                </p>
             </div>
             """
         
@@ -415,6 +421,20 @@ class GDriveUnifiedClient:
             raise RuntimeError("Client not authenticated. Call authenticate() first.")
         # print("ENSUREAUTH-2 " + str(time.time()))
     
+    def wizard(self):
+        """
+        Launch the credential creation wizard.
+        This helps users create new Google Cloud credentials step by step.
+        """
+        try:
+            from .wizard import wizard
+            # Pass the target email if available, otherwise use authenticated email
+            email = self.target_email or self.my_email
+            return wizard(email=email)
+        except ImportError as e:
+            print(f"❌ Could not import wizard: {e}")
+            return None
+    
     @property
     def form_inbox_metadata(self) -> Dict[str, any]:
         """
@@ -492,7 +512,44 @@ class GDriveUnifiedClient:
                         print(f"📋 Form URL: {result['form_url']}")
                         
                 except HttpError as e:
-                    if "SERVICE_DISABLED" in str(e) or "forms.googleapis.com" in str(e):
+                    # Check for project access error first
+                    if "403" in str(e) and ("project" in str(e).lower() or "686245239599" in str(e)):
+                        error_msg = (
+                            "\n❌ Forms API access error - your credentials were created with a different Google Cloud project.\n"
+                            "\n"
+                            "To fix this, you need to create new credentials:\n"
+                            "1. Complete the wizard that just launched (or run: syft_client.wizard())\n"
+                            "2. Follow the step-by-step guide to create new credentials\n"
+                            "3. Re-authenticate: client = syft_client.login('your-email@gmail.com', '/path/to/credentials.json')\n"
+                            "4. Clear cache: client.clear_form_inbox_cache()\n"
+                            "5. Try again: client.form_inbox_metadata\n"
+                            "\n"
+                            "Alternative: Manually create a form and use client.set_form_inbox_url(form_url)"
+                        )
+                        
+                        # Store error metadata
+                        self._form_inbox_metadata = {
+                            'error': 'Forms API project access error',
+                            'message': error_msg,
+                            'solution': 'Run syft_client.wizard() to create new credentials'
+                        }
+                        
+                        if self.verbose:
+                            print(error_msg)
+                        
+                        # Try to import and show wizard
+                        try:
+                            from IPython import get_ipython
+                            if get_ipython() is not None:
+                                from .wizard import wizard
+                                if self.verbose:
+                                    print("\n🧙 Launching credential wizard...")
+                                email = self.target_email or self.my_email
+                                wizard(email=email)
+                        except:
+                            pass
+                    
+                    elif "SERVICE_DISABLED" in str(e) or "forms.googleapis.com" in str(e):
                         # Extract the activation URL from the error
                         import re
                         activation_url_match = re.search(r'https://console\.developers\.google\.com/apis/api/forms\.googleapis\.com/overview\?project=\d+', str(e))
@@ -517,7 +574,8 @@ class GDriveUnifiedClient:
                             'message': error_msg
                         }
                         
-                        print(error_msg)
+                        if self.verbose:
+                            print(error_msg)
                         
                     else:
                         # Some other error
@@ -556,6 +614,25 @@ class GDriveUnifiedClient:
                     print(f"⚠️  Could not prepare form for submission: {e}")
         
         return self._form_inbox_metadata
+    
+    def has_forms_api_error(self) -> bool:
+        """
+        Check if there's a Forms API error in the form inbox metadata.
+        
+        Returns:
+            True if there's a Forms API error, False otherwise
+        """
+        if self._form_inbox_metadata and 'error' in self._form_inbox_metadata:
+            error = self._form_inbox_metadata.get('error', '')
+            return 'Forms API' in error or 'project access' in error.lower()
+        return False
+    
+    def clear_form_inbox_cache(self):
+        """Clear the cached form inbox metadata to force recreation."""
+        self._form_inbox_metadata = None
+        self._form_inbox_prepared = False
+        if self.verbose:
+            print("🗑️  Cleared form inbox cache")
     
     def set_form_inbox_url(self, form_url: str, prepare: bool = True) -> Dict[str, any]:
         """
@@ -4716,10 +4793,39 @@ class GDriveUnifiedClient:
             return form_url
             
         except HttpError as e:
-            error_msg = f"❌ Error creating form: {e}"
-            if self.verbose:
-                print(error_msg)
-            raise Exception(error_msg) from e
+            # Check for project access error
+            if "403" in str(e) and ("project" in str(e).lower() or "686245239599" in str(e)):
+                error_msg = (
+                    "\n❌ Forms API access error - your credentials were created with a different Google Cloud project.\n"
+                    "\n"
+                    "To fix this, you need to create new credentials:\n"
+                    "1. Complete the wizard that just launched (or run: syft_client.wizard())\n"
+                    "2. Follow the step-by-step guide to create new credentials\n"
+                    "3. Re-authenticate: client = syft_client.login('your-email@gmail.com', '/path/to/credentials.json')\n"
+                    "4. Clear cache: client.clear_form_inbox_cache()\n"
+                    "5. Try again: client.form_inbox_metadata\n"
+                    "\n"
+                    "Alternative: Manually create a form and use client.set_form_inbox_url(form_url)"
+                )
+                if self.verbose:
+                    print(error_msg)
+                # Try to import and show wizard
+                try:
+                    from IPython import get_ipython
+                    if get_ipython() is not None:
+                        from .wizard import wizard
+                        if self.verbose:
+                            print("\n🧙 Launching credential wizard...")
+                        email = self.target_email or self.my_email
+                        wizard(email=email)
+                except:
+                    pass
+                raise Exception("Forms API project access error - run syft_client.wizard() to create new credentials") from e
+            else:
+                error_msg = f"❌ Error creating form: {e}"
+                if self.verbose:
+                    print(error_msg)
+                raise Exception(error_msg) from e
     
     def create_public_google_form_inbox(self) -> Dict[str, str]:
         """
@@ -4950,12 +5056,12 @@ class GDriveUnifiedClient:
                 print(f"❌ Error retrieving form responses: {e}")
             return []
     
-    def get_results_from_form(self, form_id_or_url: str, limit: int = 100, format: str = 'list') -> Union[List[Dict[str, any]], Dict[str, any]]:
+    def get_results_from_form(self, form_id_or_url: Optional[str] = None, limit: int = 100, format: str = 'list') -> Union[List[Dict[str, any]], Dict[str, any]]:
         """
         Get results/responses from a Google Form using either form ID or URL.
         
         Args:
-            form_id_or_url: The Google Form ID or URL
+            form_id_or_url: Optional Google Form ID or URL. If None, uses cached form_inbox_metadata
             limit: Maximum number of responses to retrieve (default 100)
             format: Return format - 'list' for list of responses, 'summary' for aggregated results
             
@@ -4966,6 +5072,24 @@ class GDriveUnifiedClient:
         from datetime import datetime
         
         self._ensure_authenticated()
+        
+        # Use cached form_inbox_metadata if not provided
+        if form_id_or_url is None:
+            form_metadata = self.form_inbox_metadata
+            if 'error' in form_metadata:
+                if self.verbose:
+                    print(f"❌ Cannot get results - form metadata has error: {form_metadata['error']}")
+                return [] if format == 'list' else {'error': form_metadata['error']}
+            
+            # Try to get form_id or form_url from metadata
+            form_id_or_url = form_metadata.get('form_id') or form_metadata.get('form_url')
+            if not form_id_or_url:
+                if self.verbose:
+                    print("❌ No form ID or URL found in cached metadata")
+                return [] if format == 'list' else {'error': 'No form ID or URL in cached metadata'}
+            
+            if self.verbose:
+                print("📋 Using form from cached form_inbox_metadata")
         
         # Extract form ID if URL was provided
         form_id = form_id_or_url
@@ -6141,14 +6265,14 @@ class GDriveUnifiedClient:
                 'form_url': form_url
             }
     
-    def submit_to_form_fast(self, form_metadata: Dict[str, any], from_email: str, to_email: str, 
-                           message_id: str, message_size: str, message_data: str,
-                           file_path: Optional[str] = None, debug: bool = False) -> bool:
+    def submit_to_form_fast(self, form_metadata: Optional[Dict[str, any]] = None, from_email: str = None, 
+                           to_email: str = None, message_id: str = None, message_size: str = None, 
+                           message_data: str = None, file_path: Optional[str] = None, debug: bool = False) -> bool:
         """
         Fast form submission using pre-extracted metadata.
         
         Args:
-            form_metadata: Result from prepare_form_submission()
+            form_metadata: Optional result from prepare_form_submission(). If None, uses cached form_inbox_metadata
             from_email: Sender's email address
             to_email: Recipient's email address
             message_id: Unique message ID
@@ -6162,10 +6286,20 @@ class GDriveUnifiedClient:
         """
         import requests
         
+        # Use cached form_inbox_metadata if not provided
+        if form_metadata is None:
+            form_metadata = self.form_inbox_metadata
+            if debug:
+                print("📋 Using cached form_inbox_metadata")
+        
         if 'error' in form_metadata:
             if debug:
                 print(f"❌ Cannot submit - form preparation failed: {form_metadata['error']}")
             return False
+        
+        # Validate required parameters
+        if not all([from_email, to_email, message_id, message_size, message_data]):
+            raise ValueError("Missing required parameters: from_email, to_email, message_id, message_size, and message_data are all required")
         
         entry_map = form_metadata.get('entry_map', {})
         submit_url = form_metadata.get('submit_url')

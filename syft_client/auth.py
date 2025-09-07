@@ -326,7 +326,7 @@ def login(email: Optional[str] = None, credentials_path: Optional[str] = None, v
         if get_ipython() is not None:
             from .wizard import wizard
             print(f"❌ No credentials found for {email}\nRun syft_client.wizard() or print your client object to create credentials")
-            return wizard()
+            return wizard(email=email)
     except ImportError:
         pass
     print("\n❌ Cancelled")

@@ -1,6 +1,9 @@
-def wizard():
+def wizard(email=None):
     """
     Creates a wizard widget that displays images with navigation.
+    
+    Args:
+        email: Optional email address to use for account-specific URLs
     
     Returns a simple HTML widget with JavaScript navigation.
     """
@@ -33,6 +36,12 @@ def wizard():
         display(html_widget)
         return None  # Don't return HTML widget that could confuse users
     
+    # Generate authuser parameter and email notice if email is provided
+    authuser_param = f"?authuser={email}" if email else ""
+    email_notice = ""
+    if email:
+        email_notice = f'<div style="background: #e3f2fd; padding: 10px 15px; border-radius: 5px; margin-bottom: 20px; font-size: 14px; color: #1565c0;">Creating credentials for: <strong>{email}</strong><br><br><em>Important:</em> When clicking links below, make sure you are using the correct Google account. If multiple accounts are logged in, you may need to switch to {email} in the Google Console.</div>'
+    
     # Generate the HTML with embedded JavaScript
     html_content = '''
     <div id="wizard-widget" style="display: flex; height: 600px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
@@ -42,6 +51,7 @@ def wizard():
             <div>
                 <h2 style="margin: 0 0 10px 0; color: #1a202c; font-size: 28px; font-weight: 600;">Create Google Drive Credentials</h2>
                 <div style="width: 60px; height: 4px; background: #4285f4; margin-bottom: 30px;"></div>
+                {email_notice}
                 
                 <div style="margin-bottom: 30px;">
                     <div style="display: inline-block; padding: 6px 12px; background: #e2e8f0; border-radius: 20px; font-size: 14px; color: #4a5568; margin-bottom: 20px;">
@@ -88,6 +98,8 @@ def wizard():
             
         ];
         
+        var authuser = '{authuser_param}';
+        
         var captions = [
             "You don't have valid credentials! It's time to make some. Go to <a href='https://console.cloud.google.com/projectcreate' target='_blank' rel='noopener noreferrer' style='color: #3182ce;'>Google Cloud Console — Create Project Page</a> and fill out the form.",
             "When the dropdown appears showing the creation of your new project, wait until the project is formed and click 'SELECT PROJECT'.",
@@ -122,7 +134,15 @@ def wizard():
         function updateWizard() {
             document.getElementById('wizardImage').src = urls[idx];
             document.getElementById('currentNum').textContent = idx + 1;
-            document.getElementById('caption').innerHTML = captions[idx];
+            
+            // Update URLs with authuser parameter if provided
+            var caption = captions[idx];
+            if (authuser) {
+                caption = caption.replace('https://console.cloud.google.com/projectcreate', 'https://console.cloud.google.com/projectcreate' + authuser);
+                caption = caption.replace('https://console.cloud.google.com/apis/library/drive.googleapis.com', 'https://console.cloud.google.com/apis/library/drive.googleapis.com' + authuser);
+                caption = caption.replace('https://console.cloud.google.com/auth/overview', 'https://console.cloud.google.com/auth/overview' + authuser);
+            }
+            document.getElementById('caption').innerHTML = caption;
             document.getElementById('prevButton').disabled = idx === 0;
             document.getElementById('nextButton').disabled = idx === urls.length - 1;
             var prevBtn = document.getElementById('prevButton');
@@ -149,7 +169,7 @@ def wizard():
         updateWizard();
     })();
     </script>
-    '''
+    '''.replace('{email_notice}', email_notice).replace('{authuser_param}', authuser_param)
     
     # Create the HTML object
     html_widget = HTML(html_content)
