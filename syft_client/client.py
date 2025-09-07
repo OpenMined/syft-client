@@ -70,7 +70,9 @@ def login(email: Optional[str] = None, provider: Optional[str] = None, quickstar
             'proton': 'ProtonMail',
             'gmx': 'GMX Mail',
             'fastmail': 'Fastmail',
-            'mailcom': 'Mail.com'
+            'mailcom': 'Mail.com',
+            'dropbox': 'Dropbox (file storage only)',
+            'smtp': 'Generic SMTP/IMAP email'
         }
         
         # Format provider list with examples
