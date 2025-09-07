@@ -10,12 +10,14 @@ class MailcomClient(BasePlatformClient):
     def __init__(self, email: str):
         super().__init__(email)
         self.platform = "mailcom"
-        
-    def authenticate(self) -> Dict[str, Any]:
-        """Authenticate with Mail.com"""
-        # TODO: Implement Mail.com authentication
-        # Note: Mail.com likely uses IMAP/SMTP authentication
-        raise NotImplementedError("Mail.com authentication not yet implemented")
+    
+    @property
+    def login_complexity(self) -> int:
+        """
+        Return the complexity of the login process.
+        Mail.com: -1 (not implemented yet)
+        """
+        return -1
         
     def get_transport_layers(self) -> List[Any]:
         """Get the transport layers for Mail.com"""

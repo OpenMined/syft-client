@@ -10,11 +10,14 @@ class ZohoClient(BasePlatformClient):
     def __init__(self, email: str):
         super().__init__(email)
         self.platform = "zoho"
-        
-    def authenticate(self) -> Dict[str, Any]:
-        """Authenticate with Zoho"""
-        # TODO: Implement Zoho OAuth2 authentication
-        raise NotImplementedError("Zoho authentication not yet implemented")
+    
+    @property
+    def login_complexity(self) -> int:
+        """
+        Return the complexity of the login process.
+        Zoho: -1 (not implemented yet)
+        """
+        return -1
         
     def get_transport_layers(self) -> List[Any]:
         """Get the transport layers for Zoho (e.g., Zoho WorkDrive)"""

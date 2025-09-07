@@ -24,12 +24,12 @@ class GmailTransport(BaseTransportLayer):
         
     @property
     def login_complexity(self) -> int:
-        """Gmail requires OAuth2 flow"""
-        if self._cached_credentials:
-            return 0  # Already logged in
+        """Additional Gmail setup complexity (after Google auth)"""
+        if self.api_is_active:
+            return 0  # No additional setup needed
             
-        # Gmail always requires OAuth2 flow
-        return 2  # Multi-step OAuth process
+        # Need to enable Gmail API in Google Console
+        return 1  # One additional step
         
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with Gmail API using OAuth2"""

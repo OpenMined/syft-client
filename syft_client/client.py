@@ -108,5 +108,28 @@ def login(email: Optional[str] = None, provider: Optional[str] = None, quickstar
     if verbose:
         print(f"Detected environment: {environment.value}")
     
-    # TODO: Step 4 onwards - configure transport layers, heat caches, etc.
-    pass
+    # Step 4: Get platform client and attempt authentication
+    from .platforms import get_platform_client
+    
+    try:
+        # Create platform client
+        client = get_platform_client(platform, email)
+        
+        if verbose:
+            print(f"\nAuthenticating with {platform.value}...")
+        
+        # Attempt authentication
+        auth_result = client.authenticate()
+        
+        if verbose:
+            print(f"Authentication successful!")
+            
+        return auth_result
+        
+    except NotImplementedError as e:
+        # Re-raise with cleaner error message
+        raise e
+    except Exception as e:
+        if verbose:
+            print(f"Authentication failed: {e}")
+        raise

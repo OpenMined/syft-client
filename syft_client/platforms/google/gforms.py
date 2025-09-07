@@ -24,12 +24,14 @@ class GFormsTransport(BaseTransportLayer):
         
     @property
     def login_complexity(self) -> int:
-        """Forms requires auth to create, but not to submit"""
-        if self._cached_credentials:
-            return 0  # Already logged in
+        """Additional Forms setup complexity (after Google auth)"""
+        if self.api_is_active:
+            return 0  # No additional setup
             
-        # Creating forms requires OAuth
-        return 2  # Multi-step process
+        # Forms API requires:
+        # 1. Enable Forms API
+        # 2. Create a form resource
+        return 2  # Two additional steps
         
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with Google Forms API"""

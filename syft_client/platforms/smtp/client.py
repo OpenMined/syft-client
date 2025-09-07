@@ -19,6 +19,14 @@ class SMTPClient(BasePlatformClient):
         self.imap_server: Optional[str] = None
         self.imap_port: int = 993  # Default SSL port
         self._credentials: Optional[Dict[str, str]] = None
+    
+    @property
+    def login_complexity(self) -> int:
+        """
+        Return the complexity of the login process.
+        SMTP: 2 (requires server configuration + username/password)
+        """
+        return 2
         
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with SMTP server"""

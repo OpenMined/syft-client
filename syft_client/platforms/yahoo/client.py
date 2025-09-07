@@ -10,11 +10,14 @@ class YahooClient(BasePlatformClient):
     def __init__(self, email: str):
         super().__init__(email)
         self.platform = "yahoo"
-        
-    def authenticate(self) -> Dict[str, Any]:
-        """Authenticate with Yahoo"""
-        # TODO: Implement Yahoo OAuth2 authentication
-        raise NotImplementedError("Yahoo authentication not yet implemented")
+    
+    @property
+    def login_complexity(self) -> int:
+        """
+        Return the complexity of the login process.
+        Yahoo: -1 (not implemented yet)
+        """
+        return -1
         
     def get_transport_layers(self) -> List[Any]:
         """Get the transport layers for Yahoo"""

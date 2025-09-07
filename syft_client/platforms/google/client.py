@@ -24,3 +24,31 @@ class GoogleClient(BasePlatformClient):
             'GSheetsTransport',
             'GFormsTransport'
         ]
+    
+    @property
+    def login_complexity(self) -> int:
+        """
+        Google platform authentication complexity.
+        
+        Personal Gmail: 2 steps (OAuth2 device flow)
+        Google Workspace: 2-3 steps (OAuth2 + possible admin consent)
+        Colab: 1 step (built-in auth)
+        """
+        # Check for cached credentials
+        if self._has_cached_credentials():
+            return 0
+            
+        # Check environment
+        from ...environment import detect_environment, Environment
+        env = detect_environment()
+        
+        if env == Environment.COLAB:
+            return 1  # Single step - Colab built-in
+        else:
+            # OAuth2 flow required
+            return 2  # Device flow or OAuth2 redirect
+    
+    def _has_cached_credentials(self) -> bool:
+        """Check if we have cached OAuth2 tokens"""
+        # TODO: Implement credential checking
+        return False
