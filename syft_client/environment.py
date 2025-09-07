@@ -32,12 +32,35 @@ class EnvironmentDetector:
         except ImportError:
             pass
         
-        # Check for Jupyter/IPython
+        # Check for Jupyter/IPython with multiple indicators
         try:
+            # Method 1: Check for IPython
             get_ipython = __builtins__.get('get_ipython', None)
             if get_ipython is not None:
+                # Method 2: Check IPKernelApp in config (classic Jupyter)
                 if 'IPKernelApp' in get_ipython().config:
                     return Environment.JUPYTER
+                
+                # Method 3: Check for ZMQInteractiveShell (Jupyter kernel)
+                shell = get_ipython().__class__.__name__
+                if shell == 'ZMQInteractiveShell':
+                    return Environment.JUPYTER
+                    
+                # Method 4: Check for TerminalInteractiveShell (IPython terminal)
+                # This is IPython in terminal, not Jupyter
+                if shell == 'TerminalInteractiveShell':
+                    pass  # Continue to REPL detection
+            
+            # Method 5: Check for ipykernel in modules
+            import sys
+            if 'ipykernel' in sys.modules or 'ipykernel_launcher' in sys.modules:
+                return Environment.JUPYTER
+            
+            # Method 6: Check Jupyter environment variables
+            import os
+            if os.environ.get('JPY_PARENT_PID') or os.environ.get('JUPYTER_RUNTIME_DIR'):
+                return Environment.JUPYTER
+                
         except:
             pass
         
@@ -67,6 +90,8 @@ class EnvironmentDetector:
                 "drive_mounted": EnvironmentDetector._is_drive_mounted(),
                 "gpu_available": EnvironmentDetector._is_gpu_available(),
             }
+        elif env == Environment.JUPYTER:
+            info["jupyter_features"] = EnvironmentDetector._get_jupyter_info()
         
         return info
     
@@ -87,6 +112,43 @@ class EnvironmentDetector:
             return torch.cuda.is_available()
         except:
             return False
+    
+    @staticmethod
+    def _get_jupyter_info() -> dict:
+        """Get detailed Jupyter environment information"""
+        info = {
+            "kernel": "unknown",
+            "notebook_dir": None,
+            "is_notebook": True,
+            "is_lab": False,
+            "is_classic": False,
+        }
+        
+        try:
+            import os
+            import sys
+            
+            # Get kernel info
+            if 'ipykernel' in sys.modules:
+                info["kernel"] = "ipykernel"
+            
+            # Check if running in JupyterLab vs classic notebook
+            if os.environ.get('JUPYTERHUB_SERVICE_PREFIX'):
+                info["is_lab"] = True
+            
+            # Get notebook directory
+            notebook_dir = os.environ.get('JUPYTER_ROOT_DIR') or os.environ.get('NOTEBOOK_ROOT_DIR')
+            if notebook_dir:
+                info["notebook_dir"] = notebook_dir
+                
+            # Check for classic notebook indicators
+            if 'notebook' in sys.modules:
+                info["is_classic"] = True
+                
+        except:
+            pass
+            
+        return info
 
 
 # Convenience function for quick detection

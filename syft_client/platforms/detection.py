@@ -23,6 +23,8 @@ class Platform(Enum):
     MAILRU = "mailru"      # Mail.ru - Russia
     YANDEX = "yandex"      # Yandex Mail - Russia
     NAVER = "naver"        # Naver Mail - South Korea
+    DROPBOX = "dropbox"    # Dropbox
+    SMTP = "smtp"          # Generic SMTP
     UNKNOWN = "unknown"
 
 
@@ -392,11 +394,25 @@ class PlatformDetector:
         # verify_email_smtp() explicitly if they want SMTP verification.
         
     
+    # Supported platforms for login
+    SUPPORTED_PLATFORMS = {
+        Platform.GOOGLE,
+        Platform.MICROSOFT, 
+        Platform.YAHOO,
+        Platform.APPLE,
+        Platform.ZOHO,
+        Platform.PROTON,
+        Platform.GMX,
+        Platform.FASTMAIL,
+        Platform.MAILCOM,
+        Platform.DROPBOX,
+        Platform.SMTP
+    }
+    
     @staticmethod
     def is_supported(platform: Platform) -> bool:
         """Check if a platform is currently supported"""
-        # For now, only Google is implemented
-        return platform == Platform.GOOGLE
+        return platform in PlatformDetector.SUPPORTED_PLATFORMS
     
     @staticmethod
     def _analyze_mx_records(domain: str) -> Dict[str, Any]:
