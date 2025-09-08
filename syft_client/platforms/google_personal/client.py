@@ -101,13 +101,18 @@ class GooglePersonalClient(BasePlatformClient):
         print("1. Two-Factor Authentication (2FA) must be enabled on your Google account")
         print("2. Generate an app-specific password for syft_client")
         
+        # Add authuser parameter to ensure correct account
+        import urllib.parse
+        encoded_email = urllib.parse.quote(self.email)
+        app_password_url = f"https://myaccount.google.com/apppasswords?authuser={encoded_email}"
+        
         print("\nSteps to generate an app password:")
-        print("1. Go to: https://myaccount.google.com/apppasswords")
-        print("2. Sign in to your Google account")
-        print("3. Under 'Select app', choose 'Mail'")
-        print("4. Under 'Select device', choose 'Other' and enter 'syft_client'")
-        print("5. Click 'Generate'")
-        print("6. Copy the 16-character password (ignore spaces)")
+        print(f"1. Go to: {app_password_url}")
+        print(f"   (This link will open in your {self.email} account)")
+        print("2. Under 'Select app', choose 'Mail'")
+        print("3. Under 'Select device', choose 'Other' and enter 'syft_client'")
+        print("4. Click 'Generate'")
+        print("5. Copy the 16-character password (ignore spaces)")
         
         print("\n" + "="*60)
         
