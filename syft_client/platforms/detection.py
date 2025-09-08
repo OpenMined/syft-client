@@ -8,7 +8,8 @@ import dns.resolver
 
 class Platform(Enum):
     """Supported platforms"""
-    GOOGLE = "google"
+    GOOGLE_PERSONAL = "google_personal"  # Personal Gmail accounts
+    GOOGLE_ORG = "google_org"            # Google Workspace accounts
     MICROSOFT = "microsoft"
     YAHOO = "yahoo"
     APPLE = "apple"
@@ -76,11 +77,11 @@ class PlatformDetector:
         "github.com": (Platform.MICROSOFT, "Microsoft-owned company"),
         
         # Known Google Workspace customers (from public case studies)
-        "stanford.edu": (Platform.GOOGLE, "Google Workspace customer"),
-        "nyu.edu": (Platform.GOOGLE, "Google Workspace customer"),
-        "airbnb.com": (Platform.GOOGLE, "Google Workspace customer"),
-        "spotify.com": (Platform.GOOGLE, "Google Workspace customer"),
-        "uber.com": (Platform.GOOGLE, "Google Workspace customer"),
+        "stanford.edu": (Platform.GOOGLE_ORG, "Google Workspace customer"),
+        "nyu.edu": (Platform.GOOGLE_ORG, "Google Workspace customer"),
+        "airbnb.com": (Platform.GOOGLE_ORG, "Google Workspace customer"),
+        "spotify.com": (Platform.GOOGLE_ORG, "Google Workspace customer"),
+        "uber.com": (Platform.GOOGLE_ORG, "Google Workspace customer"),
         
         # Known Microsoft 365 customers (from public case studies)
         "jpmorgan.com": (Platform.MICROSOFT, "Microsoft 365 customer"),
@@ -107,15 +108,15 @@ class PlatformDetector:
         "rutgers.edu": (Platform.MICROSOFT, "Rutgers University"),
         
         # Educational institutions - Google
-        "illinois.edu": (Platform.GOOGLE, "University of Illinois - Google Workspace"),
-        "umich.edu": (Platform.GOOGLE, "University of Michigan - Google Workspace"),
-        "ucsd.edu": (Platform.GOOGLE, "UC San Diego - Google Workspace"),
-        "ucr.edu": (Platform.GOOGLE, "UC Riverside - Google Workspace"),
-        "utexas.edu": (Platform.GOOGLE, "UT Austin - Google Workspace"),
-        "umn.edu": (Platform.GOOGLE, "University of Minnesota - Google Workspace"),
-        "gmu.edu": (Platform.GOOGLE, "George Mason University - Google Workspace"),
-        "gwu.edu": (Platform.GOOGLE, "George Washington University - Google Workspace"),
-        "gwmail.gwu.edu": (Platform.GOOGLE, "GWU student email"),
+        "illinois.edu": (Platform.GOOGLE_ORG, "University of Illinois - Google Workspace"),
+        "umich.edu": (Platform.GOOGLE_ORG, "University of Michigan - Google Workspace"),
+        "ucsd.edu": (Platform.GOOGLE_ORG, "UC San Diego - Google Workspace"),
+        "ucr.edu": (Platform.GOOGLE_ORG, "UC Riverside - Google Workspace"),
+        "utexas.edu": (Platform.GOOGLE_ORG, "UT Austin - Google Workspace"),
+        "umn.edu": (Platform.GOOGLE_ORG, "University of Minnesota - Google Workspace"),
+        "gmu.edu": (Platform.GOOGLE_ORG, "George Mason University - Google Workspace"),
+        "gwu.edu": (Platform.GOOGLE_ORG, "George Washington University - Google Workspace"),
+        "gwmail.gwu.edu": (Platform.GOOGLE_ORG, "GWU student email"),
         
         # UK Universities
         "ox.ac.uk": (Platform.MICROSOFT, "University of Oxford - Microsoft 365"),
@@ -147,15 +148,15 @@ class PlatformDetector:
         "lanl.gov": (Platform.MICROSOFT, "Los Alamos National Laboratory"),
         
         # Major tech companies
-        "amazon.com": (Platform.GOOGLE, "Amazon - Google Workspace"),
-        "amazon.co.uk": (Platform.GOOGLE, "Amazon UK"),
-        "amazon.co": (Platform.GOOGLE, "Amazon regional"),
+        "amazon.com": (Platform.GOOGLE_ORG, "Amazon - Google Workspace"),
+        "amazon.co.uk": (Platform.GOOGLE_ORG, "Amazon UK"),
+        "amazon.co": (Platform.GOOGLE_ORG, "Amazon regional"),
         "intel.com": (Platform.MICROSOFT, "Intel Corporation"),
         "cisco.com": (Platform.MICROSOFT, "Cisco Systems"),
         "samsung.com": (Platform.MICROSOFT, "Samsung Electronics"),
         "darktrace.com": (Platform.MICROSOFT, "Darktrace cybersecurity"),
-        "bitdefender.com": (Platform.GOOGLE, "Bitdefender antivirus"),
-        "cloudflare.com": (Platform.GOOGLE, "Cloudflare - Google Workspace"),
+        "bitdefender.com": (Platform.GOOGLE_ORG, "Bitdefender antivirus"),
+        "cloudflare.com": (Platform.GOOGLE_ORG, "Cloudflare - Google Workspace"),
         
         # Healthcare & Pharma
         "roche.com": (Platform.MICROSOFT, "Roche pharmaceutical"),
@@ -164,7 +165,7 @@ class PlatformDetector:
         "mssm.edu": (Platform.MICROSOFT, "Mount Sinai School of Medicine"),
         
         # Financial & Consulting additional
-        "affirm.com": (Platform.GOOGLE, "Affirm fintech - Google Workspace"),
+        "affirm.com": (Platform.GOOGLE_ORG, "Affirm fintech - Google Workspace"),
         "bloomberg.net": (Platform.MICROSOFT, "Bloomberg LP"),
         
         # European institutions
@@ -176,15 +177,15 @@ class PlatformDetector:
         # International organizations
         "ieee.org": (Platform.MICROSOFT, "IEEE - Institute of Electrical and Electronics Engineers"),
         "acm.org": (Platform.MICROSOFT, "ACM - Association for Computing Machinery"),
-        "wikimedia.org": (Platform.GOOGLE, "Wikimedia Foundation - Google Workspace"),
+        "wikimedia.org": (Platform.GOOGLE_ORG, "Wikimedia Foundation - Google Workspace"),
         "icrc.org": (Platform.MICROSOFT, "International Committee of the Red Cross"),
     }
     
     # Known email domain mappings
     DOMAIN_MAPPINGS = {
         # Google domains (~43% market share)
-        "gmail.com": Platform.GOOGLE,
-        "googlemail.com": Platform.GOOGLE,
+        "gmail.com": Platform.GOOGLE_PERSONAL,
+        "googlemail.com": Platform.GOOGLE_PERSONAL,
         
         # Microsoft domains (~18% market share)
         "outlook.com": Platform.MICROSOFT,
@@ -396,7 +397,8 @@ class PlatformDetector:
     
     # Supported platforms for login
     SUPPORTED_PLATFORMS = {
-        Platform.GOOGLE,
+        Platform.GOOGLE_PERSONAL,
+        Platform.GOOGLE_ORG,
         Platform.MICROSOFT, 
         Platform.YAHOO,
         Platform.APPLE,
@@ -448,10 +450,16 @@ class PlatformDetector:
                 
                 # Only detect platform from first match
                 if result['platform'] is None:
-                    # Enhanced Google detection
+                    # Enhanced Google detection - check if it's a known Gmail domain
                     if any(pattern in mx_host for pattern in ['google', 'googlemail', 'aspmx']):
-                        result['platform'] = Platform.GOOGLE
-                        result['hints'].append("Google pattern in MX")
+                        # If it's a known Gmail domain, it's personal
+                        if domain in ['gmail.com', 'googlemail.com']:
+                            result['platform'] = Platform.GOOGLE_PERSONAL
+                            result['hints'].append("Personal Gmail account")
+                        else:
+                            # Otherwise it's likely Google Workspace
+                            result['platform'] = Platform.GOOGLE_ORG
+                            result['hints'].append("Google Workspace pattern in MX")
                     # Microsoft 365 / Outlook
                     elif any(pattern in mx_host for pattern in ['outlook', 'microsoft', 'office365']):
                         result['platform'] = Platform.MICROSOFT
@@ -523,8 +531,13 @@ class PlatformDetector:
                     
                     for include in includes:
                         if '_spf.google.com' in include:
-                            result['platform'] = Platform.GOOGLE
-                            result['hints'].append("Google SPF include found")
+                            # Check if it's a known Gmail domain
+                            if domain in ['gmail.com', 'googlemail.com']:
+                                result['platform'] = Platform.GOOGLE_PERSONAL
+                                result['hints'].append("Personal Gmail SPF include found")
+                            else:
+                                result['platform'] = Platform.GOOGLE_ORG
+                                result['hints'].append("Google Workspace SPF include found")
                         elif 'spf.protection.outlook.com' in include:
                             result['platform'] = Platform.MICROSOFT
                             result['hints'].append("Microsoft SPF include found")
@@ -558,8 +571,13 @@ class PlatformDetector:
                 
                 # Google site verification
                 if txt_value.startswith('google-site-verification='):
-                    result['platform'] = Platform.GOOGLE
-                    result['hints'].append("Google site verification found")
+                    # Check if it's a known Gmail domain
+                    if domain in ['gmail.com', 'googlemail.com']:
+                        result['platform'] = Platform.GOOGLE_PERSONAL
+                        result['hints'].append("Personal Gmail site verification found")
+                    else:
+                        result['platform'] = Platform.GOOGLE_ORG
+                        result['hints'].append("Google Workspace site verification found")
                 
                 # Microsoft domain verification
                 elif txt_value.startswith('MS='):
@@ -649,7 +667,11 @@ class PlatformDetector:
             detected_platform = None
             
             if 'google' in banner_lower or 'gmail' in banner_lower:
-                detected_platform = Platform.GOOGLE
+                # Check if it's a known Gmail domain
+                if domain in ['gmail.com', 'googlemail.com']:
+                    detected_platform = Platform.GOOGLE_PERSONAL
+                else:
+                    detected_platform = Platform.GOOGLE_ORG
             elif 'microsoft' in banner_lower or 'outlook' in banner_lower:
                 detected_platform = Platform.MICROSOFT
             elif 'yahoo' in banner_lower:
@@ -674,7 +696,11 @@ class PlatformDetector:
             
             # Check response for additional platform hints
             if 'google' in message.decode('utf-8', errors='ignore').lower():
-                detected_platform = Platform.GOOGLE
+                # Check if it's a known Gmail domain
+                if domain in ['gmail.com', 'googlemail.com']:
+                    detected_platform = Platform.GOOGLE_PERSONAL
+                else:
+                    detected_platform = Platform.GOOGLE_ORG
             
             smtp.quit()
             

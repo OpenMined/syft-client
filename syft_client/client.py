@@ -62,7 +62,8 @@ def login(email: Optional[str] = None, provider: Optional[str] = None, quickstar
     if platform == Platform.UNKNOWN:
         # Create helpful error message with supported providers only
         provider_examples = {
-            'google': 'Gmail, Google Workspace',
+            'google_personal': 'Personal Gmail accounts',
+            'google_org': 'Google Workspace (organizational)',
             'microsoft': 'Outlook, Hotmail, Live, Office 365',
             'yahoo': 'Yahoo Mail',
             'apple': 'iCloud Mail',
@@ -86,8 +87,9 @@ def login(email: Optional[str] = None, provider: Optional[str] = None, quickstar
             f"  login(email='{email}', provider='provider_name')\n\n"
             f"Supported providers:\n" + "\n".join(provider_list) + "\n\n"
             f"Example:\n"
-            f"  login(email='{email}', provider='microsoft')  # for Office 365\n"
-            f"  login(email='{email}', provider='google')     # for Google Workspace\n"
+            f"  login(email='{email}', provider='microsoft')      # for Office 365\n"
+            f"  login(email='{email}', provider='google_personal') # for personal Gmail\n"
+            f"  login(email='{email}', provider='google_org')      # for Google Workspace\n"
         )
     
     # Check if detected/specified platform is supported
@@ -99,8 +101,9 @@ def login(email: Optional[str] = None, provider: Optional[str] = None, quickstar
             f"\nThe email provider '{platform.value}' was detected but is not currently supported.\n\n"
             f"Supported providers are: {', '.join(supported)}\n\n"
             f"If you believe this is incorrect, you can try specifying a different provider:\n"
-            f"  login(email='{email}', provider='microsoft')  # If using Office 365\n"
-            f"  login(email='{email}', provider='google')     # If using Google Workspace\n"
+            f"  login(email='{email}', provider='microsoft')      # If using Office 365\n"
+            f"  login(email='{email}', provider='google_personal') # If personal Gmail\n"
+            f"  login(email='{email}', provider='google_org')      # If Google Workspace\n"
         )
     
     # Step 3: Environment detection - which Python environment are we in?

@@ -1,13 +1,13 @@
-"""Google platform implementation (Gmail, Google Workspace)"""
+"""Google Organizational platform implementation (Google Workspace)"""
 
-from .client import GoogleClient
+from .client import GoogleOrgClient
 from .gmail import GmailTransport
 from .gdrive_files import GDriveFilesTransport
 from .gsheets import GSheetsTransport
 from .gforms import GFormsTransport
 
 __all__ = [
-    'GoogleClient',
+    'GoogleOrgClient',
     'GmailTransport', 
     'GDriveFilesTransport',
     'GSheetsTransport',
