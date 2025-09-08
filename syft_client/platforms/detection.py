@@ -722,10 +722,70 @@ def detect_platform_full(email: str) -> PlatformDetectionResult:
     return PlatformDetector.detect_from_email(email)
 
 
-def detect_platform(email: str) -> Platform:
-    """Detect platform from email address (backward compatible)"""
+def detect_platform(email: str, provider: Optional[str] = None, raise_on_unknown: bool = True) -> Platform:
+    """
+    Detect platform from email address (backward compatible)
+    
+    Args:
+        email: Email address to detect platform for
+        provider: Optional provider override (e.g., 'google_personal', 'microsoft')
+        raise_on_unknown: If True, raise helpful error for unknown platforms
+        
+    Returns:
+        Platform enum
+        
+    Raises:
+        ValueError: If provider is invalid or platform unknown (when raise_on_unknown=True)
+    """
+    # If provider is specified, try to use it
+    if provider:
+        try:
+            return Platform(provider.lower())
+        except ValueError:
+            # Create list of valid provider strings
+            supported_providers = sorted([p.value for p in PlatformDetector.SUPPORTED_PLATFORMS])
+            raise ValueError(
+                f"Invalid provider '{provider}'. Valid options are: {', '.join(supported_providers)}"
+            )
+    
+    # Otherwise auto-detect
     result = PlatformDetector.detect_from_email(email)
-    return result.platform
+    platform = result.platform
+    
+    # Handle unknown platform if requested
+    if raise_on_unknown and platform == Platform.UNKNOWN:
+        provider_examples = {
+            'google_personal': 'Personal Gmail accounts',
+            'google_org': 'Google Workspace (organizational)',
+            'microsoft': 'Outlook, Hotmail, Live, Office 365',
+            'yahoo': 'Yahoo Mail',
+            'apple': 'iCloud Mail',
+            'zoho': 'Zoho Mail',
+            'proton': 'ProtonMail',
+            'gmx': 'GMX Mail',
+            'fastmail': 'Fastmail',
+            'mailcom': 'Mail.com',
+            'dropbox': 'Dropbox (file storage only)',
+            'smtp': 'Generic SMTP/IMAP email'
+        }
+        
+        # Format provider list with examples
+        provider_list = []
+        for prov, desc in provider_examples.items():
+            provider_list.append(f"  • '{prov}' - {desc}")
+        
+        raise ValueError(
+            f"\nCould not automatically detect the email provider for: {email}\n\n"
+            f"Please re-run login() and specify your email provider manually:\n\n"
+            f"  login(email='{email}', provider='provider_name')\n\n"
+            f"Supported providers:\n" + "\n".join(provider_list) + "\n\n"
+            f"Example:\n"
+            f"  login(email='{email}', provider='microsoft')      # for Office 365\n"
+            f"  login(email='{email}', provider='google_personal') # for personal Gmail\n"
+            f"  login(email='{email}', provider='google_org')      # for Google Workspace\n"
+        )
+    
+    return platform
 
 
 def verify_email_smtp(email: str) -> Dict[str, Any]:
