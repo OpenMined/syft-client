@@ -30,7 +30,8 @@ dependencies = [
     "google-auth==2.22.0",
     "google-auth-oauthlib",
     "syft-widget",
-    "dnspython"
+    "dnspython",
+    "cryptography>=41.0.0"
 ]
 
 [project.optional-dependencies]

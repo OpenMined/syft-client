@@ -3,6 +3,7 @@
 from typing import Any, Dict, List, Optional
 import getpass
 from ..base import BasePlatformClient
+from ..credential_manager import get_credential_manager, CacheDuration
 
 
 class GooglePersonalClient(BasePlatformClient):
@@ -25,9 +26,38 @@ class GooglePersonalClient(BasePlatformClient):
                 'starttls': False
             }
         }
+        self.cred_manager = get_credential_manager()
         
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with personal Gmail using app password"""
+        # First check for cached credentials
+        cached_creds = self.cred_manager.get_email_credentials(
+            self.email, 
+            self.platform,
+            reason="Access Gmail for syft-client file syncing"
+        )
+        
+        if cached_creds:
+            print(f"\n🔑 Using cached credentials for {self.email}")
+            
+            # Test if credentials still work
+            if self._test_cached_credentials(cached_creds):
+                print("✅ Cached credentials validated")
+                return {
+                    'email': self.email,
+                    'auth_method': 'app_password',
+                    'servers': self._gmail_servers,
+                    'credentials': {
+                        'email': cached_creds['email'],
+                        'password': cached_creds['password']
+                    }
+                }
+            else:
+                print("❌ Cached credentials invalid, re-authenticating...")
+                # Clear bad cache
+                self.cred_manager.clear_cache(self.email, self.platform)
+        
+        # No valid cache - proceed with normal authentication
         print(f"\nGoogle Personal Account Authentication for {self.email}")
         print("=" * 60)
         
@@ -74,8 +104,12 @@ class GooglePersonalClient(BasePlatformClient):
     
     def _has_cached_credentials(self) -> bool:
         """Check if we have cached credentials"""
-        # TODO: Implement credential checking
-        return False
+        cached_creds = self.cred_manager.get_email_credentials(
+            self.email,
+            self.platform,
+            use_cache=True
+        )
+        return cached_creds is not None
     
     def _choose_auth_method(self) -> str:
         """Let user choose authentication method"""
@@ -137,19 +171,30 @@ class GooglePersonalClient(BasePlatformClient):
         if smtp_success and imap_success:
             print("\n✅ Authentication successful!")
             
-            # Store credentials
+            # Store credentials in cache
+            cache_duration = CacheDuration.DAYS_30  # App passwords are stable
+            success = self.cred_manager.store_email_credentials(
+                email=self.email,
+                password=password,
+                provider=self.platform,
+                servers=self._gmail_servers,
+                cache=True
+            )
+            
+            if success:
+                print(f"\n💾 Credentials cached for {cache_duration.value // 86400} days")
+                print("Next time you login, authentication will be automatic!")
+            
+            # Return auth data
             auth_data = {
                 'email': self.email,
                 'auth_method': 'app_password',
                 'servers': self._gmail_servers,
                 'credentials': {
                     'email': self.email,
-                    'password': password  # In production, this should be encrypted
+                    'password': password
                 }
             }
-            
-            # TODO: Save credentials securely
-            print("\n💾 Credentials saved for future use")
             
             return auth_data
         else:
@@ -201,4 +246,19 @@ class GooglePersonalClient(BasePlatformClient):
             return True
         except Exception as e:
             print(f"✗ IMAP connection failed: {e}")
+            return False
+    
+    def _test_cached_credentials(self, cached_creds: Dict[str, Any]) -> bool:
+        """Test if cached credentials still work"""
+        try:
+            # Quick SMTP test only (faster than testing both)
+            import smtplib
+            server_info = self._gmail_servers['smtp']
+            
+            smtp = smtplib.SMTP(server_info['server'], server_info['port'], timeout=5)
+            smtp.starttls()
+            smtp.login(cached_creds['email'], cached_creds['password'])
+            smtp.quit()
+            return True
+        except Exception:
             return False
