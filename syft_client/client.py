@@ -3,6 +3,7 @@ from typing import Optional
 
 from .environment import Environment, detect_environment
 from .platforms.detection import Platform, detect_platform, PlatformDetector
+from .syft_client import SyftClient
 
 
 def login(email: Optional[str] = None, provider: Optional[str] = None, quickstart: bool = True, verbose: bool = False, **kwargs):
@@ -17,7 +18,7 @@ def login(email: Optional[str] = None, provider: Optional[str] = None, quickstar
         **kwargs: Additional arguments for authentication
         
     Returns:
-        Authenticated client object
+        SyftClient: Authenticated client object with platform and transport layers
     """
     # Step 0: Handle no email case
     if email is None:
@@ -126,8 +127,15 @@ def login(email: Optional[str] = None, provider: Optional[str] = None, quickstar
         
         if verbose:
             print(f"Authentication successful!")
+        
+        # Create SyftClient and add the authenticated platform
+        syft_client = SyftClient(email)
+        syft_client.add_platform(client, auth_result)
+        
+        if verbose:
+            print(f"\n{syft_client}")
             
-        return auth_result
+        return syft_client
         
     except NotImplementedError as e:
         # Re-raise with cleaner error message

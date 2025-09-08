@@ -1,429 +1,234 @@
 """
-Credential Manager for syft-client using syft-wallet with extended caching
+Credential Manager for syft-client using syft-wallet
 
-This module provides credential management with enhanced caching capabilities
-for email providers and other authentication needs.
+This module delegates ALL credential storage to syft-wallet.
+No private keys or passwords are stored locally.
 """
 
-from typing import Optional, Dict, Any, List
-import os
-import json
-import time
-from pathlib import Path
-from datetime import datetime, timedelta
-from enum import Enum
-from cryptography.fernet import Fernet
-
-# Note: This will use syft-wallet when available
-# For now, we implement a compatible interface
-try:
-    import syft_wallet as wallet
-    HAS_SYFT_WALLET = True
-except ImportError:
-    HAS_SYFT_WALLET = False
-
-
-class CacheDuration(Enum):
-    """Predefined cache durations"""
-    NO_CACHE = 0
-    MINUTES_5 = 300
-    MINUTES_30 = 1800
-    HOURS_1 = 3600
-    HOURS_8 = 28800
-    HOURS_24 = 86400
-    DAYS_7 = 604800
-    DAYS_30 = 2592000
-    
-    @classmethod
-    def from_string(cls, duration: str) -> 'CacheDuration':
-        """Convert string like '5m', '1h', '7d' to CacheDuration"""
-        duration = duration.lower().strip()
-        
-        if duration.endswith('m'):
-            minutes = int(duration[:-1])
-            seconds = minutes * 60
-        elif duration.endswith('h'):
-            hours = int(duration[:-1])
-            seconds = hours * 3600
-        elif duration.endswith('d'):
-            days = int(duration[:-1])
-            seconds = days * 86400
-        else:
-            seconds = int(duration)
-        
-        # Find closest matching duration
-        for dur in cls:
-            if dur.value >= seconds:
-                return dur
-        return cls.DAYS_30
-
-
-class PersistentCache:
-    """
-    Persistent encrypted cache for credentials
-    
-    This extends syft-wallet's in-memory cache with disk persistence
-    """
-    
-    def __init__(self, cache_dir: Optional[Path] = None):
-        """Initialize persistent cache"""
-        self.cache_dir = cache_dir or Path.home() / ".syft" / "credential_cache"
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Initialize or load encryption key
-        self._init_encryption()
-        
-        # Cache index file
-        self.index_file = self.cache_dir / "cache_index.json"
-        self.index = self._load_index()
-    
-    def _init_encryption(self):
-        """Initialize Fernet encryption"""
-        key_file = self.cache_dir / ".key"
-        
-        if key_file.exists():
-            # Load existing key
-            with open(key_file, 'rb') as f:
-                key = f.read()
-        else:
-            # Generate new key
-            key = Fernet.generate_key()
-            with open(key_file, 'wb') as f:
-                f.write(key)
-            # Set restrictive permissions
-            os.chmod(key_file, 0o600)
-        
-        self.cipher = Fernet(key)
-    
-    def _load_index(self) -> Dict[str, Dict[str, Any]]:
-        """Load cache index from disk"""
-        if self.index_file.exists():
-            try:
-                with open(self.index_file, 'r') as f:
-                    return json.load(f)
-            except:
-                pass
-        return {}
-    
-    def _save_index(self):
-        """Save cache index to disk"""
-        with open(self.index_file, 'w') as f:
-            json.dump(self.index, f, indent=2)
-        os.chmod(self.index_file, 0o600)
-    
-    def _get_cache_key(self, provider: str, credential_type: str, identifier: str) -> str:
-        """Generate cache key"""
-        return f"{provider}:{credential_type}:{identifier}"
-    
-    def _get_cache_file(self, cache_key: str) -> Path:
-        """Get path to cache file"""
-        # Use hash to avoid filesystem issues with special characters
-        import hashlib
-        filename = hashlib.sha256(cache_key.encode()).hexdigest()[:16]
-        return self.cache_dir / f"{filename}.cache"
-    
-    def get(self, provider: str, credential_type: str, identifier: str) -> Optional[Dict[str, Any]]:
-        """
-        Get cached credential if valid
-        
-        Args:
-            provider: Provider name (e.g., 'google_personal')
-            credential_type: Type of credential (e.g., 'app_password', 'oauth_token')
-            identifier: Unique identifier (e.g., email address)
-            
-        Returns:
-            Cached credential data or None if expired/not found
-        """
-        cache_key = self._get_cache_key(provider, credential_type, identifier)
-        
-        # Check index
-        if cache_key not in self.index:
-            return None
-        
-        entry = self.index[cache_key]
-        
-        # Check expiration
-        if time.time() > entry['expires_at']:
-            # Expired - remove from cache
-            self.delete(provider, credential_type, identifier)
-            return None
-        
-        # Load encrypted data
-        cache_file = self._get_cache_file(cache_key)
-        if not cache_file.exists():
-            # Index out of sync - clean up
-            del self.index[cache_key]
-            self._save_index()
-            return None
-        
-        try:
-            # Decrypt and return
-            with open(cache_file, 'rb') as f:
-                encrypted_data = f.read()
-            
-            decrypted = self.cipher.decrypt(encrypted_data)
-            return json.loads(decrypted.decode())
-        except Exception as e:
-            # Corruption or key change - remove entry
-            self.delete(provider, credential_type, identifier)
-            return None
-    
-    def set(self, provider: str, credential_type: str, identifier: str, 
-            data: Dict[str, Any], duration: CacheDuration = CacheDuration.HOURS_24):
-        """
-        Cache credential data
-        
-        Args:
-            provider: Provider name
-            credential_type: Type of credential
-            identifier: Unique identifier
-            data: Credential data to cache
-            duration: How long to cache
-        """
-        if duration == CacheDuration.NO_CACHE:
-            return
-        
-        cache_key = self._get_cache_key(provider, credential_type, identifier)
-        cache_file = self._get_cache_file(cache_key)
-        
-        # Encrypt data
-        json_data = json.dumps(data).encode()
-        encrypted = self.cipher.encrypt(json_data)
-        
-        # Save to disk
-        with open(cache_file, 'wb') as f:
-            f.write(encrypted)
-        os.chmod(cache_file, 0o600)
-        
-        # Update index
-        self.index[cache_key] = {
-            'provider': provider,
-            'credential_type': credential_type,
-            'identifier': identifier,
-            'created_at': time.time(),
-            'expires_at': time.time() + duration.value,
-            'duration': duration.name
-        }
-        self._save_index()
-    
-    def delete(self, provider: str, credential_type: str, identifier: str):
-        """Delete cached credential"""
-        cache_key = self._get_cache_key(provider, credential_type, identifier)
-        
-        # Remove from index
-        if cache_key in self.index:
-            del self.index[cache_key]
-            self._save_index()
-        
-        # Remove file
-        cache_file = self._get_cache_file(cache_key)
-        if cache_file.exists():
-            cache_file.unlink()
-    
-    def clear_expired(self):
-        """Remove all expired entries"""
-        current_time = time.time()
-        expired_keys = [
-            key for key, entry in self.index.items()
-            if current_time > entry['expires_at']
-        ]
-        
-        for key in expired_keys:
-            # Parse key to get components
-            parts = key.split(':', 2)
-            if len(parts) == 3:
-                self.delete(parts[0], parts[1], parts[2])
-    
-    def clear_all(self):
-        """Clear all cached credentials"""
-        # Remove all cache files
-        for cache_file in self.cache_dir.glob("*.cache"):
-            cache_file.unlink()
-        
-        # Clear index
-        self.index = {}
-        self._save_index()
+from typing import Optional, Dict, Any
+import syft_wallet as wallet
 
 
 class CredentialManager:
     """
-    Manages credentials for syft-client with enhanced caching
+    Credential manager that delegates all storage to syft-wallet
     """
     
-    def __init__(self, app_name: str = "syft-client", 
-                 cache_dir: Optional[Path] = None,
-                 default_cache_duration: CacheDuration = CacheDuration.HOURS_24):
+    def __init__(self, app_name: str = "syft-client"):
         """
         Initialize credential manager
         
         Args:
-            app_name: Application name for syft-wallet
-            cache_dir: Directory for persistent cache
-            default_cache_duration: Default cache duration
+            app_name: Application name for syft-wallet approval dialogs
         """
         self.app_name = app_name
-        self.cache = PersistentCache(cache_dir)
-        self.default_cache_duration = default_cache_duration
-        
-        # Provider-specific cache policies
-        self.cache_policies = {
-            'google_personal': {
-                'app_password': CacheDuration.DAYS_30,  # App passwords are stable
-                'oauth_token': CacheDuration.DAYS_7,    # OAuth tokens last a while
-            },
-            'google_org': {
-                'app_password': CacheDuration.DAYS_7,   # Org policies may be stricter
-                'oauth_token': CacheDuration.HOURS_24,  # Org tokens may expire faster
-            },
-            'smtp': {
-                'credentials': CacheDuration.DAYS_30,   # SMTP passwords are stable
-            }
-        }
-    
-    def get_cache_duration(self, provider: str, credential_type: str) -> CacheDuration:
-        """Get cache duration for a specific credential type"""
-        if provider in self.cache_policies:
-            if credential_type in self.cache_policies[provider]:
-                return self.cache_policies[provider][credential_type]
-        return self.default_cache_duration
     
     def store_email_credentials(self, email: str, password: str, provider: str,
-                               servers: Optional[Dict[str, Any]] = None,
-                               cache: bool = True) -> bool:
+                               servers: Optional[Dict[str, Any]] = None) -> bool:
         """
-        Store email credentials
+        Store email credentials in syft-wallet
         
         Args:
             email: Email address
             password: Password or app password
             provider: Provider name (e.g., 'google_personal')
-            servers: Optional server configuration
-            cache: Whether to cache the credentials
+            servers: Optional server configuration (not stored)
             
         Returns:
             Success status
         """
-        # Store in syft-wallet if available
-        if HAS_SYFT_WALLET:
-            success = wallet.store_credentials(
-                name=f"{provider}:{email}",
-                username=email,
-                password=password,
-                tags=["email", provider, "syft-client"],
-                description=f"{provider} email account for syft-client"
-            )
-            if not success:
-                return False
+        # Use a safer name format to avoid JSON parsing issues
+        safe_name = f"{provider}-{email.replace('@', '_at_').replace('.', '_')}"
         
-        # Cache if requested
-        if cache:
-            cache_data = {
-                'email': email,
+        # Debug logging
+        print(f"\n🔍 DEBUG: Attempting to store credentials in syft-wallet:")
+        print(f"  Name: {safe_name}")
+        print(f"  Username: {email}")
+        print(f"  Password: {'*' * len(password)} ({len(password)} chars)")
+        print(f"  Tags: ['email', '{provider}', 'syftclient']")
+        
+        try:
+            # Store credentials as a JSON string using the simpler store() function
+            import json
+            cred_data = {
+                'username': email,
                 'password': password,
                 'provider': provider,
-                'timestamp': time.time()
+                'type': 'email_credentials'
             }
             
-            if servers:
-                cache_data['servers'] = servers
-            
-            duration = self.get_cache_duration(provider, 'app_password')
-            self.cache.set(provider, 'app_password', email, cache_data, duration)
-        
-        return True
+            # Use the simple store() function which seems to work better
+            result = wallet.store(
+                name=safe_name,
+                value=json.dumps(cred_data),
+                tags=["email", provider, "syftclient"],
+                description=f"{provider} email account"
+            )
+            print(f"  Result: {result}")
+            return result
+        except Exception as e:
+            print(f"  ❌ Exception: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     def get_email_credentials(self, email: str, provider: str, 
-                            use_cache: bool = True,
                             reason: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
-        Get email credentials with caching
+        Get email credentials from syft-wallet (requires user approval)
         
         Args:
             email: Email address
             provider: Provider name
-            use_cache: Whether to check cache first
-            reason: Reason for access (for syft-wallet approval)
+            reason: Reason for access (shown in approval dialog)
             
         Returns:
-            Credential dictionary or None
+            Credential dictionary or None if denied/not found
         """
-        # Check cache first
-        if use_cache:
-            cached = self.cache.get(provider, 'app_password', email)
-            if cached:
-                return cached
+        reason = reason or f"Access {provider} email for file syncing"
         
-        # Try syft-wallet
-        if HAS_SYFT_WALLET:
-            reason = reason or f"Access {provider} email for file syncing"
+        try:
+            # Get credentials from syft-wallet with user approval
+            # Use the same safe name format
+            safe_name = f"{provider}-{email.replace('@', '_at_').replace('.', '_')}"
             
-            try:
-                creds = wallet.get_credentials(
-                    name=f"{provider}:{email}",
-                    app_name=self.app_name,
-                    reason=reason
-                )
-                
-                if creds:
-                    # Build return format
-                    result = {
-                        'email': creds.get('username', email),
-                        'password': creds['password'],
-                        'provider': provider,
-                        'timestamp': time.time()
-                    }
-                    
-                    # Cache for next time
-                    duration = self.get_cache_duration(provider, 'app_password')
-                    self.cache.set(provider, 'app_password', email, result, duration)
-                    
-                    return result
-            except Exception as e:
-                pass
+            # Use the simple get() function
+            cred_json = wallet.get(
+                name=safe_name,
+                app_name=self.app_name,
+                reason=reason
+            )
+            
+            if cred_json:
+                import json
+                cred_data = json.loads(cred_json)
+                # Return in expected format
+                return {
+                    'email': cred_data.get('username', email),
+                    'password': cred_data['password'],
+                    'provider': cred_data.get('provider', provider)
+                }
+        except Exception as e:
+            # User denied or error occurred
+            print(f"Failed to get credentials: {e}")
         
         return None
     
-    def clear_cache(self, email: Optional[str] = None, provider: Optional[str] = None):
+    def store_oauth_token(self, email: str, provider: str, 
+                         refresh_token: str, access_token: Optional[str] = None) -> bool:
         """
-        Clear cached credentials
+        Store OAuth tokens in syft-wallet
         
         Args:
-            email: Specific email to clear (optional)
-            provider: Specific provider to clear (optional)
-        """
-        if email and provider:
-            # Clear specific credential
-            self.cache.delete(provider, 'app_password', email)
-            self.cache.delete(provider, 'oauth_token', email)
-        elif provider:
-            # Clear all for provider
-            for key, entry in list(self.cache.index.items()):
-                if entry['provider'] == provider:
-                    parts = key.split(':', 2)
-                    if len(parts) == 3:
-                        self.cache.delete(parts[0], parts[1], parts[2])
-        else:
-            # Clear all
-            self.cache.clear_all()
-    
-    def list_cached_credentials(self) -> List[Dict[str, Any]]:
-        """List all cached credentials"""
-        credentials = []
-        
-        for key, entry in self.cache.index.items():
-            # Calculate remaining time
-            remaining = entry['expires_at'] - time.time()
+            email: Email address
+            provider: Provider name
+            refresh_token: OAuth refresh token
+            access_token: Optional current access token
             
-            credentials.append({
-                'provider': entry['provider'],
-                'type': entry['credential_type'],
-                'identifier': entry['identifier'],
-                'created': datetime.fromtimestamp(entry['created_at']).strftime('%Y-%m-%d %H:%M:%S'),
-                'expires': datetime.fromtimestamp(entry['expires_at']).strftime('%Y-%m-%d %H:%M:%S'),
-                'remaining': f"{remaining/3600:.1f} hours" if remaining > 0 else "Expired"
-            })
+        Returns:
+            Success status
+        """
+        # Store as a secret with structured value
+        token_data = {
+            'refresh_token': refresh_token,
+            'access_token': access_token
+        }
         
-        return credentials
+        # Convert to JSON string for storage
+        import json
+        token_json = json.dumps(token_data)
+        
+        # Use safe name format
+        safe_name = f"{provider}-oauth-{email.replace('@', '_at_').replace('.', '_')}"
+        
+        return wallet.store(
+            name=safe_name,
+            value=token_json,
+            tags=["oauth", provider, "email", "syft-client"],
+            description=f"OAuth tokens for {provider} ({email})"
+        )
+    
+    def get_oauth_token(self, email: str, provider: str,
+                       reason: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get OAuth tokens from syft-wallet (requires user approval)
+        
+        Args:
+            email: Email address
+            provider: Provider name
+            reason: Reason for access
+            
+        Returns:
+            Dict with refresh_token and access_token or None
+        """
+        reason = reason or f"Refresh {provider} OAuth token for email sync"
+        
+        try:
+            # Get token from syft-wallet with user approval
+            safe_name = f"{provider}-oauth-{email.replace('@', '_at_').replace('.', '_')}"
+            
+            token_json = wallet.get(
+                name=safe_name,
+                app_name=self.app_name,
+                reason=reason
+            )
+            
+            if token_json:
+                import json
+                return json.loads(token_json)
+        except Exception as e:
+            print(f"Failed to get OAuth token: {e}")
+        
+        return None
+    
+    def delete_credentials(self, email: str, provider: str) -> bool:
+        """
+        Delete credentials from syft-wallet
+        
+        Args:
+            email: Email address
+            provider: Provider name
+            
+        Returns:
+            Success status
+        """
+        try:
+            # Delete both password and OAuth tokens using safe names
+            safe_name = f"{provider}-{email.replace('@', '_at_').replace('.', '_')}"
+            safe_oauth_name = f"{provider}-oauth-{email.replace('@', '_at_').replace('.', '_')}"
+            
+            wallet.delete(safe_name)
+            wallet.delete(safe_oauth_name)
+            return True
+        except:
+            return False
+    
+    def has_credentials(self, email: str, provider: str) -> bool:
+        """
+        Check if credentials exist in syft-wallet (no user approval needed)
+        
+        Args:
+            email: Email address  
+            provider: Provider name
+            
+        Returns:
+            True if credentials exist
+        """
+        try:
+            # Use wallet.exists() if available, otherwise try to list items
+            if hasattr(wallet, 'exists'):
+                safe_name = f"{provider}-{email.replace('@', '_at_').replace('.', '_')}"
+                return wallet.exists(safe_name)
+            elif hasattr(wallet, 'list'):
+                # Try to list items and check if our item exists
+                safe_name = f"{provider}-{email.replace('@', '_at_').replace('.', '_')}"
+                items = wallet.list()
+                return safe_name in items
+            else:
+                # Can't check without approval dialog
+                return False
+        except:
+            return False
 
 
 # Singleton instance

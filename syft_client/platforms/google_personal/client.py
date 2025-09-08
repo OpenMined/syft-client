@@ -3,7 +3,7 @@
 from typing import Any, Dict, List, Optional
 import getpass
 from ..base import BasePlatformClient
-from ..credential_manager import get_credential_manager, CacheDuration
+from ..credential_manager import get_credential_manager
 
 
 class GooglePersonalClient(BasePlatformClient):
@@ -38,11 +38,11 @@ class GooglePersonalClient(BasePlatformClient):
         )
         
         if cached_creds:
-            print(f"\n🔑 Using cached credentials for {self.email}")
+            print(f"\n🔑 Retrieved credentials from syft-wallet for {self.email}")
             
             # Test if credentials still work
             if self._test_cached_credentials(cached_creds):
-                print("✅ Cached credentials validated")
+                print("✅ Credentials validated")
                 return {
                     'email': self.email,
                     'auth_method': 'app_password',
@@ -53,9 +53,9 @@ class GooglePersonalClient(BasePlatformClient):
                     }
                 }
             else:
-                print("❌ Cached credentials invalid, re-authenticating...")
-                # Clear bad cache
-                self.cred_manager.clear_cache(self.email, self.platform)
+                print("❌ Credentials invalid, need to re-authenticate...")
+                # Delete bad credentials
+                self.cred_manager.delete_credentials(self.email, self.platform)
         
         # No valid cache - proceed with normal authentication
         print(f"\nGoogle Personal Account Authentication for {self.email}")
@@ -103,13 +103,8 @@ class GooglePersonalClient(BasePlatformClient):
             return 3  # App password steps
     
     def _has_cached_credentials(self) -> bool:
-        """Check if we have cached credentials"""
-        cached_creds = self.cred_manager.get_email_credentials(
-            self.email,
-            self.platform,
-            use_cache=True
-        )
-        return cached_creds is not None
+        """Check if we have credentials in syft-wallet"""
+        return self.cred_manager.has_credentials(self.email, self.platform)
     
     def _choose_auth_method(self) -> str:
         """Let user choose authentication method"""
@@ -117,14 +112,34 @@ class GooglePersonalClient(BasePlatformClient):
         print("1. App Password (recommended for simplicity)")
         print("2. OAuth2 (more secure but requires browser)")
         
-        while True:
-            choice = input("\nChoose authentication method (1 or 2) [1]: ").strip()
-            if choice == "" or choice == "1":
+        # Check if we're in an interactive environment
+        import sys
+        
+        # Check for Jupyter/IPython
+        try:
+            get_ipython()  # This is defined in Jupyter/IPython
+            # We're in Jupyter - this is interactive
+            pass
+        except NameError:
+            # Not in Jupyter - check if regular terminal is interactive
+            if not sys.stdin.isatty():
+                # Non-interactive mode - default to app password
+                print("\nNon-interactive mode detected, using app password method...")
                 return "app_password"
-            elif choice == "2":
-                return "oauth2"
-            else:
-                print("Please enter 1 or 2")
+        
+        while True:
+            try:
+                choice = input("\nChoose authentication method (1 or 2) [1]: ").strip()
+                if choice == "" or choice == "1":
+                    return "app_password"
+                elif choice == "2":
+                    return "oauth2"
+                else:
+                    print("Please enter 1 or 2")
+            except (EOFError, KeyboardInterrupt):
+                # Input failed - default to app password
+                print("\nInput failed, using app password method...")
+                return "app_password"
     
     def _authenticate_with_app_password(self) -> Dict[str, Any]:
         """Authenticate using Gmail app password"""
@@ -151,7 +166,27 @@ class GooglePersonalClient(BasePlatformClient):
         print("\n" + "="*60)
         
         # Get app password from user
-        password = getpass.getpass("\nEnter your Gmail app password (16 characters): ")
+        import sys
+        
+        # Check for Jupyter/IPython
+        in_jupyter = False
+        try:
+            get_ipython()  # This is defined in Jupyter/IPython
+            in_jupyter = True
+        except NameError:
+            pass
+        
+        if not in_jupyter and not sys.stdin.isatty():
+            print("\n❌ Error: Non-interactive mode detected")
+            print("App password authentication requires user input.")
+            print("Please run in interactive mode or use OAuth2 authentication.")
+            raise RuntimeError("Cannot prompt for password in non-interactive mode")
+        
+        try:
+            password = getpass.getpass("\nEnter your Gmail app password (16 characters): ")
+        except (EOFError, KeyboardInterrupt):
+            print("\n❌ Password input cancelled")
+            raise RuntimeError("Password input cancelled by user")
         
         # Remove spaces from password
         password = password.replace(" ", "")
@@ -171,19 +206,19 @@ class GooglePersonalClient(BasePlatformClient):
         if smtp_success and imap_success:
             print("\n✅ Authentication successful!")
             
-            # Store credentials in cache
-            cache_duration = CacheDuration.DAYS_30  # App passwords are stable
+            # Store credentials in syft-wallet
             success = self.cred_manager.store_email_credentials(
                 email=self.email,
                 password=password,
                 provider=self.platform,
-                servers=self._gmail_servers,
-                cache=True
+                servers=self._gmail_servers
             )
             
             if success:
-                print(f"\n💾 Credentials cached for {cache_duration.value // 86400} days")
-                print("Next time you login, authentication will be automatic!")
+                print("\n💾 Credentials saved to syft-wallet")
+                print("Next time you login, you'll be prompted to approve access.")
+            else:
+                print("\n⚠️  Failed to save credentials to syft-wallet")
             
             # Return auth data
             auth_data = {
