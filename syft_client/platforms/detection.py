@@ -46,6 +46,51 @@ class PlatformDetectionResult:
     detection_hints: List[str] = field(default_factory=list)
 
 
+class PlatformProperties:
+    """Properties of each platform"""
+    
+    # Primary platforms - email providers that are tied to specific email addresses
+    PRIMARY_PLATFORMS = {
+        Platform.GOOGLE_PERSONAL,
+        Platform.GOOGLE_ORG,
+        Platform.MICROSOFT,
+        Platform.YAHOO,
+        Platform.APPLE,
+        Platform.ZOHO,
+        Platform.PROTON,
+        Platform.GMX,
+        Platform.FASTMAIL,
+        Platform.TUTANOTA,
+        Platform.MAILCOM,
+        Platform.QQ,
+        Platform.NETEASE,
+        Platform.MAILRU,
+        Platform.YANDEX,
+        Platform.NAVER,
+        Platform.SMTP,
+    }
+    
+    # Secondary platforms - services that can work with any email
+    SECONDARY_PLATFORMS = {
+        Platform.DROPBOX,
+    }
+    
+    @staticmethod
+    def is_primary(platform: Platform) -> bool:
+        """Check if platform is a primary (email provider) platform"""
+        return platform in PlatformProperties.PRIMARY_PLATFORMS
+    
+    @staticmethod
+    def is_secondary(platform: Platform) -> bool:
+        """Check if platform is a secondary (any email) platform"""
+        return platform in PlatformProperties.SECONDARY_PLATFORMS
+    
+    @staticmethod
+    def can_support_any_email(platform: Platform) -> bool:
+        """Check if platform can work with any email address"""
+        return platform in PlatformProperties.SECONDARY_PLATFORMS
+
+
 class PlatformDetector:
     """Detects which platform an email belongs to"""
     
@@ -722,7 +767,7 @@ def detect_platform_full(email: str) -> PlatformDetectionResult:
     return PlatformDetector.detect_from_email(email)
 
 
-def detect_platform(email: str, provider: Optional[str] = None, raise_on_unknown: bool = True) -> Platform:
+def detect_primary_platform(email: str, provider: Optional[str] = None, raise_on_unknown: bool = True) -> Platform:
     """
     Detect platform from email address (backward compatible)
     
@@ -735,22 +780,34 @@ def detect_platform(email: str, provider: Optional[str] = None, raise_on_unknown
         Platform enum
         
     Raises:
-        ValueError: If provider is invalid or platform unknown (when raise_on_unknown=True)
+        ValueError: If provider is invalid, platform unknown, or platform unsupported
     """
     # If provider is specified, try to use it
     if provider:
         try:
-            return Platform(provider.lower())
+            platform = Platform(provider.lower())
         except ValueError:
             # Create list of valid provider strings
             supported_providers = sorted([p.value for p in PlatformDetector.SUPPORTED_PLATFORMS])
             raise ValueError(
                 f"Invalid provider '{provider}'. Valid options are: {', '.join(supported_providers)}"
             )
+    else:
+        # Otherwise auto-detect
+        result = PlatformDetector.detect_from_email(email)
+        platform = result.platform
     
-    # Otherwise auto-detect
-    result = PlatformDetector.detect_from_email(email)
-    platform = result.platform
+    # Check if platform is supported
+    if platform != Platform.UNKNOWN and not PlatformDetector.is_supported(platform):
+        supported = sorted([p.value for p in PlatformDetector.SUPPORTED_PLATFORMS])
+        raise ValueError(
+            f"\nThe email provider '{platform.value}' was detected but is not currently supported.\n\n"
+            f"Supported providers are: {', '.join(supported)}\n\n"
+            f"If you believe this is incorrect, you can try specifying a different provider:\n"
+            f"  login(email='{email}', provider='microsoft')      # If using Office 365\n"
+            f"  login(email='{email}', provider='google_personal') # If personal Gmail\n"
+            f"  login(email='{email}', provider='google_org')      # If Google Workspace\n"
+        )
     
     # Handle unknown platform if requested
     if raise_on_unknown and platform == Platform.UNKNOWN:
@@ -786,6 +843,17 @@ def detect_platform(email: str, provider: Optional[str] = None, raise_on_unknown
         )
     
     return platform
+
+
+def detect_secondary_platforms() -> List[Platform]:
+    """
+    Get list of secondary platforms that can work with any email address
+    
+    Returns:
+        List of Platform enums that support any email
+    """
+    # Return all secondary platforms that can work with any email
+    return sorted(list(PlatformProperties.SECONDARY_PLATFORMS), key=lambda p: p.value)
 
 
 def verify_email_smtp(email: str) -> Dict[str, Any]:

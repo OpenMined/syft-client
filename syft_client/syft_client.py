@@ -4,7 +4,7 @@ SyftClient class - Main client object that manages platforms and transport layer
 
 from typing import Dict, List, Optional, Any
 from .platforms.base import BasePlatformClient
-from .platforms.detection import Platform, detect_platform, PlatformDetector
+from .platforms.detection import Platform, detect_primary_platform, detect_secondary_platforms, PlatformDetector
 from .environment import Environment, detect_environment
 
 
@@ -78,57 +78,37 @@ class SyftClient:
             lines.append(f"  • {platform_name}: {', '.join(transports)}")
         return "\n".join(lines)
     
-    
-    
-    
-    @staticmethod
-    def _validate_platform_support(email: str, platform: Platform) -> None:
+    def _login(self, provider: Optional[str] = None, verbose: bool = False) -> None:
         """
-        Validate that the platform is supported
+        Instance method that handles the actual login process
         
         Args:
-            email: Email address
-            platform: Platform to validate
-            
-        Raises:
-            ValueError: If platform not supported
-        """
-        if PlatformDetector.is_supported(platform):
-            return
-            
-        # Get list of supported providers
-        supported = sorted([p.value for p in PlatformDetector.SUPPORTED_PLATFORMS])
-        
-        raise ValueError(
-            f"\nThe email provider '{platform.value}' was detected but is not currently supported.\n\n"
-            f"Supported providers are: {', '.join(supported)}\n\n"
-            f"If you believe this is incorrect, you can try specifying a different provider:\n"
-            f"  login(email='{email}', provider='microsoft')      # If using Office 365\n"
-            f"  login(email='{email}', provider='google_personal') # If personal Gmail\n"
-            f"  login(email='{email}', provider='google_org')      # If Google Workspace\n"
-        )
-    
-    @staticmethod
-    def _authenticate_platform(email: str, platform: Platform, verbose: bool) -> 'SyftClient':
-        """
-        Steps 4-5: Create platform client and authenticate
-        
-        Args:
-            email: Email address
-            platform: Platform to authenticate with
+            provider: Optional provider override
             verbose: Whether to print progress
-            
-        Returns:
-            Authenticated SyftClient
             
         Raises:
             Exception: If authentication fails
         """
+        # Step 1: login(email) is called
+        if verbose:
+            print(f"Logging in as {self.email}...")
+        
+        # Step 2: Platform detection (includes unknown platform handling and support validation)
+        platform = detect_primary_platform(self.email, provider)
+        if verbose:
+            print(f"{'Using specified' if provider else 'Detected'} platform: {platform.value}")
+        
+        # Step 3: Environment detection
+        environment = detect_environment()
+        if verbose:
+            print(f"Detected environment: {environment.value}")
+        
+        # Steps 4-5: Create platform client and authenticate
         from .platforms import get_platform_client
         
         try:
             # Create platform client
-            client = get_platform_client(platform, email)
+            client = get_platform_client(platform, self.email)
             
             if verbose:
                 print(f"\nAuthenticating with {platform.value}...")
@@ -139,15 +119,18 @@ class SyftClient:
             if verbose:
                 print(f"Authentication successful!")
             
-            # Create SyftClient and add the authenticated platform
-            syft_client = SyftClient(email)
-            syft_client.add_platform(client, auth_result)
+            # Add the authenticated platform to this client
+            self.add_platform(client, auth_result)
+            
+            # Check for secondary platforms
+            secondary_platforms = detect_secondary_platforms()
+            if secondary_platforms and verbose:
+                print(f"\nSecondary platforms available: {', '.join([p.value for p in secondary_platforms])}")
+                print("(These can work with any email address)")
             
             if verbose:
-                print(f"\n{syft_client}")
+                print(f"\n{self}")
                 
-            return syft_client
-            
         except NotImplementedError as e:
             raise e
         except Exception as e:
@@ -160,14 +143,6 @@ class SyftClient:
               quickstart: bool = True, verbose: bool = False, **kwargs) -> 'SyftClient':
         """
         Simple login function for syft_client
-        
-        This implements Steps 0-5 of the Beach Option B RFC login flow:
-        - Step 0: Validate email input
-        - Step 1: Begin login process
-        - Step 2: Detect platform 
-        - Step 3: Detect environment
-        - Step 4: Heat caches
-        - Step 5: Look for 1-step authentication
         
         Args:
             email: Email address to authenticate as
@@ -187,22 +162,7 @@ class SyftClient:
             else:
                 raise ValueError("Please specify an email: login(email='your@email.com')")
         
-        # Step 1: login(email) is called
-        if verbose:
-            print(f"Logging in as {email}...")
-        
-        # Step 2: Platform detection (includes unknown platform handling)
-        platform = detect_platform(email, provider)
-        if verbose:
-            print(f"{'Using specified' if provider else 'Detected'} platform: {platform.value}")
-        
-        # Validate platform is supported
-        SyftClient._validate_platform_support(email, platform)
-        
-        # Step 3: Environment detection
-        environment = detect_environment()
-        if verbose:
-            print(f"Detected environment: {environment.value}")
-        
-        # Steps 4-5: Heat caches and attempt 1-step authentication
-        return SyftClient._authenticate_platform(email, platform, verbose)
+        # Create SyftClient and login
+        client = SyftClient(email)
+        client._login(provider=provider, verbose=verbose)
+        return client
