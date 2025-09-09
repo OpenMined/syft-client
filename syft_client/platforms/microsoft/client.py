@@ -10,6 +10,14 @@ class MicrosoftClient(BasePlatformClient):
     def __init__(self, email: str):
         super().__init__(email)
         self.platform = "microsoft"
+    
+    @property
+    def login_complexity(self) -> int:
+        """
+        Return the complexity of the login process.
+        Microsoft: 3 (requires app registration + OAuth2 flow with consent screens)
+        """
+        return 3
         
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with Microsoft"""

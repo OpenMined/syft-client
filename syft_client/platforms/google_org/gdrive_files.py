@@ -24,14 +24,16 @@ class GDriveFilesTransport(BaseTransportLayer):
         
     @property
     def login_complexity(self) -> int:
-        """GDrive login complexity varies by environment"""
-        if self._cached_credentials:
-            return 0  # Already logged in
+        """Additional GDrive setup complexity (after Google auth)"""
+        if self.api_is_active:
+            return 0  # No additional setup
             
+        # In Colab, Drive API is pre-enabled
         if self.environment == Environment.COLAB:
-            return 1  # Single-step in Colab
+            return 0  # No additional setup needed
         else:
-            return 2  # OAuth2 flow required
+            # Need to enable Drive API in Console
+            return 1  # One additional step
             
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with Google Drive API"""

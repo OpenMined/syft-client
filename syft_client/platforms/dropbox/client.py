@@ -10,6 +10,14 @@ class DropboxClient(BasePlatformClient):
     def __init__(self, email: str):
         super().__init__(email)
         self.platform = "dropbox"
+    
+    @property
+    def login_complexity(self) -> int:
+        """
+        Return the complexity of the login process.
+        Dropbox: 2 (requires OAuth2 flow with browser redirect)
+        """
+        return 2
         
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with Dropbox using OAuth2"""

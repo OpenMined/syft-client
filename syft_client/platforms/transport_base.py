@@ -46,15 +46,30 @@ class BaseTransportLayer(ABC):
     @abstractmethod
     def login_complexity(self) -> int:
         """
-        Returns the number of steps required to login.
+        Returns the ADDITIONAL steps required for transport setup.
+        
+        This is IN ADDITION to platform authentication complexity.
+        Total complexity = platform.login_complexity + transport.login_complexity
         
         Returns:
-            -1: Not implemented - no login available
-            0: Already logged in (cached credentials)
-            1: Single-step login (e.g., Colab to GDrive)
-            2+: Multi-step login (e.g., API activation required)
+            0: No additional setup needed (just uses platform auth)
+            1: One additional step (e.g., enable API)
+            2+: Multiple steps (e.g., create project, enable API, create resources)
         """
         pass
+    
+    @property
+    def total_complexity(self) -> int:
+        """
+        Total login complexity including platform authentication.
+        
+        Returns:
+            -1 if platform auth not available
+            Otherwise: platform complexity + transport complexity
+        """
+        # This would need access to the platform client
+        # For now, just return transport complexity
+        return self.login_complexity
         
     @abstractmethod
     def authenticate(self) -> Dict[str, Any]:

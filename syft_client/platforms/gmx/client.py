@@ -10,12 +10,14 @@ class GMXClient(BasePlatformClient):
     def __init__(self, email: str):
         super().__init__(email)
         self.platform = "gmx"
-        
-    def authenticate(self) -> Dict[str, Any]:
-        """Authenticate with GMX"""
-        # TODO: Implement GMX authentication
-        # Note: GMX may use IMAP/SMTP authentication
-        raise NotImplementedError("GMX authentication not yet implemented")
+    
+    @property
+    def login_complexity(self) -> int:
+        """
+        Return the complexity of the login process.
+        GMX: -1 (not implemented yet)
+        """
+        return -1
         
     def get_transport_layers(self) -> List[Any]:
         """Get the transport layers for GMX"""

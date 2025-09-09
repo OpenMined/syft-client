@@ -22,7 +22,12 @@
       "Bash(uv run:*)",
       "Bash(uv add:*)",
       "Bash(timeout 5 uv run:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(cut:*)",
+      "Bash(git rm:*)",
+      "Bash(git reset:*)"
     ],
     "deny": []
   }

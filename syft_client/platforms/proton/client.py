@@ -10,12 +10,14 @@ class ProtonClient(BasePlatformClient):
     def __init__(self, email: str):
         super().__init__(email)
         self.platform = "proton"
-        
-    def authenticate(self) -> Dict[str, Any]:
-        """Authenticate with ProtonMail"""
-        # TODO: Implement ProtonMail authentication
-        # Note: ProtonMail uses end-to-end encryption, may need special handling
-        raise NotImplementedError("ProtonMail authentication not yet implemented")
+    
+    @property
+    def login_complexity(self) -> int:
+        """
+        Return the complexity of the login process.
+        Proton: -1 (not implemented yet)
+        """
+        return -1
         
     def get_transport_layers(self) -> List[str]:
         """Get list of available transport layers for this platform"""

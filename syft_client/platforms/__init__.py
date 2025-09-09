@@ -2,10 +2,11 @@
 
 from .base import BasePlatformClient
 from .transport_base import BaseTransportLayer
-from .detection import Platform, detect_platform, detect_platform_full, PlatformDetector
+from .detection import Platform, detect_primary_platform, get_secondary_platforms, detect_platform_full, PlatformDetector
 
 # Import all platform clients
-from .google import GoogleClient
+from .google_personal import GooglePersonalClient
+from .google_org import GoogleOrgClient
 from .microsoft import MicrosoftClient
 from .yahoo import YahooClient
 from .apple import AppleClient
@@ -19,7 +20,8 @@ from .smtp import SMTPClient
 
 # Platform client registry
 PLATFORM_CLIENTS = {
-    Platform.GOOGLE: GoogleClient,
+    Platform.GOOGLE_PERSONAL: GooglePersonalClient,
+    Platform.GOOGLE_ORG: GoogleOrgClient,
     Platform.MICROSOFT: MicrosoftClient,
     Platform.YAHOO: YahooClient,
     Platform.APPLE: AppleClient,
@@ -56,11 +58,13 @@ __all__ = [
     'BasePlatformClient',
     'BaseTransportLayer',
     'Platform',
-    'detect_platform',
+    'detect_primary_platform',
+    'get_secondary_platforms',
     'detect_platform_full',
     'PlatformDetector',
     'get_platform_client',
-    'GoogleClient',
+    'GooglePersonalClient',
+    'GoogleOrgClient',
     'MicrosoftClient',
     'YahooClient',
     'AppleClient',
