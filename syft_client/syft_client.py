@@ -25,6 +25,74 @@ class SyftClient:
         """
         self.email = email
         self.platforms: Dict[str, BasePlatformClient] = {}
+        self.transport_instances: Dict[str, Any] = {}  # platform:transport -> instance
+    
+    def _initialize_all_transports(self) -> None:
+        """Initialize transport instances for all possible platforms"""
+        from .platforms.detection import detect_secondary_platforms
+        from .platforms import get_platform_client
+        
+        # Get all secondary platforms
+        secondary_platforms = detect_secondary_platforms()
+        
+        # Initialize transports for secondary platforms
+        for platform in secondary_platforms:
+            try:
+                platform_client = get_platform_client(platform, self.email)
+                self._initialize_platform_transports(platform.value, platform_client)
+            except:
+                pass  # Skip if platform client can't be created
+    
+    def _initialize_platform_transports(self, platform_name: str, platform_client: BasePlatformClient) -> None:
+        """Initialize transport instances for a specific platform"""
+        # Get transport layer names from the platform
+        transport_names = platform_client.get_transport_layers()
+        
+        for transport_name in transport_names:
+            key = f"{platform_name}:{transport_name}"
+            if key not in self.transport_instances:
+                # Try to create transport instance
+                transport_instance = self._create_transport_instance(platform_name, transport_name)
+                if transport_instance:
+                    self.transport_instances[key] = transport_instance
+    
+    def _create_transport_instance(self, platform_name: str, transport_name: str) -> Optional[Any]:
+        """Create a transport instance dynamically"""
+        try:
+            # Import the transport dynamically
+            platform_module = platform_name.lower()
+            
+            # Map transport names to module names
+            transport_to_module = {
+                'SMTPEmailTransport': 'email',
+                'GmailTransport': 'gmail',
+                'GDriveFilesTransport': 'gdrive_files',
+                'GSheetsTransport': 'gsheets',
+                'GFormsTransport': 'gforms',
+                'OutlookTransport': 'outlook',
+                'OneDriveFilesTransport': 'onedrive_files',
+                'MSFormsTransport': 'ms_forms',
+                'YahooMailTransport': 'yahoo_mail',
+                'AppleMailTransport': 'apple_mail',
+                'iCloudFilesTransport': 'icloud_files',
+                'ZohoMailTransport': 'zoho_mail',
+                'ZohoDocsTransport': 'zoho_docs',
+                'ProtonMailTransport': 'protonmail',
+                'ProtonDriveTransport': 'protondrive',
+                'DropboxFilesTransport': 'files',
+            }
+            
+            module_name = transport_to_module.get(transport_name, transport_name.replace('Transport', '').lower())
+            
+            # Try to import and instantiate
+            transport_module = __import__(
+                f'syft_client.platforms.{platform_module}.{module_name}',
+                fromlist=[transport_name]
+            )
+            transport_class = getattr(transport_module, transport_name)
+            return transport_class(self.email)
+        except:
+            return None
     
     def add_platform(self, platform_client: BasePlatformClient, auth_data: Dict[str, Any]) -> None:
         """
@@ -39,6 +107,9 @@ class SyftClient:
         
         # Store auth data in the platform client for now
         platform_client._auth_data = auth_data
+        
+        # Initialize transports for this platform
+        self._initialize_platform_transports(platform_name, platform_client)
     
     @property
     def platform_names(self) -> List[str]:
@@ -61,6 +132,18 @@ class SyftClient:
             platform_name: platform.get_transport_layers()
             for platform_name, platform in self.platforms.items()
         }
+    
+    @property
+    def one_step_transports(self) -> List[str]:
+        """Get list of transport layers that are one step from being logged in (login_complexity == 1)"""
+        one_step = []
+        
+        # Simply iterate through all instantiated transports
+        for key, transport_instance in self.transport_instances.items():
+            if hasattr(transport_instance, 'login_complexity') and transport_instance.login_complexity == 1:
+                one_step.append(key)
+        
+        return one_step
     
     def __repr__(self) -> str:
         """String representation"""
@@ -121,6 +204,9 @@ class SyftClient:
             
             # Add the authenticated platform to this client
             self.add_platform(client, auth_result)
+            
+            # Initialize transports for all secondary platforms
+            self._initialize_all_transports()
             
             # Check for secondary platforms
             secondary_platforms = detect_secondary_platforms()

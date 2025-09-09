@@ -25,7 +25,9 @@
       "Bash(pkill:*)",
       "Bash(git pull:*)",
       "Bash(git stash:*)",
-      "Bash(cut:*)"
+      "Bash(cut:*)",
+      "Bash(git rm:*)",
+      "Bash(git reset:*)"
     ],
     "deny": []
   }
