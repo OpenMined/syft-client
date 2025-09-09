@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "syft-client"
-version = "0.1.5"
+version = "0.1.6"
 description = "A simple client library for setting up secure communication channels using Google Drive"
 readme = "README.md"
 authors = [
@@ -29,7 +29,8 @@ dependencies = [
     "google-api-python-client==2.95.0",
     "google-auth==2.22.0",
     "google-auth-oauthlib",
-    "syft-widget"
+    "syft-widget",
+    "dnspython"
 ]
 
 [project.optional-dependencies]
