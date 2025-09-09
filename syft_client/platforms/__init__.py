@@ -2,7 +2,7 @@
 
 from .base import BasePlatformClient
 from .transport_base import BaseTransportLayer
-from .detection import Platform, detect_primary_platform, detect_secondary_platforms, detect_platform_full, PlatformDetector
+from .detection import Platform, detect_primary_platform, get_secondary_platforms, detect_platform_full, PlatformDetector
 
 # Import all platform clients
 from .google_personal import GooglePersonalClient
@@ -59,7 +59,7 @@ __all__ = [
     'BaseTransportLayer',
     'Platform',
     'detect_primary_platform',
-    'detect_secondary_platforms',
+    'get_secondary_platforms',
     'detect_platform_full',
     'PlatformDetector',
     'get_platform_client',

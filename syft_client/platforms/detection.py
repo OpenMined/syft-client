@@ -845,15 +845,14 @@ def detect_primary_platform(email: str, provider: Optional[str] = None, raise_on
     return platform
 
 
-def detect_secondary_platforms() -> List[Platform]:
+def get_secondary_platforms() -> List[Platform]:
     """
     Get list of secondary platforms that can work with any email address
     
     Returns:
         List of Platform enums that support any email
     """
-    # Return all secondary platforms that can work with any email
-    return sorted(list(PlatformProperties.SECONDARY_PLATFORMS), key=lambda p: p.value)
+    return list(PlatformProperties.SECONDARY_PLATFORMS)
 
 
 def verify_email_smtp(email: str) -> Dict[str, Any]:

@@ -4,7 +4,7 @@ SyftClient class - Main client object that manages platforms and transport layer
 
 from typing import Dict, List, Optional, Any
 from .platforms.base import BasePlatformClient
-from .platforms.detection import Platform, detect_primary_platform, detect_secondary_platforms, PlatformDetector
+from .platforms.detection import Platform, detect_primary_platform, get_secondary_platforms, PlatformDetector
 from .environment import Environment, detect_environment
 
 
@@ -29,14 +29,10 @@ class SyftClient:
     
     def _initialize_all_transports(self) -> None:
         """Initialize transport instances for all possible platforms"""
-        from .platforms.detection import detect_secondary_platforms
         from .platforms import get_platform_client
         
-        # Get all secondary platforms
-        secondary_platforms = detect_secondary_platforms()
-        
         # Initialize transports for secondary platforms
-        for platform in secondary_platforms:
+        for platform in get_secondary_platforms():
             try:
                 platform_client = get_platform_client(platform, self.email)
                 self._initialize_platform_transports(platform.value, platform_client)
@@ -209,7 +205,7 @@ class SyftClient:
             self._initialize_all_transports()
             
             # Check for secondary platforms
-            secondary_platforms = detect_secondary_platforms()
+            secondary_platforms = get_secondary_platforms()
             if secondary_platforms and verbose:
                 print(f"\nSecondary platforms available: {', '.join([p.value for p in secondary_platforms])}")
                 print("(These can work with any email address)")
