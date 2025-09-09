@@ -35,60 +35,17 @@ class SyftClient:
         for platform in get_secondary_platforms():
             try:
                 platform_client = get_platform_client(platform, self.email)
-                self._initialize_platform_transports(platform.value, platform_client)
+                self._add_platform_transports(platform.value, platform_client)
             except:
                 pass  # Skip if platform client can't be created
     
-    def _initialize_platform_transports(self, platform_name: str, platform_client: BasePlatformClient) -> None:
-        """Initialize transport instances for a specific platform"""
-        # Get transport layer names from the platform
-        transport_names = platform_client.get_transport_layers()
+    def _add_platform_transports(self, platform_name: str, platform_client: BasePlatformClient) -> None:
+        """Add transport instances from a platform client to our registry"""
+        platform_transports = platform_client.get_transport_instances()
         
-        for transport_name in transport_names:
+        for transport_name, transport_instance in platform_transports.items():
             key = f"{platform_name}:{transport_name}"
-            if key not in self.transport_instances:
-                # Try to create transport instance
-                transport_instance = self._create_transport_instance(platform_name, transport_name)
-                if transport_instance:
-                    self.transport_instances[key] = transport_instance
-    
-    def _create_transport_instance(self, platform_name: str, transport_name: str) -> Optional[Any]:
-        """Create a transport instance dynamically"""
-        try:
-            # Import the transport dynamically
-            platform_module = platform_name.lower()
-            
-            # Map transport names to module names
-            transport_to_module = {
-                'SMTPEmailTransport': 'email',
-                'GmailTransport': 'gmail',
-                'GDriveFilesTransport': 'gdrive_files',
-                'GSheetsTransport': 'gsheets',
-                'GFormsTransport': 'gforms',
-                'OutlookTransport': 'outlook',
-                'OneDriveFilesTransport': 'onedrive_files',
-                'MSFormsTransport': 'ms_forms',
-                'YahooMailTransport': 'yahoo_mail',
-                'AppleMailTransport': 'apple_mail',
-                'iCloudFilesTransport': 'icloud_files',
-                'ZohoMailTransport': 'zoho_mail',
-                'ZohoDocsTransport': 'zoho_docs',
-                'ProtonMailTransport': 'protonmail',
-                'ProtonDriveTransport': 'protondrive',
-                'DropboxFilesTransport': 'files',
-            }
-            
-            module_name = transport_to_module.get(transport_name, transport_name.replace('Transport', '').lower())
-            
-            # Try to import and instantiate
-            transport_module = __import__(
-                f'syft_client.platforms.{platform_module}.{module_name}',
-                fromlist=[transport_name]
-            )
-            transport_class = getattr(transport_module, transport_name)
-            return transport_class(self.email)
-        except:
-            return None
+            self.transport_instances[key] = transport_instance
     
     def add_platform(self, platform_client: BasePlatformClient, auth_data: Dict[str, Any]) -> None:
         """
@@ -104,8 +61,8 @@ class SyftClient:
         # Store auth data in the platform client for now
         platform_client._auth_data = auth_data
         
-        # Initialize transports for this platform
-        self._initialize_platform_transports(platform_name, platform_client)
+        # Add transports from this platform
+        self._add_platform_transports(platform_name, platform_client)
     
     @property
     def platform_names(self) -> List[str]:

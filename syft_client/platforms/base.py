@@ -10,6 +10,7 @@ class BasePlatformClient(ABC):
     def __init__(self, email: str):
         self.email = email
         self.platform = self.__class__.__name__.replace('Client', '').lower()
+        self._transport_instances = {}  # transport_name -> instance
         
     def authenticate(self) -> Dict[str, Any]:
         """
@@ -68,6 +69,71 @@ class BasePlatformClient(ABC):
             2+: Multi-step login (e.g., OAuth2 flow)
         """
         return -1  # Default: not implemented
+    
+    def get_transport_instances(self) -> Dict[str, Any]:
+        """
+        Get all instantiated transport layers for this platform.
+        
+        Returns:
+            Dict mapping transport names to transport instances
+        """
+        # Initialize transports if not already done
+        if not self._transport_instances:
+            self._initialize_transports()
+        return self._transport_instances
+    
+    def _initialize_transports(self) -> None:
+        """Initialize all transport instances for this platform"""
+        transport_names = self.get_transport_layers()
+        
+        for transport_name in transport_names:
+            try:
+                transport_instance = self._create_transport_instance(transport_name)
+                if transport_instance:
+                    self._transport_instances[transport_name] = transport_instance
+            except:
+                pass  # Skip if transport can't be created
+    
+    def _create_transport_instance(self, transport_name: str) -> Optional[Any]:
+        """
+        Create a transport instance by name.
+        
+        Subclasses can override this to customize transport creation.
+        
+        Args:
+            transport_name: Name of the transport class
+            
+        Returns:
+            Transport instance or None if creation fails
+        """
+        try:
+            # Import transport module dynamically
+            # Convert transport name to module name (e.g., GmailTransport -> gmail)
+            module_name = transport_name.replace('Transport', '').lower()
+            
+            # Special cases for module names
+            module_map = {
+                'smtpemail': 'email',
+                'gdrive_files': 'gdrive_files',
+                'onedrive_files': 'onedrive_files',
+                'icloud_files': 'icloud_files',
+            }
+            
+            if module_name in module_map:
+                module_name = module_map[module_name]
+            
+            # Import the module
+            platform_module = self.platform
+            transport_module = __import__(
+                f'syft_client.platforms.{platform_module}.{module_name}',
+                fromlist=[transport_name]
+            )
+            
+            # Get the transport class and instantiate it
+            transport_class = getattr(transport_module, transport_name)
+            return transport_class(self.email)
+        except Exception:
+            return None
         
     def __repr__(self):
         return f"{self.__class__.__name__}(email='{self.email}')"
