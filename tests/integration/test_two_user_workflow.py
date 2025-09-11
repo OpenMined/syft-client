@@ -8,6 +8,7 @@ from typing import Dict, Any
 
 import syft_client as sc
 from tests.utils.audit_logger import CIAuditLogger
+from tests.utils.test_helpers import login_with_adapter
 
 
 @pytest.mark.integration
@@ -303,7 +304,7 @@ class TestAuthenticationIntegration:
         
         # Test User1 authentication
         try:
-            user1 = sc.login(user1_email, verbose=False)
+            user1 = login_with_adapter(user1_email, verbose=False)
             assert user1.authenticated, "User1 should be authenticated"
             assert user1.my_email == user1_email, f"User1 email mismatch: {user1.my_email} vs {user1_email}"
             print(f"   ✅ User1 ({user1.my_email}) authenticated successfully")
@@ -312,7 +313,7 @@ class TestAuthenticationIntegration:
         
         # Test User2 authentication
         try:
-            user2 = sc.login(user2_email, verbose=False)
+            user2 = login_with_adapter(user2_email, verbose=False)
             assert user2.authenticated, "User2 should be authenticated"
             assert user2.my_email == user2_email, f"User2 email mismatch: {user2.my_email} vs {user2_email}"
             print(f"   ✅ User2 ({user2.my_email}) authenticated successfully")

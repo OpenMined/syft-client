@@ -129,45 +129,7 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ~/.syft/test/service-account.json
         run: |
           echo "📚 Listing CI Audit Logs created in Google Drive..."
-          python -c "
-          import syft_client as sc
-          import os
-          
-          user1_email = os.environ.get('TEST_USER1_EMAIL')
-          user2_email = os.environ.get('TEST_USER2_EMAIL')
-          
-          print('🔍 Checking audit logs for both test users...')
-          
-          for email in [user1_email, user2_email]:
-              try:
-                  user = sc.login(email, verbose=False, force_relogin=False)
-                  print(f'\\n📁 Audit logs for {email}:')
-                  
-                  # List files in CI_AUDIT_LOGS_DO_NOT_DELETE folder at root
-                  results = user.service.files().list(
-                      q=\"name='CI_AUDIT_LOGS_DO_NOT_DELETE' and 'root' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false\",
-                      fields=\"files(id)\"
-                  ).execute()
-                  
-                  if results.get('files'):
-                      audit_folder_id = results['files'][0]['id']
-                      
-                      # List audit files
-                      audit_files = user.service.files().list(
-                          q=f\"'{audit_folder_id}' in parents and trashed=false\",
-                          fields=\"files(id,name,createdTime)\",
-                          orderBy=\"createdTime desc\"
-                      ).execute()
-                      
-                      for file in audit_files.get('files', []):
-                          print(f\"   - {file['name']} (created: {file['createdTime']})  \")
-                  else:
-                      print('   No audit logs folder found')
-              except Exception as e:
-                  print(f'   Error checking {email}: {e}')
-          
-          print('\\n✅ Audit log listing complete')
-          "
+          python .github/scripts/display_audit_logs.py
 
       - name: Run live API tests
         env:
@@ -177,73 +139,7 @@ jobs:
           SYFT_TEST_MODE: integration
         run: |
           echo "🌐 Running live API verification tests..."
-          
-          # Create a Python script to test live functionality
-          cat > test_live_api.py << 'EOF'
-          import syft_client as sc
-          import os
-          import sys
-          
-          def test_live_api():
-              """Test that the API works with live Google Drive"""
-              user1_email = os.environ.get('TEST_USER1_EMAIL')
-              user2_email = os.environ.get('TEST_USER2_EMAIL')
-              
-              print("🔍 Testing live API functionality...")
-              
-              # Test 1: Can authenticate
-              print("  1️⃣ Testing authentication...")
-              try:
-                  user1 = sc.login(user1_email, verbose=False, force_relogin=False)
-                  assert user1.authenticated, "User1 authentication failed"
-                  print(f"     ✅ User1 authenticated: {user1.my_email}")
-              except Exception as e:
-                  print(f"     ❌ Authentication failed: {e}")
-                  return False
-              
-              # Test 2: Can access Google Drive API
-              print("  2️⃣ Testing Google Drive API access...")
-              try:
-                  result = user1.service.files().list(pageSize=1, fields="files(id,name)").execute()
-                  print(f"     ✅ Google Drive API accessible")
-              except Exception as e:
-                  print(f"     ❌ API access failed: {e}")
-                  return False
-              
-              # Test 3: Can create and delete folders
-              print("  3️⃣ Testing folder operations...")
-              try:
-                  test_folder_id = user1._create_folder("test_post_merge_folder")
-                  assert test_folder_id, "Folder creation failed"
-                  print(f"     ✅ Created test folder: {test_folder_id}")
-                  
-                  # Clean up
-                  user1.service.files().delete(fileId=test_folder_id).execute()
-                  print(f"     ✅ Deleted test folder")
-              except Exception as e:
-                  print(f"     ❌ Folder operations failed: {e}")
-                  return False
-              
-              # Test 4: SyftBox exists or can be created
-              print("  4️⃣ Testing SyftBox functionality...")
-              try:
-                  if not user1._folder_exists("SyftBoxTransportService"):
-                      user1.reset_syftbox()
-                  assert user1._folder_exists("SyftBoxTransportService"), "SyftBox not found"
-                  print(f"     ✅ SyftBox verified")
-              except Exception as e:
-                  print(f"     ❌ SyftBox test failed: {e}")
-                  return False
-              
-              print("\n✅ All live API tests passed!")
-              return True
-          
-          if __name__ == "__main__":
-              success = test_live_api()
-              sys.exit(0 if success else 1)
-          EOF
-          
-          python test_live_api.py
+          python .github/scripts/test_live_api.py
 
       - name: Upload post-merge test results
         if: always()
@@ -252,7 +148,6 @@ jobs:
           name: post-merge-test-results
           path: |
             junit-smoke-*.xml
-            test_live_api.py
 
       - name: Notify on failure
         if: failure()
