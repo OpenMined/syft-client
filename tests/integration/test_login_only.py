@@ -65,13 +65,17 @@ class TestLoginOnly:
         if not (os.environ.get('CI') == 'true' or os.environ.get('GITHUB_ACTIONS') == 'true'):
             pytest.skip("This test only runs in CI environment")
             
+        from tests.utils.gdrive_adapter import GDriveAdapter
+        
         user1_email = test_users['user1']['email']
         
         print(f"\n🔍 Testing that no browser is opened in CI")
         
         # This should use cached token and not open browser
         try:
-            client = sc.login(user1_email, verbose=True, force_relogin=False)
+            provider = 'google_personal' if '@gmail.com' in user1_email else 'google_org'
+            syft_client = sc.login(user1_email, provider=provider, verbose=True)
+            client = GDriveAdapter(syft_client)
             assert client.authenticated, "Should authenticate with cached token"
             print(f"   ✅ Authenticated without browser: {client.my_email}")
         except Exception as e:

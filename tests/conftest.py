@@ -265,6 +265,7 @@ def integration_test_clients(test_users):
     # Import here to avoid import errors when not in integration mode
     import syft_client as sc
     from tests.utils.cleanup import cleanup_test_folders
+    from tests.utils.gdrive_adapter import GDriveAdapter
     
     # Create clients
     user1_email = test_users['user1']['email']
@@ -295,24 +296,29 @@ def integration_test_clients(test_users):
             # No need to provide credentials_path as tokens are already in wallet
             # IMPORTANT: Don't use force_relogin=True in CI because it would try to open a browser
             print(f"🔐 Logging in user1 with pre-configured token...")
-            user1 = sc.login(user1_email, verbose=False, force_relogin=False)  # Use False in CI
+            # Determine if it's gmail.com (personal) or organization account
+            provider1 = 'google_personal' if '@gmail.com' in user1_email else 'google_org'
+            client1 = sc.login(user1_email, provider=provider1, verbose=False)
+            user1 = GDriveAdapter(client1)  # Wrap in adapter for backward compatibility
             print(f"✅ User1 logged in successfully")
             
             print(f"🔐 Logging in user2 with pre-configured token...")
-            user2 = sc.login(user2_email, verbose=False, force_relogin=False)  # Use False in CI
+            provider2 = 'google_personal' if '@gmail.com' in user2_email else 'google_org'
+            client2 = sc.login(user2_email, provider=provider2, verbose=False)
+            user2 = GDriveAdapter(client2)  # Wrap in adapter for backward compatibility
             print(f"✅ User2 logged in successfully")
         else:
             # Local development - try with credentials files if they exist
-            # Use force_relogin=False to avoid browser popups in automated tests
-            if os.path.exists(user1_creds):
-                user1 = sc.login(user1_email, credentials_path=user1_creds, force_relogin=False)
-            else:
-                user1 = sc.login(user1_email, force_relogin=False)
+            # Determine provider based on email domain
+            print(f"🔐 Logging in user1 locally...")
+            provider1 = 'google_personal' if '@gmail.com' in user1_email else 'google_org'
+            client1 = sc.login(user1_email, provider=provider1, verbose=False)
+            user1 = GDriveAdapter(client1)
                 
-            if os.path.exists(user2_creds):
-                user2 = sc.login(user2_email, credentials_path=user2_creds, force_relogin=False)
-            else:
-                user2 = sc.login(user2_email, force_relogin=False)
+            print(f"🔐 Logging in user2 locally...")
+            provider2 = 'google_personal' if '@gmail.com' in user2_email else 'google_org'
+            client2 = sc.login(user2_email, provider=provider2, verbose=False)
+            user2 = GDriveAdapter(client2)
         
         # Clean slate
         user1.reset_syftbox()
