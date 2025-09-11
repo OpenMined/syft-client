@@ -28,20 +28,8 @@ class SyftClient:
             email: The email address for this client
         """
         self.email = email
-        self._platforms_dict: Dict[str, BasePlatformClient] = {}
+        self.platforms: Dict[str, BasePlatformClient] = {}
         self.transport_instances: Dict[str, Any] = {}  # platform:transport -> instance
-        
-        # Create a namespace object for cleaner access
-        class PlatformsNamespace:
-            def __init__(self, parent):
-                self._parent = parent
-                
-            def __dir__(self):
-                """Show only platform names in tab completion"""
-                # Get platform names from the parent's platforms dict
-                return list(self._parent._platforms_dict.keys())
-        
-        self._platforms_ns = PlatformsNamespace(self)
     
     def _initialize_all_transports(self) -> None:
         """Initialize transport instances for all possible platforms"""
@@ -72,30 +60,22 @@ class SyftClient:
             auth_data: Authentication data from the platform
         """
         platform_name = platform_client.platform
-        self._platforms_dict[platform_name] = platform_client
+        self.platforms[platform_name] = platform_client
         
         # Store auth data in the platform client for now
         platform_client._auth_data = auth_data
         
         # Add transports from this platform
         self._add_platform_transports(platform_name, platform_client)
-        
-        # Add to namespace for easier access
-        setattr(self._platforms_ns, platform_name, platform_client)
-    
-    @property
-    def platforms(self) -> Any:
-        """Get platforms namespace for easier access"""
-        return self._platforms_ns
     
     @property
     def platform_names(self) -> List[str]:
         """Get list of authenticated platform names"""
-        return list(self._platforms_dict.keys())
+        return list(self.platforms.keys())
     
     def get_platform(self, platform_name: str) -> Optional[BasePlatformClient]:
         """Get a specific platform client by name"""
-        return self._platforms_dict.get(platform_name)
+        return self.platforms.get(platform_name)
     
     def get_transports(self, platform_name: str) -> List[str]:
         """Get transport layers for a specific platform"""
@@ -107,7 +87,7 @@ class SyftClient:
         """Get all transport layers grouped by platform"""
         return {
             platform_name: platform.get_transport_layers()
-            for platform_name, platform in self._platforms_dict.items()
+            for platform_name, platform in self.platforms.items()
         }
     
     @property
@@ -125,7 +105,7 @@ class SyftClient:
     def __repr__(self) -> str:
         """String representation"""
         platform_info = []
-        for name, platform in self._platforms_dict.items():
+        for name, platform in self.platforms.items():
             transports = platform.get_transport_layers()
             platform_info.append(f"{name}:{len(transports)}")
         return f"SyftClient(email='{self.email}', platforms=[{', '.join(platform_info)}])"
@@ -133,7 +113,7 @@ class SyftClient:
     def __str__(self) -> str:
         """User-friendly string representation"""
         lines = [f"SyftClient - {self.email}"]
-        for platform_name, platform in self._platforms_dict.items():
+        for platform_name, platform in self.platforms.items():
             transports = platform.get_transport_layers()
             lines.append(f"  • {platform_name}: {', '.join(transports)}")
         return "\n".join(lines)

@@ -24,31 +24,12 @@ class GooglePersonalClient(BasePlatformClient):
         from .gforms import GFormsTransport
         
         # Create transport instances
-        self._transports_dict = {
+        self.transports = {
             'gmail': GmailTransport(self.email),
             'gdrive_files': GDriveFilesTransport(self.email),
             'gsheets': GSheetsTransport(self.email),
             'gforms': GFormsTransport(self.email)
         }
-        
-        # Create namespace for easier access
-        class TransportsNamespace:
-            def __init__(self, parent):
-                self._parent = parent
-                
-            def __dir__(self):
-                """Show only transport names in tab completion"""
-                # Get transport names from the parent's transports dict
-                return list(self._parent._transports_dict.keys())
-        
-        self._transports_ns = TransportsNamespace(self)
-        for name, transport in self._transports_dict.items():
-            setattr(self._transports_ns, name, transport)
-    
-    @property
-    def transports(self) -> Any:
-        """Get transports namespace for easier access"""
-        return self._transports_ns
     
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with personal Gmail using app password"""
@@ -65,7 +46,7 @@ class GooglePersonalClient(BasePlatformClient):
         successful_transports = []
         failed_transports = []
         
-        for transport_name, transport in self._transports_dict.items():
+        for transport_name, transport in self.transports.items():
             if transport.login_complexity <= 1:  # Only try simple transports
                 try:
                     if transport.setup(credentials):
@@ -102,12 +83,12 @@ class GooglePersonalClient(BasePlatformClient):
         
     def get_transport_layers(self) -> List[str]:
         """Get list of available transport layers for personal Gmail"""
-        return list(self._transports_dict.keys())
+        return list(self.transports.keys())
     
     def get_transport_instances(self) -> Dict[str, Any]:
         """Get all instantiated transport layers for this platform"""
         # Return our pre-initialized transports instead of using base class logic
-        return self._transports_dict
+        return self.transports
     
     @property
     def login_complexity(self) -> int:
@@ -144,7 +125,7 @@ class GooglePersonalClient(BasePlatformClient):
             raise RuntimeError("Cannot prompt for password in non-interactive mode")
         
         try:
-            prompt = " Enter Password: " if not self.verbose else "\nEnter your Google app password (16 characters): "
+            prompt = "Enter Password: " if not self.verbose else "\nEnter your Google app password (16 characters): "
             password = getpass.getpass(prompt)
         except (EOFError, KeyboardInterrupt):
             raise RuntimeError("Password input cancelled by user")
