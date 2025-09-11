@@ -16,6 +16,10 @@ class SyftClient:
     that can have multiple platforms (e.g., Gmail + Dropbox with same email).
     """
     
+    def __dir__(self):
+        """Limit tab completion to only show essential attributes"""
+        return ['email', 'platforms']
+    
     def __init__(self, email: str):
         """
         Initialize a SyftClient for a specific email
@@ -28,7 +32,12 @@ class SyftClient:
         self.transport_instances: Dict[str, Any] = {}  # platform:transport -> instance
         
         # Create a namespace object for cleaner access
-        self._platforms_ns = type('PlatformsNamespace', (), {})()
+        class PlatformsNamespace:
+            def __dir__(self):
+                """Show only platform names in tab completion"""
+                return [attr for attr in vars(self) if not attr.startswith('_')]
+        
+        self._platforms_ns = PlatformsNamespace()
     
     def _initialize_all_transports(self) -> None:
         """Initialize transport instances for all possible platforms"""

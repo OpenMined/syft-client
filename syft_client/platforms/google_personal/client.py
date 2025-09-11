@@ -32,7 +32,12 @@ class GooglePersonalClient(BasePlatformClient):
         }
         
         # Create namespace for easier access
-        self._transports_ns = type('TransportsNamespace', (), {})()
+        class TransportsNamespace:
+            def __dir__(self):
+                """Show only transport names in tab completion"""
+                return [attr for attr in vars(self) if not attr.startswith('_')]
+        
+        self._transports_ns = TransportsNamespace()
         for name, transport in self._transports_dict.items():
             setattr(self._transports_ns, name, transport)
     

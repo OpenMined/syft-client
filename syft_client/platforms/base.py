@@ -7,6 +7,10 @@ from typing import Any, Dict, Optional, List
 class BasePlatformClient(ABC):
     """Abstract base class for all platform clients"""
     
+    def __dir__(self):
+        """Limit tab completion to only show essential attributes"""
+        return ['email', 'transports']
+    
     def __init__(self, email: str, **kwargs):
         self.email = email
         self.platform = self.__class__.__name__.replace('Client', '').lower()
