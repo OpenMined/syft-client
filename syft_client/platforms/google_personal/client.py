@@ -29,17 +29,7 @@ class GooglePersonalClient(BasePlatformClient):
     
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with personal Gmail using app password"""
-        print(f"\nGoogle Personal Account Authentication for {self.email}")
-        print("=" * 60)
-        
-        # Check if we need to use OAuth2 or app password
-        auth_method = self._choose_auth_method()
-        
-        if auth_method == "app_password":
-            return self._authenticate_with_app_password()
-        else:
-            # OAuth2 flow not implemented yet
-            raise NotImplementedError("OAuth2 authentication not yet implemented. Please use app password method.")
+        return self._authenticate_with_app_password()
         
     def get_transport_layers(self) -> List[str]:
         """Get list of available transport layers for personal Gmail"""
@@ -70,64 +60,16 @@ class GooglePersonalClient(BasePlatformClient):
             return 3  # App password steps
     
     
-    def _choose_auth_method(self) -> str:
-        """Let user choose authentication method"""
-        print("\nAuthentication options for personal Gmail:")
-        print("1. App Password (recommended for simplicity)")
-        print("2. OAuth2 (more secure but requires browser)")
-        
-        # Check if we're in an interactive environment
-        import sys
-        
-        # Check for Jupyter/IPython
-        try:
-            get_ipython()  # This is defined in Jupyter/IPython
-            # We're in Jupyter - this is interactive
-            pass
-        except NameError:
-            # Not in Jupyter - check if regular terminal is interactive
-            if not sys.stdin.isatty():
-                # Non-interactive mode - default to app password
-                print("\nNon-interactive mode detected, using app password method...")
-                return "app_password"
-        
-        while True:
-            try:
-                choice = input("\nChoose authentication method (1 or 2) [1]: ").strip()
-                if choice == "" or choice == "1":
-                    return "app_password"
-                elif choice == "2":
-                    return "oauth2"
-                else:
-                    print("Please enter 1 or 2")
-            except (EOFError, KeyboardInterrupt):
-                # Input failed - default to app password
-                print("\nInput failed, using app password method...")
-                return "app_password"
     
     def _authenticate_with_app_password(self) -> Dict[str, Any]:
         """Authenticate using Gmail app password"""
-        print("\n📱 Gmail App Password Setup")
-        print("-" * 60)
-        print("To use syft_client with Gmail, you need an app-specific password.")
-        print("\nRequirements:")
-        print("1. Two-Factor Authentication (2FA) must be enabled on your Google account")
-        print("2. Generate an app-specific password for syft_client")
-        
         # Add authuser parameter to ensure correct account
         import urllib.parse
         encoded_email = urllib.parse.quote(self.email)
         app_password_url = f"https://myaccount.google.com/apppasswords?authuser={encoded_email}"
         
-        print("\nSteps to generate an app password:")
-        print(f"1. Go to: {app_password_url}")
-        print(f"   (This link will open in your {self.email} account)")
-        print("2. Under 'Select app', choose 'Mail'")
-        print("3. Under 'Select device', choose 'Other' and enter 'syft_client'")
-        print("4. Click 'Generate'")
-        print("5. Copy the 16-character password (ignore spaces)")
-        
-        print("\n" + "="*60)
+        print(f"\n📱 Gmail App Password required for {self.email}")
+        print(f"Generate one at: {app_password_url}")
         
         # Get app password from user
         import sys
