@@ -83,8 +83,15 @@ class GmailTransport(BaseTransportLayer):
             return False
     
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
-        """Setup Gmail transport with credentials"""
-        if credentials and 'password' in credentials:
+        """Setup Gmail transport with credentials and test connection"""
+        if not credentials or 'password' not in credentials:
+            return False
+            
+        # Test connection before storing credentials
+        email = credentials.get('email', self.email)
+        password = credentials['password']
+        
+        if self.test_connection(email, password, verbose=False):
             self.credentials = credentials
             self._cached_credentials = credentials
             return True

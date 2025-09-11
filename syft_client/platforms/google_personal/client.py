@@ -33,7 +33,53 @@ class GooglePersonalClient(BasePlatformClient):
     
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with personal Gmail using app password"""
-        return self._authenticate_with_app_password()
+        # Get app password from user
+        password = self._get_app_password()
+        
+        # Setup credentials
+        credentials = {
+            'email': self.email,
+            'password': password
+        }
+        
+        # Try to setup all transport layers with low complexity
+        successful_transports = []
+        failed_transports = []
+        
+        for transport_name, transport in self.transports.items():
+            if transport.login_complexity <= 1:  # Only try simple transports
+                try:
+                    if transport.setup(credentials):
+                        successful_transports.append(transport_name)
+                        if self.verbose:
+                            print(f"✓ {transport_name} setup successful")
+                    else:
+                        failed_transports.append(transport_name)
+                        if self.verbose:
+                            print(f"✗ {transport_name} setup failed")
+                except Exception as e:
+                    failed_transports.append(transport_name)
+                    if self.verbose:
+                        print(f"✗ {transport_name} setup error: {e}")
+        
+        # Check if at least one transport succeeded
+        if not successful_transports:
+            raise ValueError("Failed to setup any transport layers")
+        
+        if self.verbose:
+            print(f"\n✅ Authentication successful!")
+            print(f"Active transports: {', '.join(successful_transports)}")
+            if failed_transports:
+                print(f"Failed transports: {', '.join(failed_transports)}")
+        
+        # Return auth data
+        return {
+            'email': self.email,
+            'auth_method': 'app_password',
+            'credentials': credentials,
+            'active_transports': successful_transports,
+            'failed_transports': failed_transports
+        }
         
     def get_transport_layers(self) -> List[str]:
         """Get list of available transport layers for personal Gmail"""
@@ -61,8 +107,8 @@ class GooglePersonalClient(BasePlatformClient):
             # App password is simpler than OAuth2 for now
             return 3  # App password steps
     
-    def _authenticate_with_app_password(self) -> Dict[str, Any]:
-        """Authenticate using Gmail app password"""
+    def _get_app_password(self) -> str:
+        """Get Gmail app password from user"""
         # Add authuser parameter to ensure correct account
         import urllib.parse
         encoded_email = urllib.parse.quote(self.email)
@@ -76,17 +122,12 @@ class GooglePersonalClient(BasePlatformClient):
             print(f"If you don't have a Google App Password: {app_password_url}")
         
         if not self.is_interactive:
-            print("\n❌ Error: Non-interactive mode detected")
-            print("App password authentication requires user input.")
-            print("Please run in interactive mode or use OAuth2 authentication.")
             raise RuntimeError("Cannot prompt for password in non-interactive mode")
         
         try:
             prompt = " Enter Password: " if not self.verbose else "\nEnter your Google app password (16 characters): "
             password = getpass.getpass(prompt)
         except (EOFError, KeyboardInterrupt):
-            if self.verbose:
-                print("\n❌ Password input cancelled")
             raise RuntimeError("Password input cancelled by user")
         
         # Remove spaces from password
@@ -94,51 +135,8 @@ class GooglePersonalClient(BasePlatformClient):
         
         # Validate password format
         if len(password) != 16:
-            if self.verbose:
-                print(f"\n❌ Error: App passwords should be 16 characters (got {len(password)})")
-                print("Please generate a new app password from Google account settings.")
-            raise ValueError("Invalid app password length")
+            raise ValueError(f"Invalid app password length: expected 16 characters, got {len(password)}")
         
-        if self.verbose:
-            print("\n🔍 Testing Gmail connection...")
-        
-        # Test connection using the pre-initialized Gmail transport
-        gmail_transport = self.transports['gmail']
-        
-        if gmail_transport.test_connection(self.email, password, verbose=self.verbose):
-            if self.verbose:
-                print("\n✅ Authentication successful!")
-                print("\n💡 Tip: Save your app password in your password manager")
-                print("   to avoid re-entering it next time.")
-            
-            # Setup all transports with credentials
-            credentials = {
-                'email': self.email,
-                'password': password
-            }
-            
-            for transport_name, transport in self.transports.items():
-                transport.setup(credentials)
-            
-            # Return auth data
-            auth_data = {
-                'email': self.email,
-                'auth_method': 'app_password',
-                'credentials': {
-                    'email': self.email,
-                    'password': password
-                }
-            }
-            
-            return auth_data
-        else:
-            if self.verbose:
-                print("\n❌ Authentication failed!")
-                print("\nPossible issues:")
-                print("1. The app password may be incorrect")
-                print("2. 2FA might not be enabled on your account")
-                print("3. The password might have been revoked")
-                print("\nPlease generate a new app password and try again.")
-            raise ValueError("Gmail authentication failed")
+        return password
     
     
