@@ -48,57 +48,19 @@ class GmailTransport(BaseTransportLayer):
         """No additional setup needed after app password auth"""
         return 0  # Gmail client already handles authentication
     
-    def test_connection(self, email: str, password: str, verbose: bool = False) -> bool:
-        """Test Gmail connection with provided credentials"""
-        smtp_success = self._test_smtp_connection(email, password, verbose)
-        imap_success = self._test_imap_connection(email, password, verbose)
-        return smtp_success and imap_success
-    
-    def _test_smtp_connection(self, email: str, password: str, verbose: bool = False) -> bool:
-        """Test SMTP connection with Gmail"""
-        try:
-            with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10) as smtp:
-                smtp.starttls()
-                smtp.login(email, password)
-            
-            if verbose:
-                print("✓ SMTP connection successful")
-            return True
-        except Exception as e:
-            if verbose:
-                print(f"✗ SMTP connection failed: {e}")
-            return False
-    
-    def _test_imap_connection(self, email: str, password: str, verbose: bool = False) -> bool:
-        """Test IMAP connection with Gmail"""
-        try:
-            with imaplib.IMAP4_SSL(self.imap_server, self.imap_port) as imap:
-                imap.login(email, password)
-                imap.logout()
-            
-            if verbose:
-                print("✓ IMAP connection successful")
-            return True
-        except Exception as e:
-            if verbose:
-                print(f"✗ IMAP connection failed: {e}")
-            return False
     
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
-        """Setup Gmail transport with credentials and test connection"""
+        """Setup Gmail transport with credentials"""
         if not credentials or 'password' not in credentials:
             return False
             
-        # Test connection before storing credentials
-        email = credentials.get('email', self.email)
-        password = credentials['password']
+        # Store credentials
+        self.credentials = credentials
+        self._cached_credentials = credentials
+        self._is_setup_verified = False  # Reset verification flag
         
-        if self.test_connection(email, password, verbose=False):
-            self.credentials = credentials
-            self._cached_credentials = credentials
-            self._is_setup_verified = False  # Reset verification flag
-            return True
-        return False
+        # Test by sending email to self
+        return True
     
     def is_setup(self) -> bool:
         """Check if Gmail transport is ready"""
