@@ -33,11 +33,15 @@ class SyftClient:
         
         # Create a namespace object for cleaner access
         class PlatformsNamespace:
+            def __init__(self, parent):
+                self._parent = parent
+                
             def __dir__(self):
                 """Show only platform names in tab completion"""
-                return [attr for attr in vars(self) if not attr.startswith('_')]
+                # Get platform names from the parent's platforms dict
+                return list(self._parent._platforms_dict.keys())
         
-        self._platforms_ns = PlatformsNamespace()
+        self._platforms_ns = PlatformsNamespace(self)
     
     def _initialize_all_transports(self) -> None:
         """Initialize transport instances for all possible platforms"""
