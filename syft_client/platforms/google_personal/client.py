@@ -24,12 +24,22 @@ class GooglePersonalClient(BasePlatformClient):
         from .gforms import GFormsTransport
         
         # Create transport instances
-        self.transports = {
+        self._transports_dict = {
             'gmail': GmailTransport(self.email),
             'gdrive_files': GDriveFilesTransport(self.email),
             'gsheets': GSheetsTransport(self.email),
             'gforms': GFormsTransport(self.email)
         }
+        
+        # Create namespace for easier access
+        self._transports_ns = type('TransportsNamespace', (), {})()
+        for name, transport in self._transports_dict.items():
+            setattr(self._transports_ns, name, transport)
+    
+    @property
+    def transports(self) -> Any:
+        """Get transports namespace for easier access"""
+        return self._transports_ns
     
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with personal Gmail using app password"""
@@ -46,7 +56,7 @@ class GooglePersonalClient(BasePlatformClient):
         successful_transports = []
         failed_transports = []
         
-        for transport_name, transport in self.transports.items():
+        for transport_name, transport in self._transports_dict.items():
             if transport.login_complexity <= 1:  # Only try simple transports
                 try:
                     if transport.setup(credentials):
@@ -83,12 +93,12 @@ class GooglePersonalClient(BasePlatformClient):
         
     def get_transport_layers(self) -> List[str]:
         """Get list of available transport layers for personal Gmail"""
-        return list(self.transports.keys())
+        return list(self._transports_dict.keys())
     
     def get_transport_instances(self) -> Dict[str, Any]:
         """Get all instantiated transport layers for this platform"""
         # Return our pre-initialized transports instead of using base class logic
-        return self.transports
+        return self._transports_dict
     
     @property
     def login_complexity(self) -> int:
