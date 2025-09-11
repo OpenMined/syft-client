@@ -12,19 +12,23 @@ class GooglePersonalClient(BasePlatformClient):
     def __init__(self, email: str, verbose: bool = False):
         super().__init__(email, verbose=verbose)
         self.platform = "google_personal"
-        self._gmail_servers = {
-            'smtp': {
-                'server': 'smtp.gmail.com',
-                'port': 587,
-                'ssl': False,
-                'starttls': True
-            },
-            'imap': {
-                'server': 'imap.gmail.com',
-                'port': 993,
-                'ssl': True,
-                'starttls': False
-            }
+        
+        # Initialize all transport layers for this platform
+        self._initialize_transport_layers()
+    
+    def _initialize_transport_layers(self) -> None:
+        """Initialize all transport layers for Google Personal"""
+        from .gmail import GmailTransport
+        from .gdrive_files import GDriveFilesTransport
+        from .gsheets import GSheetsTransport
+        from .gforms import GFormsTransport
+        
+        # Create transport instances
+        self.transports = {
+            'gmail': GmailTransport(self.email),
+            'gdrive_files': GDriveFilesTransport(self.email),
+            'gsheets': GSheetsTransport(self.email),
+            'gforms': GFormsTransport(self.email)
         }
     
     def authenticate(self) -> Dict[str, Any]:
@@ -33,12 +37,12 @@ class GooglePersonalClient(BasePlatformClient):
         
     def get_transport_layers(self) -> List[str]:
         """Get list of available transport layers for personal Gmail"""
-        return [
-            'GmailTransport',
-            'GDriveFilesTransport', 
-            'GSheetsTransport',
-            'GFormsTransport'
-        ]
+        return list(self.transports.keys())
+    
+    def get_transport_instances(self) -> Dict[str, Any]:
+        """Get all instantiated transport layers for this platform"""
+        # Return our pre-initialized transports instead of using base class logic
+        return self.transports
     
     @property
     def login_complexity(self) -> int:
@@ -57,20 +61,6 @@ class GooglePersonalClient(BasePlatformClient):
             # App password is simpler than OAuth2 for now
             return 3  # App password steps
     
-    def _create_transport_instance(self, transport_name: str) -> Optional[Any]:
-        """Create a transport instance with proper credentials if available"""
-        transport_instance = super()._create_transport_instance(transport_name)
-        
-        # If we have auth data and this is Gmail transport, set credentials
-        if transport_instance and transport_name == 'GmailTransport' and hasattr(self, '_auth_data'):
-            credentials = self._auth_data.get('credentials', {})
-            if credentials:
-                transport_instance.set_credentials(
-                    credentials.get('email', self.email),
-                    credentials.get('password')
-                )
-        
-        return transport_instance
     
     
     
@@ -115,9 +105,8 @@ class GooglePersonalClient(BasePlatformClient):
         if self.verbose:
             print("\n🔍 Testing Gmail connection...")
         
-        # Create Gmail transport and test connection
-        from .gmail import GmailTransport
-        gmail_transport = GmailTransport(self.email)
+        # Test connection using the pre-initialized Gmail transport
+        gmail_transport = self.transports['gmail']
         
         if gmail_transport.test_connection(self.email, password, verbose=self.verbose):
             if self.verbose:
@@ -125,11 +114,15 @@ class GooglePersonalClient(BasePlatformClient):
                 print("\n💡 Tip: Save your app password in your password manager")
                 print("   to avoid re-entering it next time.")
             
+            # Set credentials on all transports
+            for transport_name, transport in self.transports.items():
+                if hasattr(transport, 'set_credentials'):
+                    transport.set_credentials(self.email, password)
+            
             # Return auth data
             auth_data = {
                 'email': self.email,
                 'auth_method': 'app_password',
-                'servers': self._gmail_servers,
                 'credentials': {
                     'email': self.email,
                     'password': password
