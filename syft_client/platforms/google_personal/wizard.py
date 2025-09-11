@@ -1,0 +1,207 @@
+"""OAuth2 credentials.json creation wizard for Google Personal platform"""
+
+from typing import Optional
+import webbrowser
+from pathlib import Path
+
+
+def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> None:
+    """
+    Interactive wizard to guide users through creating OAuth2 credentials
+    
+    Args:
+        email: User's email for account-specific URLs
+        verbose: Whether to show detailed instructions
+    """
+    print("\n🔐 OAuth2 Credentials Setup Wizard")
+    print("=" * 50)
+    print("\nThis wizard will guide you through creating OAuth2 credentials for Google APIs.")
+    
+    # Check if in Colab
+    try:
+        import google.colab
+        print("\n🎉 Good news! You're using Google Colab")
+        print("Google Colab provides built-in authentication. You don't need credentials.json!")
+        print(f"Simply run: login('{email or 'your@gmail.com'}')")
+        return
+    except ImportError:
+        pass
+    
+    # Email-specific URL parameter
+    authuser = f"?authuser={email}" if email else ""
+    
+    print("\n📋 Prerequisites:")
+    print("  • A Google account")
+    print("  • Access to Google Cloud Console")
+    print("  • 5-10 minutes to complete setup")
+    
+    if verbose:
+        print("\n🚀 Ready to start? Press Enter to continue...")
+        input()
+    
+    # Step 1: Create Project
+    print("\n📝 Step 1: Create a Google Cloud Project")
+    print("-" * 40)
+    project_url = f"https://console.cloud.google.com/projectcreate{authuser}"
+    print(f"1. Open: {project_url}")
+    print("2. Enter a project name (e.g., 'Syft Client')")
+    print("3. Click 'CREATE'")
+    print("4. Wait for project creation (takes ~30 seconds)")
+    
+    if _ask_to_open_url(project_url):
+        webbrowser.open(project_url)
+    
+    if verbose:
+        input("\nPress Enter when your project is created...")
+    
+    # Step 2: Enable APIs
+    print("\n🔌 Step 2: Enable Required APIs")
+    print("-" * 40)
+    apis = ["gmail", "drive", "sheets.googleapis.com", "forms.googleapis.com"]
+    
+    for api in apis:
+        api_name = api.replace(".googleapis.com", "").title()
+        if api == "sheets.googleapis.com":
+            api_url = f"https://console.cloud.google.com/apis/library/sheets.googleapis.com{authuser}"
+        elif api == "forms.googleapis.com":
+            api_url = f"https://console.cloud.google.com/apis/library/forms.googleapis.com{authuser}"
+        else:
+            api_url = f"https://console.cloud.google.com/apis/library/{api}{authuser}"
+        
+        print(f"\n  {api_name} API:")
+        print(f"  1. Open: {api_url}")
+        print(f"  2. Click 'ENABLE'")
+        
+        if _ask_to_open_url(api_url, f"Open {api_name} API page?"):
+            webbrowser.open(api_url)
+            if verbose:
+                input(f"  Press Enter when {api_name} API is enabled...")
+    
+    # Step 3: Create OAuth Consent Screen
+    print("\n🛡️ Step 3: Configure OAuth Consent Screen")
+    print("-" * 40)
+    consent_url = f"https://console.cloud.google.com/apis/credentials/consent{authuser}"
+    print(f"1. Open: {consent_url}")
+    print("2. Select 'External' user type")
+    print("3. Click 'CREATE'")
+    print("4. Fill in:")
+    print("   - App name: Syft Client")
+    print(f"   - User support email: {email or 'your email'}")
+    print(f"   - Developer contact: {email or 'your email'}")
+    print("5. Click 'SAVE AND CONTINUE' through all sections")
+    print("6. Click 'BACK TO DASHBOARD' when done")
+    
+    if _ask_to_open_url(consent_url):
+        webbrowser.open(consent_url)
+    
+    if verbose:
+        input("\nPress Enter when OAuth consent screen is configured...")
+    
+    # Step 4: Create Credentials
+    print("\n🔑 Step 4: Create OAuth2 Credentials")
+    print("-" * 40)
+    creds_url = f"https://console.cloud.google.com/apis/credentials{authuser}"
+    print(f"1. Open: {creds_url}")
+    print("2. Click '+ CREATE CREDENTIALS' → 'OAuth client ID'")
+    print("3. Select 'Desktop app' as application type")
+    print("4. Name: 'Syft Client Desktop'")
+    print("5. Click 'CREATE'")
+    print("6. Click 'DOWNLOAD JSON' in the popup")
+    print("7. Save the file as 'credentials.json'")
+    
+    if _ask_to_open_url(creds_url):
+        webbrowser.open(creds_url)
+    
+    # Step 5: Move credentials file
+    print("\n📁 Step 5: Place credentials.json")
+    print("-" * 40)
+    syft_dir = Path.home() / ".syft"
+    syft_dir.mkdir(exist_ok=True)
+    
+    print(f"Move the downloaded credentials.json to: {syft_dir}/credentials.json")
+    print("\nPossible download locations:")
+    print("  • ~/Downloads/credentials.json")
+    print("  • ~/Downloads/client_secret_*.json")
+    
+    if verbose:
+        print("\n💻 Example command:")
+        print(f"  mv ~/Downloads/credentials.json {syft_dir}/credentials.json")
+    
+    # Completion
+    print("\n✅ Setup Complete!")
+    print("=" * 50)
+    print("\nYour OAuth2 credentials are ready. You can now run:")
+    print(f"  >>> from syft_client import login")
+    print(f"  >>> client = login('{email or 'your@gmail.com'}')")
+    print("\nThe first login will open a browser for authorization.")
+    print("Future logins will use cached tokens.\n")
+
+
+def _ask_to_open_url(url: str, prompt: str = "Open this URL in your browser?") -> bool:
+    """Ask user if they want to open a URL"""
+    try:
+        response = input(f"\n{prompt} (y/n): ").lower().strip()
+        return response == 'y'
+    except (KeyboardInterrupt, EOFError):
+        return False
+
+
+def check_or_create_credentials(email: Optional[str] = None, verbose: bool = True) -> Optional[Path]:
+    """
+    Check for credentials.json and run wizard if not found
+    
+    Returns:
+        Path to credentials.json if found/created, None if wizard cancelled
+    """
+    possible_paths = [
+        Path.home() / ".syft" / "credentials.json",
+        Path.home() / ".syft" / "google_oauth" / "credentials.json",
+        Path("credentials.json"),
+    ]
+    
+    # Check if credentials exist
+    for path in possible_paths:
+        if path.exists():
+            if verbose:
+                print(f"✓ Found credentials at: {path}")
+            return path
+    
+    # No credentials found - check if we're in an interactive environment
+    try:
+        # Check for Jupyter/IPython
+        get_ipython()
+        in_notebook = True
+    except NameError:
+        in_notebook = False
+    
+    # Check if we can interact with user
+    import sys
+    is_interactive = sys.stdin.isatty() or in_notebook
+    
+    if not is_interactive:
+        if verbose:
+            print("\n❌ No credentials.json found and not in interactive mode.")
+            print("Please run the wizard manually: create_oauth2_wizard()")
+        return None
+    
+    # Run wizard
+    print("\n❌ No OAuth2 credentials found.")
+    print("Let's create them now!")
+    
+    try:
+        response = input("\nRun setup wizard? (y/n): ").lower().strip()
+        if response == 'y':
+            create_oauth2_wizard(email, verbose)
+            
+            # Check again after wizard
+            for path in possible_paths:
+                if path.exists():
+                    return path
+        else:
+            print("\nTo run the wizard later:")
+            print("  >>> from syft_client.platforms.google_personal.wizard import create_oauth2_wizard")
+            print("  >>> create_oauth2_wizard()")
+    except (KeyboardInterrupt, EOFError):
+        print("\n\nSetup cancelled.")
+    
+    return None

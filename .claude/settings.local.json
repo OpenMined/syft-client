@@ -27,7 +27,8 @@
       "Bash(git stash:*)",
       "Bash(cut:*)",
       "Bash(git rm:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(touch:*)"
     ],
     "deny": []
   }

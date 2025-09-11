@@ -1,166 +1,221 @@
-"""Gmail transport layer implementation"""
+"""Gmail transport layer using Gmail API"""
 
 from typing import Any, Dict, List, Optional
+import base64
+import pickle
+import time
+from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
-import pickle
-import base64
-import smtplib
-import imaplib
-import email as email_lib
-import time
-from datetime import datetime
+import json
+
+from googleapiclient.discovery import build
 from ..transport_base import BaseTransportLayer
-from ...environment import Environment
 
 
 class GmailTransport(BaseTransportLayer):
-    """Gmail transport layer using SMTP/IMAP with app passwords"""
+    """Gmail transport layer using Gmail API via OAuth2"""
     
     # STATIC Attributes
-    is_keystore = True  # Gmail is trusted for storing keys
-    is_notification_layer = True  # Users check email regularly
-    is_html_compatible = True  # Email supports HTML
-    is_reply_compatible = True  # Email has native reply support
-    guest_submit = False  # Requires Gmail account
-    guest_read_file = False  # Requires authentication
-    guest_read_folder = False  # Requires authentication
+    is_keystore = True
+    is_notification_layer = True
+    is_html_compatible = True
+    is_reply_compatible = True
+    guest_submit = False
+    guest_read_file = False
+    guest_read_folder = False
     
-    def __init__(self, email: str, credentials: Optional[Dict[str, Any]] = None):
-        """Initialize Gmail transport with credentials"""
+    # Email categorization
+    BACKEND_PREFIX = "[SYFT-DATA]"
+    NOTIFICATION_PREFIX = "[SYFT]"
+    BACKEND_LABEL = "SyftBackend"
+    
+    def __init__(self, email: str):
+        """Initialize Gmail transport"""
         super().__init__(email)
-        self.credentials = credentials
-        self.smtp_server = "smtp.gmail.com"
-        self.smtp_port = 587
-        self.imap_server = "imap.gmail.com"
-        self.imap_port = 993
-        self._is_setup_verified = False  # Cache setup verification
+        self.gmail_service = None
+        self.credentials = None
+        self._labels = {}
+        self._setup_verified = False
     
     @property
     def api_is_active_by_default(self) -> bool:
-        """App password authentication doesn't require API activation"""
-        return True  # Using SMTP/IMAP instead of Gmail API
+        """Gmail API requires manual activation"""
+        return False
         
     @property
     def login_complexity(self) -> int:
-        """No additional setup needed after app password auth"""
-        return 0  # Gmail client already handles authentication
-    
+        """No additional complexity after OAuth2"""
+        return 0
     
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
-        """Setup Gmail transport with credentials"""
-        if not credentials or 'password' not in credentials:
+        """Setup Gmail transport with OAuth2 credentials"""
+        if not credentials or 'credentials' not in credentials:
             return False
             
-        # Store credentials
-        self.credentials = credentials
-        self._cached_credentials = credentials
-        self._is_setup_verified = False  # Reset verification flag
-        
-        # Test by sending email to self
-        return True
+        try:
+            self.credentials = credentials['credentials']
+            
+            # Build Gmail service
+            self.gmail_service = build('gmail', 'v1', credentials=self.credentials)
+            
+            # Setup Gmail labels and filters
+            self._setup_gmail()
+            
+            self._setup_verified = False
+            return True
+        except Exception:
+            return False
     
     def is_setup(self) -> bool:
         """Check if Gmail transport is ready"""
-        if not self.credentials or 'password' not in self.credentials:
+        if not self.gmail_service:
             return False
         
-        # Use cached result if available
-        if self._is_setup_verified:
+        if self._setup_verified:
             return True
         
         # Test by sending email to self
-        if self.test_email_to_self():
-            self._is_setup_verified = True
+        if self._test_email_to_self():
+            self._setup_verified = True
             return True
             
         return False
     
-    def test_email_to_self(self) -> bool:
-        """Test Gmail functionality by sending and receiving an email to self"""
-        if not self.credentials or 'password' not in self.credentials:
-            return False
-            
+    def _setup_gmail(self) -> None:
+        """Setup Gmail labels and filters for backend emails"""
         try:
-            # Generate unique test ID to identify our email
+            self._ensure_backend_label()
+            self._ensure_backend_filter()
+        except Exception:
+            pass
+    
+    def _ensure_backend_label(self) -> None:
+        """Create backend label if it doesn't exist"""
+        try:
+            results = self.gmail_service.users().labels().list(userId='me').execute()
+            labels = results.get('labels', [])
+            
+            for label in labels:
+                if label['name'] == self.BACKEND_LABEL:
+                    self._labels[self.BACKEND_LABEL] = label['id']
+                    return
+            
+            label_object = {
+                'name': self.BACKEND_LABEL,
+                'labelListVisibility': 'labelShow',
+                'messageListVisibility': 'show'
+            }
+            
+            created_label = self.gmail_service.users().labels().create(
+                userId='me', body=label_object
+            ).execute()
+            
+            self._labels[self.BACKEND_LABEL] = created_label['id']
+        except:
+            pass
+    
+    def _ensure_backend_filter(self) -> None:
+        """Create filter to route backend emails to label"""
+        try:
+            results = self.gmail_service.users().settings().filters().list(userId='me').execute()
+            filters = results.get('filter', [])
+            
+            for f in filters:
+                criteria = f.get('criteria', {})
+                if criteria.get('subject') == self.BACKEND_PREFIX:
+                    return
+            
+            filter_object = {
+                'criteria': {'subject': self.BACKEND_PREFIX},
+                'action': {
+                    'addLabelIds': [self._labels.get(self.BACKEND_LABEL)],
+                    'removeLabelIds': ['INBOX']
+                }
+            }
+            
+            self.gmail_service.users().settings().filters().create(
+                userId='me', body=filter_object
+            ).execute()
+        except:
+            pass
+    
+    def _test_email_to_self(self) -> bool:
+        """Test Gmail functionality by sending and receiving an email to self"""
+        try:
             test_id = f"syft-test-{datetime.now().strftime('%Y%m%d%H%M%S')}-{id(self)}"
             test_subject = f"Syft Client Test [{test_id}]"
             test_message = (
-                "This is an automated test email from Syft Client.\n\n"
-                "✓ Your Gmail transport is working correctly!\n\n"
+                "This is an automated test email from Syft Client.\\n\\n"
+                "✓ Your Gmail transport is working correctly!\\n\\n"
                 "This email confirms that Syft Client can successfully send messages "
-                "through your Gmail account using the app password you provided.\n\n"
-                f"Test ID: {test_id}\n\n"
+                "through your Gmail account using OAuth2 authentication.\\n\\n"
+                f"Test ID: {test_id}\\n\\n"
                 "This email will be automatically marked as read."
             )
             
-            # Send email to self
-            email = self.credentials.get('email', self.email)
-            if not self.send(email, test_message, subject=test_subject):
+            if not self.send(self.email, test_message, subject=test_subject):
                 return False
             
-            # Wait a moment for email to arrive
             time.sleep(2)
             
-            # Try to find and read the test email
             return self._find_and_mark_test_email(test_id)
-            
         except Exception:
             return False
     
     def _find_and_mark_test_email(self, test_id: str) -> bool:
         """Find test email by ID and mark it as read"""
-        if not self.credentials:
-            return False
-            
         try:
-            # Connect to IMAP
-            with imaplib.IMAP4_SSL(self.imap_server, self.imap_port) as imap:
-                imap.login(self.credentials['email'], self.credentials['password'])
-                
-                # Select inbox
-                imap.select('INBOX')
-                
-                # Search for emails with our test ID in subject
-                # Using subject search since it's more reliable than body search
-                search_criteria = f'(SUBJECT "Syft Client Test [{test_id}]")'
-                _, data = imap.search(None, search_criteria)
-                
-                message_ids = data[0].split()
-                if not message_ids:
-                    return False
-                
-                # Mark the email as read (add \Seen flag)
-                for msg_id in message_ids:
-                    imap.store(msg_id, '+FLAGS', '\\Seen')
-                
-                return True
-                
+            query = f'subject:"Syft Client Test [{test_id}]"'
+            results = self.gmail_service.users().messages().list(
+                userId='me', q=query
+            ).execute()
+            
+            messages = results.get('messages', [])
+            if not messages:
+                return False
+            
+            for msg in messages:
+                self.gmail_service.users().messages().modify(
+                    userId='me',
+                    id=msg['id'],
+                    body={'removeLabelIds': ['UNREAD']}
+                ).execute()
+            
+            return True
         except Exception:
             return False
-        
-    def send(self, recipient: str, data: Any, subject: str = "Syft Client Message") -> bool:
-        """Send email via Gmail SMTP"""
-        if not self.credentials:
-            raise ValueError("No credentials available. Please authenticate first.")
+    
+    def send(self, recipient: str, data: Any, subject: str = "Syft Client Message", 
+             is_notification: bool = True) -> bool:
+        """Send email via Gmail API"""
+        if not self.gmail_service:
+            return False
             
         try:
+            # Add appropriate prefix to subject
+            if is_notification:
+                if not subject.startswith(self.NOTIFICATION_PREFIX):
+                    subject = f"{self.NOTIFICATION_PREFIX} {subject}"
+            else:
+                if not subject.startswith(self.BACKEND_PREFIX):
+                    subject = f"{self.BACKEND_PREFIX} {subject}"
+            
             # Create message
-            msg = MIMEMultipart()
-            msg['From'] = self.credentials['email']
-            msg['To'] = recipient
-            msg['Subject'] = subject
+            message = MIMEMultipart()
+            message['to'] = recipient
+            message['from'] = self.email
+            message['subject'] = subject
+            message['X-Syft-Client'] = 'true'
+            message['X-Syft-Type'] = 'notification' if is_notification else 'backend'
             
             # Handle different data types
             if isinstance(data, str):
-                # Plain text
-                msg.attach(MIMEText(data, 'plain'))
+                message.attach(MIMEText(data, 'plain'))
             elif isinstance(data, dict):
-                # JSON data
-                import json
-                msg.attach(MIMEText(json.dumps(data, indent=2), 'plain'))
+                message.attach(MIMEText(json.dumps(data, indent=2), 'plain'))
             else:
                 # Binary data - pickle and attach
                 part = MIMEBase('application', 'octet-stream')
@@ -170,86 +225,153 @@ class GmailTransport(BaseTransportLayer):
                     'Content-Disposition',
                     f'attachment; filename="syft_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pkl"'
                 )
-                msg.attach(part)
-                
-                # Add text explanation
-                msg.attach(MIMEText("Syft Client data attached as pickle file.", 'plain'))
+                message.attach(part)
+                message.attach(MIMEText("Syft Client data attached as pickle file.", 'plain'))
             
-            # Connect and send
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.credentials['email'], self.credentials['password'])
-                server.send_message(msg)
-                
+            # Convert to Gmail API format
+            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+            body = {'raw': raw_message}
+            
+            # Send
+            self.gmail_service.users().messages().send(userId='me', body=body).execute()
             return True
             
         except Exception as e:
             print(f"Error sending email: {e}")
             return False
-        
-    def receive(self, folder: str = 'INBOX', limit: int = 10) -> List[Dict[str, Any]]:
-        """Receive emails from Gmail via IMAP"""
-        if not self.credentials:
-            raise ValueError("No credentials available. Please authenticate first.")
+    
+    def receive(self, folder: Optional[str] = None, limit: int = 10, 
+                backend_only: bool = False) -> List[Dict[str, Any]]:
+        """Receive emails from Gmail via API"""
+        if not self.gmail_service:
+            return []
             
         messages = []
         
         try:
-            # Connect to IMAP
-            with imaplib.IMAP4_SSL(self.imap_server, self.imap_port) as imap:
-                imap.login(self.credentials['email'], self.credentials['password'])
-                
-                # Select folder
-                imap.select(folder)
-                
-                # Search for messages (most recent first)
-                _, data = imap.search(None, 'ALL')
-                message_ids = data[0].split()
-                
-                # Get most recent messages
-                for msg_id in reversed(message_ids[-limit:]):
-                    _, msg_data = imap.fetch(msg_id, '(RFC822)')
+            # Build query
+            query_parts = []
+            if backend_only:
+                query_parts.append(f'subject:"{self.BACKEND_PREFIX}"')
+            elif folder:
+                query_parts.append(f'label:{folder}')
+            
+            query = ' '.join(query_parts) if query_parts else None
+            
+            # List messages
+            results = self.gmail_service.users().messages().list(
+                userId='me', q=query, maxResults=limit
+            ).execute()
+            
+            message_ids = results.get('messages', [])
+            
+            # Get full message details
+            for msg_ref in message_ids:
+                try:
+                    msg = self.gmail_service.users().messages().get(
+                        userId='me', id=msg_ref['id']
+                    ).execute()
                     
-                    # Parse email
-                    raw_email = msg_data[0][1]
-                    email_message = email_lib.message_from_bytes(raw_email)
+                    # Parse message
+                    headers = {h['name']: h['value'] for h in msg['payload'].get('headers', [])}
                     
-                    # Extract message details
-                    message = {
-                        'id': msg_id.decode(),
-                        'from': email_message['From'],
-                        'to': email_message['To'],
-                        'subject': email_message['Subject'],
-                        'date': email_message['Date'],
-                        'body': None,
-                        'attachments': []
+                    subject = headers.get('Subject', '')
+                    is_backend = subject.startswith(self.BACKEND_PREFIX)
+                    is_syft = (
+                        headers.get('X-Syft-Client', '').lower() == 'true' or
+                        subject.startswith(self.NOTIFICATION_PREFIX) or
+                        is_backend
+                    )
+                    
+                    message_data = {
+                        'id': msg['id'],
+                        'from': headers.get('From', ''),
+                        'to': headers.get('To', ''),
+                        'subject': subject,
+                        'date': headers.get('Date', ''),
+                        'is_syft': is_syft,
+                        'is_backend': is_backend,
+                        'body': self._get_message_body(msg),
+                        'attachments': self._get_message_attachments(msg)
                     }
                     
-                    # Process message parts
-                    for part in email_message.walk():
-                        content_type = part.get_content_type()
-                        
-                        if content_type == 'text/plain':
-                            if not message['body']:
-                                message['body'] = part.get_payload(decode=True).decode('utf-8', errors='ignore')
-                        elif content_type == 'text/html':
-                            # Skip HTML if we already have plain text
-                            if not message['body']:
-                                message['body'] = part.get_payload(decode=True).decode('utf-8', errors='ignore')
-                        elif part.get('Content-Disposition', '').startswith('attachment'):
-                            # Handle attachments
-                            filename = part.get_filename()
-                            if filename:
-                                attachment_data = part.get_payload(decode=True)
-                                message['attachments'].append({
-                                    'filename': filename,
-                                    'size': len(attachment_data),
-                                    'data': attachment_data  # In production, might want to handle this differently
-                                })
-                    
-                    messages.append(message)
+                    messages.append(message_data)
+                except:
+                    continue
                     
         except Exception as e:
             print(f"Error receiving emails: {e}")
             
         return messages
+    
+    def _get_message_body(self, message: Dict[str, Any]) -> str:
+        """Extract message body from Gmail API message"""
+        def get_body_from_parts(parts):
+            for part in parts:
+                if part['mimeType'] == 'text/plain':
+                    data = part['body']['data']
+                    return base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+                elif 'parts' in part:
+                    body = get_body_from_parts(part['parts'])
+                    if body:
+                        return body
+            return ''
+        
+        payload = message['payload']
+        if 'parts' in payload:
+            return get_body_from_parts(payload['parts'])
+        elif payload.get('body', {}).get('data'):
+            return base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8', errors='ignore')
+        return ''
+    
+    def _get_message_attachments(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Extract attachments from Gmail API message"""
+        attachments = []
+        
+        def process_parts(parts):
+            for part in parts:
+                filename = part.get('filename')
+                if filename and part['body'].get('attachmentId'):
+                    att_id = part['body']['attachmentId']
+                    
+                    try:
+                        att = self.gmail_service.users().messages().attachments().get(
+                            userId='me', messageId=message['id'], id=att_id
+                        ).execute()
+                        
+                        data = base64.urlsafe_b64decode(att['data'])
+                        
+                        unpickled_data = None
+                        if filename.endswith('.pkl'):
+                            try:
+                                unpickled_data = pickle.loads(data)
+                            except:
+                                pass
+                        
+                        attachments.append({
+                            'filename': filename,
+                            'size': len(data),
+                            'data': data,
+                            'unpickled_data': unpickled_data
+                        })
+                    except:
+                        pass
+                elif 'parts' in part:
+                    process_parts(part['parts'])
+        
+        if 'parts' in message['payload']:
+            process_parts(message['payload']['parts'])
+            
+        return attachments
+    
+    def send_backend(self, recipient: str, data: Any, subject: str = "Data Transfer") -> bool:
+        """Send backend data email"""
+        return self.send(recipient, data, subject, is_notification=False)
+    
+    def receive_backend(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Receive backend emails only"""
+        return self.receive(limit=limit, backend_only=True)
+    
+    def send_notification(self, recipient: str, message: str, subject: str = "Notification") -> bool:
+        """Send human-readable notification email"""
+        return self.send(recipient, message, subject, is_notification=True)
