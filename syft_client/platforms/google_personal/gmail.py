@@ -10,6 +10,7 @@ import base64
 import smtplib
 import imaplib
 import email as email_lib
+import time
 from datetime import datetime
 from ..transport_base import BaseTransportLayer
 from ...environment import Environment
@@ -100,7 +101,7 @@ class GmailTransport(BaseTransportLayer):
         return False
     
     def is_setup(self) -> bool:
-        """Check if Gmail transport is ready by sending a test email to self"""
+        """Check if Gmail transport is ready by sending and receiving a test email"""
         if not self.credentials or 'password' not in self.credentials:
             return False
         
@@ -109,25 +110,63 @@ class GmailTransport(BaseTransportLayer):
             return True
         
         try:
-            # Try to send a test email to ourselves
-            test_subject = f"Syft Client Test - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            # Generate unique test ID to identify our email
+            test_id = f"syft-test-{datetime.now().strftime('%Y%m%d%H%M%S')}-{id(self)}"
+            test_subject = f"Syft Client Test [{test_id}]"
             test_message = (
                 "This is an automated test email from Syft Client.\n\n"
                 "✓ Your Gmail transport is working correctly!\n\n"
                 "This email confirms that Syft Client can successfully send messages "
                 "through your Gmail account using the app password you provided.\n\n"
-                "You can safely delete this email."
+                f"Test ID: {test_id}\n\n"
+                "This email will be automatically marked as read."
             )
             
             # Send email to self
             email = self.credentials.get('email', self.email)
-            success = self.send(email, test_message, subject=test_subject)
+            if not self.send(email, test_message, subject=test_subject):
+                return False
             
-            # Cache the result
-            if success:
+            # Wait a moment for email to arrive
+            time.sleep(2)
+            
+            # Try to find and read the test email
+            if self._find_and_mark_test_email(test_id):
                 self._is_setup_verified = True
+                return True
                 
-            return success
+            return False
+        except Exception:
+            return False
+    
+    def _find_and_mark_test_email(self, test_id: str) -> bool:
+        """Find test email by ID and mark it as read"""
+        if not self.credentials:
+            return False
+            
+        try:
+            # Connect to IMAP
+            with imaplib.IMAP4_SSL(self.imap_server, self.imap_port) as imap:
+                imap.login(self.credentials['email'], self.credentials['password'])
+                
+                # Select inbox
+                imap.select('INBOX')
+                
+                # Search for emails with our test ID in subject
+                # Using subject search since it's more reliable than body search
+                search_criteria = f'(SUBJECT "Syft Client Test [{test_id}]")'
+                _, data = imap.search(None, search_criteria)
+                
+                message_ids = data[0].split()
+                if not message_ids:
+                    return False
+                
+                # Mark the email as read (add \Seen flag)
+                for msg_id in message_ids:
+                    imap.store(msg_id, '+FLAGS', '\\Seen')
+                
+                return True
+                
         except Exception:
             return False
         
