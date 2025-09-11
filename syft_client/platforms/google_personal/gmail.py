@@ -27,9 +27,9 @@ class GmailTransport(BaseTransportLayer):
     guest_read_file = False  # Requires authentication
     guest_read_folder = False  # Requires authentication
     
-    def __init__(self, credentials: Optional[Dict[str, Any]] = None):
+    def __init__(self, email: str, credentials: Optional[Dict[str, Any]] = None):
         """Initialize Gmail transport with credentials"""
-        super().__init__()
+        super().__init__(email)
         self.credentials = credentials
         self.smtp_server = "smtp.gmail.com"
         self.smtp_port = 587
@@ -45,6 +45,49 @@ class GmailTransport(BaseTransportLayer):
     def login_complexity(self) -> int:
         """No additional setup needed after app password auth"""
         return 0  # Gmail client already handles authentication
+    
+    def test_connection(self, email: str, password: str, verbose: bool = False) -> bool:
+        """Test Gmail connection with provided credentials"""
+        smtp_success = self._test_smtp_connection(email, password, verbose)
+        imap_success = self._test_imap_connection(email, password, verbose)
+        return smtp_success and imap_success
+    
+    def _test_smtp_connection(self, email: str, password: str, verbose: bool = False) -> bool:
+        """Test SMTP connection with Gmail"""
+        try:
+            with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10) as smtp:
+                smtp.starttls()
+                smtp.login(email, password)
+            
+            if verbose:
+                print("✓ SMTP connection successful")
+            return True
+        except Exception as e:
+            if verbose:
+                print(f"✗ SMTP connection failed: {e}")
+            return False
+    
+    def _test_imap_connection(self, email: str, password: str, verbose: bool = False) -> bool:
+        """Test IMAP connection with Gmail"""
+        try:
+            with imaplib.IMAP4_SSL(self.imap_server, self.imap_port) as imap:
+                imap.login(email, password)
+                imap.logout()
+            
+            if verbose:
+                print("✓ IMAP connection successful")
+            return True
+        except Exception as e:
+            if verbose:
+                print(f"✗ IMAP connection failed: {e}")
+            return False
+    
+    def set_credentials(self, email: str, password: str) -> None:
+        """Set credentials for the transport"""
+        self.credentials = {
+            'email': email,
+            'password': password
+        }
         
     def send(self, recipient: str, data: Any, subject: str = "Syft Client Message") -> bool:
         """Send email via Gmail SMTP"""

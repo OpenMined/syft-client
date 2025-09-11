@@ -57,6 +57,21 @@ class GooglePersonalClient(BasePlatformClient):
             # App password is simpler than OAuth2 for now
             return 3  # App password steps
     
+    def _create_transport_instance(self, transport_name: str) -> Optional[Any]:
+        """Create a transport instance with proper credentials if available"""
+        transport_instance = super()._create_transport_instance(transport_name)
+        
+        # If we have auth data and this is Gmail transport, set credentials
+        if transport_instance and transport_name == 'GmailTransport' and hasattr(self, '_auth_data'):
+            credentials = self._auth_data.get('credentials', {})
+            if credentials:
+                transport_instance.set_credentials(
+                    credentials.get('email', self.email),
+                    credentials.get('password')
+                )
+        
+        return transport_instance
+    
     
     
     def _authenticate_with_app_password(self) -> Dict[str, Any]:
@@ -67,11 +82,11 @@ class GooglePersonalClient(BasePlatformClient):
         app_password_url = f"https://myaccount.google.com/apppasswords?authuser={encoded_email}"
         
         if self.verbose:
-            print(f"\n📱 Gmail App Password required for {self.email}")
+            print(f"\n📱 Google App Password required for {self.email}")
             print(f"Generate one at: {app_password_url}")
         else:
             # Minimal output - just the essential URL
-            print(f"If you don't have a Gmail App Password: {app_password_url}")
+            print(f"If you don't have a Google App Password: {app_password_url}")
         
         if not self.is_interactive:
             print("\n❌ Error: Non-interactive mode detected")
@@ -80,7 +95,7 @@ class GooglePersonalClient(BasePlatformClient):
             raise RuntimeError("Cannot prompt for password in non-interactive mode")
         
         try:
-            prompt = " Enter Password: " if not self.verbose else "\nEnter your Gmail app password (16 characters): "
+            prompt = " Enter Password: " if not self.verbose else "\nEnter your Google app password (16 characters): "
             password = getpass.getpass(prompt)
         except (EOFError, KeyboardInterrupt):
             if self.verbose:
@@ -100,11 +115,11 @@ class GooglePersonalClient(BasePlatformClient):
         if self.verbose:
             print("\n🔍 Testing Gmail connection...")
         
-        # Test both SMTP and IMAP connections
-        smtp_success = self._test_smtp_connection(self.email, password)
-        imap_success = self._test_imap_connection(self.email, password)
+        # Create Gmail transport and test connection
+        from .gmail import GmailTransport
+        gmail_transport = GmailTransport(self.email)
         
-        if smtp_success and imap_success:
+        if gmail_transport.test_connection(self.email, password, verbose=self.verbose):
             if self.verbose:
                 print("\n✅ Authentication successful!")
                 print("\n💡 Tip: Save your app password in your password manager")
@@ -132,49 +147,4 @@ class GooglePersonalClient(BasePlatformClient):
                 print("\nPlease generate a new app password and try again.")
             raise ValueError("Gmail authentication failed")
     
-    def _test_smtp_connection(self, email: str, password: str) -> bool:
-        """Test SMTP connection with Gmail"""
-        import smtplib
-        
-        try:
-            server_info = self._gmail_servers['smtp']
-            
-            if server_info['ssl']:
-                smtp = smtplib.SMTP_SSL(server_info['server'], server_info['port'], timeout=10)
-            else:
-                smtp = smtplib.SMTP(server_info['server'], server_info['port'], timeout=10)
-                if server_info['starttls']:
-                    smtp.starttls()
-            
-            smtp.login(email, password)
-            smtp.quit()
-            if self.verbose:
-                print("✓ SMTP connection successful")
-            return True
-        except Exception as e:
-            if self.verbose:
-                print(f"✗ SMTP connection failed: {e}")
-            return False
-    
-    def _test_imap_connection(self, email: str, password: str) -> bool:
-        """Test IMAP connection with Gmail"""
-        import imaplib
-        
-        try:
-            server_info = self._gmail_servers['imap']
-            
-            if server_info['ssl']:
-                imap = imaplib.IMAP4_SSL(server_info['server'], server_info['port'])
-            else:
-                imap = imaplib.IMAP4(server_info['server'], server_info['port'])
-            
-            imap.login(email, password)
-            imap.logout()
-            if self.verbose:
-                print("✓ IMAP connection successful")
-            return True
-        except Exception as e:
-            if self.verbose:
-                print(f"✗ IMAP connection failed: {e}")
-            return False
     
