@@ -33,10 +33,6 @@ class GFormsTransport(BaseTransportLayer):
         # 2. Create a form resource
         return 2  # Two additional steps
         
-    def authenticate(self) -> Dict[str, Any]:
-        """Authenticate with Google Forms API"""
-        # TODO: Implement Forms authentication
-        raise NotImplementedError("Google Forms authentication not yet implemented")
         
     def send(self, recipient: str, data: Any) -> bool:
         """Submit data to a Google Form (can be done anonymously!)"""

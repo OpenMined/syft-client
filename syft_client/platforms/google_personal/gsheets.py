@@ -33,10 +33,6 @@ class GSheetsTransport(BaseTransportLayer):
         else:
             return 2  # OAuth2 flow required
             
-    def authenticate(self) -> Dict[str, Any]:
-        """Authenticate with Google Sheets API"""
-        # TODO: Implement Sheets authentication (similar to GDrive)
-        raise NotImplementedError("Google Sheets authentication not yet implemented")
         
     def send(self, recipient: str, data: Any) -> bool:
         """Write data to a Google Sheet and share"""

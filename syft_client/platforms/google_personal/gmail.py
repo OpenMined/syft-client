@@ -82,12 +82,17 @@ class GmailTransport(BaseTransportLayer):
                 print(f"✗ IMAP connection failed: {e}")
             return False
     
-    def set_credentials(self, email: str, password: str) -> None:
-        """Set credentials for the transport"""
-        self.credentials = {
-            'email': email,
-            'password': password
-        }
+    def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
+        """Setup Gmail transport with credentials"""
+        if credentials and 'password' in credentials:
+            self.credentials = credentials
+            self._cached_credentials = credentials
+            return True
+        return False
+    
+    def is_setup(self) -> bool:
+        """Check if Gmail transport is ready to use"""
+        return self.credentials is not None and 'password' in self.credentials
         
     def send(self, recipient: str, data: Any, subject: str = "Syft Client Message") -> bool:
         """Send email via Gmail SMTP"""

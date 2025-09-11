@@ -35,12 +35,6 @@ class GDriveFilesTransport(BaseTransportLayer):
             # Need to enable Drive API in Console
             return 1  # One additional step
             
-    def authenticate(self) -> Dict[str, Any]:
-        """Authenticate with Google Drive API"""
-        # TODO: Implement GDrive authentication
-        # In Colab: from google.colab import auth; auth.authenticate_user()
-        # Elsewhere: OAuth2 flow
-        raise NotImplementedError("GDrive Files authentication not yet implemented")
         
     def send(self, recipient: str, data: Any) -> bool:
         """Upload file to GDrive and share with recipient"""

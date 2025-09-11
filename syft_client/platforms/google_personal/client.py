@@ -61,9 +61,6 @@ class GooglePersonalClient(BasePlatformClient):
             # App password is simpler than OAuth2 for now
             return 3  # App password steps
     
-    
-    
-    
     def _authenticate_with_app_password(self) -> Dict[str, Any]:
         """Authenticate using Gmail app password"""
         # Add authuser parameter to ensure correct account
@@ -114,10 +111,14 @@ class GooglePersonalClient(BasePlatformClient):
                 print("\n💡 Tip: Save your app password in your password manager")
                 print("   to avoid re-entering it next time.")
             
-            # Set credentials on all transports
+            # Setup all transports with credentials
+            credentials = {
+                'email': self.email,
+                'password': password
+            }
+            
             for transport_name, transport in self.transports.items():
-                if hasattr(transport, 'set_credentials'):
-                    transport.set_credentials(self.email, password)
+                transport.setup(credentials)
             
             # Return auth data
             auth_data = {
