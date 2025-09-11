@@ -9,9 +9,10 @@ from ..base import BasePlatformClient
 class GooglePersonalClient(BasePlatformClient):
     """Client for personal Gmail accounts"""
     
-    def __init__(self, email: str):
+    def __init__(self, email: str, verbose: bool = False):
         super().__init__(email)
         self.platform = "google_personal"
+        self.verbose = verbose
         self._gmail_servers = {
             'smtp': {
                 'server': 'smtp.gmail.com',
@@ -68,8 +69,12 @@ class GooglePersonalClient(BasePlatformClient):
         encoded_email = urllib.parse.quote(self.email)
         app_password_url = f"https://myaccount.google.com/apppasswords?authuser={encoded_email}"
         
-        print(f"\n📱 Gmail App Password required for {self.email}")
-        print(f"Generate one at: {app_password_url}")
+        if self.verbose:
+            print(f"\n📱 Gmail App Password required for {self.email}")
+            print(f"Generate one at: {app_password_url}")
+        else:
+            # Minimal output - just the essential URL
+            print(f"\nApp password: {app_password_url}")
         
         # Get app password from user
         import sys
@@ -89,9 +94,11 @@ class GooglePersonalClient(BasePlatformClient):
             raise RuntimeError("Cannot prompt for password in non-interactive mode")
         
         try:
-            password = getpass.getpass("\nEnter your Gmail app password (16 characters): ")
+            prompt = "Password: " if not self.verbose else "\nEnter your Gmail app password (16 characters): "
+            password = getpass.getpass(prompt)
         except (EOFError, KeyboardInterrupt):
-            print("\n❌ Password input cancelled")
+            if self.verbose:
+                print("\n❌ Password input cancelled")
             raise RuntimeError("Password input cancelled by user")
         
         # Remove spaces from password
@@ -99,20 +106,23 @@ class GooglePersonalClient(BasePlatformClient):
         
         # Validate password format
         if len(password) != 16:
-            print(f"\n❌ Error: App passwords should be 16 characters (got {len(password)})")
-            print("Please generate a new app password from Google account settings.")
+            if self.verbose:
+                print(f"\n❌ Error: App passwords should be 16 characters (got {len(password)})")
+                print("Please generate a new app password from Google account settings.")
             raise ValueError("Invalid app password length")
         
-        print("\n🔍 Testing Gmail connection...")
+        if self.verbose:
+            print("\n🔍 Testing Gmail connection...")
         
         # Test both SMTP and IMAP connections
         smtp_success = self._test_smtp_connection(self.email, password)
         imap_success = self._test_imap_connection(self.email, password)
         
         if smtp_success and imap_success:
-            print("\n✅ Authentication successful!")
-            print("\n💡 Tip: Save your app password in your password manager")
-            print("   to avoid re-entering it next time.")
+            if self.verbose:
+                print("\n✅ Authentication successful!")
+                print("\n💡 Tip: Save your app password in your password manager")
+                print("   to avoid re-entering it next time.")
             
             # Return auth data
             auth_data = {
@@ -127,12 +137,13 @@ class GooglePersonalClient(BasePlatformClient):
             
             return auth_data
         else:
-            print("\n❌ Authentication failed!")
-            print("\nPossible issues:")
-            print("1. The app password may be incorrect")
-            print("2. 2FA might not be enabled on your account")
-            print("3. The password might have been revoked")
-            print("\nPlease generate a new app password and try again.")
+            if self.verbose:
+                print("\n❌ Authentication failed!")
+                print("\nPossible issues:")
+                print("1. The app password may be incorrect")
+                print("2. 2FA might not be enabled on your account")
+                print("3. The password might have been revoked")
+                print("\nPlease generate a new app password and try again.")
             raise ValueError("Gmail authentication failed")
     
     def _test_smtp_connection(self, email: str, password: str) -> bool:
@@ -151,10 +162,12 @@ class GooglePersonalClient(BasePlatformClient):
             
             smtp.login(email, password)
             smtp.quit()
-            print("✓ SMTP connection successful")
+            if self.verbose:
+                print("✓ SMTP connection successful")
             return True
         except Exception as e:
-            print(f"✗ SMTP connection failed: {e}")
+            if self.verbose:
+                print(f"✗ SMTP connection failed: {e}")
             return False
     
     def _test_imap_connection(self, email: str, password: str) -> bool:
@@ -171,9 +184,11 @@ class GooglePersonalClient(BasePlatformClient):
             
             imap.login(email, password)
             imap.logout()
-            print("✓ IMAP connection successful")
+            if self.verbose:
+                print("✓ IMAP connection successful")
             return True
         except Exception as e:
-            print(f"✗ IMAP connection failed: {e}")
+            if self.verbose:
+                print(f"✗ IMAP connection failed: {e}")
             return False
     

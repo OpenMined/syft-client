@@ -34,13 +34,14 @@ PLATFORM_CLIENTS = {
     Platform.SMTP: SMTPClient,
 }
 
-def get_platform_client(platform: Platform, email: str) -> BasePlatformClient:
+def get_platform_client(platform: Platform, email: str, **kwargs) -> BasePlatformClient:
     """
     Get the appropriate platform client for the given platform.
     
     Args:
         platform: The platform enum
         email: User's email address
+        **kwargs: Additional arguments to pass to the platform client
         
     Returns:
         Platform client instance
@@ -52,7 +53,7 @@ def get_platform_client(platform: Platform, email: str) -> BasePlatformClient:
         raise ValueError(f"Platform {platform.value} is not supported")
     
     client_class = PLATFORM_CLIENTS[platform]
-    return client_class(email)
+    return client_class(email, **kwargs)
 
 __all__ = [
     'BasePlatformClient',

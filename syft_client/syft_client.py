@@ -144,7 +144,7 @@ class SyftClient:
         
         try:
             # Create platform client
-            client = get_platform_client(platform, self.email)
+            client = get_platform_client(platform, self.email, verbose=verbose)
             
             if verbose:
                 print(f"\nAuthenticating with {platform.value}...")

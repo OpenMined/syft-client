@@ -7,10 +7,12 @@ from typing import Any, Dict, Optional, List
 class BasePlatformClient(ABC):
     """Abstract base class for all platform clients"""
     
-    def __init__(self, email: str):
+    def __init__(self, email: str, **kwargs):
         self.email = email
         self.platform = self.__class__.__name__.replace('Client', '').lower()
         self._transport_instances = {}  # transport_name -> instance
+        # Store any additional kwargs for subclasses that need them
+        self.verbose = kwargs.get('verbose', False)
         
     def authenticate(self) -> Dict[str, Any]:
         """
