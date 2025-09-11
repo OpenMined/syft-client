@@ -17,8 +17,8 @@ def test_live_api():
     # Test 1: Can authenticate
     print("  1️⃣ Testing authentication...")
     try:
-        provider = 'google_personal' if '@gmail.com' in user1_email else 'google_org'
-        client = sc.login(user1_email, provider=provider, verbose=False)
+        # For testing, always use google_personal since it's implemented
+        client = sc.login(user1_email, provider='google_personal', verbose=False)
         
         # Check if we have a Google platform
         google_platform = client.platforms.get('google_personal') or client.platforms.get('google_org')

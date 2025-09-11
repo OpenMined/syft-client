@@ -21,11 +21,9 @@ def login_with_adapter(email: str, verbose: bool = False, **kwargs) -> GDriveAda
     # Determine provider based on email domain
     provider = kwargs.pop('provider', None)
     if not provider:
-        if '@gmail.com' in email or '@googlemail.com' in email:
-            provider = 'google_personal'
-        else:
-            # Assume organization account for other domains
-            provider = 'google_org'
+        # For testing, always use google_personal since it's implemented
+        # google_org is not yet implemented, so we use google_personal for all Google accounts
+        provider = 'google_personal'
     
     # Login with syft_client
     syft_client = sc.login(email, provider=provider, verbose=verbose, **kwargs)

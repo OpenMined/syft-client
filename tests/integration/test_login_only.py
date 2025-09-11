@@ -73,8 +73,8 @@ class TestLoginOnly:
         
         # This should use cached token and not open browser
         try:
-            provider = 'google_personal' if '@gmail.com' in user1_email else 'google_org'
-            syft_client = sc.login(user1_email, provider=provider, verbose=True)
+            # For testing, always use google_personal since it's implemented
+            syft_client = sc.login(user1_email, provider='google_personal', verbose=True)
             client = GDriveAdapter(syft_client)
             assert client.authenticated, "Should authenticate with cached token"
             print(f"   ✅ Authenticated without browser: {client.my_email}")

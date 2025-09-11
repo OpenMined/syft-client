@@ -296,28 +296,25 @@ def integration_test_clients(test_users):
             # No need to provide credentials_path as tokens are already in wallet
             # IMPORTANT: Don't use force_relogin=True in CI because it would try to open a browser
             print(f"🔐 Logging in user1 with pre-configured token...")
-            # Determine if it's gmail.com (personal) or organization account
-            provider1 = 'google_personal' if '@gmail.com' in user1_email else 'google_org'
-            client1 = sc.login(user1_email, provider=provider1, verbose=False)
+            # For testing, always use google_personal since it's implemented
+            # google_org is not yet implemented
+            client1 = sc.login(user1_email, provider='google_personal', verbose=False)
             user1 = GDriveAdapter(client1)  # Wrap in adapter for backward compatibility
             print(f"✅ User1 logged in successfully")
             
             print(f"🔐 Logging in user2 with pre-configured token...")
-            provider2 = 'google_personal' if '@gmail.com' in user2_email else 'google_org'
-            client2 = sc.login(user2_email, provider=provider2, verbose=False)
+            client2 = sc.login(user2_email, provider='google_personal', verbose=False)
             user2 = GDriveAdapter(client2)  # Wrap in adapter for backward compatibility
             print(f"✅ User2 logged in successfully")
         else:
             # Local development - try with credentials files if they exist
-            # Determine provider based on email domain
+            # For testing, always use google_personal since it's implemented
             print(f"🔐 Logging in user1 locally...")
-            provider1 = 'google_personal' if '@gmail.com' in user1_email else 'google_org'
-            client1 = sc.login(user1_email, provider=provider1, verbose=False)
+            client1 = sc.login(user1_email, provider='google_personal', verbose=False)
             user1 = GDriveAdapter(client1)
                 
             print(f"🔐 Logging in user2 locally...")
-            provider2 = 'google_personal' if '@gmail.com' in user2_email else 'google_org'
-            client2 = sc.login(user2_email, provider=provider2, verbose=False)
+            client2 = sc.login(user2_email, provider='google_personal', verbose=False)
             user2 = GDriveAdapter(client2)
         
         # Clean slate

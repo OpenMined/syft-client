@@ -15,9 +15,9 @@ def main():
     
     for email in [user1_email, user2_email]:
         try:
-            # Determine provider based on email
-            provider = 'google_personal' if '@gmail.com' in email else 'google_org'
-            client = sc.login(email, provider=provider, verbose=False)
+            # For testing, always use google_personal since it's implemented
+            # google_org is not yet implemented
+            client = sc.login(email, provider='google_personal', verbose=False)
             print(f'\n📁 Audit logs for {email}:')
             
             # Get Google platform and service
