@@ -3,7 +3,6 @@
 from typing import Any, Dict, List, Optional
 import getpass
 import json
-import syft_wallet as wallet
 from ..base import BasePlatformClient
 
 
@@ -30,43 +29,6 @@ class GooglePersonalClient(BasePlatformClient):
     
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with personal Gmail using app password"""
-        # First check for cached credentials
-        safe_name = f"{self.platform}-{self.email.replace('@', '_at_').replace('.', '_')}"
-        
-        try:
-            # Try to get credentials from syft-wallet
-            cred_json = wallet.get(
-                name=safe_name,
-                app_name="syft-client",
-                reason="Access Gmail for syft-client file syncing"
-            )
-            
-            if cred_json:
-                cached_creds = json.loads(cred_json)
-                print(f"\n🔑 Retrieved credentials from syft-wallet for {self.email}")
-                
-                # Test if credentials still work
-                if self._test_cached_credentials(cached_creds):
-                    print("✅ Credentials validated")
-                    return {
-                        'email': self.email,
-                        'auth_method': 'app_password',
-                        'servers': self._gmail_servers,
-                        'credentials': {
-                            'email': cached_creds.get('email', self.email),
-                            'password': cached_creds['password']
-                        }
-                    }
-                else:
-                    print("❌ Credentials invalid, need to re-authenticate...")
-                    # Delete bad credentials
-                    wallet.delete(safe_name)
-        except Exception as e:
-            # User denied access or credentials don't exist
-            if "denied" not in str(e).lower():
-                print(f"No cached credentials found")
-        
-        # No valid cache - proceed with normal authentication
         print(f"\nGoogle Personal Account Authentication for {self.email}")
         print("=" * 60)
         
@@ -97,10 +59,6 @@ class GooglePersonalClient(BasePlatformClient):
         OAuth2: 2 steps (device flow)
         Colab: 1 step (built-in auth)
         """
-        # Check for cached credentials
-        if self._has_cached_credentials():
-            return 0
-            
         # Check environment
         from ...environment import detect_environment, Environment
         env = detect_environment()
@@ -111,22 +69,6 @@ class GooglePersonalClient(BasePlatformClient):
             # App password is simpler than OAuth2 for now
             return 3  # App password steps
     
-    def _has_cached_credentials(self) -> bool:
-        """Check if we have credentials in syft-wallet"""
-        safe_name = f"{self.platform}-{self.email.replace('@', '_at_').replace('.', '_')}"
-        try:
-            # Try to check if credentials exist
-            if hasattr(wallet, 'exists'):
-                return wallet.exists(safe_name)
-            elif hasattr(wallet, 'list'):
-                # Try to list items and check if our item exists
-                items = wallet.list()
-                return safe_name in items
-            else:
-                # Can't check without approval dialog
-                return False
-        except:
-            return False
     
     def _choose_auth_method(self) -> str:
         """Let user choose authentication method"""
@@ -165,8 +107,6 @@ class GooglePersonalClient(BasePlatformClient):
     
     def _authenticate_with_app_password(self) -> Dict[str, Any]:
         """Authenticate using Gmail app password"""
-        safe_name = f"{self.platform}-{self.email.replace('@', '_at_').replace('.', '_')}"
-        
         print("\n📱 Gmail App Password Setup")
         print("-" * 60)
         print("To use syft_client with Gmail, you need an app-specific password.")
@@ -229,39 +169,8 @@ class GooglePersonalClient(BasePlatformClient):
         
         if smtp_success and imap_success:
             print("\n✅ Authentication successful!")
-            
-            # Store credentials in syft-wallet
-            print(f"\n🔍 DEBUG: Attempting to store credentials in syft-wallet:")
-            print(f"  Name: {safe_name}")
-            print(f"  Email: {self.email}")
-            print(f"  Password: {'*' * len(password)} ({len(password)} chars)")
-            print(f"  Tags: ['email', '{self.platform}', 'syftclient']")
-            
-            try:
-                # Store credentials as JSON
-                cred_data = {
-                    'email': self.email,
-                    'password': password,
-                    'provider': self.platform,
-                    'type': 'email_credentials'
-                }
-                
-                success = wallet.store(
-                    name=safe_name,
-                    value=json.dumps(cred_data),
-                    tags=["email", self.platform, "syftclient"],
-                    description=f"{self.platform} email account"
-                )
-                print(f"  Result: {success}")
-            except Exception as e:
-                print(f"  ❌ Exception: {type(e).__name__}: {e}")
-                success = False
-            
-            if success:
-                print("\n💾 Credentials saved to syft-wallet")
-                print("Next time you login, you'll be prompted to approve access.")
-            else:
-                print("\n⚠️  Failed to save credentials to syft-wallet")
+            print("\n💡 Tip: Save your app password in your password manager")
+            print("   to avoid re-entering it next time.")
             
             # Return auth data
             auth_data = {
@@ -326,24 +235,3 @@ class GooglePersonalClient(BasePlatformClient):
             print(f"✗ IMAP connection failed: {e}")
             return False
     
-    def _test_cached_credentials(self, cached_creds: Dict[str, Any]) -> bool:
-        """Test if cached credentials still work"""
-        try:
-            # Quick SMTP test only (faster than testing both)
-            import smtplib
-            server_info = self._gmail_servers['smtp']
-            
-            # Get email and password from cached credentials
-            email = cached_creds.get('email', self.email)
-            password = cached_creds.get('password')
-            
-            if not password:
-                return False
-                
-            smtp = smtplib.SMTP(server_info['server'], server_info['port'], timeout=5)
-            smtp.starttls()
-            smtp.login(email, password)
-            smtp.quit()
-            return True
-        except Exception:
-            return False
