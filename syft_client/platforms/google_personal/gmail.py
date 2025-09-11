@@ -35,6 +35,7 @@ class GmailTransport(BaseTransportLayer):
         self.smtp_port = 587
         self.imap_server = "imap.gmail.com"
         self.imap_port = 993
+        self._is_setup_verified = False  # Cache setup verification
     
     @property
     def api_is_active_by_default(self) -> bool:
@@ -94,12 +95,41 @@ class GmailTransport(BaseTransportLayer):
         if self.test_connection(email, password, verbose=False):
             self.credentials = credentials
             self._cached_credentials = credentials
+            self._is_setup_verified = False  # Reset verification flag
             return True
         return False
     
     def is_setup(self) -> bool:
-        """Check if Gmail transport is ready to use"""
-        return self.credentials is not None and 'password' in self.credentials
+        """Check if Gmail transport is ready by sending a test email to self"""
+        if not self.credentials or 'password' not in self.credentials:
+            return False
+        
+        # Use cached result if available
+        if self._is_setup_verified:
+            return True
+        
+        try:
+            # Try to send a test email to ourselves
+            test_subject = f"Syft Client Test - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            test_message = (
+                "This is an automated test email from Syft Client.\n\n"
+                "✓ Your Gmail transport is working correctly!\n\n"
+                "This email confirms that Syft Client can successfully send messages "
+                "through your Gmail account using the app password you provided.\n\n"
+                "You can safely delete this email."
+            )
+            
+            # Send email to self
+            email = self.credentials.get('email', self.email)
+            success = self.send(email, test_message, subject=test_subject)
+            
+            # Cache the result
+            if success:
+                self._is_setup_verified = True
+                
+            return success
+        except Exception:
+            return False
         
     def send(self, recipient: str, data: Any, subject: str = "Syft Client Message") -> bool:
         """Send email via Gmail SMTP"""
