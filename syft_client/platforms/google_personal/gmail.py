@@ -101,7 +101,7 @@ class GmailTransport(BaseTransportLayer):
         return False
     
     def is_setup(self) -> bool:
-        """Check if Gmail transport is ready by sending and receiving a test email"""
+        """Check if Gmail transport is ready"""
         if not self.credentials or 'password' not in self.credentials:
             return False
         
@@ -109,6 +109,18 @@ class GmailTransport(BaseTransportLayer):
         if self._is_setup_verified:
             return True
         
+        # Test by sending email to self
+        if self.test_email_to_self():
+            self._is_setup_verified = True
+            return True
+            
+        return False
+    
+    def test_email_to_self(self) -> bool:
+        """Test Gmail functionality by sending and receiving an email to self"""
+        if not self.credentials or 'password' not in self.credentials:
+            return False
+            
         try:
             # Generate unique test ID to identify our email
             test_id = f"syft-test-{datetime.now().strftime('%Y%m%d%H%M%S')}-{id(self)}"
@@ -131,11 +143,8 @@ class GmailTransport(BaseTransportLayer):
             time.sleep(2)
             
             # Try to find and read the test email
-            if self._find_and_mark_test_email(test_id):
-                self._is_setup_verified = True
-                return True
-                
-            return False
+            return self._find_and_mark_test_email(test_id)
+            
         except Exception:
             return False
     
