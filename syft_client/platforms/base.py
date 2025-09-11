@@ -13,6 +13,7 @@ class BasePlatformClient(ABC):
         self._transport_instances = {}  # transport_name -> instance
         # Store any additional kwargs for subclasses that need them
         self.verbose = kwargs.get('verbose', False)
+        self._current_environment = None  # Cached environment
         
     def authenticate(self) -> Dict[str, Any]:
         """
@@ -56,6 +57,29 @@ class BasePlatformClient(ABC):
         """
         pass
         
+    @property
+    def current_environment(self):
+        """Get the current environment (Colab, Jupyter, Terminal, etc.) - cached"""
+        if self._current_environment is None:
+            from ..environment import detect_environment
+            self._current_environment = detect_environment()
+        return self._current_environment
+    
+    @property
+    def is_interactive(self) -> bool:
+        """Check if we're in an interactive environment where we can prompt for input"""
+        import sys
+        
+        # Check for Jupyter/IPython
+        try:
+            get_ipython()  # This is defined in Jupyter/IPython
+            return True
+        except NameError:
+            pass
+        
+        # Check if standard input is a terminal (interactive)
+        return sys.stdin.isatty()
+    
     @property
     def login_complexity(self) -> int:
         """

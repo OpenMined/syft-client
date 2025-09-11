@@ -10,9 +10,8 @@ class GooglePersonalClient(BasePlatformClient):
     """Client for personal Gmail accounts"""
     
     def __init__(self, email: str, verbose: bool = False):
-        super().__init__(email)
+        super().__init__(email, verbose=verbose)
         self.platform = "google_personal"
-        self.verbose = verbose
         self._gmail_servers = {
             'smtp': {
                 'server': 'smtp.gmail.com',
@@ -50,11 +49,9 @@ class GooglePersonalClient(BasePlatformClient):
         OAuth2: 2 steps (device flow)
         Colab: 1 step (built-in auth)
         """
-        # Check environment
-        from ...environment import detect_environment, Environment
-        env = detect_environment()
+        from ...environment import Environment
         
-        if env == Environment.COLAB:
+        if self.current_environment == Environment.COLAB:
             return 1  # Single step - Colab built-in
         else:
             # App password is simpler than OAuth2 for now
@@ -74,27 +71,16 @@ class GooglePersonalClient(BasePlatformClient):
             print(f"Generate one at: {app_password_url}")
         else:
             # Minimal output - just the essential URL
-            print(f"\nApp password: {app_password_url}")
+            print(f"If you don't have a Gmail App Password: {app_password_url}")
         
-        # Get app password from user
-        import sys
-        
-        # Check for Jupyter/IPython
-        in_jupyter = False
-        try:
-            get_ipython()  # This is defined in Jupyter/IPython
-            in_jupyter = True
-        except NameError:
-            pass
-        
-        if not in_jupyter and not sys.stdin.isatty():
+        if not self.is_interactive:
             print("\n❌ Error: Non-interactive mode detected")
             print("App password authentication requires user input.")
             print("Please run in interactive mode or use OAuth2 authentication.")
             raise RuntimeError("Cannot prompt for password in non-interactive mode")
         
         try:
-            prompt = "Password: " if not self.verbose else "\nEnter your Gmail app password (16 characters): "
+            prompt = " Enter Password: " if not self.verbose else "\nEnter your Gmail app password (16 characters): "
             password = getpass.getpass(prompt)
         except (EOFError, KeyboardInterrupt):
             if self.verbose:
