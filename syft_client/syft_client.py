@@ -3,6 +3,7 @@ SyftClient class - Main client object that manages platforms and transport layer
 """
 
 from typing import Dict, List, Optional, Any
+from pathlib import Path
 from .platforms.base import BasePlatformClient
 from .platforms.detection import Platform, detect_primary_platform, get_secondary_platforms, PlatformDetector
 from .environment import Environment, detect_environment
@@ -18,7 +19,7 @@ class SyftClient:
     
     def __dir__(self):
         """Limit tab completion to only show essential attributes"""
-        return ['email', 'platforms']
+        return ['email', 'platforms', 'folder']
     
     def __init__(self, email: str):
         """
@@ -30,6 +31,76 @@ class SyftClient:
         self.email = email
         self.platforms: Dict[str, BasePlatformClient] = {}
         self.transport_instances: Dict[str, Any] = {}  # platform:transport -> instance
+        
+        # Create SyftBox directory structure
+        self._syftbox_dir = self._create_syftbox_directory()
+        self.folder = self._syftbox_dir  # Expose as client.folder
+    
+    def _create_syftbox_directory(self) -> Path:
+        """
+        Create the local SyftBox directory structure
+        
+        Creates:
+            ~/SyftBox_{email}/
+            ├── datasites/
+            ├── apps/
+            ├── approved/
+            ├── inbox/
+            └── merged_archive/
+        
+        Returns:
+            Path to the SyftBox directory
+        """
+        # Create ~/SyftBox_{email} directory
+        home_dir = Path.home()
+        syftbox_dir = home_dir / f"SyftBox_{self.email}"
+        
+        try:
+            # Create main directory
+            syftbox_dir.mkdir(exist_ok=True)
+            
+            # Create subdirectories (matching existing structure)
+            subdirs = ["datasites", "apps", "approved", "inbox", "merged_archive"]
+            for subdir in subdirs:
+                (syftbox_dir / subdir).mkdir(exist_ok=True)
+                
+        except Exception as e:
+            print(f"Warning: Could not create SyftBox directory: {e}")
+            
+        return syftbox_dir
+    
+    @property
+    def datasites_folder(self) -> Path:
+        """Get the datasites folder path"""
+        return self.folder / "datasites"
+    
+    @property
+    def apps_folder(self) -> Path:
+        """Get the apps folder path"""
+        return self.folder / "apps"
+    
+    def resolve_syft_path(self, path: str) -> Path:
+        """
+        Resolve a syft:// URL to a full file path
+        
+        Supports:
+        - syft://filename.txt -> ~/SyftBox_{email}/datasites/filename.txt
+        - syft://folder/filename.txt -> ~/SyftBox_{email}/datasites/folder/filename.txt
+        
+        Args:
+            path: A path that may start with syft://
+            
+        Returns:
+            Resolved Path object
+        """
+        if not path.startswith("syft://"):
+            return Path(path)
+        
+        # Extract the relative path after syft://
+        relative_path = path[7:]  # Remove "syft://"
+        
+        # Build the full path (always in datasites)
+        return self.datasites_folder / relative_path
     
     def _initialize_all_transports(self) -> None:
         """Initialize transport instances for all possible platforms"""
