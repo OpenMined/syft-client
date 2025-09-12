@@ -61,11 +61,17 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
     
     for api in apis:
         api_name = api.replace(".googleapis.com", "").title()
-        if api == "sheets.googleapis.com":
-            api_url = f"https://console.cloud.google.com/apis/library/sheets.googleapis.com{authuser}"
+        if api == "gmail":
+            # Use marketplace URL for Gmail API
+            api_url = f"https://console.cloud.google.com/marketplace/product/google/gmail.googleapis.com{authuser}"
+        elif api == "drive":
+            api_url = f"https://console.cloud.google.com/marketplace/product/google/drive.googleapis.com{authuser}"
+        elif api == "sheets.googleapis.com":
+            api_url = f"https://console.cloud.google.com/marketplace/product/google/sheets.googleapis.com{authuser}"
         elif api == "forms.googleapis.com":
-            api_url = f"https://console.cloud.google.com/apis/library/forms.googleapis.com{authuser}"
+            api_url = f"https://console.cloud.google.com/marketplace/product/google/forms.googleapis.com{authuser}"
         else:
+            # Fallback to library URL
             api_url = f"https://console.cloud.google.com/apis/library/{api}{authuser}"
         
         print(f"\n  {api_name} API:")
@@ -112,11 +118,31 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
     if _ask_to_open_url(creds_url):
         webbrowser.open(creds_url)
     
-    # Step 5: Move credentials file
-    print("\n📁 Step 5: Place credentials.json")
+    # Step 5: Add Test Users
+    print("\n👤 Step 5: Add Test Users (Required for Testing Mode)")
     print("-" * 40)
-    syft_dir = Path.home() / ".syft"
-    syft_dir.mkdir(exist_ok=True)
+    test_users_url = f"https://console.cloud.google.com/auth/audience{authuser}"
+    print(f"1. Open: {test_users_url}")
+    print("2. Scroll down to 'Test users' section")
+    print("3. Click '+ ADD USERS'")
+    print(f"4. Enter your email: {email or 'your@gmail.com'}")
+    print("5. Click 'ADD'")
+    print("\n⚠️  Important: Only test users can use your app while in testing mode")
+    
+    if _ask_to_open_url(test_users_url):
+        webbrowser.open(test_users_url)
+    
+    if verbose:
+        input("\nPress Enter when you've added yourself as a test user...")
+    
+    # Step 6: Move credentials file
+    print("\n📁 Step 6: Place credentials.json")
+    print("-" * 40)
+    
+    # Create email-specific directory
+    safe_email = (email or "your_at_gmail_com").replace('@', '_at_').replace('.', '_')
+    syft_dir = Path.home() / ".syft" / safe_email
+    syft_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"Move the downloaded credentials.json to: {syft_dir}/credentials.json")
     print("\nPossible download locations:")
@@ -153,11 +179,19 @@ def check_or_create_credentials(email: Optional[str] = None, verbose: bool = Tru
     Returns:
         Path to credentials.json if found/created, None if wizard cancelled
     """
-    possible_paths = [
+    # Build paths to check, including email-specific directory
+    possible_paths = []
+    
+    if email:
+        safe_email = email.replace('@', '_at_').replace('.', '_')
+        possible_paths.append(Path.home() / ".syft" / safe_email / "credentials.json")
+    
+    # Also check legacy/fallback locations
+    possible_paths.extend([
         Path.home() / ".syft" / "credentials.json",
         Path.home() / ".syft" / "google_oauth" / "credentials.json",
         Path("credentials.json"),
-    ]
+    ])
     
     # Check if credentials exist
     for path in possible_paths:
