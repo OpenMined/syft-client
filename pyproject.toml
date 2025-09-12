@@ -30,7 +30,6 @@ dependencies = [
     "google-auth==2.22.0",
     "google-auth-oauthlib",
     "syft-widget",
-    "syft-wallet>=0.1.1",
     "dnspython",
     "cryptography>=41.0.0"
 ]

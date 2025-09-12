@@ -71,10 +71,30 @@ class BaseTransportLayer(ABC):
         # For now, just return transport complexity
         return self.login_complexity
         
-    @abstractmethod
-    def authenticate(self) -> Dict[str, Any]:
-        """Authenticate with the transport layer"""
-        pass
+    def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Setup the transport layer with necessary configuration/credentials.
+        
+        Args:
+            credentials: Optional credentials from platform authentication
+            
+        Returns:
+            bool: True if setup successful, False otherwise
+        """
+        # Default implementation - subclasses can override
+        if credentials:
+            self._cached_credentials = credentials
+        return True
+        
+    def is_setup(self) -> bool:
+        """
+        Check if transport layer is properly configured and ready to use.
+        
+        Returns:
+            bool: True if transport is ready, False if setup is needed
+        """
+        # Default implementation - subclasses should override
+        return self._cached_credentials is not None
         
     @abstractmethod
     def send(self, recipient: str, data: Any) -> bool:

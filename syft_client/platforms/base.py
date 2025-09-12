@@ -7,10 +7,17 @@ from typing import Any, Dict, Optional, List
 class BasePlatformClient(ABC):
     """Abstract base class for all platform clients"""
     
-    def __init__(self, email: str):
+    def __dir__(self):
+        """Limit tab completion to only show essential attributes"""
+        return ['email', 'transports']
+    
+    def __init__(self, email: str, **kwargs):
         self.email = email
         self.platform = self.__class__.__name__.replace('Client', '').lower()
         self._transport_instances = {}  # transport_name -> instance
+        # Store any additional kwargs for subclasses that need them
+        self.verbose = kwargs.get('verbose', False)
+        self._current_environment = None  # Cached environment
         
     def authenticate(self) -> Dict[str, Any]:
         """
@@ -54,6 +61,29 @@ class BasePlatformClient(ABC):
         """
         pass
         
+    @property
+    def current_environment(self):
+        """Get the current environment (Colab, Jupyter, Terminal, etc.) - cached"""
+        if self._current_environment is None:
+            from ..environment import detect_environment
+            self._current_environment = detect_environment()
+        return self._current_environment
+    
+    @property
+    def is_interactive(self) -> bool:
+        """Check if we're in an interactive environment where we can prompt for input"""
+        import sys
+        
+        # Check for Jupyter/IPython
+        try:
+            get_ipython()  # This is defined in Jupyter/IPython
+            return True
+        except NameError:
+            pass
+        
+        # Check if standard input is a terminal (interactive)
+        return sys.stdin.isatty()
+    
     @property
     def login_complexity(self) -> int:
         """
