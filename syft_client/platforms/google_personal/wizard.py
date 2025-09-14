@@ -28,7 +28,8 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
         pass
     
     # Email-specific URL parameter
-    authuser = f"?authuser={email}" if email else ""
+    # Note: authuser uses numeric index (0-based) not email
+    authuser = "?authuser=0"
     
     print("\n📋 Prerequisites:")
     print("  • A Google account")
@@ -86,7 +87,7 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
     # Step 3: Create OAuth Consent Screen
     print("\n🛡️ Step 3: Configure OAuth Consent Screen")
     print("-" * 40)
-    consent_url = f"https://console.cloud.google.com/apis/credentials/consent{authuser}"
+    consent_url = f"https://console.cloud.google.com/auth/clients{authuser}"
     print(f"1. Open: {consent_url}")
     print("2. Select 'External' user type")
     print("3. Click 'CREATE'")

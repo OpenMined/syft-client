@@ -74,11 +74,12 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
     # Get project ID for URL construction
     project_id = input("\nEnter your Project ID (or press Enter to skip): ").strip()
     
-    # Construct URLs with project and email
+    # Construct URLs with project
+    # Note: authuser uses numeric index (0-based) not email
     if project_id:
-        authuser = f"?authuser={email}&project={project_id}"
+        authuser = f"?authuser=0&project={project_id}"
     else:
-        authuser = f"?authuser={email}"
+        authuser = "?authuser=0"
     
     # Step 3: Enable APIs
     print("\n🔌 Step 3: Enable Required APIs")
@@ -100,7 +101,7 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
     
     # Step 4: OAuth Consent Screen
     print("\n🔐 Step 4: Configure OAuth Consent Screen")
-    oauth_url = f"https://console.cloud.google.com/apis/credentials/consent{authuser}"
+    oauth_url = f"https://console.cloud.google.com/auth/clients{authuser}"
     print(f"Open: {oauth_url}")
     
     print("\n⚠️  WORKSPACE-SPECIFIC SETTINGS:")
