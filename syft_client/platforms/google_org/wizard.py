@@ -93,8 +93,7 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
     
     for api_name, url in apis:
         print(f"\n  • {api_name}")
-        if env == Environment.REPL:
-            print(f"    Open: {url}")
+        print(f"    Open: {url}")
         print("    Click 'ENABLE' if not already enabled")
     
     input("\nPress Enter when all APIs are enabled...")
