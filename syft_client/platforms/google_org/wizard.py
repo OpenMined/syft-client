@@ -74,6 +74,13 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
     # Get project ID for URL construction
     project_id = input("\nEnter your Project ID (or press Enter to skip): ").strip()
     
+    if project_id:
+        print(f"\n⚠️  IMPORTANT: Make sure you've switched to your project!")
+        print(f"Look at the top bar of Google Cloud Console")
+        print(f"It should show: {project_id}")
+        print(f"If not, click the project dropdown and select your project")
+        input("\nPress Enter when you've switched to your project...")
+    
     # Construct URLs with project
     # Note: authuser uses numeric index (0-based) not email
     if project_id:

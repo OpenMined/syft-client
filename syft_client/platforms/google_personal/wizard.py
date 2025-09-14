@@ -55,6 +55,19 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
     if verbose:
         input("\nPress Enter when your project is created...")
     
+    # Get project ID and ensure user switches to it
+    project_id = input("\nEnter your Project ID (you can find it in the project selector): ").strip()
+    
+    if project_id:
+        print(f"\n⚠️  IMPORTANT: Make sure you've switched to your project!")
+        print(f"Look at the top bar of Google Cloud Console")
+        print(f"It should show: {project_id}")
+        print(f"If not, click the project dropdown and select your project")
+        input("\nPress Enter when you've switched to your project...")
+        
+        # Update authuser to include project
+        authuser = f"?authuser=0&project={project_id}"
+    
     # Step 2: Enable APIs
     print("\n🔌 Step 2: Enable Required APIs")
     print("-" * 40)
