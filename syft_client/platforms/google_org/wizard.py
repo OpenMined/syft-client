@@ -74,11 +74,11 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
     # Get project ID for URL construction
     project_id = input("\nEnter your Project ID (or press Enter to skip): ").strip()
     
-    # Construct URLs with project
+    # Construct URLs with project and email
     if project_id:
-        authuser = f"&authuser=0&project={project_id}"
+        authuser = f"?authuser={email}&project={project_id}"
     else:
-        authuser = ""
+        authuser = f"?authuser={email}"
     
     # Step 3: Enable APIs
     print("\n🔌 Step 3: Enable Required APIs")
