@@ -100,7 +100,7 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
     # Step 3: Create OAuth Consent Screen
     print("\n🛡️ Step 3: Configure OAuth Consent Screen")
     print("-" * 40)
-    consent_url = f"https://console.cloud.google.com/auth/clients{authuser}"
+    consent_url = f"https://console.cloud.google.com/auth/overview/create{authuser}"
     print(f"1. Open: {consent_url}")
     print("2. Select 'External' user type")
     print("3. Click 'CREATE'")

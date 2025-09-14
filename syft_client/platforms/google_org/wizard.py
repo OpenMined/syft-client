@@ -108,7 +108,7 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
     
     # Step 4: OAuth Consent Screen
     print("\n🔐 Step 4: Configure OAuth Consent Screen")
-    oauth_url = f"https://console.cloud.google.com/auth/clients{authuser}"
+    oauth_url = f"https://console.cloud.google.com/auth/overview/create{authuser}"
     print(f"Open: {oauth_url}")
     
     print("\n⚠️  WORKSPACE-SPECIFIC SETTINGS:")
