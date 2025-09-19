@@ -65,7 +65,7 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
         input("\nPress Enter when you've switched to your project...")
         
         # Update authuser to include project
-        authuser = f"?authuser=0&project={project_id}"
+        authuser = f"?authuser={email}&project={project_id}"
     
     # Step 2: Enable APIs
     print("\n🔌 Step 2: Enable Required APIs")
