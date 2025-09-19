@@ -12,7 +12,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 from ..base import BasePlatformClient
 from ...auth.wallets import get_wallet_class, LocalFileWallet
-from ...environment import detect_environment, Environment
+from ...environment import Environment
 
 # Try importing Colab auth
 try:
@@ -44,9 +44,6 @@ class GoogleOrgClient(BasePlatformClient):
         self.credentials: Optional[Credentials] = None
         self.wallet = None
         self.config_path = self.get_config_path()
-        
-        # Environment detection
-        self.current_environment = detect_environment()
         
         # Initialize transport layers
         self._initialize_transport_layers()
