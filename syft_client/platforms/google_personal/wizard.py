@@ -149,8 +149,12 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
         input("\nPress Enter when you've added yourself as a test user...")
     
     # Step 6: Save credentials file
-    print("\n📁 Step 6: Save Credentials")
+    print("\n📁 Step 6: Download Credentials")
     print("-" * 40)
+    print("Click 'DOWNLOAD JSON' to save the credentials file to your computer.")
+    print("\nThe file will be named something like:")
+    print("  client_secret_XXXXXXX.apps.googleusercontent.com.json")
+    print("\nRemember where you save it - you'll need the path in the next step.")
     
     # Create email-specific directory
     safe_email = (email or "your_at_gmail_com").replace('@', '_at_').replace('.', '_')
@@ -158,98 +162,57 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
     syft_dir.mkdir(parents=True, exist_ok=True)
     credentials_file = syft_dir / "credentials.json"
     
-    # Environment-specific instructions
-    env = detect_environment()
-    if env == Environment.JUPYTER or env == Environment.COLAB:
-        print("Download the JSON file to your computer")
-        
-        if env == Environment.JUPYTER:
-            print("\n📓 For Jupyter:")
-            print("   a. Upload the downloaded JSON file to Jupyter")
-            print("   b. Then run this Python code in a Jupyter cell:")
-            print(f"      import os")
-            print(f"      import shutil")
-            print(f"      import glob")
-            print(f"      ")
-            print(f"      # Create the directory")
-            print(f"      os.makedirs(os.path.expanduser('~/.syft/{safe_email}'), exist_ok=True)")
-            print(f"      ")
-            print(f"      # Find the credentials file")
-            print(f"      files = glob.glob('client_secret*.json')")
-            print(f"      if files:")
-            print(f"          # Move and rename the file")
-            print(f"          shutil.move(files[0], os.path.expanduser('~/.syft/{safe_email}/credentials.json'))")
-            print(f"          print('✅ Credentials file moved successfully!')")
-            print(f"      else:")
-            print(f"          print('❌ No client_secret*.json file found in current directory')")
-            print(f"          print('Please upload the file to Jupyter first')")
-        else:  # Colab
-            print("\n📊 For Google Colab:")
-            print("   a. Upload the file using the file browser (left sidebar)")
-            print("   b. Then run this Python code:")
-            print(f"      import os")
-            print(f"      import shutil")
-            print(f"      import glob")
-            print(f"      ")
-            print(f"      # Create the directory")
-            print(f"      os.makedirs(os.path.expanduser('~/.syft/{safe_email}'), exist_ok=True)")
-            print(f"      ")
-            print(f"      # Find the credentials file in /content/")
-            print(f"      files = glob.glob('/content/client_secret*.json')")
-            print(f"      if files:")
-            print(f"          # Move and rename the file")
-            print(f"          shutil.move(files[0], os.path.expanduser('~/.syft/{safe_email}/credentials.json'))")
-            print(f"          print('✅ Credentials file moved successfully!')")
-            print(f"      else:")
-            print(f"          print('❌ No client_secret*.json file found in /content/')")
-            print(f"          print('Please upload the file using the file browser first')")
-    else:
-        # For terminal/REPL environments where they can save directly
-        print(f"Save the downloaded file to: {credentials_file}")
-        print("\nThe downloaded file will have a long name like:")
-        print("  client_secret_XXXXXXX.apps.googleusercontent.com.json")
-        
-        if verbose:
-            print("\n💻 Terminal commands (run these in your terminal, NOT in Python):")
-            print(f"  # First, create the directory:")
-            print(f"  mkdir -p ~/.syft/{safe_email}")
-            print(f"  ")
-            print(f"  # Then move the file (replace the actual filename):")
-            print(f"  mv ~/Downloads/client_secret_*.json {credentials_file}")
-            print(f"  ")
-            print(f"  # Or if you know the exact filename:")
-            print(f"  mv ~/Downloads/client_secret_XXXXX.apps.googleusercontent.com.json {credentials_file}")
-    
-    # IMPORTANT: Give user time to actually move the file!
+    # Ask user for the path to their downloaded credentials file
     print("\n" + "="*50)
-    print("⚠️  IMPORTANT: Please complete the file setup now!")
+    print("📁 Step 7: Provide Path to Downloaded Credentials")
     print("="*50)
-    print("\n1. Make sure you've downloaded the JSON file from Google Cloud Console")
-    print("2. Move/save it to the location shown above")
-    print("3. Then press Enter to continue")
+    print("\nYou should have downloaded a JSON file that looks like:")
+    print("  client_secret_XXXXXXX.apps.googleusercontent.com.json")
+    print("\nPlease provide the full path to this file.")
+    print("Examples:")
+    print("  - ~/Downloads/client_secret_287888791426.apps.googleusercontent.com.json")
+    print("  - /Users/you/Downloads/client_secret_*.json")
+    print("  - C:\\Users\\you\\Downloads\\client_secret_*.json (Windows)")
     
-    print("\n💡 TIP: If you're having trouble with the commands:")
-    print(f"   - The file needs to be renamed to 'credentials.json'")
-    print(f"   - It needs to be placed in: ~/.syft/{safe_email}/")
-    print(f"   - You can also manually create the folder and copy the file there")
-    
-    input("\nPress Enter AFTER you've saved the credentials.json file...")
-    
-    # Now verify the file is actually in place
-    print("\n⏳ Verifying credentials file...")
-    print(f"Expected location: {credentials_file}")
-    
-    # Keep checking until file exists
-    while not credentials_file.exists():
-        print(f"\n❌ File not found at: {credentials_file}")
-        print("Please make sure to save the file to the exact location shown above.")
+    while True:
         try:
-            input("\nPress Enter to check again...")
+            downloaded_path = input("\nPath to your downloaded credentials file: ").strip()
+            
+            if not downloaded_path:
+                print("❌ Please provide a path")
+                continue
+                
+            # Expand user path and glob patterns
+            import glob
+            expanded_path = os.path.expanduser(downloaded_path)
+            matching_files = glob.glob(expanded_path)
+            
+            if not matching_files:
+                print(f"❌ No file found at: {downloaded_path}")
+                print("Please check the path and try again.")
+                continue
+            
+            if len(matching_files) > 1:
+                print(f"⚠️  Multiple files found. Using: {matching_files[0]}")
+            
+            source_file = Path(matching_files[0])
+            if not source_file.exists():
+                print(f"❌ File does not exist: {source_file}")
+                continue
+                
+            # Create target directory and copy file
+            credentials_file.parent.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copy2(source_file, credentials_file)
+            print(f"✅ Credentials file copied to: {credentials_file}")
+            break
+            
         except (KeyboardInterrupt, EOFError):
             print("\n\nSetup cancelled.")
             return
-    
-    print("✅ Credentials file found!")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            print("Please try again.")
     
     # Completion
     print("\n✅ Setup Complete!")
