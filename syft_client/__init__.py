@@ -7,7 +7,7 @@ from .syft_client import SyftClient
 # Make login available at package level for convenience
 login = SyftClient.login
 
-__version__ = "0.2.8"
+__version__ = "0.2.9"
 
 __all__ = [
     "login",

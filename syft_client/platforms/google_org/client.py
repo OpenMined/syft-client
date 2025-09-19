@@ -66,6 +66,10 @@ class GoogleOrgClient(BasePlatformClient):
         self.gsheets = GSheetsTransport(self.email)
         self.gforms = GFormsTransport(self.email)
         
+        # Set platform reference for better repr
+        for transport in [self.gmail, self.gdrive_files, self.gsheets, self.gforms]:
+            transport._platform_client = self
+        
         # Keep transports dict for backward compatibility
         from ..base import TransportRegistry
         self.transports = TransportRegistry({

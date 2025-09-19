@@ -126,44 +126,77 @@ class BaseTransportLayer(ABC):
         
         # Create main table
         main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
-        main_table.add_column("Property", style="bold cyan")
+        main_table.add_column("Attribute", style="bold cyan")
         main_table.add_column("Value")
+        
+        # Get the transport name (e.g., 'gmail', 'gdrive_files')
+        transport_name = self.__class__.__name__.replace('Transport', '').lower()
+        if 'gmail' in transport_name:
+            transport_name = 'gmail'
+        elif 'gdrive' in transport_name.lower():
+            transport_name = 'gdrive_files'
+        elif 'gsheets' in transport_name.lower():
+            transport_name = 'gsheets'
+        elif 'gforms' in transport_name.lower():
+            transport_name = 'gforms'
         
         # Status
         status = "[green]✓ Ready[/green]" if self.is_setup() else "[red]✗ Not configured[/red]"
-        main_table.add_row("Status", status)
+        main_table.add_row(".is_setup()", status)
         
         # Environment
         env_name = self.environment.value if self.environment else "Unknown"
-        main_table.add_row("Environment", env_name)
+        main_table.add_row(".environment", env_name)
         
         # Capabilities
         main_table.add_row("", "")  # spacer
         main_table.add_row("[bold]Capabilities[/bold]", "")
         
-        # Add capability rows with checkmarks/crosses
+        # Add capability rows with actual attribute names
         capabilities = [
-            ("Keystore", self.is_keystore),
-            ("Notifications", self.is_notification_layer),
-            ("HTML Support", self.is_html_compatible),
-            ("Reply Support", self.is_reply_compatible),
-            ("Guest Submit", self.guest_submit),
-            ("Guest Read Files", self.guest_read_file),
-            ("Guest Read Folders", self.guest_read_folder),
+            (".is_keystore", self.is_keystore),
+            (".is_notification_layer", self.is_notification_layer),
+            (".is_html_compatible", self.is_html_compatible),
+            (".is_reply_compatible", self.is_reply_compatible),
+            (".guest_submit", self.guest_submit),
+            (".guest_read_file", self.guest_read_file),
+            (".guest_read_folder", self.guest_read_folder),
         ]
         
-        for name, value in capabilities:
+        for attr_name, value in capabilities:
             icon = "[green]✓[/green]" if value else "[dim]✗[/dim]"
-            main_table.add_row(f"  {name}", icon)
+            main_table.add_row(f"  {attr_name}", icon)
         
         # Complexity
         main_table.add_row("", "")  # spacer
-        main_table.add_row("Setup Complexity", f"{self.login_complexity} steps")
+        main_table.add_row(".login_complexity", f"{self.login_complexity} steps")
         
-        # Create the panel
+        # Key methods
+        main_table.add_row("", "")  # spacer
+        main_table.add_row("[bold]Methods[/bold]", "")
+        main_table.add_row("  .send(recipient, data)", "Send data")
+        main_table.add_row("  .receive()", "Get messages") 
+        main_table.add_row("  .setup(credentials)", "Configure transport")
+        
+        # Create the panel showing how to access this transport
+        # Try to infer the platform from the email
+        platform = "unknown"
+        if hasattr(self, '_platform_client'):
+            # If we have a reference to the platform client
+            platform = getattr(self._platform_client, 'platform', 'unknown')
+        elif '@' in self.email:
+            # Guess from email domain
+            domain = self.email.split('@')[1].lower()
+            if 'gmail.com' in domain:
+                platform = 'google_personal'
+            elif 'google' in domain or 'workspace' in domain:
+                platform = 'google_org'
+        
+        panel_title = f"client.platforms.{platform}.{transport_name}"
+        
         panel = Panel(
             main_table,
-            title=f"{self.__class__.__name__}(email='{self.email}')",
+            title=panel_title,
             expand=False,
             width=70,
             padding=(1, 2)
