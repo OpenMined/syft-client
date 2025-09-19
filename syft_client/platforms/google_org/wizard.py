@@ -159,8 +159,24 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
         # For terminal/REPL environments where they can save directly
         print(f"\n6. Save the file as: {credentials_file}")
     
-    # Wait for user to complete
-    input("\nPress Enter when you've saved credentials.json...")
+    # Wait for user to confirm file is in place
+    if verbose:
+        print("\n⏳ Waiting for credentials file...")
+        print(f"Expected location: {credentials_file}")
+        
+        # Keep checking until file exists
+        while not credentials_file.exists():
+            try:
+                input("\nPress Enter after you've saved the credentials.json file to the correct location...")
+                if credentials_file.exists():
+                    print("✅ Credentials file found!")
+                    break
+                else:
+                    print(f"❌ File not found at: {credentials_file}")
+                    print("Please make sure to save the file to the exact location shown above.")
+            except (KeyboardInterrupt, EOFError):
+                print("\n\nSetup cancelled.")
+                return None
     
     # Verify credentials exist
     if credentials_file.exists():

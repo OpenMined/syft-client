@@ -210,6 +210,9 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
     print(f"  >>> client = login('{email or 'your@gmail.com'}')")
     print("\nThe first login will open a browser for authorization.")
     print("Future logins will use cached tokens.\n")
+    
+    # Return the credentials file path for the caller
+    return credentials_file
 
 
 def _ask_to_open_url(url: str, prompt: str = "Open this URL in your browser?") -> bool:
@@ -274,9 +277,12 @@ def check_or_create_credentials(email: Optional[str] = None, verbose: bool = Tru
     try:
         response = input("\nRun setup wizard? (y/n): ").lower().strip()
         if response == 'y':
-            create_oauth2_wizard(email, verbose)
+            # Run wizard and get the credentials file path
+            creds_file = create_oauth2_wizard(email, verbose)
+            if creds_file and creds_file.exists():
+                return creds_file
             
-            # Check again after wizard
+            # Fallback: Check again after wizard
             for path in possible_paths:
                 if path.exists():
                     return path
