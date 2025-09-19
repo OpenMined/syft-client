@@ -373,4 +373,3 @@ class BasePlatformClient(ABC):
             if self.verbose:
                 print(f"Failed to save platform config: {e}")
             raise
-EOF < /dev/null
