@@ -655,7 +655,7 @@ class GoogleOrgClient(BasePlatformClient):
         print("4. Custom - Choose individually")
         print("5. Skip for now")
         
-        choice = input("\nYour choice [2]: ").strip() or "2"
+        choice = input("\nYour choice [3]: ").strip() or "3"
         
         transports_to_setup = []
         if choice == "1":
