@@ -126,7 +126,6 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
     print("4. Name: 'Syft Client Desktop'")
     print("5. Click 'CREATE'")
     print("6. Click 'DOWNLOAD JSON' in the popup")
-    print("7. Save the file as 'credentials.json'")
     
     if _ask_to_open_url(creds_url):
         webbrowser.open(creds_url)
@@ -148,23 +147,40 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
     if verbose:
         input("\nPress Enter when you've added yourself as a test user...")
     
-    # Step 6: Move credentials file
-    print("\n📁 Step 6: Place credentials.json")
+    # Step 6: Save credentials file
+    print("\n📁 Step 6: Save Credentials")
     print("-" * 40)
     
     # Create email-specific directory
     safe_email = (email or "your_at_gmail_com").replace('@', '_at_').replace('.', '_')
     syft_dir = Path.home() / ".syft" / safe_email
     syft_dir.mkdir(parents=True, exist_ok=True)
+    credentials_file = syft_dir / "credentials.json"
     
-    print(f"Move the downloaded credentials.json to: {syft_dir}/credentials.json")
-    print("\nPossible download locations:")
-    print("  • ~/Downloads/credentials.json")
-    print("  • ~/Downloads/client_secret_*.json")
-    
-    if verbose:
-        print("\n💻 Example command:")
-        print(f"  mv ~/Downloads/credentials.json {syft_dir}/credentials.json")
+    # Environment-specific instructions
+    env = detect_environment()
+    if env == Environment.JUPYTER or env == Environment.COLAB:
+        print("Download the JSON file to your computer")
+        
+        if env == Environment.JUPYTER:
+            print("\n📓 For Jupyter:")
+            print("   a. Upload the downloaded JSON file to Jupyter")
+            print("   b. Then run these commands:")
+            print(f"      !mkdir -p ~/.syft/{safe_email}")
+            print(f"      !mv client_secret*.json ~/.syft/{safe_email}/credentials.json")
+        else:  # Colab
+            print("\n📊 For Google Colab:")
+            print("   a. Upload the file using the file browser (left sidebar)")
+            print("   b. Then run these commands:")
+            print(f"      !mkdir -p ~/.syft/{safe_email}")
+            print(f"      !mv /content/client_secret*.json ~/.syft/{safe_email}/credentials.json")
+    else:
+        # For terminal/REPL environments where they can save directly
+        print(f"Save the downloaded file as: {credentials_file}")
+        print("\nTypical download location: ~/Downloads/client_secret_*.json")
+        if verbose:
+            print("\n💻 Example command:")
+            print(f"  mv ~/Downloads/client_secret*.json {credentials_file}")
     
     # Completion
     print("\n✅ Setup Complete!")

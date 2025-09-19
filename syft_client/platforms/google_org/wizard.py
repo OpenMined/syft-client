@@ -138,21 +138,26 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
     print("3. Name: 'Syft Workspace Desktop Client'")
     print("4. Click 'CREATE'")
     print("5. Click 'DOWNLOAD JSON' in the popup")
-    print(f"6. Save as: {credentials_file}")
     
     # Environment-specific instructions
-    if env == Environment.JUPYTER:
-        print("\n📓 For Jupyter:")
-        print(f"After downloading, upload the JSON file and rename to: credentials.json")
-        print(f"Then move it to the correct location using:")
-        print(f"!mkdir -p ~/.syft/{sanitized_email}")
-        print(f"!mv credentials.json ~/.syft/{sanitized_email}/")
-    elif env == Environment.COLAB:
-        print("\n📊 For Google Colab:")
-        print("After downloading, upload the file using the file browser (left sidebar)")
-        print("Then run:")
-        print(f"!mkdir -p ~/.syft/{sanitized_email}")
-        print(f"!mv /content/credentials.json ~/.syft/{sanitized_email}/")
+    if env == Environment.JUPYTER or env == Environment.COLAB:
+        print("\n6. Download the JSON file to your computer")
+        
+        if env == Environment.JUPYTER:
+            print("\n📓 For Jupyter:")
+            print("   a. Upload the downloaded JSON file to Jupyter")
+            print("   b. Then run these commands:")
+            print(f"      !mkdir -p ~/.syft/{sanitized_email}")
+            print(f"      !mv client_secret*.json ~/.syft/{sanitized_email}/credentials.json")
+        else:  # Colab
+            print("\n📊 For Google Colab:")
+            print("   a. Upload the file using the file browser (left sidebar)")
+            print("   b. Then run these commands:")
+            print(f"      !mkdir -p ~/.syft/{sanitized_email}")
+            print(f"      !mv /content/client_secret*.json ~/.syft/{sanitized_email}/credentials.json")
+    else:
+        # For terminal/REPL environments where they can save directly
+        print(f"\n6. Save the file as: {credentials_file}")
     
     # Wait for user to complete
     input("\nPress Enter when you've saved credentials.json...")
