@@ -140,21 +140,6 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
     print("5. Click 'DOWNLOAD JSON' in the popup")
     print(f"6. Save as: {credentials_file}")
     
-    # Step 6: Domain-wide Delegation (Optional)
-    print("\n🌐 Step 6: Domain-wide Delegation (Optional)")
-    print("\nFor advanced use cases, you might need domain-wide delegation.")
-    print("This allows the app to access data on behalf of any user in your domain.")
-    print("\nThis requires:")
-    print("  • Creating a service account instead of OAuth client")
-    print("  • Admin approval for domain-wide delegation")
-    print("  • Different authentication flow")
-    
-    needs_delegation = input("\nDo you need domain-wide delegation? (y/N): ").strip().lower()
-    if needs_delegation == 'y':
-        print("\n⚠️  Domain-wide delegation requires a different setup.")
-        print("Please consult your Workspace admin or Google's documentation.")
-        print("For now, we'll continue with standard OAuth2.")
-    
     # Environment-specific instructions
     if env == Environment.JUPYTER:
         print("\n📓 For Jupyter:")
