@@ -28,8 +28,7 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
         pass
     
     # Email-specific URL parameter
-    # Note: authuser uses numeric index (0-based) not email
-    authuser = "?authuser=0"
+    authuser = f"?authuser={email}" if email else "?authuser=0"
     
     print("\n📋 Prerequisites:")
     print("  • A Google account")

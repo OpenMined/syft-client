@@ -28,7 +28,8 @@
       "Bash(cut:*)",
       "Bash(git rm:*)",
       "Bash(git reset:*)",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "Bash(diff:*)"
     ],
     "deny": []
   }

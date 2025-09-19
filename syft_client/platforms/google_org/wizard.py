@@ -58,7 +58,7 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
     
     # Step 1: Google Cloud Console
     print("\n🌐 Step 1: Go to Google Cloud Console")
-    print(f"Open: https://console.cloud.google.com")
+    print(f"Open: https://console.cloud.google.com?authuser={email}")
     print(f"\nIMPORTANT: Sign in with your Workspace account: {email}")
     
     # Step 2: Create/Select Project
