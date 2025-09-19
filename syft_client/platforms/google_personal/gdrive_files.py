@@ -53,15 +53,28 @@ class GDriveFilesTransport(BaseTransportLayer):
             return 1  # One additional step
     
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
-        """Setup Drive transport with OAuth2 credentials"""
-        if not credentials or 'credentials' not in credentials:
-            return False
-            
+        """Setup Drive transport with OAuth2 credentials or Colab auth"""
         try:
-            self.credentials = credentials['credentials']
-            
-            # Build Drive service
-            self.drive_service = build('drive', 'v3', credentials=self.credentials)
+            # Check if we're in Colab and can use automatic auth
+            if self.environment == Environment.COLAB:
+                try:
+                    from google.colab import auth as colab_auth
+                    colab_auth.authenticate_user()
+                    # Build service without explicit credentials in Colab
+                    self.drive_service = build('drive', 'v3')
+                    self.credentials = None  # No explicit credentials in Colab
+                except ImportError:
+                    # Fallback to regular credentials if Colab auth not available
+                    if not credentials or 'credentials' not in credentials:
+                        return False
+                    self.credentials = credentials['credentials']
+                    self.drive_service = build('drive', 'v3', credentials=self.credentials)
+            else:
+                # Regular OAuth2 flow
+                if not credentials or 'credentials' not in credentials:
+                    return False
+                self.credentials = credentials['credentials']
+                self.drive_service = build('drive', 'v3', credentials=self.credentials)
             
             # Create Syft folder if needed
             self._ensure_syft_folder()

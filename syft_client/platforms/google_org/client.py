@@ -12,6 +12,15 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 from ..base import BasePlatformClient
 from ...auth.wallets import get_wallet_class, LocalFileWallet
+from ...environment import detect_environment, Environment
+
+# Try importing Colab auth
+try:
+    from google.colab import auth as colab_auth
+    COLAB_AVAILABLE = True
+except ImportError:
+    colab_auth = None
+    COLAB_AVAILABLE = False
 
 
 class GoogleOrgClient(BasePlatformClient):
@@ -35,6 +44,9 @@ class GoogleOrgClient(BasePlatformClient):
         self.credentials: Optional[Credentials] = None
         self.wallet = None
         self.config_path = self.get_config_path()
+        
+        # Environment detection
+        self.current_environment = detect_environment()
         
         # Initialize transport layers
         self._initialize_transport_layers()
@@ -74,6 +86,43 @@ class GoogleOrgClient(BasePlatformClient):
         7. If first time, setup transports
         """
         try:
+            # Check if we're in Colab and can use automatic auth
+            if self.current_environment == Environment.COLAB and COLAB_AVAILABLE:
+                # Try Colab authentication first
+                if self.authenticate_colab():
+                    # For Colab, we still need to setup transports but skip wallet/OAuth2
+                    config = self.load_platform_config()
+                    is_first_time = not config.get('setup_completed', False)
+                    
+                    if is_first_time:
+                        # Setup transport layers (but only non-Gmail ones will work)
+                        if self.verbose:
+                            print("\n⚠️  Note: Gmail requires OAuth2 setup and won't work with Colab auth")
+                            print("   Other services (Drive, Sheets, Forms) will work automatically")
+                        
+                        transport_result = self.setup_transport_layers()
+                        
+                        # Mark setup as completed
+                        config['setup_completed'] = datetime.now().isoformat()
+                        config['colab_auth'] = True
+                        self.save_platform_config(config)
+                        
+                        successful_transports = transport_result.get('configured', [])
+                        failed_transports = transport_result.get('failed', [])
+                    else:
+                        successful_transports = []
+                        failed_transports = []
+                    
+                    return {
+                        'email': self.email,
+                        'auth_method': 'colab',
+                        'platform': self.platform,
+                        'wallet': 'colab_builtin',
+                        'active_transports': successful_transports,
+                        'failed_transports': failed_transports
+                    }
+            
+            # Regular OAuth2 flow
             # Step 1 & 2: Initialize wallet
             self.wallet = self.get_or_create_wallet()
             
@@ -182,6 +231,48 @@ class GoogleOrgClient(BasePlatformClient):
             if self.verbose:
                 print(f"✗ OAuth2 flow failed: {e}")
             raise
+    
+    def authenticate_colab(self) -> bool:
+        """
+        Authenticate using Google Colab's built-in authentication.
+        
+        This only works for Google Drive, Sheets, and Forms - NOT Gmail.
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not COLAB_AVAILABLE or self.current_environment != Environment.COLAB:
+            return False
+        
+        try:
+            if self.verbose:
+                print("🔐 Authenticating with Google Colab...")
+            
+            # Authenticate the Colab user
+            colab_auth.authenticate_user()
+            
+            # Get the email address from Drive API
+            from googleapiclient.discovery import build
+            service = build('drive', 'v3')
+            about = service.about().get(fields="user(emailAddress)").execute()
+            authenticated_email = about['user']['emailAddress']
+            
+            # Verify it matches our expected email
+            if authenticated_email != self.email:
+                if self.verbose:
+                    print(f"⚠️  Colab authenticated as {authenticated_email}, but expected {self.email}")
+                return False
+            
+            if self.verbose:
+                print(f"✅ Authenticated via Google Colab as {self.email}")
+            
+            # Mark as authenticated for non-Gmail transports
+            return True
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Colab authentication failed: {e}")
+            return False
     
     # ===== Wallet Integration Methods =====
     

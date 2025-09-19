@@ -49,16 +49,31 @@ class GSheetsTransport(BaseTransportLayer):
             return 2  # OAuth2 flow required
     
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
-        """Setup Sheets transport with OAuth2 credentials"""
-        if not credentials or 'credentials' not in credentials:
-            return False
-            
+        """Setup Sheets transport with OAuth2 credentials or Colab auth"""
         try:
-            self.credentials = credentials['credentials']
-            
-            # Build Sheets and Drive services
-            self.sheets_service = build('sheets', 'v4', credentials=self.credentials)
-            self.drive_service = build('drive', 'v3', credentials=self.credentials)
+            # Check if we're in Colab and can use automatic auth
+            if self.environment == Environment.COLAB:
+                try:
+                    from google.colab import auth as colab_auth
+                    colab_auth.authenticate_user()
+                    # Build services without explicit credentials in Colab
+                    self.sheets_service = build('sheets', 'v4')
+                    self.drive_service = build('drive', 'v3')
+                    self.credentials = None  # No explicit credentials in Colab
+                except ImportError:
+                    # Fallback to regular credentials if Colab auth not available
+                    if not credentials or 'credentials' not in credentials:
+                        return False
+                    self.credentials = credentials['credentials']
+                    self.sheets_service = build('sheets', 'v4', credentials=self.credentials)
+                    self.drive_service = build('drive', 'v3', credentials=self.credentials)
+            else:
+                # Regular OAuth2 flow
+                if not credentials or 'credentials' not in credentials:
+                    return False
+                self.credentials = credentials['credentials']
+                self.sheets_service = build('sheets', 'v4', credentials=self.credentials)
+                self.drive_service = build('drive', 'v3', credentials=self.credentials)
             
             return True
         except Exception:
