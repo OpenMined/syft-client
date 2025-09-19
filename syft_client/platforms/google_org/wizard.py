@@ -2,6 +2,8 @@
 
 import json
 import os
+import glob
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any
 from ...environment import detect_environment, Environment
@@ -161,7 +163,6 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
                 continue
                 
             # Expand user path and glob patterns
-            import glob
             expanded_path = os.path.expanduser(downloaded_path)
             matching_files = glob.glob(expanded_path)
             
@@ -180,7 +181,6 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
                 
             # Create target directory and copy file
             credentials_file.parent.mkdir(parents=True, exist_ok=True)
-            import shutil
             shutil.copy2(source_file, credentials_file)
             print(f"✅ Credentials file copied to: {credentials_file}")
             break

@@ -3,6 +3,9 @@
 from typing import Optional
 import webbrowser
 from pathlib import Path
+import os
+import glob
+import shutil
 from ...environment import detect_environment, Environment
 
 
@@ -183,7 +186,6 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
                 continue
                 
             # Expand user path and glob patterns
-            import glob
             expanded_path = os.path.expanduser(downloaded_path)
             matching_files = glob.glob(expanded_path)
             
@@ -202,7 +204,6 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
                 
             # Create target directory and copy file
             credentials_file.parent.mkdir(parents=True, exist_ok=True)
-            import shutil
             shutil.copy2(source_file, credentials_file)
             print(f"✅ Credentials file copied to: {credentials_file}")
             break
