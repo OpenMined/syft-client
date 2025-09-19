@@ -9,6 +9,127 @@ from .platforms.detection import Platform, detect_primary_platform, get_secondar
 from .environment import Environment, detect_environment
 
 
+class PlatformRegistry:
+    """Container for platform clients that allows attribute access"""
+    
+    def __init__(self):
+        self._platforms: Dict[str, BasePlatformClient] = {}
+    
+    def add(self, name: str, client: BasePlatformClient):
+        """Add a platform client"""
+        self._platforms[name] = client
+        # Also set as attribute for dot access
+        setattr(self, name, client)
+    
+    def __getitem__(self, key: str) -> Optional[BasePlatformClient]:
+        """Allow dict-style access for backwards compatibility"""
+        return self._platforms.get(key)
+    
+    def __contains__(self, key: str) -> bool:
+        """Check if platform exists"""
+        return key in self._platforms
+    
+    def items(self):
+        """Iterate over platforms"""
+        return self._platforms.items()
+    
+    def keys(self):
+        """Get platform names"""
+        return self._platforms.keys()
+    
+    def values(self):
+        """Get platform clients"""
+        return self._platforms.values()
+    
+    def __bool__(self):
+        """Check if any platforms are registered"""
+        return bool(self._platforms)
+    
+    def __len__(self):
+        """Number of platforms"""
+        return len(self._platforms)
+    
+    def __dir__(self):
+        """Show available platforms for tab completion"""
+        return list(self._platforms.keys())
+    
+    def __repr__(self):
+        """String representation using rich for proper formatting"""
+        from rich.console import Console
+        from rich.table import Table
+        from rich.panel import Panel
+        from io import StringIO
+        from .platforms.detection import get_all_platforms
+        
+        # Create a string buffer to capture the rich output
+        string_buffer = StringIO()
+        console = Console(file=string_buffer, force_terminal=True, width=70)
+        
+        # Create main table
+        main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
+        main_table.add_column(style="dim")
+        
+        # Get all available platforms
+        all_platforms = get_all_platforms()
+        
+        for platform_enum in all_platforms:
+            platform_name = platform_enum.value
+            
+            # Check if this platform is logged in
+            if platform_name in self._platforms:
+                # Logged in - show with transports
+                platform = self._platforms[platform_name]
+                
+                # Get transports and their status
+                transports = []
+                transport_layers = platform.get_transport_layers()
+                for transport in transport_layers:
+                    transport_obj = platform.transports.get(transport) if hasattr(platform, 'transports') else None
+                    if transport_obj and hasattr(transport_obj, 'is_setup') and transport_obj.is_setup():
+                        status = "[green]✓[/green]"
+                    else:
+                        status = "[dim]○[/dim]"
+                    transports.append(f"{status} .{transport}")
+                
+                # Add platform
+                main_table.add_row(f"[bold yellow].{platform_name}[/bold yellow]")
+                
+                # Add transports in 2 columns
+                if transports:
+                    transport_table = Table(show_header=False, show_edge=False, box=None, padding=(0, 2))
+                    transport_table.add_column(width=30)
+                    transport_table.add_column(width=30)
+                    
+                    for i in range(0, len(transports), 2):
+                        col1 = transports[i] if i < len(transports) else ""
+                        col2 = transports[i+1] if i+1 < len(transports) else ""
+                        transport_table.add_row(f"  {col1}", f"  {col2}")
+                    
+                    main_table.add_row(transport_table)
+                    main_table.add_row("")  # spacer between platforms
+            else:
+                # Not logged in - show grayed out
+                main_table.add_row(f"[dim].{platform_name}[/dim]  [dim italic](not authenticated)[/dim italic]")
+        
+        if len(all_platforms) == 0:
+            main_table.add_row("No platforms available")
+        
+        # Create the panel
+        panel = Panel(
+            main_table,
+            title="PlatformRegistry",
+            expand=False,
+            width=70,
+            padding=(1, 2)
+        )
+        
+        console.print(panel)
+        output = string_buffer.getvalue()
+        string_buffer.close()
+        
+        return output.strip()
+
+
 class SyftClient:
     """
     Main client object that manages multiple platforms for a single email
@@ -29,7 +150,7 @@ class SyftClient:
             email: The email address for this client
         """
         self.email = email
-        self.platforms: Dict[str, BasePlatformClient] = {}
+        self.platforms = PlatformRegistry()
         self.transport_instances: Dict[str, Any] = {}  # platform:transport -> instance
         
         # Create SyftBox directory structure
@@ -131,7 +252,7 @@ class SyftClient:
             auth_data: Authentication data from the platform
         """
         platform_name = platform_client.platform
-        self.platforms[platform_name] = platform_client
+        self.platforms.add(platform_name, platform_client)
         
         # Store auth data in the platform client for now
         platform_client._auth_data = auth_data
@@ -146,7 +267,7 @@ class SyftClient:
     
     def get_platform(self, platform_name: str) -> Optional[BasePlatformClient]:
         """Get a specific platform client by name"""
-        return self.platforms.get(platform_name)
+        return self.platforms[platform_name]
     
     def get_transports(self, platform_name: str) -> List[str]:
         """Get transport layers for a specific platform"""
@@ -174,22 +295,97 @@ class SyftClient:
         return one_step
     
     def __repr__(self) -> str:
-        """String representation"""
-        platform_info = []
-        for name, platform in self.platforms.items():
-            transports = platform.get_transport_layers()
-            platform_info.append(f"{name}:{len(transports)}")
-        return f"SyftClient(email='{self.email}', platforms=[{', '.join(platform_info)}])"
+        """String representation using rich for proper formatting"""
+        from rich.console import Console
+        from rich.table import Table
+        from rich.panel import Panel
+        from rich.columns import Columns
+        from io import StringIO
+        
+        # Create a string buffer to capture the rich output
+        string_buffer = StringIO()
+        console = Console(file=string_buffer, force_terminal=True, width=70)
+        
+        # Create main table
+        main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
+        main_table.add_column(style="dim")
+        
+        # Add folder info
+        main_table.add_row(f"[bold cyan].folder[/bold cyan] = {self.folder}")
+        main_table.add_row("")  # spacer
+        
+        if self.platforms:
+            # Add platforms header
+            main_table.add_row("[bold cyan].platforms[/bold cyan]")
+            
+            for platform_name, platform in self.platforms.items():
+                # Get transports and their status
+                transports = []
+                transport_layers = platform.get_transport_layers()
+                for transport in transport_layers:
+                    # Try to get transport as attribute first
+                    transport_obj = getattr(platform, transport, None)
+                    if transport_obj is None and hasattr(platform, 'transports'):
+                        # Fallback to transports dict
+                        transport_obj = platform.transports.get(transport)
+                    
+                    if transport_obj and hasattr(transport_obj, 'is_setup') and transport_obj.is_setup():
+                        transports.append(f"[green]✓[/green] .{transport}")
+                    else:
+                        transports.append(f"[dim]○[/dim] .{transport}")
+                
+                # Add platform with attribute-style syntax
+                main_table.add_row(f"  [bold yellow].{platform_name}[/bold yellow]")
+                
+                # Create a table for transports in 2 columns
+                if transports:
+                    transport_table = Table(show_header=False, show_edge=False, box=None, padding=(0, 2))
+                    transport_table.add_column(width=30)
+                    transport_table.add_column(width=30)
+                    
+                    for i in range(0, len(transports), 2):
+                        col1 = transports[i] if i < len(transports) else ""
+                        col2 = transports[i+1] if i+1 < len(transports) else ""
+                        transport_table.add_row(f"    {col1}", f"    {col2}")
+                    
+                    main_table.add_row(transport_table)
+        else:
+            main_table.add_row("")
+            main_table.add_row("No authenticated platforms")
+        
+        # Create the panel with the table
+        panel = Panel(
+            main_table,
+            title=f"SyftClient.email = '{self.email}'",
+            expand=False,
+            width=70,
+            padding=(1, 2)
+        )
+        
+        console.print(panel)
+        output = string_buffer.getvalue()
+        string_buffer.close()
+        
+        return output.strip()
     
     def __str__(self) -> str:
         """User-friendly string representation"""
-        lines = [f"SyftClient - {self.email}"]
+        lines = []
+        lines.append(f"SyftClient ({self.email})")
         for platform_name, platform in self.platforms.items():
-            transports = platform.get_transport_layers()
-            lines.append(f"  • {platform_name}: {', '.join(transports)}")
+            transports = []
+            transport_layers = platform.get_transport_layers()
+            for transport in transport_layers:
+                # Check if transport is active/configured
+                transport_obj = platform.transports.get(transport)
+                if transport_obj and hasattr(transport_obj, 'is_setup') and transport_obj.is_setup():
+                    transports.append(f"✓{transport}")
+                else:
+                    transports.append(f"○{transport}")
+            lines.append(f"  └─ {platform_name}: {', '.join(transports)}")
         return "\n".join(lines)
     
-    def _login(self, provider: Optional[str] = None, verbose: bool = False) -> None:
+    def _login(self, provider: Optional[str] = None, verbose: bool = False, wizard: Optional[bool] = None) -> None:
         """
         Instance method that handles the actual login process
         
@@ -219,7 +415,7 @@ class SyftClient:
         
         try:
             # Create platform client
-            client = get_platform_client(platform, self.email, verbose=verbose)
+            client = get_platform_client(platform, self.email, verbose=verbose, wizard=wizard)
             
             if verbose:
                 print(f"\nAuthenticating with {platform.value}...")
@@ -254,7 +450,7 @@ class SyftClient:
     
     @staticmethod
     def login(email: Optional[str] = None, provider: Optional[str] = None, 
-              quickstart: bool = True, verbose: bool = False, **kwargs) -> 'SyftClient':
+              quickstart: bool = True, verbose: bool = False, wizard: Optional[bool] = None, **kwargs) -> 'SyftClient':
         """
         Simple login function for syft_client
         
@@ -263,6 +459,7 @@ class SyftClient:
             provider: Email provider name (e.g., 'google', 'microsoft'). Required if auto-detection fails.
             quickstart: If True and in supported environment, use fastest available login
             verbose: If True, print detailed progress information
+            wizard: If True, show interactive setup wizard (Colab defaults to False, others default to True)
             **kwargs: Additional arguments for authentication
             
         Returns:
@@ -294,5 +491,5 @@ class SyftClient:
         
         # Create SyftClient and login
         client = SyftClient(email)
-        client._login(provider=provider, verbose=verbose)
+        client._login(provider=provider, verbose=verbose, wizard=wizard)
         return client

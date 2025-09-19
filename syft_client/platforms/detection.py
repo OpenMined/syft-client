@@ -879,3 +879,10 @@ def verify_email_smtp(email: str) -> Dict[str, Any]:
     }
     
     return result
+
+
+def get_all_platforms() -> List[Platform]:
+    """Get all available platforms (primary and secondary)"""
+    all_platforms = list(PlatformProperties.PRIMARY_PLATFORMS) + list(PlatformProperties.SECONDARY_PLATFORMS)
+    # Sort by name for consistent ordering
+    return sorted(all_platforms, key=lambda p: p.value)

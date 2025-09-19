@@ -30,7 +30,9 @@
       "Bash(git reset:*)",
       "Bash(touch:*)",
       "Bash(diff:*)",
-      "Bash(uv build:*)"
+      "Bash(uv build:*)",
+      "Bash(pip install:*)",
+      "Bash(uv publish:*)"
     ],
     "deny": []
   }

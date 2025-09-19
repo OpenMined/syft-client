@@ -3,6 +3,7 @@
 from typing import Optional
 import webbrowser
 from pathlib import Path
+from ...environment import detect_environment, Environment
 
 
 def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> None:
@@ -181,6 +182,25 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
         if verbose:
             print("\n💻 Example command:")
             print(f"  mv ~/Downloads/client_secret*.json {credentials_file}")
+    
+    # Wait for user to confirm file is in place
+    if verbose:
+        print("\n⏳ Waiting for credentials file...")
+        print(f"Expected location: {credentials_file}")
+        
+        # Keep checking until file exists
+        while not credentials_file.exists():
+            try:
+                input("\nPress Enter after you've saved the credentials.json file to the correct location...")
+                if credentials_file.exists():
+                    print("✅ Credentials file found!")
+                    break
+                else:
+                    print(f"❌ File not found at: {credentials_file}")
+                    print("Please make sure to save the file to the exact location shown above.")
+            except (KeyboardInterrupt, EOFError):
+                print("\n\nSetup cancelled.")
+                return
     
     # Completion
     print("\n✅ Setup Complete!")

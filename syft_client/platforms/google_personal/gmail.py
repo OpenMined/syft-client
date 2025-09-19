@@ -48,6 +48,8 @@ class GmailTransport(BaseTransportLayer):
     @property
     def login_complexity(self) -> int:
         """No additional complexity after OAuth2"""
+        if self.is_setup():
+            return 0
         return 0
     
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:

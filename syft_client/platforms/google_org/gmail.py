@@ -25,6 +25,8 @@ class GmailTransport(BaseTransportLayer):
     @property
     def login_complexity(self) -> int:
         """Additional Gmail setup complexity (after Google auth)"""
+        if self.is_setup():
+            return 0
         if self.api_is_active:
             return 0  # No additional setup needed
             

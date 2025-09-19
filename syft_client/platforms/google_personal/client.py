@@ -36,9 +36,10 @@ class GooglePersonalClient(BasePlatformClient):
         'https://www.googleapis.com/auth/forms.body'
     ]
     
-    def __init__(self, email: str, verbose: bool = False):
+    def __init__(self, email: str, verbose: bool = False, wizard: Optional[bool] = None):
         super().__init__(email, verbose=verbose)
         self.platform = "google_personal"
+        self.wizard = wizard
         
         # OAuth2 state
         self.credentials: Optional[Credentials] = None
@@ -59,13 +60,20 @@ class GooglePersonalClient(BasePlatformClient):
         from .gsheets import GSheetsTransport
         from .gforms import GFormsTransport
         
-        # Create transport instances
-        self.transports = {
-            'gmail': GmailTransport(self.email),
-            'gdrive_files': GDriveFilesTransport(self.email),
-            'gsheets': GSheetsTransport(self.email),
-            'gforms': GFormsTransport(self.email)
-        }
+        # Create transport instances and set as attributes
+        self.gmail = GmailTransport(self.email)
+        self.gdrive_files = GDriveFilesTransport(self.email)
+        self.gsheets = GSheetsTransport(self.email)
+        self.gforms = GFormsTransport(self.email)
+        
+        # Keep transports dict for backward compatibility
+        from ..base import TransportRegistry
+        self.transports = TransportRegistry({
+            'gmail': self.gmail,
+            'gdrive_files': self.gdrive_files,
+            'gsheets': self.gsheets,
+            'gforms': self.gforms
+        })
     
     # ===== Core Authentication Methods (Main Flow) =====
     
@@ -97,7 +105,9 @@ class GooglePersonalClient(BasePlatformClient):
                             print("\n⚠️  Note: Gmail requires OAuth2 setup and won't work with Colab auth")
                             print("   Other services (Drive, Sheets, Forms) will work automatically")
                         
-                        transport_result = self.setup_transport_layers()
+                        # In Colab, skip wizard unless explicitly requested
+                        show_wizard = self.wizard if self.wizard is not None else False
+                        transport_result = self.setup_transport_layers(show_wizard=show_wizard)
                         
                         # Mark setup as completed
                         config['setup_completed'] = datetime.now().isoformat()
@@ -144,7 +154,9 @@ class GooglePersonalClient(BasePlatformClient):
                     self.configure_wallet_preference()
                 
                 # Step 7: Setup transport layers for first-time users
-                transport_result = self.setup_transport_layers()
+                # For non-Colab, default to showing wizard unless wizard=False
+                show_wizard = self.wizard if self.wizard is not None else True
+                transport_result = self.setup_transport_layers(show_wizard=show_wizard)
                 
                 # Mark setup as completed
                 config['setup_completed'] = datetime.now().isoformat()
@@ -585,8 +597,33 @@ class GooglePersonalClient(BasePlatformClient):
     
     # ===== Transport Setup Methods =====
     
-    def setup_transport_layers(self) -> Dict[str, Any]:
+    def setup_transport_layers(self, show_wizard: bool = True) -> Dict[str, Any]:
         """Interactive transport setup for first-time users"""
+        # For Colab without wizard, auto-configure available services
+        if self.current_environment == Environment.COLAB and not show_wizard:
+            # Auto-configure all non-Gmail services
+            transports_to_setup = ['gdrive_files', 'gsheets', 'gforms']
+            configured = []
+            failed = []
+            
+            for transport_id in transports_to_setup:
+                if self.setup_transport(transport_id):
+                    configured.append(transport_id)
+                else:
+                    failed.append(transport_id)
+            
+            if self.verbose and configured:
+                print(f"\n✅ Auto-configured Colab services: {', '.join(configured)}")
+            if self.verbose and failed:
+                print(f"\n⚠️  Failed to configure: {', '.join(failed)}")
+                
+            return {
+                'configured': configured,
+                'failed': failed,
+                'skipped': ['gmail']  # Gmail requires OAuth2
+            }
+        
+        # Show interactive wizard
         print("\n🚀 Let's set up your Google services!")
         print("=" * 50)
         
@@ -769,15 +806,19 @@ class GooglePersonalClient(BasePlatformClient):
         if self.verbose:
             print(f"\nSetting up {name}...")
         
-        # Ensure we have credentials
-        if not self.credentials:
+        # Ensure we have credentials (unless in Colab with built-in auth)
+        if not self.credentials and self.current_environment != Environment.COLAB:
             if self.verbose:
                 print("✗ No credentials available. Please authenticate first.")
             return False
         
         # Call the transport's setup method
         try:
-            setup_data = {'credentials': self.credentials}
+            # In Colab mode, we may not have explicit credentials
+            if self.current_environment == Environment.COLAB and not self.credentials:
+                setup_data = None  # Transports will handle Colab auth internally
+            else:
+                setup_data = {'credentials': self.credentials}
             success = transport.setup(setup_data)
             
             if success:
@@ -805,6 +846,8 @@ class GooglePersonalClient(BasePlatformClient):
         except Exception as e:
             if self.verbose:
                 print(f"✗ {name} setup error: {e}")
+                import traceback
+                traceback.print_exc()
             return False
     
     def configure_transports(self) -> Dict[str, Any]:

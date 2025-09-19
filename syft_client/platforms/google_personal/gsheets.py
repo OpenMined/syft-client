@@ -40,6 +40,8 @@ class GSheetsTransport(BaseTransportLayer):
     @property
     def login_complexity(self) -> int:
         """Sheets requires same auth as GDrive"""
+        if self.is_setup():
+            return 0
         if self._cached_credentials:
             return 0  # Already logged in
             
@@ -62,6 +64,8 @@ class GSheetsTransport(BaseTransportLayer):
                     self.credentials = None  # No explicit credentials in Colab
                 except ImportError:
                     # Fallback to regular credentials if Colab auth not available
+                    if credentials is None:
+                        return False
                     if not credentials or 'credentials' not in credentials:
                         return False
                     self.credentials = credentials['credentials']
@@ -69,6 +73,8 @@ class GSheetsTransport(BaseTransportLayer):
                     self.drive_service = build('drive', 'v3', credentials=self.credentials)
             else:
                 # Regular OAuth2 flow
+                if credentials is None:
+                    return False
                 if not credentials or 'credentials' not in credentials:
                     return False
                 self.credentials = credentials['credentials']
@@ -76,7 +82,10 @@ class GSheetsTransport(BaseTransportLayer):
                 self.drive_service = build('drive', 'v3', credentials=self.credentials)
             
             return True
-        except Exception:
+        except Exception as e:
+            print(f"[DEBUG] GSheets setup error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def is_setup(self) -> bool:

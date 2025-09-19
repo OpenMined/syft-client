@@ -24,7 +24,9 @@ class BaseTransportLayer(ABC):
     
     def __init__(self, email: str):
         self.email = email
-        self.environment: Optional[Environment] = None
+        # Auto-detect environment on initialization
+        from ..environment import detect_environment
+        self.environment: Optional[Environment] = detect_environment()
         self.api_is_active: bool = False
         self._cached_credentials: Optional[Dict[str, Any]] = None
         
@@ -112,4 +114,63 @@ class BaseTransportLayer(ABC):
         return []
         
     def __repr__(self):
-        return f"{self.__class__.__name__}(email='{self.email}')"
+        """String representation using rich for proper formatting"""
+        from rich.console import Console
+        from rich.table import Table
+        from rich.panel import Panel
+        from io import StringIO
+        
+        # Create a string buffer to capture the rich output
+        string_buffer = StringIO()
+        console = Console(file=string_buffer, force_terminal=True, width=70)
+        
+        # Create main table
+        main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
+        main_table.add_column("Property", style="bold cyan")
+        main_table.add_column("Value")
+        
+        # Status
+        status = "[green]✓ Ready[/green]" if self.is_setup() else "[red]✗ Not configured[/red]"
+        main_table.add_row("Status", status)
+        
+        # Environment
+        env_name = self.environment.value if self.environment else "Unknown"
+        main_table.add_row("Environment", env_name)
+        
+        # Capabilities
+        main_table.add_row("", "")  # spacer
+        main_table.add_row("[bold]Capabilities[/bold]", "")
+        
+        # Add capability rows with checkmarks/crosses
+        capabilities = [
+            ("Keystore", self.is_keystore),
+            ("Notifications", self.is_notification_layer),
+            ("HTML Support", self.is_html_compatible),
+            ("Reply Support", self.is_reply_compatible),
+            ("Guest Submit", self.guest_submit),
+            ("Guest Read Files", self.guest_read_file),
+            ("Guest Read Folders", self.guest_read_folder),
+        ]
+        
+        for name, value in capabilities:
+            icon = "[green]✓[/green]" if value else "[dim]✗[/dim]"
+            main_table.add_row(f"  {name}", icon)
+        
+        # Complexity
+        main_table.add_row("", "")  # spacer
+        main_table.add_row("Setup Complexity", f"{self.login_complexity} steps")
+        
+        # Create the panel
+        panel = Panel(
+            main_table,
+            title=f"{self.__class__.__name__}(email='{self.email}')",
+            expand=False,
+            width=70,
+            padding=(1, 2)
+        )
+        
+        console.print(panel)
+        output = string_buffer.getvalue()
+        string_buffer.close()
+        
+        return output.strip()

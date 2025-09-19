@@ -4,12 +4,67 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
 
 
+class TransportRegistry(dict):
+    """Custom dict for transports with a nice __repr__"""
+    
+    def __repr__(self):
+        """String representation using rich for proper formatting"""
+        from rich.console import Console
+        from rich.table import Table
+        from rich.panel import Panel
+        from io import StringIO
+        
+        # Create a string buffer to capture the rich output
+        string_buffer = StringIO()
+        console = Console(file=string_buffer, force_terminal=True, width=70)
+        
+        # Create main table
+        main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
+        main_table.add_column(style="dim")
+        
+        if self:
+            for transport_name, transport_obj in self.items():
+                # Check if transport is set up
+                if hasattr(transport_obj, 'is_setup') and transport_obj.is_setup():
+                    status = "[green]✓[/green]"
+                else:
+                    status = "[dim]○[/dim]"
+                
+                # Show the transport
+                main_table.add_row(f"{status} [bold yellow]['{transport_name}'][/bold yellow] = {transport_obj.__class__.__name__}(...)")
+        else:
+            main_table.add_row("No transports registered")
+        
+        # Create the panel
+        panel = Panel(
+            main_table,
+            title="TransportRegistry",
+            expand=False,
+            width=70,
+            padding=(1, 2)
+        )
+        
+        console.print(panel)
+        output = string_buffer.getvalue()
+        string_buffer.close()
+        
+        return output.strip()
+
+
 class BasePlatformClient(ABC):
     """Abstract base class for all platform clients"""
     
     def __dir__(self):
-        """Limit tab completion to only show essential attributes"""
-        return ['email', 'transports']
+        """Show available attributes for tab completion"""
+        # Start with basic attributes
+        attrs = ['email', 'transports']
+        
+        # Add transport methods if they exist as attributes
+        for transport_name in self.get_transport_layers():
+            if hasattr(self, transport_name):
+                attrs.append(transport_name)
+        
+        return attrs
     
     def __init__(self, email: str, **kwargs):
         self.email = email
@@ -166,4 +221,90 @@ class BasePlatformClient(ABC):
             return None
         
     def __repr__(self):
-        return f"{self.__class__.__name__}(email='{self.email}')"
+        """String representation using rich for proper formatting"""
+        from rich.console import Console
+        from rich.table import Table
+        from rich.panel import Panel
+        from io import StringIO
+        
+        # Create a string buffer to capture the rich output
+        string_buffer = StringIO()
+        console = Console(file=string_buffer, force_terminal=True, width=70)
+        
+        # Create main table
+        main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
+        main_table.add_column(style="dim")
+        
+        # Get transports and their status with details
+        if self.get_transport_layers():
+            # Create a table for transports
+            transport_table = Table(show_header=False, show_edge=False, box=None, padding=(0, 1))
+            transport_table.add_column("Transport", style="bold")
+            transport_table.add_column("Status", width=8)
+            transport_table.add_column("Setup", width=12)
+            transport_table.add_column("Features", style="dim")
+            
+            for transport_name in self.get_transport_layers():
+                # Try to get transport as attribute first
+                transport_obj = getattr(self, transport_name, None)
+                if transport_obj is None and hasattr(self, 'transports'):
+                    # Fallback to transports dict
+                    transport_obj = self.transports.get(transport_name)
+                
+                # Status and get complexity
+                if transport_obj and hasattr(transport_obj, 'is_setup') and transport_obj.is_setup():
+                    status = "[green]✓[/green]"
+                    # Get complexity even when ready
+                    if hasattr(transport_obj, 'login_complexity'):
+                        steps = transport_obj.login_complexity
+                        setup_str = f"[green]{steps} steps[/green]"
+                    else:
+                        setup_str = "[green]Ready[/green]"
+                else:
+                    status = "[dim]○[/dim]"
+                    # Get complexity
+                    if transport_obj and hasattr(transport_obj, 'login_complexity'):
+                        steps = transport_obj.login_complexity
+                        if steps == 0:
+                            setup_str = "[yellow]0 steps[/yellow]"
+                        elif steps == 1:
+                            setup_str = "[yellow]1 step[/yellow]"
+                        else:
+                            setup_str = f"[red]{steps} steps[/red]"
+                    else:
+                        setup_str = "[dim]Unknown[/dim]"
+                
+                # Get key features
+                features = []
+                if transport_obj:
+                    if getattr(transport_obj, 'is_keystore', False):
+                        features.append("keystore")
+                    if getattr(transport_obj, 'is_notification_layer', False):
+                        features.append("notifications")
+                    if getattr(transport_obj, 'guest_read_file', False):
+                        features.append("public sharing")
+                    if getattr(transport_obj, 'is_html_compatible', False):
+                        features.append("HTML")
+                
+                feature_str = ", ".join(features) if features else "basic transport"
+                
+                transport_table.add_row(f".{transport_name}", status, setup_str, feature_str)
+            
+            main_table.add_row(transport_table)
+        else:
+            main_table.add_row("  No transport layers available")
+        
+        # Create the panel with the table
+        panel = Panel(
+            main_table,
+            title=f"{self.__class__.__name__}(email='{self.email}')",
+            expand=False,
+            width=70,
+            padding=(1, 2)
+        )
+        
+        console.print(panel)
+        output = string_buffer.getvalue()
+        string_buffer.close()
+        
+        return output.strip()
