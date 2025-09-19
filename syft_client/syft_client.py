@@ -259,7 +259,7 @@ class SyftClient:
         Simple login function for syft_client
         
         Args:
-            email: Email address to authenticate as
+            email: Email address to authenticate as. Optional in Colab (auto-detected).
             provider: Email provider name (e.g., 'google', 'microsoft'). Required if auto-detection fails.
             quickstart: If True and in supported environment, use fastest available login
             verbose: If True, print detailed progress information
@@ -268,11 +268,27 @@ class SyftClient:
         Returns:
             SyftClient: Authenticated client object with platform and transport layers
         """
-        # Step 0: Validate email input
+        # Step 0: Handle email input
+        environment = detect_environment()
         if email is None:
-            environment = detect_environment()
             if environment == Environment.COLAB:
-                raise ValueError("Please specify an email: login(email='your@gmail.com')")
+                # In Colab, we can try to auto-detect the email
+                try:
+                    from google.colab import auth as colab_auth
+                    from googleapiclient.discovery import build
+                    
+                    # Authenticate and get email
+                    colab_auth.authenticate_user()
+                    service = build('drive', 'v3')
+                    about = service.about().get(fields="user(emailAddress)").execute()
+                    email = about['user']['emailAddress']
+                    
+                    if verbose:
+                        print(f"🔐 Auto-detected Colab user: {email}")
+                except Exception as e:
+                    if verbose:
+                        print(f"⚠️  Could not auto-detect email in Colab: {e}")
+                    raise ValueError("Could not auto-detect email. Please specify: login(email='your@gmail.com')")
             else:
                 raise ValueError("Please specify an email: login(email='your@email.com')")
         
