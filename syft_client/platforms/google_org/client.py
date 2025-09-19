@@ -173,9 +173,17 @@ class GoogleOrgClient(BasePlatformClient):
                     if hasattr(transport, 'is_setup') and transport.is_setup():
                         successful_transports.append(transport_name)
                     else:
+                        # Skip Gmail in Colab mode since it requires OAuth2
+                        if self.current_environment == Environment.COLAB and transport_name == 'gmail' and not self.credentials:
+                            continue
+                        
                         # Try to set it up
                         try:
-                            setup_data = {'credentials': self.credentials}
+                            # In Colab mode, we may not have explicit credentials
+                            if self.current_environment == Environment.COLAB and not self.credentials:
+                                setup_data = None  # Transports will handle Colab auth internally
+                            else:
+                                setup_data = {'credentials': self.credentials}
                             if transport.setup(setup_data):
                                 successful_transports.append(transport_name)
                             else:

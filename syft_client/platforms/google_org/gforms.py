@@ -52,23 +52,19 @@ class GFormsTransport(BaseTransportLayer):
             if self.environment == Environment.COLAB:
                 try:
                     from google.colab import auth as colab_auth
-                    colab_auth.authenticate_user()
-                    # Build service without explicit credentials in Colab
+                    # Note: authenticate_user() has already been called in the main auth flow
+                    # We just need to build the service
                     self.forms_service = build('forms', 'v1')
                     self.credentials = None  # No explicit credentials in Colab
                 except ImportError:
                     # Fallback to regular credentials if Colab auth not available
-                    if credentials is None:
-                        return False
-                    if not credentials or 'credentials' not in credentials:
+                    if credentials is None or not credentials or 'credentials' not in credentials:
                         return False
                     self.credentials = credentials['credentials']
                     self.forms_service = build('forms', 'v1', credentials=self.credentials)
             else:
                 # Regular OAuth2 flow
-                if credentials is None:
-                    return False
-                if not credentials or 'credentials' not in credentials:
+                if credentials is None or not credentials or 'credentials' not in credentials:
                     return False
                 self.credentials = credentials['credentials']
                 self.forms_service = build('forms', 'v1', credentials=self.credentials)

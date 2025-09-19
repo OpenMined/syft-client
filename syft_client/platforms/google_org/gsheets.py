@@ -57,25 +57,21 @@ class GSheetsTransport(BaseTransportLayer):
             if self.environment == Environment.COLAB:
                 try:
                     from google.colab import auth as colab_auth
-                    colab_auth.authenticate_user()
-                    # Build services without explicit credentials in Colab
+                    # Note: authenticate_user() has already been called in the main auth flow
+                    # We just need to build the services
                     self.sheets_service = build('sheets', 'v4')
                     self.drive_service = build('drive', 'v3')
                     self.credentials = None  # No explicit credentials in Colab
                 except ImportError:
                     # Fallback to regular credentials if Colab auth not available
-                    if credentials is None:
-                        return False
-                    if not credentials or 'credentials' not in credentials:
+                    if credentials is None or not credentials or 'credentials' not in credentials:
                         return False
                     self.credentials = credentials['credentials']
                     self.sheets_service = build('sheets', 'v4', credentials=self.credentials)
                     self.drive_service = build('drive', 'v3', credentials=self.credentials)
             else:
                 # Regular OAuth2 flow
-                if credentials is None:
-                    return False
-                if not credentials or 'credentials' not in credentials:
+                if credentials is None or not credentials or 'credentials' not in credentials:
                     return False
                 self.credentials = credentials['credentials']
                 self.sheets_service = build('sheets', 'v4', credentials=self.credentials)
