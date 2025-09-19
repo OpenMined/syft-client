@@ -2,6 +2,9 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
+from pathlib import Path
+from datetime import datetime
+import json
 
 
 class TransportRegistry(dict):
@@ -73,6 +76,10 @@ class BasePlatformClient(ABC):
         # Store any additional kwargs for subclasses that need them
         self.verbose = kwargs.get('verbose', False)
         self._current_environment = None  # Cached environment
+    
+    def _sanitize_email(self) -> str:
+        """Sanitize email for use in file paths"""
+        return self.email.replace('@', '_at_').replace('.', '_')
         
     def authenticate(self) -> Dict[str, Any]:
         """
@@ -162,7 +169,11 @@ class BasePlatformClient(ABC):
         Returns:
             Dict mapping transport names to transport instances
         """
-        # Initialize transports if not already done
+        # If subclass has already initialized transports (like Google clients), use them
+        if hasattr(self, 'transports') and self.transports:
+            return self.transports
+            
+        # Otherwise, initialize transports if not already done
         if not self._transport_instances:
             self._initialize_transports()
         return self._transport_instances
@@ -307,4 +318,59 @@ class BasePlatformClient(ABC):
         output = string_buffer.getvalue()
         string_buffer.close()
         
-        return output.strip()
+        return output.strip()    
+    # ===== Configuration Management Methods =====
+    
+    def get_config_path(self) -> Path:
+        """Get path to platform config file"""
+        return Path.home() / ".syft" / self._sanitize_email() / "config.json"
+    
+    @property
+    def config_path(self) -> Path:
+        """Property for config path"""
+        return self.get_config_path()
+    
+    def load_platform_config(self) -> Dict[str, Any]:
+        """Load all platform settings from config file"""
+        try:
+            if self.config_path.exists():
+                with open(self.config_path, 'r') as f:
+                    return json.load(f)
+            return {}
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to load platform config: {e}")
+            return {}
+    
+    def save_platform_config(self, config: Dict[str, Any]) -> None:
+        """Save wallet and transport preferences"""
+        try:
+            # Load existing config
+            existing_config = self.load_platform_config()
+            
+            # Merge with new config
+            existing_config.update(config)
+            
+            # Add metadata
+            existing_config['last_updated'] = datetime.now().isoformat()
+            existing_config['platform'] = self.platform
+            existing_config['email'] = self.email
+            
+            # Ensure directory exists
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Save config
+            with open(self.config_path, 'w') as f:
+                json.dump(existing_config, f, indent=2)
+            
+            # Set secure permissions
+            self.config_path.chmod(0o600)
+            
+            if self.verbose:
+                print(f"✓ Configuration saved to {self.config_path}")
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"Failed to save platform config: {e}")
+            raise
+EOF < /dev/null

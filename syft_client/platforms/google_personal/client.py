@@ -44,14 +44,9 @@ class GooglePersonalClient(BasePlatformClient):
         # OAuth2 state
         self.credentials: Optional[Credentials] = None
         self.wallet = None
-        self.config_path = self.get_config_path()
         
         # Initialize transport layers
         self._initialize_transport_layers()
-    
-    def _sanitize_email(self) -> str:
-        """Sanitize email for use in file paths"""
-        return self.email.replace('@', '_at_').replace('.', '_')
     
     def _initialize_transport_layers(self) -> None:
         """Initialize all transport layers for Google Personal"""
@@ -918,54 +913,7 @@ class GooglePersonalClient(BasePlatformClient):
             return {'error': 'Invalid input'}
     
     # ===== Configuration Methods =====
-    
-    def load_platform_config(self) -> Dict[str, Any]:
-        """Load all platform settings from config file"""
-        try:
-            if self.config_path.exists():
-                with open(self.config_path, 'r') as f:
-                    return json.load(f)
-            return {}
-        except Exception as e:
-            if self.verbose:
-                print(f"Failed to load platform config: {e}")
-            return {}
-    
-    def save_platform_config(self, config: Dict[str, Any]) -> None:
-        """Save wallet and transport preferences"""
-        try:
-            # Load existing config
-            existing_config = self.load_platform_config()
-            
-            # Merge with new config
-            existing_config.update(config)
-            
-            # Add metadata
-            existing_config['last_updated'] = datetime.now().isoformat()
-            existing_config['platform'] = self.platform
-            existing_config['email'] = self.email
-            
-            # Ensure directory exists
-            self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Save config
-            with open(self.config_path, 'w') as f:
-                json.dump(existing_config, f, indent=2)
-            
-            # Set secure permissions
-            self.config_path.chmod(0o600)
-            
-            if self.verbose:
-                print(f"✓ Configuration saved to {self.config_path}")
-                
-        except Exception as e:
-            if self.verbose:
-                print(f"Failed to save platform config: {e}")
-            raise
-    
-    def get_config_path(self) -> Path:
-        """Get path to platform config file"""
-        return Path.home() / ".syft" / self._sanitize_email() / "config.json"
+    # Config methods are now inherited from BasePlatformClient
     
     # ===== Legacy/Existing Methods (To be refactored) =====
     
@@ -973,9 +921,7 @@ class GooglePersonalClient(BasePlatformClient):
         """Get list of available transport layers"""
         return list(self.transports.keys())
     
-    def get_transport_instances(self) -> Dict[str, Any]:
-        """Get all instantiated transport layers for this platform"""
-        return self.transports
+    # get_transport_instances() is now inherited from BasePlatformClient
     
     @property
     def login_complexity(self) -> int:
