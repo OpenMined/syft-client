@@ -166,8 +166,9 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
         if env == Environment.JUPYTER:
             print("\n📓 For Jupyter:")
             print("   a. Upload the downloaded JSON file to Jupyter")
-            print("   b. Then run these commands:")
-            print(f"      !mkdir -p ~/.syft/{safe_email}")
+            print("   b. Then run these commands in a Jupyter cell:")
+            print(f"      import os")
+            print(f"      os.makedirs(os.path.expanduser('~/.syft/{safe_email}'), exist_ok=True)")
             print(f"      !mv client_secret*.json ~/.syft/{safe_email}/credentials.json")
         else:  # Colab
             print("\n📊 For Google Colab:")
@@ -177,11 +178,20 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
             print(f"      !mv /content/client_secret*.json ~/.syft/{safe_email}/credentials.json")
     else:
         # For terminal/REPL environments where they can save directly
-        print(f"Save the downloaded file as: {credentials_file}")
-        print("\nTypical download location: ~/Downloads/client_secret_*.json")
+        print(f"Save the downloaded file to: {credentials_file}")
+        print("\nThe downloaded file will have a long name like:")
+        print("  client_secret_XXXXXXX.apps.googleusercontent.com.json")
+        
         if verbose:
-            print("\n💻 Example command:")
-            print(f"  mv ~/Downloads/client_secret*.json {credentials_file}")
+            print("\n💻 Terminal commands (run these in your terminal, NOT in Python):")
+            print(f"  # First, create the directory:")
+            print(f"  mkdir -p ~/.syft/{safe_email}")
+            print(f"  ")
+            print(f"  # Then move the file (replace the actual filename):")
+            print(f"  mv ~/Downloads/client_secret_*.json {credentials_file}")
+            print(f"  ")
+            print(f"  # Or if you know the exact filename:")
+            print(f"  mv ~/Downloads/client_secret_XXXXX.apps.googleusercontent.com.json {credentials_file}")
     
     # IMPORTANT: Give user time to actually move the file!
     print("\n" + "="*50)
@@ -190,6 +200,11 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
     print("\n1. Make sure you've downloaded the JSON file from Google Cloud Console")
     print("2. Move/save it to the location shown above")
     print("3. Then press Enter to continue")
+    
+    print("\n💡 TIP: If you're having trouble with the commands:")
+    print(f"   - The file needs to be renamed to 'credentials.json'")
+    print(f"   - It needs to be placed in: ~/.syft/{safe_email}/")
+    print(f"   - You can also manually create the folder and copy the file there")
     
     input("\nPress Enter AFTER you've saved the credentials.json file...")
     
