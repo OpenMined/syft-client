@@ -183,24 +183,31 @@ def create_oauth2_wizard(email: Optional[str] = None, verbose: bool = True) -> N
             print("\n💻 Example command:")
             print(f"  mv ~/Downloads/client_secret*.json {credentials_file}")
     
-    # Wait for user to confirm file is in place
-    if verbose:
-        print("\n⏳ Waiting for credentials file...")
-        print(f"Expected location: {credentials_file}")
-        
-        # Keep checking until file exists
-        while not credentials_file.exists():
-            try:
-                input("\nPress Enter after you've saved the credentials.json file to the correct location...")
-                if credentials_file.exists():
-                    print("✅ Credentials file found!")
-                    break
-                else:
-                    print(f"❌ File not found at: {credentials_file}")
-                    print("Please make sure to save the file to the exact location shown above.")
-            except (KeyboardInterrupt, EOFError):
-                print("\n\nSetup cancelled.")
-                return
+    # IMPORTANT: Give user time to actually move the file!
+    print("\n" + "="*50)
+    print("⚠️  IMPORTANT: Please complete the file setup now!")
+    print("="*50)
+    print("\n1. Make sure you've downloaded the JSON file from Google Cloud Console")
+    print("2. Move/save it to the location shown above")
+    print("3. Then press Enter to continue")
+    
+    input("\nPress Enter AFTER you've saved the credentials.json file...")
+    
+    # Now verify the file is actually in place
+    print("\n⏳ Verifying credentials file...")
+    print(f"Expected location: {credentials_file}")
+    
+    # Keep checking until file exists
+    while not credentials_file.exists():
+        print(f"\n❌ File not found at: {credentials_file}")
+        print("Please make sure to save the file to the exact location shown above.")
+        try:
+            input("\nPress Enter to check again...")
+        except (KeyboardInterrupt, EOFError):
+            print("\n\nSetup cancelled.")
+            return
+    
+    print("✅ Credentials file found!")
     
     # Completion
     print("\n✅ Setup Complete!")
