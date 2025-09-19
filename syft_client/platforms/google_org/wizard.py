@@ -125,27 +125,12 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
     
     input("\nPress Enter when OAuth consent screen is configured...")
     
-    # Step 5: Admin Consent (if needed)
-    print("\n👤 Step 5: Admin Consent (If Required)")
-    print("\n⚠️  Some Workspace organizations require admin consent for OAuth apps.")
-    print("\nIf you're not an admin:")
-    print("  1. Your admin needs to approve the app")
-    print("  2. They can do this from:")
-    admin_consent_url = f"https://admin.google.com/ac/owl/domainwidedelegation?hl=en"
-    print(f"     {admin_consent_url}")
-    print("  3. Or through the Admin Console > Security > API controls")
+    # Note about admin consent (informational only)
+    print("\n💡 Note: If your organization blocks OAuth apps, you may need admin approval later.")
+    print("   For now, the app will work in testing mode with your account.")
     
-    is_admin = input("\nAre you a Workspace admin? (y/N): ").strip().lower()
-    if is_admin == 'y':
-        print("\nGreat! You can approve the app yourself if needed.")
-    else:
-        print("\nYou may need to request approval from your Workspace admin.")
-        print("The app will work for testing, but may have limited access.")
-    
-    input("\nPress Enter to continue...")
-    
-    # Step 6: Create Credentials
-    print("\n🔑 Step 6: Create OAuth2 Credentials")
+    # Step 5: Create Credentials
+    print("\n🔑 Step 5: Create OAuth2 Credentials")
     creds_url = f"https://console.cloud.google.com/apis/credentials{authuser}"
     print(f"Open: {creds_url}")
     print("\n1. Click '+ CREATE CREDENTIALS' → 'OAuth client ID'")
@@ -155,8 +140,8 @@ def create_oauth2_wizard(email: str, verbose: bool = True, is_workspace: bool = 
     print("5. Click 'DOWNLOAD JSON' in the popup")
     print(f"6. Save as: {credentials_file}")
     
-    # Step 7: Domain-wide Delegation (Optional)
-    print("\n🌐 Step 7: Domain-wide Delegation (Optional)")
+    # Step 6: Domain-wide Delegation (Optional)
+    print("\n🌐 Step 6: Domain-wide Delegation (Optional)")
     print("\nFor advanced use cases, you might need domain-wide delegation.")
     print("This allows the app to access data on behalf of any user in your domain.")
     print("\nThis requires:")
