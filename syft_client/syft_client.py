@@ -107,7 +107,7 @@ class SyftClient:
         
         # Create a string buffer to capture the rich output
         string_buffer = StringIO()
-        console = Console(file=string_buffer, force_terminal=True, width=70)
+        console = Console(file=string_buffer, force_terminal=True, width=80)
         
         # Create main table
         main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
@@ -146,7 +146,7 @@ class SyftClient:
             main_table,
             title=f"SyftClient.email = '{self.email}'",
             expand=False,
-            width=70,
+            width=80,
             padding=(1, 2)
         )
         
