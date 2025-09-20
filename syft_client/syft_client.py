@@ -156,10 +156,6 @@ class SyftClient:
         
         return output.strip()
     
-    def _repr_html_(self) -> str:
-        """HTML representation for Jupyter notebooks"""
-        # Use the rich output for Jupyter as well
-        return f"<pre>{self.__repr__()}</pre>"
     
     def __str__(self) -> str:
         """User-friendly string representation"""
@@ -169,13 +165,14 @@ class SyftClient:
             lines.append(f"  • {platform_name}: {', '.join(transports)}")
         return "\n".join(lines)
     
-    def _login(self, provider: Optional[str] = None, verbose: bool = False) -> None:
+    def _login(self, provider: Optional[str] = None, verbose: bool = False, init_transport: bool = True) -> None:
         """
         Instance method that handles the actual login process
         
         Args:
             provider: Optional provider override
             verbose: Whether to print progress
+            init_transport: Whether to initialize transport layers
             
         Raises:
             Exception: If authentication fails
@@ -213,8 +210,9 @@ class SyftClient:
             # Add the authenticated platform to this client
             self.add_platform(client, auth_result)
             
-            # Initialize transports for all secondary platforms
-            self._initialize_all_transports()
+            # Initialize transports for all secondary platforms if requested
+            if init_transport:
+                self._initialize_all_transports()
             
             # Check for secondary platforms
             secondary_platforms = get_secondary_platforms()
@@ -234,7 +232,7 @@ class SyftClient:
     
     @staticmethod
     def login(email: Optional[str] = None, provider: Optional[str] = None, 
-              quickstart: bool = True, verbose: bool = False, **kwargs) -> 'SyftClient':
+              quickstart: bool = True, verbose: bool = False, init_transport: bool = True, **kwargs) -> 'SyftClient':
         """
         Simple login function for syft_client
         
@@ -243,6 +241,7 @@ class SyftClient:
             provider: Email provider name (e.g., 'google', 'microsoft'). Required if auto-detection fails.
             quickstart: If True and in supported environment, use fastest available login
             verbose: If True, print detailed progress information
+            init_transport: If True (default), initialize transport layers during login. If False, skip transport initialization.
             **kwargs: Additional arguments for authentication
             
         Returns:
@@ -258,5 +257,5 @@ class SyftClient:
         
         # Create SyftClient and login
         client = SyftClient(email)
-        client._login(provider=provider, verbose=verbose)
+        client._login(provider=provider, verbose=verbose, init_transport=init_transport)
         return client
