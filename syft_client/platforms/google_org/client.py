@@ -97,6 +97,50 @@ class GoogleOrgClient(BasePlatformClient):
                 self._real_transport = None
                 self._setup_called = False
                 
+                # Set default attributes based on transport type
+                # These match the static attributes from the actual transport classes
+                if transport_name == 'gmail':
+                    self.is_keystore = True
+                    self.is_notification_layer = True
+                    self.is_html_compatible = True
+                    self.is_reply_compatible = True
+                    self.guest_submit = False
+                    self.guest_read_file = False
+                    self.guest_read_folder = False
+                elif transport_name == 'gdrive_files':
+                    self.is_keystore = True
+                    self.is_notification_layer = False
+                    self.is_html_compatible = False
+                    self.is_reply_compatible = False
+                    self.guest_submit = False
+                    self.guest_read_file = True
+                    self.guest_read_folder = True
+                elif transport_name == 'gsheets':
+                    self.is_keystore = True
+                    self.is_notification_layer = False
+                    self.is_html_compatible = False
+                    self.is_reply_compatible = False
+                    self.guest_submit = False
+                    self.guest_read_file = True
+                    self.guest_read_folder = False
+                elif transport_name == 'gforms':
+                    self.is_keystore = False
+                    self.is_notification_layer = False
+                    self.is_html_compatible = True
+                    self.is_reply_compatible = False
+                    self.guest_submit = True
+                    self.guest_read_file = False
+                    self.guest_read_folder = False
+                else:
+                    # Default values
+                    self.is_keystore = False
+                    self.is_notification_layer = False
+                    self.is_html_compatible = False
+                    self.is_reply_compatible = False
+                    self.guest_submit = False
+                    self.guest_read_file = False
+                    self.guest_read_folder = False
+                
             def init(self, verbose: bool = True) -> bool:
                 """Initialize and set up this transport"""
                 from rich.console import Console
@@ -199,7 +243,16 @@ class GoogleOrgClient(BasePlatformClient):
                 return 0
             
             def __getattr__(self, name):
-                if name in ['init', 'setup', 'is_setup', '_transport_name', '_platform_client', '_real_transport', '_setup_called', 'login_complexity']:
+                # List of attributes that should be accessible without initialization
+                allowed_attrs = [
+                    'init', 'setup', 'is_setup', '_transport_name', '_platform_client', 
+                    '_real_transport', '_setup_called', 'login_complexity',
+                    'is_keystore', 'is_notification_layer', 'is_html_compatible',
+                    'is_reply_compatible', 'guest_submit', 'guest_read_file', 
+                    'guest_read_folder'
+                ]
+                
+                if name in allowed_attrs:
                     return object.__getattribute__(self, name)
                 if not self._setup_called:
                     raise RuntimeError(f"Transport '{self._transport_name}' is not initialized. Please call .init() first.")
