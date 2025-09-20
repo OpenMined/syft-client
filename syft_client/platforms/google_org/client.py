@@ -99,6 +99,15 @@ class GoogleOrgClient(BasePlatformClient):
                 
             def init(self) -> bool:
                 """Initialize and set up this transport"""
+                from rich.console import Console
+                from rich.panel import Panel
+                from rich.text import Text
+                
+                console = Console()
+                
+                # Show initialization start
+                console.print(f"\n[bold blue]Initializing {self._transport_name} transport...[/bold blue]")
+                
                 # Map transport names to their classes
                 transport_classes = {
                     'gmail': lambda: __import__('syft_client.platforms.google_org.gmail', fromlist=['GmailTransport']).GmailTransport,
@@ -108,6 +117,7 @@ class GoogleOrgClient(BasePlatformClient):
                 }
                 
                 # Create the real transport
+                console.print(f"  • Creating {self._transport_name} transport instance...")
                 transport_class = transport_classes[self._transport_name]()
                 self._real_transport = transport_class(self._platform_client.email)
                 self._real_transport._platform_client = self._platform_client
@@ -118,11 +128,60 @@ class GoogleOrgClient(BasePlatformClient):
                 
                 # Set up with credentials if available
                 if hasattr(self._platform_client, 'credentials') and self._platform_client.credentials:
+                    console.print("  • Setting up with OAuth2 credentials...")
                     success = self._real_transport.setup({'credentials': self._platform_client.credentials})
+                    if success:
+                        console.print("  [green]✓[/green] OAuth2 credentials configured")
+                    else:
+                        console.print("  [red]✗[/red] Failed to configure credentials")
                 else:
+                    console.print("  • No credentials available (transport created but not authenticated)")
                     success = True
                 
                 self._setup_called = True
+                
+                if success:
+                    # Create info panel with next steps
+                    info_lines = [
+                        f"[bold green]✓ {self._transport_name} transport initialized successfully![/bold green]",
+                        "",
+                        "[bold]What you can do now:[/bold]"
+                    ]
+                    
+                    # Add transport-specific suggestions
+                    if self._transport_name == 'gmail':
+                        info_lines.extend([
+                            "  • Send emails: [cyan].send(recipient, data, subject)[/cyan]",
+                            "  • Read emails: [cyan].receive(limit=10)[/cyan]",
+                            "  • Test setup: [cyan].test()[/cyan]"
+                        ])
+                    elif self._transport_name == 'gdrive_files':
+                        info_lines.extend([
+                            "  • List files: [cyan].list_files()[/cyan]",
+                            "  • Upload file: [cyan].upload_file(filepath)[/cyan]",
+                            "  • Download file: [cyan].download_file(file_id, save_path)[/cyan]"
+                        ])
+                    elif self._transport_name == 'gsheets':
+                        info_lines.extend([
+                            "  • Read sheet: [cyan].read_sheet(spreadsheet_id, range)[/cyan]",
+                            "  • Write data: [cyan].write_sheet(spreadsheet_id, range, values)[/cyan]",
+                            "  • Create sheet: [cyan].create_sheet(title)[/cyan]"
+                        ])
+                    elif self._transport_name == 'gforms':
+                        info_lines.extend([
+                            "  • List forms: [cyan].list_forms()[/cyan]",
+                            "  • Get responses: [cyan].get_responses(form_id)[/cyan]",
+                            "  • Create form: [cyan].create_form(title)[/cyan]"
+                        ])
+                    
+                    info_lines.extend([
+                        "",
+                        f"[dim]Access via: client.platforms.google_org.{self._transport_name}[/dim]"
+                    ])
+                    
+                    panel = Panel("\n".join(info_lines), expand=False, border_style="green")
+                    console.print(panel)
+                
                 return success
             
             def is_setup(self) -> bool:
