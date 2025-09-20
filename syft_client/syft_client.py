@@ -33,6 +33,7 @@ class SyftClient:
         class PlatformRegistry:
             def __init__(self, platforms_dict):
                 self._platforms = platforms_dict
+                self._parent_client = self  # Reference to parent SyftClient
             
             def __getattr__(self, name):
                 if name in self._platforms:
@@ -61,6 +62,67 @@ class SyftClient:
                 """Support tab completion for platform names"""
                 # Include dict methods and platform names
                 return list(self._platforms.keys()) + ['items', 'keys', 'values', 'get']
+            
+            def __repr__(self):
+                """String representation showing platforms and their transports"""
+                from rich.console import Console
+                from rich.table import Table
+                from rich.panel import Panel
+                from io import StringIO
+                
+                # Create a string buffer to capture the rich output
+                string_buffer = StringIO()
+                console = Console(file=string_buffer, force_terminal=True, width=100)
+                
+                # Create main table with single column for better formatting
+                main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
+                main_table.add_column("", no_wrap=False)
+                
+                # Add each platform with its transports
+                for platform_name, platform in self._platforms.items():
+                    # Platform header
+                    main_table.add_row(f"[bold yellow].{platform_name}[/bold yellow]")
+                    
+                    # Get all available transport names (including uninitialized)
+                    transport_names = platform.get_transport_layers()
+                    
+                    for transport_name in transport_names:
+                        # Check if transport is actually initialized and setup
+                        if hasattr(platform, 'transports') and transport_name in platform.transports:
+                            transport = platform.transports[transport_name]
+                            if hasattr(transport, 'is_setup') and transport.is_setup():
+                                status = "[green]✓[/green]"
+                                transport_style = "green"
+                                message = ""
+                            else:
+                                status = "[dim]✗[/dim]"
+                                transport_style = "dim"
+                                # Check if this is an uninitialized stub that needs setup
+                                if hasattr(transport, '_setup_called') and not transport._setup_called:
+                                    message = " [dim](call .init() to initialize)[/dim]"
+                                else:
+                                    message = ""
+                        else:
+                            # Transport not initialized
+                            status = "[dim]✗[/dim]"
+                            transport_style = "dim"
+                            message = ""
+                        main_table.add_row(f"  {status} [{transport_style}].{transport_name}[/{transport_style}]{message}")
+                
+                # Create the panel
+                panel = Panel(
+                    main_table,
+                    title="Platforms",
+                    expand=False,
+                    width=100,
+                    padding=(1, 2)
+                )
+                
+                console.print(panel)
+                output = string_buffer.getvalue()
+                string_buffer.close()
+                
+                return output.strip()
                 
         return PlatformRegistry(self._platforms)
     
