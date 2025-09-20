@@ -160,7 +160,7 @@ class SyftClient:
         # Add folder path
         from pathlib import Path
         syft_folder = Path.home() / "SyftBox" / self.email.replace('@', '_at_').replace('.', '_')
-        main_table.add_row(f"[dim].folder[/dim]                                    = {syft_folder}")
+        main_table.add_row(f"[dim].folder[/dim] = {syft_folder}")
         
         # Add platforms section
         main_table.add_row("")  # Empty row for spacing
