@@ -24,8 +24,40 @@ class SyftClient:
             email: The email address for this client
         """
         self.email = email
-        self.platforms: Dict[str, BasePlatformClient] = {}
+        self._platforms: Dict[str, BasePlatformClient] = {}
         self.transport_instances: Dict[str, Any] = {}  # platform:transport -> instance
+        
+    @property
+    def platforms(self):
+        """Provide attribute-style access to platforms"""
+        class PlatformRegistry:
+            def __init__(self, platforms_dict):
+                self._platforms = platforms_dict
+            
+            def __getattr__(self, name):
+                if name in self._platforms:
+                    return self._platforms[name]
+                raise AttributeError(f"'platforms' object has no attribute '{name}'")
+            
+            def __getitem__(self, key):
+                return self._platforms[key]
+            
+            def __contains__(self, key):
+                return key in self._platforms
+            
+            def items(self):
+                return self._platforms.items()
+            
+            def keys(self):
+                return self._platforms.keys()
+            
+            def values(self):
+                return self._platforms.values()
+            
+            def get(self, key, default=None):
+                return self._platforms.get(key, default)
+                
+        return PlatformRegistry(self._platforms)
     
     def _initialize_all_transports(self) -> None:
         """Initialize transport instances for all possible platforms"""
@@ -56,7 +88,7 @@ class SyftClient:
             auth_data: Authentication data from the platform
         """
         platform_name = platform_client.platform
-        self.platforms[platform_name] = platform_client
+        self._platforms[platform_name] = platform_client
         
         # Store auth data in the platform client for now
         platform_client._auth_data = auth_data
@@ -67,11 +99,18 @@ class SyftClient:
     @property
     def platform_names(self) -> List[str]:
         """Get list of authenticated platform names"""
-        return list(self.platforms.keys())
+        return list(self._platforms.keys())
     
     def get_platform(self, platform_name: str) -> Optional[BasePlatformClient]:
         """Get a specific platform client by name"""
-        return self.platforms.get(platform_name)
+        return self._platforms.get(platform_name)
+    
+    def __getattr__(self, name: str):
+        """Allow attribute-style access to platforms"""
+        # First check if it's a platform
+        if name in self._platforms:
+            return self._platforms[name]
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
     
     def get_transports(self, platform_name: str) -> List[str]:
         """Get transport layers for a specific platform"""
@@ -83,7 +122,7 @@ class SyftClient:
         """Get all transport layers grouped by platform"""
         return {
             platform_name: platform.get_transport_layers()
-            for platform_name, platform in self.platforms.items()
+            for platform_name, platform in self._platforms.items()
         }
     
     @property
@@ -160,7 +199,7 @@ class SyftClient:
     def __str__(self) -> str:
         """User-friendly string representation"""
         lines = [f"SyftClient - {self.email}"]
-        for platform_name, platform in self.platforms.items():
+        for platform_name, platform in self._platforms.items():
             transports = platform.get_transport_layers()
             lines.append(f"  • {platform_name}: {', '.join(transports)}")
         return "\n".join(lines)
