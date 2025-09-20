@@ -102,13 +102,10 @@ class GooglePersonalClient(BasePlatformClient):
                 """Initialize and set up this transport"""
                 from rich.console import Console
                 from rich.panel import Panel
-                from rich.text import Text
-                
-                console = Console()
                 
                 if verbose:
                     # Show initialization start
-                    console.print(f"[bold blue]Initializing {self._transport_name} transport...[/bold blue]", end="")
+                    print(f"\nInitializing {self._transport_name} transport...")
                 
                 # Map transport names to their classes
                 transport_classes = {
@@ -120,7 +117,7 @@ class GooglePersonalClient(BasePlatformClient):
                 
                 # Create the real transport
                 if verbose:
-                    console.print(f"\n  • Creating {self._transport_name} transport instance...", end="")
+                    print(f"  • Creating {self._transport_name} transport instance...")
                 transport_class = transport_classes[self._transport_name]()
                 self._real_transport = transport_class(self._platform_client.email)
                 self._real_transport._platform_client = self._platform_client
@@ -132,15 +129,15 @@ class GooglePersonalClient(BasePlatformClient):
                 # Set up with credentials if available
                 if hasattr(self._platform_client, 'credentials') and self._platform_client.credentials:
                     if verbose:
-                        console.print("\n  • Setting up with OAuth2 credentials...", end="")
+                        print("  • Setting up with OAuth2 credentials...")
                     success = self._real_transport.setup({'credentials': self._platform_client.credentials})
                     if success and verbose:
-                        console.print("\n  [green]✓[/green] OAuth2 credentials configured")
+                        print("  ✓ OAuth2 credentials configured")
                     elif not success and verbose:
-                        console.print("\n  [red]✗[/red] Failed to configure credentials")
+                        print("  ✗ Failed to configure credentials")
                 else:
                     if verbose:
-                        console.print("  • No credentials available (transport created but not authenticated)")
+                        print("  • No credentials available (transport created but not authenticated)")
                     success = True
                 
                 self._setup_called = True
@@ -184,8 +181,11 @@ class GooglePersonalClient(BasePlatformClient):
                         f"[dim]Access via: client.platforms.google_personal.{self._transport_name}[/dim]"
                     ])
                     
+                    # Use console only for the panel
+                    console = Console()
                     panel = Panel("\n".join(info_lines), expand=False, border_style="green")
-                    console.print("\n", panel)
+                    print()  # Add spacing before panel
+                    console.print(panel)
                 
                 return success
             
