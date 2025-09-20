@@ -113,22 +113,27 @@ class GooglePersonalClient(BasePlatformClient):
                     is_first_time = not config.get('setup_completed', False)
                     
                     if is_first_time:
-                        # Setup transport layers (but only non-Gmail ones will work)
-                        if self.verbose:
-                            print("\n⚠️  Note: Gmail requires OAuth2 setup and won't work with Colab auth")
-                            print("   Other services (Drive, Sheets, Forms) will work automatically")
-                        
-                        # In Colab, skip wizard unless explicitly requested
-                        show_wizard = self.wizard if self.wizard is not None else False
-                        transport_result = self.setup_transport_layers(show_wizard=show_wizard)
+                        if self.init_transport:
+                            # Setup transport layers (but only non-Gmail ones will work)
+                            if self.verbose:
+                                print("\n⚠️  Note: Gmail requires OAuth2 setup and won't work with Colab auth")
+                                print("   Other services (Drive, Sheets, Forms) will work automatically")
+                            
+                            # In Colab, skip wizard unless explicitly requested
+                            show_wizard = self.wizard if self.wizard is not None else False
+                            transport_result = self.setup_transport_layers(show_wizard=show_wizard)
+                            
+                            successful_transports = transport_result.get('configured', [])
+                            failed_transports = transport_result.get('failed', [])
+                        else:
+                            # Skip transport setup when init_transport=False
+                            successful_transports = []
+                            failed_transports = []
                         
                         # Mark setup as completed
                         config['setup_completed'] = datetime.now().isoformat()
                         config['colab_auth'] = True
                         self.save_platform_config(config)
-                        
-                        successful_transports = transport_result.get('configured', [])
-                        failed_transports = transport_result.get('failed', [])
                     else:
                         successful_transports = []
                         failed_transports = []
@@ -171,38 +176,49 @@ class GooglePersonalClient(BasePlatformClient):
                 if not config.get('wallet_config'):
                     self.configure_wallet_preference()
                 
-                # Step 7: Setup transport layers for first-time users
-                # For non-Colab, default to showing wizard unless wizard=False
-                show_wizard = self.wizard if self.wizard is not None else True
-                transport_result = self.setup_transport_layers(show_wizard=show_wizard)
+                if self.init_transport:
+                    # Step 7: Setup transport layers for first-time users
+                    # For non-Colab, default to showing wizard unless wizard=False
+                    show_wizard = self.wizard if self.wizard is not None else True
+                    transport_result = self.setup_transport_layers(show_wizard=show_wizard)
+                    
+                    successful_transports = transport_result.get('configured', [])
+                    failed_transports = transport_result.get('failed', [])
+                else:
+                    # Skip transport setup when init_transport=False
+                    successful_transports = []
+                    failed_transports = []
                 
                 # Mark setup as completed
                 config['setup_completed'] = datetime.now().isoformat()
                 self.save_platform_config(config)
-                
-                successful_transports = transport_result.get('configured', [])
-                failed_transports = transport_result.get('failed', [])
             else:
-                # For returning users, check cache first to avoid re-verification
-                successful_transports = []
-                failed_transports = []
-                
-                for transport_name, transport in self.transports.items():
-                    if hasattr(transport, 'is_setup') and transport.is_setup():
-                        # Transport reports it's already setup
-                        successful_transports.append(transport_name)
-                    else:
-                        # Try to set it up
-                        try:
-                            setup_data = {'credentials': self.credentials}
-                            if transport.setup(setup_data):
-                                successful_transports.append(transport_name)
-                            else:
+                # For returning users
+                if self.init_transport:
+                    # Check and setup transports
+                    successful_transports = []
+                    failed_transports = []
+                    
+                    for transport_name, transport in self.transports.items():
+                        if hasattr(transport, 'is_setup') and transport.is_setup():
+                            # Transport reports it's already setup
+                            successful_transports.append(transport_name)
+                        else:
+                            # Try to set it up
+                            try:
+                                setup_data = {'credentials': self.credentials}
+                                if transport.setup(setup_data):
+                                    successful_transports.append(transport_name)
+                                else:
+                                    failed_transports.append(transport_name)
+                            except Exception:
                                 failed_transports.append(transport_name)
-                        except Exception:
-                            failed_transports.append(transport_name)
+                else:
+                    # Skip transport setup when init_transport=False
+                    successful_transports = []
+                    failed_transports = []
             
-            if not successful_transports:
+            if self.init_transport and not successful_transports:
                 raise ValueError("Failed to setup any transport layers")
             
             
