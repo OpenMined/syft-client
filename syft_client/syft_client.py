@@ -163,22 +163,28 @@ class SyftClient:
         main_table.add_row(".platforms", "")
         
         # Add each platform with its transports
-        for platform_name, platform in self.platforms.items():
+        for platform_name, platform in self._platforms.items():
             # Platform header
             main_table.add_row(f"  .{platform_name}", "", style="bold yellow")
             
-            # Get transport status
-            transport_instances = platform.get_transport_instances()
-            for transport_name in platform.get_transport_layers():
-                if hasattr(platform, transport_name):
-                    transport = getattr(platform, transport_name)
+            # Get all available transport names (including uninitialized)
+            transport_names = platform.get_transport_layers()
+            
+            for transport_name in transport_names:
+                # Check if transport is actually initialized and setup
+                if hasattr(platform, 'transports') and transport_name in platform.transports:
+                    transport = platform.transports[transport_name]
                     if hasattr(transport, 'is_setup') and transport.is_setup():
                         status = "✓"
                         style = "green"
                     else:
                         status = "✗"
                         style = "dim"
-                    main_table.add_row(f"    {status} .{transport_name}", "", style=style)
+                else:
+                    # Transport not initialized
+                    status = "✗"
+                    style = "dim"
+                main_table.add_row(f"    {status} .{transport_name}", "", style=style)
         
         # Create the panel
         panel = Panel(

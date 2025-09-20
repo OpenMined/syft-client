@@ -987,10 +987,13 @@ class GooglePersonalClient(BasePlatformClient):
     
     def get_transport_layers(self) -> List[str]:
         """Get list of available transport layers"""
-        if not self.init_transport and not hasattr(self, 'transports'):
+        # Always return what transports are available for this platform
+        # whether they're initialized or not
+        if hasattr(self, 'transports') and self.transports:
+            return list(self.transports.keys())
+        else:
             # Return what would be available if initialized
             return ['gmail', 'gdrive_files', 'gsheets', 'gforms']
-        return list(self.transports.keys())
     
     def __getattr__(self, name: str):
         """Allow attribute-style access to transports with lazy initialization"""
