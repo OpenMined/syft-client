@@ -86,6 +86,43 @@ class GoogleOrgClient(BasePlatformClient):
         self.transports._platform = self.platform
         self.transports._credentials_path = self.find_oauth_credentials()
     
+    def initialize_transport(self, transport_name: str) -> bool:
+        """Initialize a single transport layer"""
+        if not hasattr(self, 'transports'):
+            from ..base import TransportRegistry
+            self.transports = TransportRegistry({})
+        
+        # Map transport names to their classes
+        transport_map = {
+            'gmail': lambda: __import__('syft_client.platforms.google_org.gmail', fromlist=['GmailTransport']).GmailTransport,
+            'gdrive_files': lambda: __import__('syft_client.platforms.google_org.gdrive_files', fromlist=['GDriveFilesTransport']).GDriveFilesTransport,
+            'gsheets': lambda: __import__('syft_client.platforms.google_org.gsheets', fromlist=['GSheetsTransport']).GSheetsTransport,
+            'gforms': lambda: __import__('syft_client.platforms.google_org.gforms', fromlist=['GFormsTransport']).GFormsTransport,
+        }
+        
+        if transport_name not in transport_map:
+            raise ValueError(f"Unknown transport: {transport_name}")
+        
+        # Create the transport instance
+        transport_class = transport_map[transport_name]()
+        transport = transport_class(self.email)
+        transport._platform_client = self
+        
+        # Add to transports registry and as attribute
+        self.transports[transport_name] = transport
+        setattr(self, transport_name, transport)
+        
+        # Update registry references
+        self.transports._email = self.email
+        self.transports._platform = self.platform
+        self.transports._credentials_path = self.find_oauth_credentials()
+        
+        # Set up the transport with credentials if available
+        if hasattr(self, 'credentials') and self.credentials:
+            return transport.setup({'credentials': self.credentials})
+        
+        return True
+    
     
     # ===== Core Authentication Methods (Main Flow) =====
     
@@ -1000,12 +1037,25 @@ class GoogleOrgClient(BasePlatformClient):
             return ['gmail', 'gdrive_files', 'gsheets', 'gforms']
     
     def __getattr__(self, name: str):
-        """Allow attribute-style access to transports with lazy initialization"""
+        """Allow attribute-style access to transports WITHOUT lazy initialization"""
         known_transports = ['gmail', 'gdrive_files', 'gsheets', 'gforms']
         if name in known_transports:
-            # Initialize transports if not already done
-            if not hasattr(self, 'transports') or not self.transports:
-                self._initialize_transport_layers()
+            # Return None if transports not initialized
+            if not hasattr(self, 'transports') or not self.transports or name not in self.transports:
+                # Create a stub transport that will fail on any method call
+                from ..transport_base import BaseTransportLayer
+                
+                class UninitializedTransport:
+                    def __init__(self, name, platform):
+                        self.name = name
+                        self.platform = platform
+                    
+                    def __getattr__(self, attr):
+                        if attr == 'name':
+                            return self.name
+                        raise RuntimeError(f"Transport '{self.name}' is not initialized. Please call {self.platform}.setup_transport('{self.name}') first.")
+                
+                return UninitializedTransport(name, f"client.platforms.{self.platform}")
             return self.transports.get(name)
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
     
