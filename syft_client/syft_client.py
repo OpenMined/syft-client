@@ -283,6 +283,60 @@ class SyftClient:
             lines.append(f"  • {platform_name}: {', '.join(transports)}")
         return "\n".join(lines)
     
+    def reset_wallet(self, confirm: bool = True) -> bool:
+        """
+        Reset the wallet by deleting all stored credentials and tokens.
+        
+        Args:
+            confirm: If True, ask for confirmation before deleting (default: True)
+            
+        Returns:
+            bool: True if wallet was reset, False if cancelled
+        """
+        from pathlib import Path
+        import shutil
+        
+        # Get wallet directory path
+        wallet_dir = Path.home() / ".syft"
+        
+        if not wallet_dir.exists():
+            print("No wallet directory found at ~/.syft")
+            return True
+        
+        if confirm:
+            # Show what will be deleted
+            print(f"\n⚠️  WARNING: This will delete all stored credentials!")
+            print(f"\nWallet directory: {wallet_dir}")
+            
+            # Count files that will be deleted
+            file_count = sum(1 for _ in wallet_dir.rglob('*') if _.is_file())
+            if file_count > 0:
+                print(f"Files to be deleted: {file_count}")
+                
+                # Show some example files
+                example_files = list(wallet_dir.rglob('*'))[:5]
+                for f in example_files:
+                    if f.is_file():
+                        print(f"  - {f.relative_to(wallet_dir)}")
+                if file_count > 5:
+                    print(f"  ... and {file_count - 5} more files")
+            
+            response = input("\nAre you sure you want to delete all wallet data? (yes/no): ")
+            if response.lower() != 'yes':
+                print("Wallet reset cancelled.")
+                return False
+        
+        try:
+            # Delete the entire wallet directory
+            shutil.rmtree(wallet_dir)
+            print(f"\n✓ Wallet directory deleted: {wallet_dir}")
+            print("All stored credentials have been removed.")
+            print("\nYou will need to authenticate again on your next login.")
+            return True
+        except Exception as e:
+            print(f"\n✗ Error deleting wallet: {e}")
+            return False
+    
     def _login(self, provider: Optional[str] = None, verbose: bool = False, init_transport: bool = True) -> None:
         """
         Instance method that handles the actual login process
@@ -347,6 +401,21 @@ class SyftClient:
             if verbose:
                 print(f"Authentication failed: {e}")
             raise
+    
+    @staticmethod
+    def reset_wallet_static(confirm: bool = True) -> bool:
+        """
+        Static method to reset the wallet without needing a client instance.
+        
+        Args:
+            confirm: If True, ask for confirmation before deleting (default: True)
+            
+        Returns:
+            bool: True if wallet was reset, False if cancelled
+        """
+        # Create a dummy client just to use the instance method
+        dummy = SyftClient("dummy@example.com")
+        return dummy.reset_wallet(confirm)
     
     @staticmethod
     def login(email: Optional[str] = None, provider: Optional[str] = None, 
