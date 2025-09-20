@@ -889,7 +889,7 @@ class GoogleOrgClient(BasePlatformClient):
             print("\n🔧 OAuth2 credentials not found. Starting setup wizard...")
         
         # Run the wizard
-        creds_file = check_or_create_credentials(self.email, self.verbose, is_workspace=True)
+        creds_file = check_or_create_credentials()
         
         if not creds_file:
             if self.verbose:
