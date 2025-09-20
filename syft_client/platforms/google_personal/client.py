@@ -98,7 +98,7 @@ class GooglePersonalClient(BasePlatformClient):
                 self._real_transport = None
                 self._setup_called = False
                 
-            def init(self) -> bool:
+            def init(self, verbose: bool = True) -> bool:
                 """Initialize and set up this transport"""
                 from rich.console import Console
                 from rich.panel import Panel
@@ -106,8 +106,9 @@ class GooglePersonalClient(BasePlatformClient):
                 
                 console = Console()
                 
-                # Show initialization start
-                console.print(f"\n[bold blue]Initializing {self._transport_name} transport...[/bold blue]")
+                if verbose:
+                    # Show initialization start
+                    console.print(f"[bold blue]Initializing {self._transport_name} transport...[/bold blue]")
                 
                 # Map transport names to their classes
                 transport_classes = {
@@ -118,7 +119,8 @@ class GooglePersonalClient(BasePlatformClient):
                 }
                 
                 # Create the real transport
-                console.print(f"  • Creating {self._transport_name} transport instance...")
+                if verbose:
+                    console.print(f"  • Creating {self._transport_name} transport instance...")
                 transport_class = transport_classes[self._transport_name]()
                 self._real_transport = transport_class(self._platform_client.email)
                 self._real_transport._platform_client = self._platform_client
@@ -129,19 +131,21 @@ class GooglePersonalClient(BasePlatformClient):
                 
                 # Set up with credentials if available
                 if hasattr(self._platform_client, 'credentials') and self._platform_client.credentials:
-                    console.print("  • Setting up with OAuth2 credentials...")
+                    if verbose:
+                        console.print("  • Setting up with OAuth2 credentials...")
                     success = self._real_transport.setup({'credentials': self._platform_client.credentials})
-                    if success:
+                    if success and verbose:
                         console.print("  [green]✓[/green] OAuth2 credentials configured")
-                    else:
+                    elif not success and verbose:
                         console.print("  [red]✗[/red] Failed to configure credentials")
                 else:
-                    console.print("  • No credentials available (transport created but not authenticated)")
+                    if verbose:
+                        console.print("  • No credentials available (transport created but not authenticated)")
                     success = True
                 
                 self._setup_called = True
                 
-                if success:
+                if success and verbose:
                     # Create info panel with next steps
                     info_lines = [
                         f"[bold green]✓ {self._transport_name} transport initialized successfully![/bold green]",
