@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "syft-client"
-version = "0.1.6"
+version = "0.1.24"
 description = "A simple client library for setting up secure communication channels using Google Drive"
 readme = "README.md"
 authors = [
     {name = "OpenMined", email = "info@openmined.org"}
 ]
-license = "Apache-2.0"
+license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 keywords = ["privacy", "federated-learning", "google-drive", "communication"]
 classifiers = [
@@ -26,13 +26,12 @@ classifiers = [
     "Topic :: Communications :: File Sharing"
 ]
 dependencies = [
-    "google-api-python-client==2.95.0",
-    "google-auth==2.22.0",
-    "google-auth-oauthlib",
-    "syft-widget",
-    "syft-wallet>=0.1.1",
-    "dnspython",
-    "cryptography>=41.0.0"
+    "google-api-python-client>=2.95.0",
+    "google-auth>=2.22.0",
+    "google-auth-oauthlib>=1.0.0",
+    "dnspython>=2.3.0",
+    "cryptography>=41.0.0",
+    "rich>=13.0.0"
 ]
 
 [project.optional-dependencies]
