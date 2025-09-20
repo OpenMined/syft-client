@@ -151,26 +151,25 @@ class SyftClient:
         
         # Create a string buffer to capture the rich output
         string_buffer = StringIO()
-        console = Console(file=string_buffer, force_terminal=True, width=80)
+        console = Console(file=string_buffer, force_terminal=True, width=100)
         
-        # Create main table
+        # Create main table with single column for better formatting
         main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
-        main_table.add_column("Property", style="dim")
-        main_table.add_column("Value")
+        main_table.add_column("", no_wrap=False)
         
         # Add folder path
         from pathlib import Path
         syft_folder = Path.home() / "SyftBox" / self.email.replace('@', '_at_').replace('.', '_')
-        main_table.add_row(".folder", f"= {syft_folder}")
+        main_table.add_row(f"[dim].folder[/dim]                                    = {syft_folder}")
         
         # Add platforms section
-        main_table.add_row("", "")  # Empty row for spacing
-        main_table.add_row(".platforms", "")
+        main_table.add_row("")  # Empty row for spacing
+        main_table.add_row("[dim].platforms[/dim]")
         
         # Add each platform with its transports
         for platform_name, platform in self._platforms.items():
             # Platform header
-            main_table.add_row(f"  .{platform_name}", "", style="bold yellow")
+            main_table.add_row(f"  [bold yellow].{platform_name}[/bold yellow]")
             
             # Get all available transport names (including uninitialized)
             transport_names = platform.get_transport_layers()
@@ -180,30 +179,30 @@ class SyftClient:
                 if hasattr(platform, 'transports') and transport_name in platform.transports:
                     transport = platform.transports[transport_name]
                     if hasattr(transport, 'is_setup') and transport.is_setup():
-                        status = "✓"
-                        style = "green"
+                        status = "[green]✓[/green]"
+                        transport_style = "green"
                         message = ""
                     else:
-                        status = "✗"
-                        style = "dim"
+                        status = "[dim]✗[/dim]"
+                        transport_style = "dim"
                         # Check if this is an uninitialized stub that needs setup
                         if hasattr(transport, '_setup_called') and not transport._setup_called:
-                            message = " (call .init() to initialize)"
+                            message = " [dim](call .init() to initialize)[/dim]"
                         else:
                             message = ""
                 else:
                     # Transport not initialized
-                    status = "✗"
-                    style = "dim"
+                    status = "[dim]✗[/dim]"
+                    transport_style = "dim"
                     message = ""
-                main_table.add_row(f"    {status} .{transport_name}{message}", "", style=style)
+                main_table.add_row(f"    {status} [{transport_style}].{transport_name}[/{transport_style}]{message}")
         
         # Create the panel
         panel = Panel(
             main_table,
             title=f"SyftClient.email = '{self.email}'",
             expand=False,
-            width=80,
+            width=100,
             padding=(1, 2)
         )
         
