@@ -234,8 +234,8 @@ class SyftClient:
         from .platforms import get_platform_client
         
         try:
-            # Create platform client
-            client = get_platform_client(platform, self.email)
+            # Create platform client with init_transport parameter
+            client = get_platform_client(platform, self.email, init_transport=init_transport)
             
             if verbose:
                 print(f"\nAuthenticating with {platform.value}...")

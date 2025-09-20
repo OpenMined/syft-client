@@ -36,18 +36,23 @@ class GoogleOrgClient(BasePlatformClient):
         'https://www.googleapis.com/auth/forms.body'
     ]
     
-    def __init__(self, email: str, verbose: bool = False, wizard: Optional[bool] = None):
+    def __init__(self, email: str, verbose: bool = False, wizard: Optional[bool] = None, init_transport: bool = True):
         super().__init__(email, verbose=verbose)
         self.platform = "google_org"
         self.wizard = wizard
+        self.init_transport = init_transport
         
         # OAuth2 state
         self.credentials: Optional[Credentials] = None
         self.wallet = None
         
-        
-        # Initialize transport layers
-        self._initialize_transport_layers()
+        # Initialize transport layers if requested
+        if init_transport:
+            self._initialize_transport_layers()
+        else:
+            # Create empty transport registry
+            from ..base import TransportRegistry
+            self.transports = TransportRegistry({})
         
     
     def _initialize_transport_layers(self) -> None:
@@ -970,7 +975,20 @@ class GoogleOrgClient(BasePlatformClient):
     
     def get_transport_layers(self) -> List[str]:
         """Get list of available transport layers"""
+        if not self.init_transport and not hasattr(self, 'transports'):
+            # Return what would be available if initialized
+            return ['gmail', 'gdrive_files', 'gsheets', 'gforms']
         return list(self.transports.keys())
+    
+    def __getattr__(self, name: str):
+        """Allow attribute-style access to transports with lazy initialization"""
+        known_transports = ['gmail', 'gdrive_files', 'gsheets', 'gforms']
+        if name in known_transports:
+            # Initialize transports if not already done
+            if not hasattr(self, 'transports') or not self.transports:
+                self._initialize_transport_layers()
+            return self.transports.get(name)
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
     
     # get_transport_instances() is now inherited from BasePlatformClient
     
