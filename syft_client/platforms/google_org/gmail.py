@@ -466,7 +466,7 @@ class GmailTransport(BaseTransportLayer):
                 
                 print(f"✅ Gmail test successful! Email sent to {self.email}")
                 if cleanup:
-                    print("   Email has been deleted as requested")
+                    print("   Email has been deleted as requested (re-run test(cleanup=False) to see the email yourself.)")
                 
                 return {"success": True, "url": url}
             else:

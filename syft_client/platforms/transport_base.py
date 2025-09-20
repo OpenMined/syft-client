@@ -119,6 +119,65 @@ class BaseTransportLayer(ABC):
         # TODO: Implement contact discovery
         return []
         
+    def init(self, verbose: bool = True) -> bool:
+        """Initialize transport - for already initialized transports, this is a no-op"""
+        if verbose:
+            from rich.console import Console
+            from rich.panel import Panel
+            
+            console = Console()
+            transport_name = self.__class__.__name__.replace('Transport', '').lower()
+            
+            # Get platform name if available
+            platform_path = "client.platforms.<platform>"
+            if hasattr(self, '_platform_client') and self._platform_client:
+                platform_name = getattr(self._platform_client, 'platform', '<platform>')
+                platform_path = f"client.platforms.{platform_name}"
+            
+            info_lines = [
+                f"[bold green]✓ {transport_name} transport is already initialized![/bold green]",
+                "",
+                "No action needed - this transport is ready to use.",
+                "",
+                "[bold]Available methods:[/bold]"
+            ]
+            
+            # Add transport-specific methods
+            if 'gmail' in transport_name:
+                info_lines.extend([
+                    "  • Send emails: [cyan].send(recipient, data, subject)[/cyan]",
+                    "  • Read emails: [cyan].receive(limit=10)[/cyan]",
+                    "  • Test setup: [cyan].test()[/cyan]"
+                ])
+            elif 'gdrive' in transport_name.lower():
+                info_lines.extend([
+                    "  • List files: [cyan].list_files()[/cyan]",
+                    "  • Upload file: [cyan].upload_file(filepath)[/cyan]",
+                    "  • Download file: [cyan].download_file(file_id, save_path)[/cyan]"
+                ])
+            elif 'gsheets' in transport_name.lower():
+                info_lines.extend([
+                    "  • Read sheet: [cyan].read_sheet(spreadsheet_id, range)[/cyan]",
+                    "  • Write data: [cyan].write_sheet(spreadsheet_id, range, values)[/cyan]",
+                    "  • Create sheet: [cyan].create_sheet(title)[/cyan]"
+                ])
+            elif 'gforms' in transport_name.lower():
+                info_lines.extend([
+                    "  • List forms: [cyan].list_forms()[/cyan]",
+                    "  • Get responses: [cyan].get_responses(form_id)[/cyan]",
+                    "  • Create form: [cyan].create_form(title)[/cyan]"
+                ])
+            
+            info_lines.extend([
+                "",
+                f"[dim]Access via: {platform_path}.{transport_name}[/dim]"
+            ])
+            
+            panel = Panel("\n".join(info_lines), expand=False, border_style="green")
+            console.print(panel)
+        
+        return True
+    
     def __repr__(self):
         """String representation using rich for proper formatting"""
         from rich.console import Console
