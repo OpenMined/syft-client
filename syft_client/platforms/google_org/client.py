@@ -192,8 +192,14 @@ class GoogleOrgClient(BasePlatformClient):
                 """Check if transport is set up"""
                 return self._setup_called and self._real_transport is not None
             
+            @property
+            def login_complexity(self) -> int:
+                """Return the login complexity for this transport type"""
+                # All Google Org transports have 0 additional complexity after OAuth2
+                return 0
+            
             def __getattr__(self, name):
-                if name in ['init', 'setup', 'is_setup', '_transport_name', '_platform_client', '_real_transport', '_setup_called']:
+                if name in ['init', 'setup', 'is_setup', '_transport_name', '_platform_client', '_real_transport', '_setup_called', 'login_complexity']:
                     return object.__getattribute__(self, name)
                 if not self._setup_called:
                     raise RuntimeError(f"Transport '{self._transport_name}' is not initialized. Please call .init() first.")
