@@ -188,7 +188,7 @@ class SyftClient:
                         style = "dim"
                         # Check if this is an uninitialized stub that needs setup
                         if hasattr(transport, '_setup_called') and not transport._setup_called:
-                            message = " (call .setup() to initialize)"
+                            message = " (call .init() to initialize)"
                         else:
                             message = ""
                 else:

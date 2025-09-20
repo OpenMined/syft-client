@@ -98,7 +98,7 @@ class GooglePersonalClient(BasePlatformClient):
                 self._real_transport = None
                 self._setup_called = False
                 
-            def setup(self) -> bool:
+            def init(self) -> bool:
                 """Initialize and set up this transport"""
                 # Map transport names to their classes
                 transport_classes = {
@@ -131,10 +131,10 @@ class GooglePersonalClient(BasePlatformClient):
                 return self._setup_called and self._real_transport is not None
             
             def __getattr__(self, name):
-                if name in ['setup', 'is_setup', '_transport_name', '_platform_client', '_real_transport', '_setup_called']:
+                if name in ['init', 'setup', 'is_setup', '_transport_name', '_platform_client', '_real_transport', '_setup_called']:
                     return object.__getattribute__(self, name)
                 if not self._setup_called:
-                    raise RuntimeError(f"Transport '{self._transport_name}' is not initialized. Please call .setup() first.")
+                    raise RuntimeError(f"Transport '{self._transport_name}' is not initialized. Please call .init() first.")
                 if self._real_transport:
                     return getattr(self._real_transport, name)
                 raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
