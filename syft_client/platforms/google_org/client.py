@@ -107,7 +107,7 @@ class GoogleOrgClient(BasePlatformClient):
                 
                 if verbose:
                     # Show initialization start
-                    console.print(f"[bold blue]Initializing {self._transport_name} transport...[/bold blue]")
+                    console.print(f"[bold blue]Initializing {self._transport_name} transport...[/bold blue]", end="")
                 
                 # Map transport names to their classes
                 transport_classes = {
@@ -119,7 +119,7 @@ class GoogleOrgClient(BasePlatformClient):
                 
                 # Create the real transport
                 if verbose:
-                    console.print(f"  • Creating {self._transport_name} transport instance...")
+                    console.print(f"\n  • Creating {self._transport_name} transport instance...", end="")
                 transport_class = transport_classes[self._transport_name]()
                 self._real_transport = transport_class(self._platform_client.email)
                 self._real_transport._platform_client = self._platform_client
@@ -131,12 +131,12 @@ class GoogleOrgClient(BasePlatformClient):
                 # Set up with credentials if available
                 if hasattr(self._platform_client, 'credentials') and self._platform_client.credentials:
                     if verbose:
-                        console.print("  • Setting up with OAuth2 credentials...")
+                        console.print("\n  • Setting up with OAuth2 credentials...", end="")
                     success = self._real_transport.setup({'credentials': self._platform_client.credentials})
                     if success and verbose:
-                        console.print("  [green]✓[/green] OAuth2 credentials configured")
+                        console.print("\n  [green]✓[/green] OAuth2 credentials configured")
                     elif not success and verbose:
-                        console.print("  [red]✗[/red] Failed to configure credentials")
+                        console.print("\n  [red]✗[/red] Failed to configure credentials")
                 else:
                     if verbose:
                         console.print("  • No credentials available (transport created but not authenticated)")
@@ -184,7 +184,7 @@ class GoogleOrgClient(BasePlatformClient):
                     ])
                     
                     panel = Panel("\n".join(info_lines), expand=False, border_style="green")
-                    console.print(panel)
+                    console.print("\n", panel)
                 
                 return success
             
