@@ -50,9 +50,8 @@ class GoogleOrgClient(BasePlatformClient):
         if init_transport:
             self._initialize_transport_layers()
         else:
-            # Create empty transport registry
-            from ..base import TransportRegistry
-            self.transports = TransportRegistry({})
+            # Create uninitialized transport stubs
+            self._create_transport_stubs()
         
     
     def _initialize_transport_layers(self) -> None:
@@ -74,6 +73,78 @@ class GoogleOrgClient(BasePlatformClient):
         
         # Keep transports dict for backward compatibility
         from ..base import TransportRegistry
+        self.transports = TransportRegistry({
+            'gmail': self.gmail,
+            'gdrive_files': self.gdrive_files,
+            'gsheets': self.gsheets,
+            'gforms': self.gforms
+        })
+        
+        # Pass references to TransportRegistry for __repr__
+        self.transports._email = self.email
+        self.transports._platform = self.platform
+        self.transports._credentials_path = self.find_oauth_credentials()
+    
+    def _create_transport_stubs(self) -> None:
+        """Create uninitialized transport stubs that require explicit setup"""
+        from ..base import TransportRegistry
+        
+        # Create wrapper class for uninitialized transports
+        class UninitializedTransport:
+            def __init__(self, transport_name: str, platform_client):
+                self._transport_name = transport_name
+                self._platform_client = platform_client
+                self._real_transport = None
+                self._setup_called = False
+                
+            def setup(self) -> bool:
+                """Initialize and set up this transport"""
+                # Map transport names to their classes
+                transport_classes = {
+                    'gmail': lambda: __import__('syft_client.platforms.google_org.gmail', fromlist=['GmailTransport']).GmailTransport,
+                    'gdrive_files': lambda: __import__('syft_client.platforms.google_org.gdrive_files', fromlist=['GDriveFilesTransport']).GDriveFilesTransport,
+                    'gsheets': lambda: __import__('syft_client.platforms.google_org.gsheets', fromlist=['GSheetsTransport']).GSheetsTransport,
+                    'gforms': lambda: __import__('syft_client.platforms.google_org.gforms', fromlist=['GFormsTransport']).GFormsTransport,
+                }
+                
+                # Create the real transport
+                transport_class = transport_classes[self._transport_name]()
+                self._real_transport = transport_class(self._platform_client.email)
+                self._real_transport._platform_client = self._platform_client
+                
+                # Replace ourselves in the platform client
+                setattr(self._platform_client, self._transport_name, self._real_transport)
+                self._platform_client.transports[self._transport_name] = self._real_transport
+                
+                # Set up with credentials if available
+                if hasattr(self._platform_client, 'credentials') and self._platform_client.credentials:
+                    success = self._real_transport.setup({'credentials': self._platform_client.credentials})
+                else:
+                    success = True
+                
+                self._setup_called = True
+                return success
+            
+            def is_setup(self) -> bool:
+                """Check if transport is set up"""
+                return self._setup_called and self._real_transport is not None
+            
+            def __getattr__(self, name):
+                if name in ['setup', 'is_setup', '_transport_name', '_platform_client', '_real_transport', '_setup_called']:
+                    return object.__getattribute__(self, name)
+                if not self._setup_called:
+                    raise RuntimeError(f"Transport '{self._transport_name}' is not initialized. Please call .setup() first.")
+                if self._real_transport:
+                    return getattr(self._real_transport, name)
+                raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        
+        # Create stub instances
+        self.gmail = UninitializedTransport('gmail', self)
+        self.gdrive_files = UninitializedTransport('gdrive_files', self)
+        self.gsheets = UninitializedTransport('gsheets', self)
+        self.gforms = UninitializedTransport('gforms', self)
+        
+        # Create transports registry
         self.transports = TransportRegistry({
             'gmail': self.gmail,
             'gdrive_files': self.gdrive_files,
@@ -1036,28 +1107,6 @@ class GoogleOrgClient(BasePlatformClient):
             # Return what would be available if initialized
             return ['gmail', 'gdrive_files', 'gsheets', 'gforms']
     
-    def __getattr__(self, name: str):
-        """Allow attribute-style access to transports WITHOUT lazy initialization"""
-        known_transports = ['gmail', 'gdrive_files', 'gsheets', 'gforms']
-        if name in known_transports:
-            # Return None if transports not initialized
-            if not hasattr(self, 'transports') or not self.transports or name not in self.transports:
-                # Create a stub transport that will fail on any method call
-                from ..transport_base import BaseTransportLayer
-                
-                class UninitializedTransport:
-                    def __init__(self, name, platform):
-                        self.name = name
-                        self.platform = platform
-                    
-                    def __getattr__(self, attr):
-                        if attr == 'name':
-                            return self.name
-                        raise RuntimeError(f"Transport '{self.name}' is not initialized. Please call {self.platform}.setup_transport('{self.name}') first.")
-                
-                return UninitializedTransport(name, f"client.platforms.{self.platform}")
-            return self.transports.get(name)
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
     
     # get_transport_instances() is now inherited from BasePlatformClient
     
