@@ -99,12 +99,67 @@ class SyftClient:
         return one_step
     
     def __repr__(self) -> str:
-        """String representation"""
-        platform_info = []
-        for name, platform in self.platforms.items():
-            transports = platform.get_transport_layers()
-            platform_info.append(f"{name}:{len(transports)}")
-        return f"SyftClient(email='{self.email}', platforms=[{', '.join(platform_info)}])"
+        """String representation using rich for proper formatting"""
+        from rich.console import Console
+        from rich.table import Table
+        from rich.panel import Panel
+        from io import StringIO
+        
+        # Create a string buffer to capture the rich output
+        string_buffer = StringIO()
+        console = Console(file=string_buffer, force_terminal=True, width=70)
+        
+        # Create main table
+        main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
+        main_table.add_column("Property", style="dim")
+        main_table.add_column("Value")
+        
+        # Add folder path
+        from pathlib import Path
+        syft_folder = Path.home() / "SyftBox" / self.email.replace('@', '_at_').replace('.', '_')
+        main_table.add_row(".folder", f"= {syft_folder}")
+        
+        # Add platforms section
+        main_table.add_row("", "")  # Empty row for spacing
+        main_table.add_row(".platforms", "")
+        
+        # Add each platform with its transports
+        for platform_name, platform in self.platforms.items():
+            # Platform header
+            main_table.add_row(f"  .{platform_name}", "", style="bold yellow")
+            
+            # Get transport status
+            transport_instances = platform.get_transport_instances()
+            for transport_name in platform.get_transport_layers():
+                if hasattr(platform, transport_name):
+                    transport = getattr(platform, transport_name)
+                    if hasattr(transport, 'is_setup') and transport.is_setup():
+                        status = "✓"
+                        style = "green"
+                    else:
+                        status = "✗"
+                        style = "dim"
+                    main_table.add_row(f"    {status} .{transport_name}", "", style=style)
+        
+        # Create the panel
+        panel = Panel(
+            main_table,
+            title=f"SyftClient.email = '{self.email}'",
+            expand=False,
+            width=70,
+            padding=(1, 2)
+        )
+        
+        console.print(panel)
+        output = string_buffer.getvalue()
+        string_buffer.close()
+        
+        return output.strip()
+    
+    def _repr_html_(self) -> str:
+        """HTML representation for Jupyter notebooks"""
+        # Use the rich output for Jupyter as well
+        return f"<pre>{self.__repr__()}</pre>"
     
     def __str__(self) -> str:
         """User-friendly string representation"""
