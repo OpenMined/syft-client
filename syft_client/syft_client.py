@@ -182,14 +182,21 @@ class SyftClient:
                     if hasattr(transport, 'is_setup') and transport.is_setup():
                         status = "✓"
                         style = "green"
+                        message = ""
                     else:
                         status = "✗"
                         style = "dim"
+                        # Check if this is an uninitialized stub that needs setup
+                        if hasattr(transport, '_setup_called') and not transport._setup_called:
+                            message = " (call .setup() to initialize)"
+                        else:
+                            message = ""
                 else:
                     # Transport not initialized
                     status = "✗"
                     style = "dim"
-                main_table.add_row(f"    {status} .{transport_name}", "", style=style)
+                    message = ""
+                main_table.add_row(f"    {status} .{transport_name}{message}", "", style=style)
         
         # Create the panel
         panel = Panel(
