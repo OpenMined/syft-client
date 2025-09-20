@@ -56,6 +56,11 @@ class SyftClient:
             
             def get(self, key, default=None):
                 return self._platforms.get(key, default)
+            
+            def __dir__(self):
+                """Support tab completion for platform names"""
+                # Include dict methods and platform names
+                return list(self._platforms.keys()) + ['items', 'keys', 'values', 'get']
                 
         return PlatformRegistry(self._platforms)
     
