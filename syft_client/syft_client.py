@@ -337,7 +337,7 @@ class SyftClient:
             print(f"\n✗ Error deleting wallet: {e}")
             return False
     
-    def _login(self, provider: Optional[str] = None, verbose: bool = False, init_transport: bool = True) -> None:
+    def _login(self, provider: Optional[str] = None, verbose: bool = False, init_transport: bool = True, wizard: Optional[bool] = None) -> None:
         """
         Instance method that handles the actual login process
         
@@ -345,6 +345,7 @@ class SyftClient:
             provider: Optional provider override
             verbose: Whether to print progress
             init_transport: Whether to initialize transport layers
+            wizard: Whether to run interactive setup wizard
             
         Raises:
             Exception: If authentication fails
@@ -368,7 +369,7 @@ class SyftClient:
         
         try:
             # Create platform client with init_transport parameter
-            client = get_platform_client(platform, self.email, init_transport=init_transport)
+            client = get_platform_client(platform, self.email, init_transport=init_transport, wizard=wizard)
             
             if verbose:
                 print(f"\nAuthenticating with {platform.value}...")
@@ -419,7 +420,8 @@ class SyftClient:
     
     @staticmethod
     def login(email: Optional[str] = None, provider: Optional[str] = None, 
-              quickstart: bool = True, verbose: bool = False, init_transport: bool = True, **kwargs) -> 'SyftClient':
+              quickstart: bool = True, verbose: bool = False, init_transport: bool = True, 
+              wizard: Optional[bool] = None, **kwargs) -> 'SyftClient':
         """
         Simple login function for syft_client
         
@@ -429,6 +431,7 @@ class SyftClient:
             quickstart: If True and in supported environment, use fastest available login
             verbose: If True, print detailed progress information
             init_transport: If True (default), initialize transport layers during login. If False, skip transport initialization.
+            wizard: If True, run interactive setup wizard for credentials. If None, auto-detect based on missing credentials.
             **kwargs: Additional arguments for authentication
             
         Returns:
@@ -444,5 +447,5 @@ class SyftClient:
         
         # Create SyftClient and login
         client = SyftClient(email)
-        client._login(provider=provider, verbose=verbose, init_transport=init_transport)
+        client._login(provider=provider, verbose=verbose, init_transport=init_transport, wizard=wizard)
         return client
