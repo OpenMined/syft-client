@@ -242,6 +242,40 @@ class GoogleOrgClient(BasePlatformClient):
                 # All Google Org transports have 0 additional complexity after OAuth2
                 return 0
             
+            def __repr__(self):
+                """String representation for uninitialized transport"""
+                from rich.console import Console
+                from rich.panel import Panel
+                from io import StringIO
+                
+                # Create a string buffer to capture the rich output
+                string_buffer = StringIO()
+                console = Console(file=string_buffer, force_terminal=True, width=70)
+                
+                # Get platform name
+                platform_name = getattr(self._platform_client, 'platform', 'unknown')
+                
+                info_lines = [
+                    f"[bold red]✗ {self._transport_name} transport is not initialized[/bold red]",
+                    "",
+                    f"[yellow]Please call .init() to initialize this transport.[/yellow]",
+                    "",
+                    f"[dim]Access path: client.platforms.{platform_name}.{self._transport_name}[/dim]"
+                ]
+                
+                panel = Panel(
+                    "\n".join(info_lines),
+                    title=f"{self._transport_name.title()} Transport",
+                    expand=False,
+                    border_style="red"
+                )
+                
+                console.print(panel)
+                output = string_buffer.getvalue()
+                string_buffer.close()
+                
+                return output.strip()
+            
             def __getattr__(self, name):
                 # List of attributes that should be accessible without initialization
                 allowed_attrs = [
