@@ -243,9 +243,38 @@ class GooglePersonalClient(BasePlatformClient):
                 # All Google Personal transports have 0 additional complexity after OAuth2
                 return 0
             
+            @classmethod
+            def check_api_enabled(cls, platform_client: Any) -> bool:
+                """Check if API is enabled - delegate to the real transport class"""
+                # Import the appropriate transport class and use its static method
+                transport_map = {
+                    'gmail': ('syft_client.platforms.google_personal.gmail', 'GmailTransport'),
+                    'gdrive_files': ('syft_client.platforms.google_personal.gdrive_files', 'GDriveFilesTransport'),
+                    'gsheets': ('syft_client.platforms.google_personal.gsheets', 'GSheetsTransport'),
+                    'gforms': ('syft_client.platforms.google_personal.gforms', 'GFormsTransport')
+                }
+                
+                # Get transport name from instance
+                if hasattr(cls, '_transport_name'):
+                    transport_name = cls._transport_name
+                else:
+                    # Try to infer from class
+                    return False
+                
+                if transport_name in transport_map:
+                    try:
+                        module_path, class_name = transport_map[transport_name]
+                        module = __import__(module_path, fromlist=[class_name])
+                        transport_class = getattr(module, class_name)
+                        return transport_class.check_api_enabled(platform_client)
+                    except:
+                        pass
+                return False
+            
             def __repr__(self):
                 """String representation for uninitialized transport"""
                 from rich.console import Console
+                from rich.table import Table
                 from rich.panel import Panel
                 from io import StringIO
                 
@@ -253,22 +282,84 @@ class GooglePersonalClient(BasePlatformClient):
                 string_buffer = StringIO()
                 console = Console(file=string_buffer, force_terminal=True, width=70)
                 
+                # Create main table
+                main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
+                main_table.add_column("Attribute", style="bold cyan")
+                main_table.add_column("Value")
+                
+                # Transport initialization status
+                main_table.add_row(".is_initialized()", "[red]✗ Not initialized[/red]")
+                
+                # API status - check if API is enabled using the real transport's static method
+                api_status = "[dim]Unknown[/dim]"
+                try:
+                    # Import the real transport class
+                    transport_map = {
+                        'gmail': ('syft_client.platforms.google_personal.gmail', 'GmailTransport'),
+                        'gdrive_files': ('syft_client.platforms.google_personal.gdrive_files', 'GDriveFilesTransport'),
+                        'gsheets': ('syft_client.platforms.google_personal.gsheets', 'GSheetsTransport'),
+                        'gforms': ('syft_client.platforms.google_personal.gforms', 'GFormsTransport')
+                    }
+                    
+                    if self._transport_name in transport_map:
+                        module_path, class_name = transport_map[self._transport_name]
+                        module = __import__(module_path, fromlist=[class_name])
+                        transport_class = getattr(module, class_name)
+                        
+                        if transport_class.check_api_enabled(self._platform_client):
+                            api_status = "[green]✓ Enabled[/green]"
+                        else:
+                            api_status = "[red]✗ Disabled[/red]"
+                except:
+                    pass
+                main_table.add_row(".api_enabled", api_status)
+                
+                # Environment
+                from ...environment import detect_environment
+                env = detect_environment()
+                main_table.add_row(".environment", env.value if env else "Unknown")
+                
+                # Capabilities
+                main_table.add_row("", "")  # spacer
+                main_table.add_row("[bold]Capabilities[/bold]", "")
+                
+                # Show capabilities based on transport type
+                capabilities = [
+                    (".is_keystore", self.is_keystore),
+                    (".is_notification_layer", self.is_notification_layer),
+                    (".is_html_compatible", self.is_html_compatible),
+                    (".is_reply_compatible", self.is_reply_compatible),
+                    (".guest_submit", self.guest_submit),
+                    (".guest_read_file", self.guest_read_file),
+                    (".guest_read_folder", self.guest_read_folder),
+                ]
+                
+                for attr_name, value in capabilities:
+                    icon = "[green]✓[/green]" if value else "[dim]✗[/dim]"
+                    main_table.add_row(f"  {attr_name}", icon)
+                
+                # Complexity
+                main_table.add_row("", "")  # spacer
+                main_table.add_row(".login_complexity", f"{self.login_complexity} steps")
+                
+                # Key methods
+                main_table.add_row("", "")  # spacer
+                main_table.add_row("[bold]Methods[/bold]", "")
+                main_table.add_row("  .init()", "Initialize transport")
+                main_table.add_row("  .enable_api()", "Show enable instructions")
+                main_table.add_row("  .disable_api()", "Show disable instructions")
+                
                 # Get platform name
                 platform_name = getattr(self._platform_client, 'platform', 'unknown')
                 
-                info_lines = [
-                    f"[bold red]✗ {self._transport_name} transport is not initialized[/bold red]",
-                    "",
-                    f"[yellow]Please call .init() to initialize this transport.[/yellow]",
-                    "",
-                    f"[dim]Access path: client.platforms.{platform_name}.{self._transport_name}[/dim]"
-                ]
-                
+                # Create the panel
                 panel = Panel(
-                    "\n".join(info_lines),
-                    title=f"{self._transport_name.title()} Transport",
+                    main_table,
+                    title=f"client.platforms.{platform_name}.{self._transport_name}",
                     expand=False,
-                    border_style="red"
+                    width=70,
+                    padding=(1, 2),
+                    border_style="yellow"  # Yellow to indicate caution - not initialized
                 )
                 
                 console.print(panel)
@@ -277,6 +368,38 @@ class GooglePersonalClient(BasePlatformClient):
                 
                 return output.strip()
             
+            def enable_api(self) -> None:
+                """Show instructions for enabling the API"""
+                # Import the appropriate transport class and call its static method
+                transport_map = {
+                    'gmail': ('syft_client.platforms.google_personal.gmail', 'GmailTransport'),
+                    'gdrive_files': ('syft_client.platforms.google_personal.gdrive_files', 'GDriveFilesTransport'),
+                    'gsheets': ('syft_client.platforms.google_personal.gsheets', 'GSheetsTransport'),
+                    'gforms': ('syft_client.platforms.google_personal.gforms', 'GFormsTransport')
+                }
+                
+                if self._transport_name in transport_map:
+                    module_path, class_name = transport_map[self._transport_name]
+                    module = __import__(module_path, fromlist=[class_name])
+                    transport_class = getattr(module, class_name)
+                    transport_class.enable_api_static(self._transport_name, self._platform_client.email)
+            
+            def disable_api(self) -> None:
+                """Show instructions for disabling the API"""
+                # Import the appropriate transport class and call its static method
+                transport_map = {
+                    'gmail': ('syft_client.platforms.google_personal.gmail', 'GmailTransport'),
+                    'gdrive_files': ('syft_client.platforms.google_personal.gdrive_files', 'GDriveFilesTransport'),
+                    'gsheets': ('syft_client.platforms.google_personal.gsheets', 'GSheetsTransport'),
+                    'gforms': ('syft_client.platforms.google_personal.gforms', 'GFormsTransport')
+                }
+                
+                if self._transport_name in transport_map:
+                    module_path, class_name = transport_map[self._transport_name]
+                    module = __import__(module_path, fromlist=[class_name])
+                    transport_class = getattr(module, class_name)
+                    transport_class.disable_api_static(self._transport_name, self._platform_client.email)
+            
             def __getattr__(self, name):
                 # List of attributes that should be accessible without initialization
                 allowed_attrs = [
@@ -284,11 +407,24 @@ class GooglePersonalClient(BasePlatformClient):
                     '_real_transport', '_setup_called', 'login_complexity',
                     'is_keystore', 'is_notification_layer', 'is_html_compatible',
                     'is_reply_compatible', 'guest_submit', 'guest_read_file', 
-                    'guest_read_folder'
+                    'guest_read_folder', 'enable_api', 'disable_api'
                 ]
+                
+                # Service attributes that should return None when not initialized
+                service_attrs = ['gmail_service', 'drive_service', 'sheets_service', 'forms_service']
                 
                 if name in allowed_attrs:
                     return object.__getattribute__(self, name)
+                
+                # For service attributes, return None if not initialized
+                if name in service_attrs:
+                    if not self._setup_called:
+                        return None
+                    elif self._real_transport:
+                        return getattr(self._real_transport, name, None)
+                    else:
+                        return None
+                
                 if not self._setup_called:
                     raise RuntimeError(f"Transport '{self._transport_name}' is not initialized. Please call .init() first.")
                 if self._real_transport:

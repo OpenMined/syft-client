@@ -414,26 +414,48 @@ def oauth_consent_screen_step(state: WizardState) -> str:
     print("\n3. Add developer contact information:")
     print("   - Enter your email address")
     
-    input("\nPress Enter after adding contact info...")
-    
     print("\n4. Click through remaining sections:")
     print("   - Scopes: Skip (click 'SAVE AND CONTINUE')")
     print("   - Test users: Skip (click 'SAVE AND CONTINUE')")
     print("   - Summary: Click 'BACK TO DASHBOARD'")
     
-    input("\nPress Enter when consent screen is fully configured...")
+    input("\nPress Enter when consent screen is created...")
+    
+    return "add_test_users"
+
+
+def add_test_users_step(state: WizardState) -> str:
+    """Step 6: Add test users to OAuth consent screen"""
+    print("\n👥 Step 6: Add Test Users")
+    print("-" * 40)
+    
+    authuser = f"authuser={state.email}&" if state.email else ""
+    project = f"project={state.project_id}" if state.project_id else ""
+    base_params = f"?{authuser}{project}".rstrip('&')
+    
+    test_users_url = f"https://console.cloud.google.com/auth/audience{base_params}"
+    
+    print(f"1. Open: {test_users_url}")
+    print("\n2. Add yourself as a test user:")
+    print("   - Click '+ ADD USERS' button")
+    print(f"   - Enter your email: {state.email}")
+    print("   - Click 'ADD'")
+    print("\n3. Verify your email appears in the test users list")
+    print("\n⚠️  Important: Only test users can use the app while it's in testing mode")
+    
+    input("\nPress Enter after adding yourself as a test user...")
     
     return "create_credentials"
 
 
 def create_credentials_step(state: WizardState) -> str:
-    """Step 6: Create OAuth credentials"""
+    """Step 7: Create OAuth credentials"""
     import time
     
     # Record when this step started
     state.step6_start_time = time.time()
     
-    print("\n🔑 Step 6: Create OAuth2 Credentials")
+    print("\n🔑 Step 7: Create OAuth2 Credentials")
     print("-" * 40)
     
     authuser = f"authuser={state.email}&" if state.email else ""
@@ -455,14 +477,14 @@ def create_credentials_step(state: WizardState) -> str:
 
 
 def download_credentials_step(state: WizardState) -> str:
-    """Step 7: Download and place credentials"""
+    """Step 8: Download and place credentials"""
     import time
     from datetime import datetime
     
     # Use timestamp from when step 6 started (or current time if not set)
     download_start_time = state.step6_start_time if state.step6_start_time else time.time()
     
-    print("\n📥 Step 7: Download Credentials")
+    print("\n📥 Step 8: Download Credentials")
     print("-" * 40)
     print("1. In the credentials list, find your new OAuth 2.0 Client ID")
     print("2. Click the download button (⬇) on the right")
@@ -664,7 +686,9 @@ def run_adaptive_wizard(email: Optional[str] = None, verbose: bool = True) -> Op
             print("Google Colab provides built-in authentication.")
             
             # But still need to check for project
-            if ask_yes_no(f"\nHave you created a Google Cloud project for Syft with {state.email} before?"):
+            print(f"\nHave you created a Google Cloud project for Syft with {state.email} before?")
+            print("(If you're not sure, say 'No' - it doesn't break anything, it'll just mean a few more steps)")
+            if ask_yes_no(""):
                 project_id = find_existing_project(state.email)
                 if project_id:
                     state.project_id = project_id
@@ -731,7 +755,9 @@ def run_adaptive_wizard(email: Optional[str] = None, verbose: bool = True) -> Op
         print("\n❌ No OAuth2 credentials found.")
         print("Let's set them up!")
         
-        if ask_yes_no(f"\nHave you created a Google Cloud project for Syft with {state.email} before?"):
+        print(f"\nHave you created a Google Cloud project for Syft with {state.email} before?")
+        print("(If you're not sure, say 'No' - it doesn't break anything, it'll just mean a few more steps)")
+        if ask_yes_no(""):
             if ask_yes_no("Do you remember your Google Cloud project ID?"):
                 project_id = input("\nEnter your project ID: ").strip()
                 if project_id:
@@ -776,6 +802,7 @@ def run_adaptive_wizard(email: Optional[str] = None, verbose: bool = True) -> Op
         "find_project": lambda s: find_existing_project(s.email) or "create_project",
         "enable_apis": enable_apis_step,
         "oauth_consent_screen": oauth_consent_screen_step,
+        "add_test_users": add_test_users_step,
         "create_credentials": create_credentials_step,
         "download_credentials": download_credentials_step,
         "verify_setup": verify_setup_step,

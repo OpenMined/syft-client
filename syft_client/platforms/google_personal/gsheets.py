@@ -51,6 +51,63 @@ class GSheetsTransport(BaseTransportLayer):
         else:
             return 2  # OAuth2 flow required
     
+    @staticmethod
+    def check_api_enabled(platform_client: Any) -> bool:
+        """
+        Check if Google Sheets API is enabled.
+        
+        Args:
+            platform_client: The platform client with credentials
+            
+        Returns:
+            bool: True if API is enabled, False otherwise
+        """
+        try:
+            if not hasattr(platform_client, 'credentials') or not platform_client.credentials:
+                return False
+            
+            # Try to build service and make a simple API call
+            from googleapiclient.discovery import build
+            from google.auth.transport.requests import Request
+            
+            # Refresh credentials if needed
+            if platform_client.credentials.expired and platform_client.credentials.refresh_token:
+                platform_client.credentials.refresh(Request())
+            
+            service = build('sheets', 'v4', credentials=platform_client.credentials)
+            # Try to get a non-existent spreadsheet - 404 means API is working
+            try:
+                service.spreadsheets().get(spreadsheetId='test123').execute()
+            except Exception as e:
+                if "Requested entity was not found" in str(e) or "404" in str(e):
+                    # 404 means API is working
+                    return True
+                else:
+                    raise
+            return True
+        except Exception:
+            return False
+    
+    @staticmethod
+    def enable_api_static(transport_name: str, email: str) -> None:
+        """Show instructions for enabling Google Sheets API"""
+        print(f"\n🔧 To enable the Google Sheets API:")
+        print(f"\n1. Open this URL in your browser:")
+        print(f"   https://console.cloud.google.com/marketplace/product/google/sheets.googleapis.com?authuser={email}")
+        print(f"\n2. Click the 'Enable' button")
+        print(f"\n3. Wait for the API to be enabled (may take 5-10 seconds)")
+        print(f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling")
+    
+    @staticmethod
+    def disable_api_static(transport_name: str, email: str) -> None:
+        """Show instructions for disabling Google Sheets API"""
+        print(f"\n🔧 To disable the Google Sheets API:")
+        print(f"\n1. Open this URL in your browser:")
+        print(f"   https://console.cloud.google.com/apis/api/sheets.googleapis.com/overview?authuser={email}")
+        print(f"\n2. Click 'Manage' or 'Disable API'")
+        print(f"\n3. Confirm by clicking 'Disable'")
+        print(f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling")
+    
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
         """Setup Sheets transport with OAuth2 credentials or Colab auth"""
         try:

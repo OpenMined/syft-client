@@ -79,6 +79,48 @@ class BaseTransportLayer(ABC):
         # This would need access to the platform client
         # For now, just return transport complexity
         return self.login_complexity
+    
+    @staticmethod
+    def check_api_enabled(platform_client: Any) -> bool:
+        """
+        Check if the API for this transport is enabled.
+        
+        This is a static method that can be called without initializing the transport.
+        
+        Args:
+            platform_client: The platform client with credentials
+            
+        Returns:
+            bool: True if API is enabled, False otherwise
+        """
+        # Default implementation - subclasses should override
+        return False
+    
+    @staticmethod
+    def enable_api_static(transport_name: str, email: str) -> None:
+        """
+        Static method to show instructions for enabling the API.
+        
+        Args:
+            transport_name: Name of the transport (e.g., 'gmail', 'gdrive_files')
+            email: User's email address
+        """
+        # Default implementation - subclasses should override
+        print(f"\n🔧 To enable the API for {transport_name}:")
+        print(f"   Please check the platform-specific instructions.")
+    
+    @staticmethod
+    def disable_api_static(transport_name: str, email: str) -> None:
+        """
+        Static method to show instructions for disabling the API.
+        
+        Args:
+            transport_name: Name of the transport (e.g., 'gmail', 'gdrive_files')
+            email: User's email address
+        """
+        # Default implementation - subclasses should override
+        print(f"\n🔧 To disable the API for {transport_name}:")
+        print(f"   Please check the platform-specific instructions.")
         
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
         """
@@ -206,9 +248,23 @@ class BaseTransportLayer(ABC):
         elif 'gforms' in transport_name.lower():
             transport_name = 'gforms'
         
-        # Status
-        status = "[green]✓ Ready[/green]" if self.is_setup() else "[red]✗ Not configured[/red]"
-        main_table.add_row(".is_setup()", status)
+        # Transport initialization status
+        status = "[green]✓ Initialized[/green]" if self.is_setup() else "[red]✗ Not initialized[/red]"
+        main_table.add_row(".is_initialized()", status)
+        
+        # API status - check if API is enabled using static method
+        api_status = "[dim]Unknown[/dim]"
+        if hasattr(self, '_platform_client') and self._platform_client:
+            # Use the static method to check API status
+            try:
+                if self.__class__.check_api_enabled(self._platform_client):
+                    api_status = "[green]✓ Enabled[/green]"
+                else:
+                    api_status = "[red]✗ Disabled[/red]"
+            except:
+                # If check fails, keep as Unknown
+                pass
+        main_table.add_row(".api_enabled", api_status)
         
         # Environment
         env_name = self.environment.value if self.environment else "Unknown"
@@ -243,6 +299,8 @@ class BaseTransportLayer(ABC):
         main_table.add_row("  .send(recipient, data)", "Send data")
         main_table.add_row("  .receive()", "Get messages") 
         main_table.add_row("  .setup(credentials)", "Configure transport")
+        main_table.add_row("  .enable_api()", "Show enable instructions")
+        main_table.add_row("  .disable_api()", "Show disable instructions")
         
         # Create the panel showing how to access this transport
         # Try to infer the platform from the email
@@ -285,111 +343,20 @@ class BaseTransportLayer(ABC):
     
     def enable_api(self) -> None:
         """Guide user through enabling the API for this transport"""
-        # Get transport and platform info
-        transport_name = self.__class__.__name__.replace('Transport', '')
-        platform_name = "Unknown"
-        project_id = None
+        # Get transport name
+        transport_name = self.__class__.__name__.replace('Transport', '').lower()
+        if 'gdrive' in transport_name:
+            transport_name = 'gdrive_files'
         
-        if hasattr(self, '_platform_client') and self._platform_client:
-            platform_name = getattr(self._platform_client, 'platform', 'Unknown')
-            
-            # Try to get project ID
-            try:
-                if hasattr(self._platform_client, 'find_oauth_credentials'):
-                    creds_path = self._platform_client.find_oauth_credentials()
-                    if creds_path and creds_path.exists():
-                        import json
-                        with open(creds_path, 'r') as f:
-                            creds_data = json.load(f)
-                            if 'installed' in creds_data:
-                                project_id = creds_data['installed'].get('project_id')
-            except:
-                pass
-        
-        # Map transport to API name
-        api_map = {
-            'Gmail': 'gmail.googleapis.com',
-            'GDriveFiles': 'drive.googleapis.com',
-            'GSheets': 'sheets.googleapis.com',
-            'GForms': 'forms.googleapis.com'
-        }
-        
-        api_name = api_map.get(transport_name, f"{transport_name.lower()}.googleapis.com")
-        
-        # Build URL - use marketplace for better UX
-        authuser = f"authuser={self.email}&" if self.email else ""
-        if project_id:
-            api_url = f"https://console.cloud.google.com/marketplace/product/google/{api_name}?{authuser}project={project_id}"
-        else:
-            api_url = f"https://console.cloud.google.com/marketplace/product/google/{api_name}?{authuser.rstrip('&')}"
-        
-        print(f"\n⚠️  {transport_name} API is not enabled!")
-        print(f"\nTo fix this:")
-        print(f"1. Open: {api_url}")
-        print(f"2. Click 'ENABLE'")
-        print(f"3. Wait a few minutes for the change to propagate")
-        print(f"4. Try again")
-        print(f"\n📍 Note: API tends to flicker for 5-10 seconds before enabling")
-        
-        input("\nPress Enter after enabling the API...")
-        
-        # Test if API is now working
-        print("\n🔍 Checking if API is enabled...")
-        
-        try:
-            if self.is_setup():
-                print("✓ API is now enabled and working!")
-            else:
-                print("⚠️  API may still be propagating. Please wait a moment and try again.")
-        except Exception as e:
-            print(f"✗ Error checking API status: {e}")
-            print("Please wait a few minutes and try again.")
+        # Call the static method
+        self.__class__.enable_api_static(transport_name, self.email)
     
     def disable_api(self) -> None:
         """Show instructions for disabling the API for this transport"""
-        # Get transport and platform info
-        transport_name = self.__class__.__name__.replace('Transport', '')
-        platform_name = "Unknown"
-        project_id = None
+        # Get transport name
+        transport_name = self.__class__.__name__.replace('Transport', '').lower()
+        if 'gdrive' in transport_name:
+            transport_name = 'gdrive_files'
         
-        if hasattr(self, '_platform_client') and self._platform_client:
-            platform_name = getattr(self._platform_client, 'platform', 'Unknown')
-            
-            # Try to get project ID
-            try:
-                if hasattr(self._platform_client, 'find_oauth_credentials'):
-                    creds_path = self._platform_client.find_oauth_credentials()
-                    if creds_path and creds_path.exists():
-                        import json
-                        with open(creds_path, 'r') as f:
-                            creds_data = json.load(f)
-                            if 'installed' in creds_data:
-                                project_id = creds_data['installed'].get('project_id')
-            except:
-                pass
-        
-        # Map transport to API name
-        api_map = {
-            'Gmail': 'gmail.googleapis.com',
-            'GDriveFiles': 'drive.googleapis.com', 
-            'GSheets': 'sheets.googleapis.com',
-            'GForms': 'forms.googleapis.com'
-        }
-        
-        api_name = api_map.get(transport_name, f"{transport_name.lower()}.googleapis.com")
-        
-        # Build URL - use marketplace for disabling
-        authuser = f"authuser={self.email}&" if self.email else ""
-        if project_id:
-            api_url = f"https://console.cloud.google.com/marketplace/product/google/{api_name}?{authuser}project={project_id}"
-        else:
-            api_url = f"https://console.cloud.google.com/marketplace/product/google/{api_name}?{authuser.rstrip('&')}"
-        
-        print(f"\n📌 How to disable {transport_name} API:")
-        print(f"\n1. Open: {api_url}")
-        print(f"2. Click 'MANAGE' button")
-        print(f"3. Click 'DISABLE API'")
-        print(f"4. Confirm the action")
-        print(f"\n📍 Note: API tends to flicker for 5-10 seconds before disabling")
-        print(f"\n⚠️  Warning: Disabling this API will prevent {transport_name} from working")
-        print(f"   until you re-enable it.\n")
+        # Call the static method
+        self.__class__.disable_api_static(transport_name, self.email)

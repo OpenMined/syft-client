@@ -80,34 +80,106 @@ class SyftClient:
                 
                 # Add each platform with its transports
                 for platform_name, platform in self._platforms.items():
-                    # Platform header
-                    main_table.add_row(f"[bold yellow].{platform_name}[/bold yellow]")
+                    # Platform header with project info
+                    platform_header = f"[bold yellow].{platform_name}[/bold yellow]"
+                    
+                    # Try to get project ID from credentials or auth data
+                    project_info = ""
+                    if platform_name in ['google_personal', 'google_org']:
+                        # Try to get project ID from credentials file
+                        try:
+                            creds_path = None
+                            if hasattr(platform, 'find_oauth_credentials'):
+                                creds_path = platform.find_oauth_credentials()
+                            elif hasattr(platform, 'credentials_path'):
+                                creds_path = platform.credentials_path
+                            
+                            if creds_path and creds_path.exists():
+                                import json
+                                with open(creds_path, 'r') as f:
+                                    creds_data = json.load(f)
+                                    if 'installed' in creds_data:
+                                        project_id = creds_data['installed'].get('project_id')
+                                        if project_id:
+                                            project_info = f" [dim](project: {project_id})[/dim]"
+                        except:
+                            pass
+                    
+                    main_table.add_row(platform_header + project_info)
                     
                     # Get all available transport names (including uninitialized)
                     transport_names = platform.get_transport_layers()
                     
                     for transport_name in transport_names:
+                        # Initialize status indicators
+                        api_status = "[red]✗[/red]"  # Default to not enabled
+                        auth_status = "[dim]✗[/dim]"  # Not authenticated by default
+                        transport_style = "dim"
+                        message = ""
+                        
                         # Check if transport is actually initialized and setup
+                        transport_initialized = False
                         if hasattr(platform, 'transports') and transport_name in platform.transports:
                             transport = platform.transports[transport_name]
-                            if hasattr(transport, 'is_setup') and transport.is_setup():
-                                status = "[green]✓[/green]"
-                                transport_style = "green"
-                                message = ""
+                            # Check if this is an initialized transport (not a stub)
+                            if hasattr(transport, '_setup_called') and transport._setup_called:
+                                transport_initialized = True
+                                auth_status = "[green]✓[/green]"
+                            elif hasattr(transport, 'is_setup') and callable(transport.is_setup):
+                                # For fully initialized transports, check is_setup
+                                try:
+                                    if transport.is_setup():
+                                        transport_initialized = True
+                                        auth_status = "[green]✓[/green]"
+                                except:
+                                    pass
+                        
+                        # Use static method to check API status
+                        # This works regardless of whether transport is initialized
+                        if platform_name in ['google_personal', 'google_org']:
+                            # Import the transport classes to use their static methods
+                            transport_map = {
+                                'gmail': 'syft_client.platforms.google_personal.gmail.GmailTransport',
+                                'gdrive_files': 'syft_client.platforms.google_personal.gdrive_files.GDriveFilesTransport',
+                                'gsheets': 'syft_client.platforms.google_personal.gsheets.GSheetsTransport',
+                                'gforms': 'syft_client.platforms.google_personal.gforms.GFormsTransport'
+                            }
+                            
+                            if transport_name in transport_map:
+                                try:
+                                    # Import the transport class
+                                    module_path, class_name = transport_map[transport_name].rsplit('.', 1)
+                                    module = __import__(module_path, fromlist=[class_name])
+                                    transport_class = getattr(module, class_name)
+                                    
+                                    # Call static method to check API
+                                    if transport_class.check_api_enabled(platform):
+                                        api_status = "[green]✓[/green]"
+                                        transport_style = "green"
+                                    else:
+                                        api_status = "[red]✗[/red]"
+                                        transport_style = "dim"
+                                        # If API is disabled, show enable message
+                                        message = f" [dim](call .{transport_name}.enable_api())[/dim]"
+                                except Exception as e:
+                                    # If check fails, see if it's an API disabled error
+                                    if "has not been used in project" in str(e) and "before or it is disabled" in str(e):
+                                        api_status = "[red]✗[/red]"
+                                        message = f" [dim](call .{transport_name}.enable_api())[/dim]"
+                        
+                        # Set message based on transport initialization status
+                        if not transport_initialized:
+                            # Transport is not initialized
+                            if api_status == "[green]✓[/green]":
+                                # API is enabled but transport not initialized
+                                message = " [dim](call .init() to initialize)[/dim]" if message == "" else message
                             else:
-                                status = "[dim]✗[/dim]"
-                                transport_style = "dim"
-                                # Check if this is an uninitialized stub that needs setup
-                                if hasattr(transport, '_setup_called') and not transport._setup_called:
-                                    message = " [dim](call .init() to initialize)[/dim]"
-                                else:
-                                    message = ""
-                        else:
-                            # Transport not initialized
-                            status = "[dim]✗[/dim]"
-                            transport_style = "dim"
-                            message = ""
-                        main_table.add_row(f"  {status} [{transport_style}].{transport_name}[/{transport_style}]{message}")
+                                # API is disabled and transport not initialized
+                                if message == "":
+                                    message = " [dim](not initialized)[/dim]"
+                        
+                        # Show both statuses
+                        main_table.add_row(f"  {api_status} {auth_status} [{transport_style}].{transport_name}[/{transport_style}]{message}")
                 
                 # Create the panel
                 panel = Panel(
@@ -262,65 +334,71 @@ class SyftClient:
             
             for transport_name in transport_names:
                 # Initialize status indicators
-                api_status = "[dim]?[/dim]"  # Unknown by default
+                api_status = "[red]✗[/red]"  # Default to not enabled
                 auth_status = "[dim]✗[/dim]"  # Not authenticated by default
                 transport_style = "dim"
                 message = ""
                 
-                # Check if transport is actually initialized
+                # Check if transport is actually initialized and setup
+                transport_initialized = False
                 if hasattr(platform, 'transports') and transport_name in platform.transports:
                     transport = platform.transports[transport_name]
-                    
-                    # Check authentication status (simple check if credentials exist)
-                    if hasattr(platform, 'credentials') and platform.credentials:
+                    # Check if this is an initialized transport (not a stub)
+                    if hasattr(transport, '_setup_called') and transport._setup_called:
+                        transport_initialized = True
                         auth_status = "[green]✓[/green]"
-                    
-                    # Check API status by making a real API call
-                    if hasattr(transport, 'drive_service') or hasattr(transport, 'gmail_service') or \
-                       hasattr(transport, 'sheets_service') or hasattr(transport, 'forms_service'):
+                    elif hasattr(transport, 'is_setup') and callable(transport.is_setup):
+                        # For fully initialized transports, check is_setup
                         try:
-                            # Make a direct API call based on transport type
-                            if transport_name == 'gmail' and hasattr(transport, 'gmail_service') and transport.gmail_service:
-                                transport.gmail_service.users().messages().list(userId='me', maxResults=1).execute()
+                            if transport.is_setup():
+                                transport_initialized = True
+                                auth_status = "[green]✓[/green]"
+                        except:
+                            pass
+                
+                # Use static method to check API status
+                # This works regardless of whether transport is initialized
+                if platform_name in ['google_personal', 'google_org']:
+                    # Import the transport classes to use their static methods
+                    transport_map = {
+                        'gmail': 'syft_client.platforms.google_personal.gmail.GmailTransport',
+                        'gdrive_files': 'syft_client.platforms.google_personal.gdrive_files.GDriveFilesTransport',
+                        'gsheets': 'syft_client.platforms.google_personal.gsheets.GSheetsTransport',
+                        'gforms': 'syft_client.platforms.google_personal.gforms.GFormsTransport'
+                    }
+                    
+                    if transport_name in transport_map:
+                        try:
+                            # Import the transport class
+                            module_path, class_name = transport_map[transport_name].rsplit('.', 1)
+                            module = __import__(module_path, fromlist=[class_name])
+                            transport_class = getattr(module, class_name)
+                            
+                            # Call static method to check API
+                            if transport_class.check_api_enabled(platform):
                                 api_status = "[green]✓[/green]"
                                 transport_style = "green"
-                            elif transport_name == 'gdrive_files' and hasattr(transport, 'drive_service') and transport.drive_service:
-                                transport.drive_service.files().list(pageSize=1).execute()
-                                api_status = "[green]✓[/green]"
-                                transport_style = "green"
-                            elif transport_name == 'gsheets' and hasattr(transport, 'sheets_service') and transport.sheets_service:
-                                try:
-                                    transport.sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
-                                except Exception as e:
-                                    if "Requested entity was not found" in str(e) or "404" in str(e):
-                                        # 404 means API is working
-                                        api_status = "[green]✓[/green]"
-                                        transport_style = "green"
-                                    else:
-                                        raise
-                            elif transport_name == 'gforms' and hasattr(transport, 'forms_service') and transport.forms_service:
-                                # Try to get a non-existent form
-                                try:
-                                    transport.forms_service.forms().get(formId='test123').execute()
-                                except Exception as e:
-                                    if "not found" in str(e).lower() or "404" in str(e):
-                                        # 404 means API is working
-                                        api_status = "[green]✓[/green]"
-                                        transport_style = "green"
-                                    else:
-                                        raise
-                        except Exception as e:
-                            api_status = "[red]✗[/red]"
-                            transport_style = "dim"
-                            # Check if it's an API not enabled error
-                            if "has not been used in project" in str(e) and "before or it is disabled" in str(e):
+                            else:
+                                api_status = "[red]✗[/red]"
+                                transport_style = "dim"
+                                # If API is disabled, show enable message
                                 message = f" [dim](call .{transport_name}.enable_api())[/dim]"
-                else:
-                    # Transport not initialized
-                    api_status = "[dim]✗[/dim]"
-                    auth_status = "[dim]✗[/dim]"
-                    transport_style = "dim"
-                    message = " [dim](not initialized)[/dim]"
+                        except Exception as e:
+                            # If check fails, see if it's an API disabled error
+                            if "has not been used in project" in str(e) and "before or it is disabled" in str(e):
+                                api_status = "[red]✗[/red]"
+                                message = f" [dim](call .{transport_name}.enable_api())[/dim]"
+                
+                # Set message based on transport initialization status
+                if not transport_initialized:
+                    # Transport is not initialized
+                    if api_status == "[green]✓[/green]":
+                        # API is enabled but transport not initialized
+                        message = " [dim](call .init() to initialize)[/dim]" if message == "" else message
+                    else:
+                        # API is disabled and transport not initialized
+                        if message == "":
+                            message = " [dim](not initialized)[/dim]"
                 
                 # Show both statuses
                 main_table.add_row(f"    {api_status} {auth_status} [{transport_style}].{transport_name}[/{transport_style}]{message}")
@@ -509,7 +587,58 @@ class SyftClient:
             if environment == Environment.COLAB:
                 raise ValueError("Please specify an email: login(email='your@gmail.com')")
             else:
-                raise ValueError("Please specify an email: login(email='your@email.com')")
+                # Look for existing emails in ~/.syft
+                from pathlib import Path
+                syft_dir = Path.home() / ".syft"
+                
+                if syft_dir.exists():
+                    # Find email-like directory names
+                    email_dirs = []
+                    for item in syft_dir.iterdir():
+                        if item.is_dir() and '_at_' in item.name:
+                            # Convert back from safe format to email
+                            # Format is: email_at_domain_com -> email@domain.com
+                            parts = item.name.split('_at_')
+                            if len(parts) == 2:
+                                local_part = parts[0]
+                                domain_parts = parts[1].split('_')
+                                if len(domain_parts) >= 2:
+                                    # Reconstruct domain with dots
+                                    domain = '.'.join(domain_parts)
+                                    email_candidate = f"{local_part}@{domain}"
+                                    # Basic email validation
+                                    if '.' in domain:
+                                        email_dirs.append((item, email_candidate))
+                    
+                    if len(email_dirs) == 1:
+                        # Only one email found, use it
+                        _, email = email_dirs[0]
+                        print(f"📧 Using email from ~/.syft: {email}")
+                    elif len(email_dirs) > 1:
+                        # Multiple emails found, ask user to choose
+                        print("\n📧 Multiple email accounts found in ~/.syft:")
+                        for i, (_, email_addr) in enumerate(email_dirs):
+                            print(f"  {i+1}. {email_addr}")
+                        print(f"  {len(email_dirs)+1}. Enter a different email")
+                        
+                        choice = input(f"\nSelect an option (1-{len(email_dirs)+1}): ").strip()
+                        
+                        try:
+                            choice_idx = int(choice) - 1
+                            if 0 <= choice_idx < len(email_dirs):
+                                _, email = email_dirs[choice_idx]
+                            elif choice_idx == len(email_dirs):
+                                email = input("Enter your email: ").strip()
+                                if not email:
+                                    raise ValueError("Email cannot be empty")
+                            else:
+                                raise ValueError("Invalid choice")
+                        except (ValueError, IndexError):
+                            raise ValueError("Invalid selection. Please run login() again.")
+                    else:
+                        raise ValueError("Please specify an email: login(email='your@email.com')")
+                else:
+                    raise ValueError("Please specify an email: login(email='your@email.com')")
         
         # Create SyftClient and login
         client = SyftClient(email)
