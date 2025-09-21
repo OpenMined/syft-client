@@ -40,6 +40,7 @@ class GmailTransport(BaseTransportLayer):
         self.credentials = None
         self._labels = {}
         self._setup_verified = False
+        self._last_api_error = None
     
     @property
     def api_is_active_by_default(self) -> bool:
@@ -250,7 +251,31 @@ class GmailTransport(BaseTransportLayer):
             return True
             
         except Exception as e:
-            print(f"Error sending email: {e}")
+            # Only print error if not in a repr/display context
+            import sys
+            import traceback
+            
+            # Check if we're being called from __repr__ by looking at the call stack
+            stack = traceback.extract_stack()
+            in_repr = any('__repr__' in frame.name for frame in stack)
+            
+            # Check if it's an API not enabled error
+            if "has not been used in project" in str(e) and "before or it is disabled" in str(e):
+                self._last_api_error = "API_NOT_ENABLED"
+                
+                if not in_repr:
+                    print(f"\n⚠️  Gmail API is not enabled for your project!")
+                    print("To fix this:")
+                    # Extract the URL from the error message
+                    import re
+                    url_match = re.search(r'https://[^\s]+', str(e))
+                    if url_match:
+                        print(f"1. Open: {url_match.group(0)}")
+                    print("2. Click 'ENABLE'")
+                    print("3. Wait a few minutes for the change to propagate")
+                    print("4. Try again\n")
+            elif not in_repr:
+                print(f"Error sending email: {e}")
             return False
     
     def receive(self, folder: Optional[str] = None, limit: int = 10, 

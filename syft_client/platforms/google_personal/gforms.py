@@ -89,22 +89,20 @@ class GFormsTransport(BaseTransportLayer):
             return False
     
     def is_setup(self) -> bool:
-        """Check if Forms transport is ready"""
-        # First check if we're cached as setup
-        if self.is_cached_as_setup():
-            return True
+        """Check if Forms transport is ready - NO CACHING, makes real API call"""
+        if not self.forms_service:
+            return False
             
-        # In Colab, we can always set up on demand
-        if self.environment == Environment.COLAB:
-            # Check if Colab auth is available
-            try:
-                from google.colab import auth as colab_auth
-                return True  # Can authenticate on demand
-            except ImportError:
-                pass
-        
-        # Otherwise check normal setup
-        return self.forms_service is not None
+        try:
+            # Try to get a non-existent form (expecting 404 if API works)
+            self.forms_service.forms().get(formId='test123').execute()
+            return False  # Should never reach here
+        except Exception as e:
+            # If it's "not found", the API is working
+            if "not found" in str(e).lower() or "404" in str(e):
+                return True
+            else:
+                return False
     
     def send(self, recipient: str, data: Any, subject: str = "Syft Form") -> bool:
         """Create a Google Form for data collection"""

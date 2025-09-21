@@ -72,24 +72,16 @@ class GmailTransport(BaseTransportLayer):
             return False
     
     def is_setup(self) -> bool:
-        """Check if Gmail transport is ready"""
-        # First check if we're cached as setup
-        if self.is_cached_as_setup():
-            return True
-            
-        # Otherwise check normal setup
+        """Check if Gmail transport is ready - NO CACHING, makes real API call"""
         if not self.gmail_service:
             return False
         
-        if self._setup_verified:
+        try:
+            # Simple API call - just list 1 message
+            self.gmail_service.users().messages().list(userId='me', maxResults=1).execute()
             return True
-        
-        # Test by sending email to self
-        if self._test_email_to_self():
-            self._setup_verified = True
-            return True
-            
-        return False
+        except Exception:
+            return False
     
     def _setup_gmail(self) -> None:
         """Setup Gmail labels and filters for backend emails"""
@@ -244,7 +236,29 @@ class GmailTransport(BaseTransportLayer):
             return True
             
         except Exception as e:
-            print(f"Error sending email: {e}")
+            # Only print error if not in a repr/display context
+            import sys
+            import traceback
+            
+            # Check if we're being called from __repr__ by looking at the call stack
+            stack = traceback.extract_stack()
+            in_repr = any('__repr__' in frame.name for frame in stack)
+            
+            # Check if it's an API not enabled error
+            if "has not been used in project" in str(e) and "before or it is disabled" in str(e):
+                if not in_repr:
+                    print(f"\n⚠️  Gmail API is not enabled for your project!")
+                    print("To fix this:")
+                    # Extract the URL from the error message
+                    import re
+                    url_match = re.search(r'https://[^\s]+', str(e))
+                    if url_match:
+                        print(f"1. Open: {url_match.group(0)}")
+                    print("2. Click 'ENABLE'")
+                    print("3. Wait a few minutes for the change to propagate")
+                    print("4. Try again\n")
+            elif not in_repr:
+                print(f"Error sending email: {e}")
             return False
     
     def receive(self, folder: Optional[str] = None, limit: int = 10, 

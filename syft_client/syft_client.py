@@ -230,34 +230,100 @@ class SyftClient:
         
         # Add each platform with its transports
         for platform_name, platform in self._platforms.items():
-            # Platform header
-            main_table.add_row(f"  [bold yellow].{platform_name}[/bold yellow]")
+            # Platform header with project info
+            platform_header = f"  [bold yellow].{platform_name}[/bold yellow]"
+            
+            # Try to get project ID from credentials or auth data
+            project_info = ""
+            if platform_name in ['google_personal', 'google_org']:
+                # Try to get project ID from credentials file
+                try:
+                    creds_path = None
+                    if hasattr(platform, 'find_oauth_credentials'):
+                        creds_path = platform.find_oauth_credentials()
+                    elif hasattr(platform, 'credentials_path'):
+                        creds_path = platform.credentials_path
+                    
+                    if creds_path and Path(creds_path).exists():
+                        import json
+                        with open(creds_path, 'r') as f:
+                            creds_data = json.load(f)
+                            if 'installed' in creds_data:
+                                project_id = creds_data['installed'].get('project_id')
+                                if project_id:
+                                    project_info = f" [dim](project: {project_id})[/dim]"
+                except:
+                    pass
+            
+            main_table.add_row(platform_header + project_info)
             
             # Get all available transport names (including uninitialized)
             transport_names = platform.get_transport_layers()
             
             for transport_name in transport_names:
-                # Check if transport is actually initialized and setup
+                # Initialize status indicators
+                api_status = "[dim]?[/dim]"  # Unknown by default
+                auth_status = "[dim]✗[/dim]"  # Not authenticated by default
+                transport_style = "dim"
+                message = ""
+                
+                # Check if transport is actually initialized
                 if hasattr(platform, 'transports') and transport_name in platform.transports:
                     transport = platform.transports[transport_name]
-                    if hasattr(transport, 'is_setup') and transport.is_setup():
-                        status = "[green]✓[/green]"
-                        transport_style = "green"
-                        message = ""
-                    else:
-                        status = "[dim]✗[/dim]"
-                        transport_style = "dim"
-                        # Check if this is an uninitialized stub that needs setup
-                        if hasattr(transport, '_setup_called') and not transport._setup_called:
-                            message = " [dim](call .init() to initialize)[/dim]"
-                        else:
-                            message = ""
+                    
+                    # Check authentication status (simple check if credentials exist)
+                    if hasattr(platform, 'credentials') and platform.credentials:
+                        auth_status = "[green]✓[/green]"
+                    
+                    # Check API status by making a real API call
+                    if hasattr(transport, 'drive_service') or hasattr(transport, 'gmail_service') or \
+                       hasattr(transport, 'sheets_service') or hasattr(transport, 'forms_service'):
+                        try:
+                            # Make a direct API call based on transport type
+                            if transport_name == 'gmail' and hasattr(transport, 'gmail_service') and transport.gmail_service:
+                                transport.gmail_service.users().messages().list(userId='me', maxResults=1).execute()
+                                api_status = "[green]✓[/green]"
+                                transport_style = "green"
+                            elif transport_name == 'gdrive_files' and hasattr(transport, 'drive_service') and transport.drive_service:
+                                transport.drive_service.files().list(pageSize=1).execute()
+                                api_status = "[green]✓[/green]"
+                                transport_style = "green"
+                            elif transport_name == 'gsheets' and hasattr(transport, 'sheets_service') and transport.sheets_service:
+                                try:
+                                    transport.sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
+                                except Exception as e:
+                                    if "Requested entity was not found" in str(e) or "404" in str(e):
+                                        # 404 means API is working
+                                        api_status = "[green]✓[/green]"
+                                        transport_style = "green"
+                                    else:
+                                        raise
+                            elif transport_name == 'gforms' and hasattr(transport, 'forms_service') and transport.forms_service:
+                                # Try to get a non-existent form
+                                try:
+                                    transport.forms_service.forms().get(formId='test123').execute()
+                                except Exception as e:
+                                    if "not found" in str(e).lower() or "404" in str(e):
+                                        # 404 means API is working
+                                        api_status = "[green]✓[/green]"
+                                        transport_style = "green"
+                                    else:
+                                        raise
+                        except Exception as e:
+                            api_status = "[red]✗[/red]"
+                            transport_style = "dim"
+                            # Check if it's an API not enabled error
+                            if "has not been used in project" in str(e) and "before or it is disabled" in str(e):
+                                message = f" [dim](call .{transport_name}.enable_api())[/dim]"
                 else:
                     # Transport not initialized
-                    status = "[dim]✗[/dim]"
+                    api_status = "[dim]✗[/dim]"
+                    auth_status = "[dim]✗[/dim]"
                     transport_style = "dim"
-                    message = ""
-                main_table.add_row(f"    {status} [{transport_style}].{transport_name}[/{transport_style}]{message}")
+                    message = " [dim](not initialized)[/dim]"
+                
+                # Show both statuses
+                main_table.add_row(f"    {api_status} {auth_status} [{transport_style}].{transport_name}[/{transport_style}]{message}")
         
         # Create the panel
         panel = Panel(

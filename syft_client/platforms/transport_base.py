@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
+from pathlib import Path
 from ..environment import Environment
 
 
@@ -272,3 +273,123 @@ class BaseTransportLayer(ABC):
         string_buffer.close()
         
         return output.strip()
+    
+    def check_api_error(self) -> None:
+        """Check and display the last API error for debugging"""
+        if hasattr(self, '_last_error'):
+            print(f"Last error: {self._last_error}")
+        if hasattr(self, '_last_api_error'):
+            print(f"API error type: {self._last_api_error}")
+        if hasattr(self, '_setup_verified'):
+            print(f"Setup verified: {self._setup_verified}")
+    
+    def enable_api(self) -> None:
+        """Guide user through enabling the API for this transport"""
+        # Get transport and platform info
+        transport_name = self.__class__.__name__.replace('Transport', '')
+        platform_name = "Unknown"
+        project_id = None
+        
+        if hasattr(self, '_platform_client') and self._platform_client:
+            platform_name = getattr(self._platform_client, 'platform', 'Unknown')
+            
+            # Try to get project ID
+            try:
+                if hasattr(self._platform_client, 'find_oauth_credentials'):
+                    creds_path = self._platform_client.find_oauth_credentials()
+                    if creds_path and creds_path.exists():
+                        import json
+                        with open(creds_path, 'r') as f:
+                            creds_data = json.load(f)
+                            if 'installed' in creds_data:
+                                project_id = creds_data['installed'].get('project_id')
+            except:
+                pass
+        
+        # Map transport to API name
+        api_map = {
+            'Gmail': 'gmail.googleapis.com',
+            'GDriveFiles': 'drive.googleapis.com',
+            'GSheets': 'sheets.googleapis.com',
+            'GForms': 'forms.googleapis.com'
+        }
+        
+        api_name = api_map.get(transport_name, f"{transport_name.lower()}.googleapis.com")
+        
+        # Build URL - use marketplace for better UX
+        authuser = f"authuser={self.email}&" if self.email else ""
+        if project_id:
+            api_url = f"https://console.cloud.google.com/marketplace/product/google/{api_name}?{authuser}project={project_id}"
+        else:
+            api_url = f"https://console.cloud.google.com/marketplace/product/google/{api_name}?{authuser.rstrip('&')}"
+        
+        print(f"\n⚠️  {transport_name} API is not enabled!")
+        print(f"\nTo fix this:")
+        print(f"1. Open: {api_url}")
+        print(f"2. Click 'ENABLE'")
+        print(f"3. Wait a few minutes for the change to propagate")
+        print(f"4. Try again")
+        print(f"\n📍 Note: API tends to flicker for 5-10 seconds before enabling")
+        
+        input("\nPress Enter after enabling the API...")
+        
+        # Test if API is now working
+        print("\n🔍 Checking if API is enabled...")
+        
+        try:
+            if self.is_setup():
+                print("✓ API is now enabled and working!")
+            else:
+                print("⚠️  API may still be propagating. Please wait a moment and try again.")
+        except Exception as e:
+            print(f"✗ Error checking API status: {e}")
+            print("Please wait a few minutes and try again.")
+    
+    def disable_api(self) -> None:
+        """Show instructions for disabling the API for this transport"""
+        # Get transport and platform info
+        transport_name = self.__class__.__name__.replace('Transport', '')
+        platform_name = "Unknown"
+        project_id = None
+        
+        if hasattr(self, '_platform_client') and self._platform_client:
+            platform_name = getattr(self._platform_client, 'platform', 'Unknown')
+            
+            # Try to get project ID
+            try:
+                if hasattr(self._platform_client, 'find_oauth_credentials'):
+                    creds_path = self._platform_client.find_oauth_credentials()
+                    if creds_path and creds_path.exists():
+                        import json
+                        with open(creds_path, 'r') as f:
+                            creds_data = json.load(f)
+                            if 'installed' in creds_data:
+                                project_id = creds_data['installed'].get('project_id')
+            except:
+                pass
+        
+        # Map transport to API name
+        api_map = {
+            'Gmail': 'gmail.googleapis.com',
+            'GDriveFiles': 'drive.googleapis.com', 
+            'GSheets': 'sheets.googleapis.com',
+            'GForms': 'forms.googleapis.com'
+        }
+        
+        api_name = api_map.get(transport_name, f"{transport_name.lower()}.googleapis.com")
+        
+        # Build URL - use marketplace for disabling
+        authuser = f"authuser={self.email}&" if self.email else ""
+        if project_id:
+            api_url = f"https://console.cloud.google.com/marketplace/product/google/{api_name}?{authuser}project={project_id}"
+        else:
+            api_url = f"https://console.cloud.google.com/marketplace/product/google/{api_name}?{authuser.rstrip('&')}"
+        
+        print(f"\n📌 How to disable {transport_name} API:")
+        print(f"\n1. Open: {api_url}")
+        print(f"2. Click 'MANAGE' button")
+        print(f"3. Click 'DISABLE API'")
+        print(f"4. Confirm the action")
+        print(f"\n📍 Note: API tends to flicker for 5-10 seconds before disabling")
+        print(f"\n⚠️  Warning: Disabling this API will prevent {transport_name} from working")
+        print(f"   until you re-enable it.\n")
