@@ -93,22 +93,21 @@ class GSheetsTransport(BaseTransportLayer):
             return False
     
     def is_setup(self) -> bool:
-        """Check if Sheets transport is ready"""
-        # First check if we're cached as setup
-        if self.is_cached_as_setup():
-            return True
+        """Check if Sheets transport is ready - NO CACHING, makes real API call"""
+        if not self.sheets_service or not self.drive_service:
+            return False
             
-        # In Colab, we can always set up on demand
-        if self.environment == Environment.COLAB:
-            # Check if Colab auth is available
-            try:
-                from google.colab import auth as colab_auth
-                return True  # Can authenticate on demand
-            except ImportError:
-                pass
-        
-        # Otherwise check normal setup
-        return self.sheets_service is not None and self.drive_service is not None
+        try:
+            # Try to get spreadsheet metadata for a non-existent sheet (fast operation)
+            self.sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
+            # Should never reach here
+            return True
+        except Exception as e:
+            # If it's just "not found", that means the API is working
+            if "Requested entity was not found" in str(e) or "404" in str(e):
+                return True
+            else:
+                return False
     
     def send(self, recipient: str, data: Any, subject: str = "Syft Data") -> bool:
         """Write data to a Google Sheet and share"""

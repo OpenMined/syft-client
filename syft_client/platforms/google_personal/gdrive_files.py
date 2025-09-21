@@ -99,22 +99,16 @@ class GDriveFilesTransport(BaseTransportLayer):
             return False
     
     def is_setup(self) -> bool:
-        """Check if Drive transport is ready"""
-        # First check if we're cached as setup
-        if self.is_cached_as_setup():
-            return True
+        """Check if Drive transport is ready - NO CACHING, makes real API call"""
+        if not self.drive_service:
+            return False
             
-        # In Colab, we can always set up on demand
-        if self.environment == Environment.COLAB:
-            # Check if Colab auth is available
-            try:
-                from google.colab import auth as colab_auth
-                return True  # Can authenticate on demand
-            except ImportError:
-                pass
-        
-        # Otherwise check normal setup
-        return self.drive_service is not None
+        try:
+            # Simple API call - list 1 file
+            self.drive_service.files().list(pageSize=1).execute()
+            return True
+        except Exception:
+            return False
     
     def _ensure_syft_folder(self) -> None:
         """Create SyftClient folder if it doesn't exist"""

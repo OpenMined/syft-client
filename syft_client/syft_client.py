@@ -24,8 +24,107 @@ class SyftClient:
             email: The email address for this client
         """
         self.email = email
-        self.platforms: Dict[str, BasePlatformClient] = {}
+        self._platforms: Dict[str, BasePlatformClient] = {}
         self.transport_instances: Dict[str, Any] = {}  # platform:transport -> instance
+        
+    @property
+    def platforms(self):
+        """Provide attribute-style access to platforms"""
+        class PlatformRegistry:
+            def __init__(self, platforms_dict):
+                self._platforms = platforms_dict
+                self._parent_client = self  # Reference to parent SyftClient
+            
+            def __getattr__(self, name):
+                if name in self._platforms:
+                    return self._platforms[name]
+                raise AttributeError(f"'platforms' object has no attribute '{name}'")
+            
+            def __getitem__(self, key):
+                return self._platforms[key]
+            
+            def __contains__(self, key):
+                return key in self._platforms
+            
+            def items(self):
+                return self._platforms.items()
+            
+            def keys(self):
+                return self._platforms.keys()
+            
+            def values(self):
+                return self._platforms.values()
+            
+            def get(self, key, default=None):
+                return self._platforms.get(key, default)
+            
+            def __dir__(self):
+                """Support tab completion for platform names"""
+                # Include dict methods and platform names
+                return list(self._platforms.keys()) + ['items', 'keys', 'values', 'get']
+            
+            def __repr__(self):
+                """String representation showing platforms and their transports"""
+                from rich.console import Console
+                from rich.table import Table
+                from rich.panel import Panel
+                from io import StringIO
+                
+                # Create a string buffer to capture the rich output
+                string_buffer = StringIO()
+                console = Console(file=string_buffer, force_terminal=True, width=100)
+                
+                # Create main table with single column for better formatting
+                main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
+                main_table.add_column("", no_wrap=False)
+                
+                # Add each platform with its transports
+                for platform_name, platform in self._platforms.items():
+                    # Platform header
+                    main_table.add_row(f"[bold yellow].{platform_name}[/bold yellow]")
+                    
+                    # Get all available transport names (including uninitialized)
+                    transport_names = platform.get_transport_layers()
+                    
+                    for transport_name in transport_names:
+                        # Check if transport is actually initialized and setup
+                        if hasattr(platform, 'transports') and transport_name in platform.transports:
+                            transport = platform.transports[transport_name]
+                            if hasattr(transport, 'is_setup') and transport.is_setup():
+                                status = "[green]✓[/green]"
+                                transport_style = "green"
+                                message = ""
+                            else:
+                                status = "[dim]✗[/dim]"
+                                transport_style = "dim"
+                                # Check if this is an uninitialized stub that needs setup
+                                if hasattr(transport, '_setup_called') and not transport._setup_called:
+                                    message = " [dim](call .init() to initialize)[/dim]"
+                                else:
+                                    message = ""
+                        else:
+                            # Transport not initialized
+                            status = "[dim]✗[/dim]"
+                            transport_style = "dim"
+                            message = ""
+                        main_table.add_row(f"  {status} [{transport_style}].{transport_name}[/{transport_style}]{message}")
+                
+                # Create the panel
+                panel = Panel(
+                    main_table,
+                    title="Platforms",
+                    expand=False,
+                    width=100,
+                    padding=(1, 2)
+                )
+                
+                console.print(panel)
+                output = string_buffer.getvalue()
+                string_buffer.close()
+                
+                return output.strip()
+                
+        return PlatformRegistry(self._platforms)
     
     def _initialize_all_transports(self) -> None:
         """Initialize transport instances for all possible platforms"""
@@ -56,7 +155,7 @@ class SyftClient:
             auth_data: Authentication data from the platform
         """
         platform_name = platform_client.platform
-        self.platforms[platform_name] = platform_client
+        self._platforms[platform_name] = platform_client
         
         # Store auth data in the platform client for now
         platform_client._auth_data = auth_data
@@ -67,11 +166,18 @@ class SyftClient:
     @property
     def platform_names(self) -> List[str]:
         """Get list of authenticated platform names"""
-        return list(self.platforms.keys())
+        return list(self._platforms.keys())
     
     def get_platform(self, platform_name: str) -> Optional[BasePlatformClient]:
         """Get a specific platform client by name"""
-        return self.platforms.get(platform_name)
+        return self._platforms.get(platform_name)
+    
+    def __getattr__(self, name: str):
+        """Allow attribute-style access to platforms"""
+        # First check if it's a platform
+        if name in self._platforms:
+            return self._platforms[name]
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
     
     def get_transports(self, platform_name: str) -> List[str]:
         """Get transport layers for a specific platform"""
@@ -83,7 +189,7 @@ class SyftClient:
         """Get all transport layers grouped by platform"""
         return {
             platform_name: platform.get_transport_layers()
-            for platform_name, platform in self.platforms.items()
+            for platform_name, platform in self._platforms.items()
         }
     
     @property
@@ -99,28 +205,213 @@ class SyftClient:
         return one_step
     
     def __repr__(self) -> str:
-        """String representation"""
-        platform_info = []
-        for name, platform in self.platforms.items():
-            transports = platform.get_transport_layers()
-            platform_info.append(f"{name}:{len(transports)}")
-        return f"SyftClient(email='{self.email}', platforms=[{', '.join(platform_info)}])"
+        """String representation using rich for proper formatting"""
+        from rich.console import Console
+        from rich.table import Table
+        from rich.panel import Panel
+        from io import StringIO
+        
+        # Create a string buffer to capture the rich output
+        string_buffer = StringIO()
+        console = Console(file=string_buffer, force_terminal=True, width=100)
+        
+        # Create main table with single column for better formatting
+        main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
+        main_table.add_column("", no_wrap=False)
+        
+        # Add folder path
+        from pathlib import Path
+        syft_folder = Path.home() / "SyftBox" / self.email.replace('@', '_at_').replace('.', '_')
+        main_table.add_row(f"[dim].folder[/dim] = {syft_folder}")
+        
+        # Add platforms section
+        main_table.add_row("")  # Empty row for spacing
+        main_table.add_row("[dim].platforms[/dim]")
+        
+        # Add each platform with its transports
+        for platform_name, platform in self._platforms.items():
+            # Platform header with project info
+            platform_header = f"  [bold yellow].{platform_name}[/bold yellow]"
+            
+            # Try to get project ID from credentials or auth data
+            project_info = ""
+            if platform_name in ['google_personal', 'google_org']:
+                # Try to get project ID from credentials file
+                try:
+                    creds_path = None
+                    if hasattr(platform, 'find_oauth_credentials'):
+                        creds_path = platform.find_oauth_credentials()
+                    elif hasattr(platform, 'credentials_path'):
+                        creds_path = platform.credentials_path
+                    
+                    if creds_path and Path(creds_path).exists():
+                        import json
+                        with open(creds_path, 'r') as f:
+                            creds_data = json.load(f)
+                            if 'installed' in creds_data:
+                                project_id = creds_data['installed'].get('project_id')
+                                if project_id:
+                                    project_info = f" [dim](project: {project_id})[/dim]"
+                except:
+                    pass
+            
+            main_table.add_row(platform_header + project_info)
+            
+            # Get all available transport names (including uninitialized)
+            transport_names = platform.get_transport_layers()
+            
+            for transport_name in transport_names:
+                # Initialize status indicators
+                api_status = "[dim]?[/dim]"  # Unknown by default
+                auth_status = "[dim]✗[/dim]"  # Not authenticated by default
+                transport_style = "dim"
+                message = ""
+                
+                # Check if transport is actually initialized
+                if hasattr(platform, 'transports') and transport_name in platform.transports:
+                    transport = platform.transports[transport_name]
+                    
+                    # Check authentication status (simple check if credentials exist)
+                    if hasattr(platform, 'credentials') and platform.credentials:
+                        auth_status = "[green]✓[/green]"
+                    
+                    # Check API status by making a real API call
+                    if hasattr(transport, 'drive_service') or hasattr(transport, 'gmail_service') or \
+                       hasattr(transport, 'sheets_service') or hasattr(transport, 'forms_service'):
+                        try:
+                            # Make a direct API call based on transport type
+                            if transport_name == 'gmail' and hasattr(transport, 'gmail_service') and transport.gmail_service:
+                                transport.gmail_service.users().messages().list(userId='me', maxResults=1).execute()
+                                api_status = "[green]✓[/green]"
+                                transport_style = "green"
+                            elif transport_name == 'gdrive_files' and hasattr(transport, 'drive_service') and transport.drive_service:
+                                transport.drive_service.files().list(pageSize=1).execute()
+                                api_status = "[green]✓[/green]"
+                                transport_style = "green"
+                            elif transport_name == 'gsheets' and hasattr(transport, 'sheets_service') and transport.sheets_service:
+                                try:
+                                    transport.sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
+                                except Exception as e:
+                                    if "Requested entity was not found" in str(e) or "404" in str(e):
+                                        # 404 means API is working
+                                        api_status = "[green]✓[/green]"
+                                        transport_style = "green"
+                                    else:
+                                        raise
+                            elif transport_name == 'gforms' and hasattr(transport, 'forms_service') and transport.forms_service:
+                                # Try to get a non-existent form
+                                try:
+                                    transport.forms_service.forms().get(formId='test123').execute()
+                                except Exception as e:
+                                    if "not found" in str(e).lower() or "404" in str(e):
+                                        # 404 means API is working
+                                        api_status = "[green]✓[/green]"
+                                        transport_style = "green"
+                                    else:
+                                        raise
+                        except Exception as e:
+                            api_status = "[red]✗[/red]"
+                            transport_style = "dim"
+                            # Check if it's an API not enabled error
+                            if "has not been used in project" in str(e) and "before or it is disabled" in str(e):
+                                message = f" [dim](call .{transport_name}.enable_api())[/dim]"
+                else:
+                    # Transport not initialized
+                    api_status = "[dim]✗[/dim]"
+                    auth_status = "[dim]✗[/dim]"
+                    transport_style = "dim"
+                    message = " [dim](not initialized)[/dim]"
+                
+                # Show both statuses
+                main_table.add_row(f"    {api_status} {auth_status} [{transport_style}].{transport_name}[/{transport_style}]{message}")
+        
+        # Create the panel
+        panel = Panel(
+            main_table,
+            title=f"SyftClient.email = '{self.email}'",
+            expand=False,
+            width=100,
+            padding=(1, 2)
+        )
+        
+        console.print(panel)
+        output = string_buffer.getvalue()
+        string_buffer.close()
+        
+        return output.strip()
+    
     
     def __str__(self) -> str:
         """User-friendly string representation"""
         lines = [f"SyftClient - {self.email}"]
-        for platform_name, platform in self.platforms.items():
+        for platform_name, platform in self._platforms.items():
             transports = platform.get_transport_layers()
             lines.append(f"  • {platform_name}: {', '.join(transports)}")
         return "\n".join(lines)
     
-    def _login(self, provider: Optional[str] = None, verbose: bool = False) -> None:
+    def reset_wallet(self, confirm: bool = True) -> bool:
+        """
+        Reset the wallet by deleting all stored credentials and tokens.
+        
+        Args:
+            confirm: If True, ask for confirmation before deleting (default: True)
+            
+        Returns:
+            bool: True if wallet was reset, False if cancelled
+        """
+        from pathlib import Path
+        import shutil
+        
+        # Get wallet directory path
+        wallet_dir = Path.home() / ".syft"
+        
+        if not wallet_dir.exists():
+            print("No wallet directory found at ~/.syft")
+            return True
+        
+        if confirm:
+            # Show what will be deleted
+            print(f"\n⚠️  WARNING: This will delete all stored credentials!")
+            print(f"\nWallet directory: {wallet_dir}")
+            
+            # Count files that will be deleted
+            file_count = sum(1 for _ in wallet_dir.rglob('*') if _.is_file())
+            if file_count > 0:
+                print(f"Files to be deleted: {file_count}")
+                
+                # Show some example files
+                example_files = list(wallet_dir.rglob('*'))[:5]
+                for f in example_files:
+                    if f.is_file():
+                        print(f"  - {f.relative_to(wallet_dir)}")
+                if file_count > 5:
+                    print(f"  ... and {file_count - 5} more files")
+            
+            response = input("\nAre you sure you want to delete all wallet data? (yes/no): ")
+            if response.lower() != 'yes':
+                print("Wallet reset cancelled.")
+                return False
+        
+        try:
+            # Delete the entire wallet directory
+            shutil.rmtree(wallet_dir)
+            print(f"\n✓ Wallet directory deleted: {wallet_dir}")
+            print("All stored credentials have been removed.")
+            print("\nYou will need to authenticate again on your next login.")
+            return True
+        except Exception as e:
+            print(f"\n✗ Error deleting wallet: {e}")
+            return False
+    
+    def _login(self, provider: Optional[str] = None, verbose: bool = False, init_transport: bool = True, wizard: Optional[bool] = None) -> None:
         """
         Instance method that handles the actual login process
         
         Args:
             provider: Optional provider override
             verbose: Whether to print progress
+            init_transport: Whether to initialize transport layers
+            wizard: Whether to run interactive setup wizard
             
         Raises:
             Exception: If authentication fails
@@ -143,8 +434,8 @@ class SyftClient:
         from .platforms import get_platform_client
         
         try:
-            # Create platform client
-            client = get_platform_client(platform, self.email)
+            # Create platform client with init_transport parameter
+            client = get_platform_client(platform, self.email, init_transport=init_transport, wizard=wizard)
             
             if verbose:
                 print(f"\nAuthenticating with {platform.value}...")
@@ -158,8 +449,9 @@ class SyftClient:
             # Add the authenticated platform to this client
             self.add_platform(client, auth_result)
             
-            # Initialize transports for all secondary platforms
-            self._initialize_all_transports()
+            # Initialize transports for all secondary platforms if requested
+            if init_transport:
+                self._initialize_all_transports()
             
             # Check for secondary platforms
             secondary_platforms = get_secondary_platforms()
@@ -178,8 +470,24 @@ class SyftClient:
             raise
     
     @staticmethod
+    def reset_wallet_static(confirm: bool = True) -> bool:
+        """
+        Static method to reset the wallet without needing a client instance.
+        
+        Args:
+            confirm: If True, ask for confirmation before deleting (default: True)
+            
+        Returns:
+            bool: True if wallet was reset, False if cancelled
+        """
+        # Create a dummy client just to use the instance method
+        dummy = SyftClient("dummy@example.com")
+        return dummy.reset_wallet(confirm)
+    
+    @staticmethod
     def login(email: Optional[str] = None, provider: Optional[str] = None, 
-              quickstart: bool = True, verbose: bool = False, **kwargs) -> 'SyftClient':
+              quickstart: bool = True, verbose: bool = False, init_transport: bool = True, 
+              wizard: Optional[bool] = None, **kwargs) -> 'SyftClient':
         """
         Simple login function for syft_client
         
@@ -188,6 +496,8 @@ class SyftClient:
             provider: Email provider name (e.g., 'google', 'microsoft'). Required if auto-detection fails.
             quickstart: If True and in supported environment, use fastest available login
             verbose: If True, print detailed progress information
+            init_transport: If True (default), initialize transport layers during login. If False, skip transport initialization.
+            wizard: If True, run interactive setup wizard for credentials. If None, auto-detect based on missing credentials.
             **kwargs: Additional arguments for authentication
             
         Returns:
@@ -203,5 +513,5 @@ class SyftClient:
         
         # Create SyftClient and login
         client = SyftClient(email)
-        client._login(provider=provider, verbose=verbose)
+        client._login(provider=provider, verbose=verbose, init_transport=init_transport, wizard=wizard)
         return client

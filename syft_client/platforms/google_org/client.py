@@ -36,18 +36,22 @@ class GoogleOrgClient(BasePlatformClient):
         'https://www.googleapis.com/auth/forms.body'
     ]
     
-    def __init__(self, email: str, verbose: bool = False, wizard: Optional[bool] = None):
+    def __init__(self, email: str, verbose: bool = False, wizard: Optional[bool] = None, init_transport: bool = True):
         super().__init__(email, verbose=verbose)
         self.platform = "google_org"
         self.wizard = wizard
+        self.init_transport = init_transport
         
         # OAuth2 state
         self.credentials: Optional[Credentials] = None
         self.wallet = None
         
-        
-        # Initialize transport layers
-        self._initialize_transport_layers()
+        # Initialize transport layers if requested
+        if init_transport:
+            self._initialize_transport_layers()
+        else:
+            # Create uninitialized transport stubs
+            self._create_transport_stubs()
         
     
     def _initialize_transport_layers(self) -> None:
@@ -81,6 +85,271 @@ class GoogleOrgClient(BasePlatformClient):
         self.transports._platform = self.platform
         self.transports._credentials_path = self.find_oauth_credentials()
     
+    def _create_transport_stubs(self) -> None:
+        """Create uninitialized transport stubs that require explicit setup"""
+        from ..base import TransportRegistry
+        
+        # Create wrapper class for uninitialized transports
+        class UninitializedTransport:
+            def __init__(self, transport_name: str, platform_client):
+                self._transport_name = transport_name
+                self._platform_client = platform_client
+                self._real_transport = None
+                self._setup_called = False
+                
+                # Set default attributes based on transport type
+                # These match the static attributes from the actual transport classes
+                if transport_name == 'gmail':
+                    self.is_keystore = True
+                    self.is_notification_layer = True
+                    self.is_html_compatible = True
+                    self.is_reply_compatible = True
+                    self.guest_submit = False
+                    self.guest_read_file = False
+                    self.guest_read_folder = False
+                elif transport_name == 'gdrive_files':
+                    self.is_keystore = True
+                    self.is_notification_layer = False
+                    self.is_html_compatible = False
+                    self.is_reply_compatible = False
+                    self.guest_submit = False
+                    self.guest_read_file = True
+                    self.guest_read_folder = True
+                elif transport_name == 'gsheets':
+                    self.is_keystore = True
+                    self.is_notification_layer = False
+                    self.is_html_compatible = False
+                    self.is_reply_compatible = False
+                    self.guest_submit = False
+                    self.guest_read_file = True
+                    self.guest_read_folder = False
+                elif transport_name == 'gforms':
+                    self.is_keystore = False
+                    self.is_notification_layer = False
+                    self.is_html_compatible = True
+                    self.is_reply_compatible = False
+                    self.guest_submit = True
+                    self.guest_read_file = False
+                    self.guest_read_folder = False
+                else:
+                    # Default values
+                    self.is_keystore = False
+                    self.is_notification_layer = False
+                    self.is_html_compatible = False
+                    self.is_reply_compatible = False
+                    self.guest_submit = False
+                    self.guest_read_file = False
+                    self.guest_read_folder = False
+                
+            def init(self, verbose: bool = True) -> bool:
+                """Initialize and set up this transport"""
+                from rich.console import Console
+                from rich.panel import Panel
+                
+                if verbose:
+                    # Show initialization start
+                    print(f"\nInitializing {self._transport_name} transport...")
+                
+                # Map transport names to their classes
+                transport_classes = {
+                    'gmail': lambda: __import__('syft_client.platforms.google_org.gmail', fromlist=['GmailTransport']).GmailTransport,
+                    'gdrive_files': lambda: __import__('syft_client.platforms.google_org.gdrive_files', fromlist=['GDriveFilesTransport']).GDriveFilesTransport,
+                    'gsheets': lambda: __import__('syft_client.platforms.google_org.gsheets', fromlist=['GSheetsTransport']).GSheetsTransport,
+                    'gforms': lambda: __import__('syft_client.platforms.google_org.gforms', fromlist=['GFormsTransport']).GFormsTransport,
+                }
+                
+                # Create the real transport
+                if verbose:
+                    print(f"  • Creating {self._transport_name} transport instance...")
+                transport_class = transport_classes[self._transport_name]()
+                self._real_transport = transport_class(self._platform_client.email)
+                self._real_transport._platform_client = self._platform_client
+                
+                # Replace ourselves in the platform client
+                setattr(self._platform_client, self._transport_name, self._real_transport)
+                self._platform_client.transports[self._transport_name] = self._real_transport
+                
+                # Set up with credentials if available
+                if hasattr(self._platform_client, 'credentials') and self._platform_client.credentials:
+                    if verbose:
+                        print("  • Setting up with OAuth2 credentials...")
+                    success = self._real_transport.setup({'credentials': self._platform_client.credentials})
+                    if success and verbose:
+                        print("  ✓ OAuth2 credentials configured")
+                    elif not success and verbose:
+                        print("  ✗ Failed to configure credentials")
+                else:
+                    if verbose:
+                        print("  • No credentials available (transport created but not authenticated)")
+                    success = True
+                
+                self._setup_called = True
+                
+                if success and verbose:
+                    # Create info panel with next steps
+                    info_lines = [
+                        f"[bold green]✓ {self._transport_name} transport initialized successfully![/bold green]",
+                        "",
+                        "[bold]What you can do now:[/bold]"
+                    ]
+                    
+                    # Add transport-specific suggestions
+                    if self._transport_name == 'gmail':
+                        info_lines.extend([
+                            "  • Send emails: [cyan].send(recipient, data, subject)[/cyan]",
+                            "  • Read emails: [cyan].receive(limit=10)[/cyan]",
+                            "  • Test setup: [cyan].test()[/cyan]"
+                        ])
+                    elif self._transport_name == 'gdrive_files':
+                        info_lines.extend([
+                            "  • List files: [cyan].list_files()[/cyan]",
+                            "  • Upload file: [cyan].upload_file(filepath)[/cyan]",
+                            "  • Download file: [cyan].download_file(file_id, save_path)[/cyan]"
+                        ])
+                    elif self._transport_name == 'gsheets':
+                        info_lines.extend([
+                            "  • Read sheet: [cyan].read_sheet(spreadsheet_id, range)[/cyan]",
+                            "  • Write data: [cyan].write_sheet(spreadsheet_id, range, values)[/cyan]",
+                            "  • Create sheet: [cyan].create_sheet(title)[/cyan]"
+                        ])
+                    elif self._transport_name == 'gforms':
+                        info_lines.extend([
+                            "  • List forms: [cyan].list_forms()[/cyan]",
+                            "  • Get responses: [cyan].get_responses(form_id)[/cyan]",
+                            "  • Create form: [cyan].create_form(title)[/cyan]"
+                        ])
+                    
+                    info_lines.extend([
+                        "",
+                        f"[dim]Access via: client.platforms.google_org.{self._transport_name}[/dim]"
+                    ])
+                    
+                    # Use console only for the panel
+                    console = Console()
+                    panel = Panel("\n".join(info_lines), expand=False, border_style="green")
+                    print()  # Add spacing before panel
+                    console.print(panel)
+                
+                return success
+            
+            def is_setup(self) -> bool:
+                """Check if transport is set up"""
+                return self._setup_called and self._real_transport is not None
+            
+            @property
+            def login_complexity(self) -> int:
+                """Return the login complexity for this transport type"""
+                # All Google Org transports have 0 additional complexity after OAuth2
+                return 0
+            
+            def __repr__(self):
+                """String representation for uninitialized transport"""
+                from rich.console import Console
+                from rich.panel import Panel
+                from io import StringIO
+                
+                # Create a string buffer to capture the rich output
+                string_buffer = StringIO()
+                console = Console(file=string_buffer, force_terminal=True, width=70)
+                
+                # Get platform name
+                platform_name = getattr(self._platform_client, 'platform', 'unknown')
+                
+                info_lines = [
+                    f"[bold red]✗ {self._transport_name} transport is not initialized[/bold red]",
+                    "",
+                    f"[yellow]Please call .init() to initialize this transport.[/yellow]",
+                    "",
+                    f"[dim]Access path: client.platforms.{platform_name}.{self._transport_name}[/dim]"
+                ]
+                
+                panel = Panel(
+                    "\n".join(info_lines),
+                    title=f"{self._transport_name.title()} Transport",
+                    expand=False,
+                    border_style="red"
+                )
+                
+                console.print(panel)
+                output = string_buffer.getvalue()
+                string_buffer.close()
+                
+                return output.strip()
+            
+            def __getattr__(self, name):
+                # List of attributes that should be accessible without initialization
+                allowed_attrs = [
+                    'init', 'setup', 'is_setup', '_transport_name', '_platform_client', 
+                    '_real_transport', '_setup_called', 'login_complexity',
+                    'is_keystore', 'is_notification_layer', 'is_html_compatible',
+                    'is_reply_compatible', 'guest_submit', 'guest_read_file', 
+                    'guest_read_folder'
+                ]
+                
+                if name in allowed_attrs:
+                    return object.__getattribute__(self, name)
+                if not self._setup_called:
+                    raise RuntimeError(f"Transport '{self._transport_name}' is not initialized. Please call .init() first.")
+                if self._real_transport:
+                    return getattr(self._real_transport, name)
+                raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        
+        # Create stub instances
+        self.gmail = UninitializedTransport('gmail', self)
+        self.gdrive_files = UninitializedTransport('gdrive_files', self)
+        self.gsheets = UninitializedTransport('gsheets', self)
+        self.gforms = UninitializedTransport('gforms', self)
+        
+        # Create transports registry
+        self.transports = TransportRegistry({
+            'gmail': self.gmail,
+            'gdrive_files': self.gdrive_files,
+            'gsheets': self.gsheets,
+            'gforms': self.gforms
+        })
+        
+        # Pass references to TransportRegistry for __repr__
+        self.transports._email = self.email
+        self.transports._platform = self.platform
+        self.transports._credentials_path = self.find_oauth_credentials()
+    
+    def initialize_transport(self, transport_name: str) -> bool:
+        """Initialize a single transport layer"""
+        if not hasattr(self, 'transports'):
+            from ..base import TransportRegistry
+            self.transports = TransportRegistry({})
+        
+        # Map transport names to their classes
+        transport_map = {
+            'gmail': lambda: __import__('syft_client.platforms.google_org.gmail', fromlist=['GmailTransport']).GmailTransport,
+            'gdrive_files': lambda: __import__('syft_client.platforms.google_org.gdrive_files', fromlist=['GDriveFilesTransport']).GDriveFilesTransport,
+            'gsheets': lambda: __import__('syft_client.platforms.google_org.gsheets', fromlist=['GSheetsTransport']).GSheetsTransport,
+            'gforms': lambda: __import__('syft_client.platforms.google_org.gforms', fromlist=['GFormsTransport']).GFormsTransport,
+        }
+        
+        if transport_name not in transport_map:
+            raise ValueError(f"Unknown transport: {transport_name}")
+        
+        # Create the transport instance
+        transport_class = transport_map[transport_name]()
+        transport = transport_class(self.email)
+        transport._platform_client = self
+        
+        # Add to transports registry and as attribute
+        self.transports[transport_name] = transport
+        setattr(self, transport_name, transport)
+        
+        # Update registry references
+        self.transports._email = self.email
+        self.transports._platform = self.platform
+        self.transports._credentials_path = self.find_oauth_credentials()
+        
+        # Set up the transport with credentials if available
+        if hasattr(self, 'credentials') and self.credentials:
+            return transport.setup({'credentials': self.credentials})
+        
+        return True
+    
     
     # ===== Core Authentication Methods (Main Flow) =====
     
@@ -107,22 +376,27 @@ class GoogleOrgClient(BasePlatformClient):
                     is_first_time = not config.get('setup_completed', False)
                     
                     if is_first_time:
-                        # Setup transport layers (but only non-Gmail ones will work)
-                        if self.verbose:
-                            print("\n⚠️  Note: Gmail requires OAuth2 setup and won't work with Colab auth")
-                            print("   Other services (Drive, Sheets, Forms) will work automatically")
-                        
-                        # In Colab, skip wizard unless explicitly requested
-                        show_wizard = self.wizard if self.wizard is not None else False
-                        transport_result = self.setup_transport_layers(show_wizard=show_wizard)
+                        if self.init_transport:
+                            # Setup transport layers (but only non-Gmail ones will work)
+                            if self.verbose:
+                                print("\n⚠️  Note: Gmail requires OAuth2 setup and won't work with Colab auth")
+                                print("   Other services (Drive, Sheets, Forms) will work automatically")
+                            
+                            # In Colab, skip wizard unless explicitly requested
+                            show_wizard = self.wizard if self.wizard is not None else False
+                            transport_result = self.setup_transport_layers(show_wizard=show_wizard)
+                            
+                            successful_transports = transport_result.get('configured', [])
+                            failed_transports = transport_result.get('failed', [])
+                        else:
+                            # Skip transport setup when init_transport=False
+                            successful_transports = []
+                            failed_transports = []
                         
                         # Mark setup as completed
                         config['setup_completed'] = datetime.now().isoformat()
                         config['colab_auth'] = True
                         self.save_platform_config(config)
-                        
-                        successful_transports = transport_result.get('configured', [])
-                        failed_transports = transport_result.get('failed', [])
                     else:
                         successful_transports = []
                         failed_transports = []
@@ -161,46 +435,57 @@ class GoogleOrgClient(BasePlatformClient):
                 if not config.get('wallet_config'):
                     self.configure_wallet_preference()
                 
-                # Step 7: Setup transport layers for first-time users
-                # For non-Colab, default to showing wizard unless wizard=False
-                show_wizard = self.wizard if self.wizard is not None else True
-                transport_result = self.setup_transport_layers(show_wizard=show_wizard)
+                if self.init_transport:
+                    # Step 7: Setup transport layers for first-time users
+                    # For non-Colab, default to showing wizard unless wizard=False
+                    show_wizard = self.wizard if self.wizard is not None else True
+                    transport_result = self.setup_transport_layers(show_wizard=show_wizard)
+                    
+                    successful_transports = transport_result.get('configured', [])
+                    failed_transports = transport_result.get('failed', [])
+                else:
+                    # Skip transport setup when init_transport=False
+                    successful_transports = []
+                    failed_transports = []
                 
                 # Mark setup as completed
                 config['setup_completed'] = datetime.now().isoformat()
                 self.save_platform_config(config)
-                
-                successful_transports = transport_result.get('configured', [])
-                failed_transports = transport_result.get('failed', [])
             else:
-                # For returning users, check cache first to avoid re-verification
-                successful_transports = []
-                failed_transports = []
-                
-                for transport_name, transport in self.transports.items():
-                    if hasattr(transport, 'is_setup') and transport.is_setup():
-                        # Transport reports it's already setup
-                        successful_transports.append(transport_name)
-                    else:
-                        # Skip Gmail in Colab mode since it requires OAuth2
-                        if self.current_environment == Environment.COLAB and transport_name == 'gmail' and not self.credentials:
-                            continue
-                        
-                        # Try to set it up
-                        try:
-                            # In Colab mode, we may not have explicit credentials
-                            if self.current_environment == Environment.COLAB and not self.credentials:
-                                setup_data = None  # Transports will handle Colab auth internally
-                            else:
-                                setup_data = {'credentials': self.credentials}
-                            if transport.setup(setup_data):
-                                successful_transports.append(transport_name)
-                            else:
+                # For returning users
+                if self.init_transport:
+                    # Check and setup transports
+                    successful_transports = []
+                    failed_transports = []
+                    
+                    for transport_name, transport in self.transports.items():
+                        if hasattr(transport, 'is_setup') and transport.is_setup():
+                            # Transport reports it's already setup
+                            successful_transports.append(transport_name)
+                        else:
+                            # Skip Gmail in Colab mode since it requires OAuth2
+                            if self.current_environment == Environment.COLAB and transport_name == 'gmail' and not self.credentials:
+                                continue
+                            
+                            # Try to set it up
+                            try:
+                                # In Colab mode, we may not have explicit credentials
+                                if self.current_environment == Environment.COLAB and not self.credentials:
+                                    setup_data = None  # Transports will handle Colab auth internally
+                                else:
+                                    setup_data = {'credentials': self.credentials}
+                                if transport.setup(setup_data):
+                                    successful_transports.append(transport_name)
+                                else:
+                                    failed_transports.append(transport_name)
+                            except Exception:
                                 failed_transports.append(transport_name)
-                        except Exception:
-                            failed_transports.append(transport_name)
+                else:
+                    # Skip transport setup when init_transport=False
+                    successful_transports = []
+                    failed_transports = []
             
-            if not successful_transports:
+            if self.init_transport and not successful_transports:
                 raise ValueError("Failed to setup any transport layers")
             
             
@@ -604,7 +889,7 @@ class GoogleOrgClient(BasePlatformClient):
             print("\n🔧 OAuth2 credentials not found. Starting setup wizard...")
         
         # Run the wizard
-        creds_file = check_or_create_credentials(self.email, self.verbose, is_workspace=True)
+        creds_file = check_or_create_credentials(email=self.email, verbose=self.verbose)
         
         if not creds_file:
             if self.verbose:
@@ -970,7 +1255,14 @@ class GoogleOrgClient(BasePlatformClient):
     
     def get_transport_layers(self) -> List[str]:
         """Get list of available transport layers"""
-        return list(self.transports.keys())
+        # Always return what transports are available for this platform
+        # whether they're initialized or not
+        if hasattr(self, 'transports') and self.transports:
+            return list(self.transports.keys())
+        else:
+            # Return what would be available if initialized
+            return ['gmail', 'gdrive_files', 'gsheets', 'gforms']
+    
     
     # get_transport_instances() is now inherited from BasePlatformClient
     
