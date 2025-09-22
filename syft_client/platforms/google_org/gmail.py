@@ -66,7 +66,8 @@ class GmailTransport(BaseTransportLayer):
                 platform_client.credentials.refresh(Request())
             
             gmail_service = build('gmail', 'v1', credentials=platform_client.credentials)
-            gmail_service.users().getProfile(userId='me').execute()
+            # Use messages().list() like google_personal to ensure consistent API detection
+            gmail_service.users().messages().list(userId='me', maxResults=1).execute()
             return True
         except Exception:
             return False

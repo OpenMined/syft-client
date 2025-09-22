@@ -281,6 +281,46 @@ class GoogleOrgClient(BasePlatformClient):
                 
                 return output.strip()
             
+            def enable_api(self) -> None:
+                """Show instructions for enabling the API even when transport is not initialized"""
+                # Map transport names to their classes
+                transport_classes = {
+                    'gmail': 'syft_client.platforms.google_org.gmail.GmailTransport',
+                    'gdrive_files': 'syft_client.platforms.google_org.gdrive_files.GDriveFilesTransport',
+                    'gsheets': 'syft_client.platforms.google_org.gsheets.GSheetsTransport',
+                    'gforms': 'syft_client.platforms.google_org.gforms.GFormsTransport',
+                }
+                
+                if self._transport_name in transport_classes:
+                    # Import and call the static method
+                    module_path, class_name = transport_classes[self._transport_name].rsplit('.', 1)
+                    module = __import__(module_path, fromlist=[class_name])
+                    transport_class = getattr(module, class_name)
+                    
+                    # Get project_id from platform client if available
+                    project_id = getattr(self._platform_client, 'project_id', None)
+                    transport_class.enable_api_static(self._transport_name, self._platform_client.email, project_id)
+            
+            def disable_api(self) -> None:
+                """Show instructions for disabling the API even when transport is not initialized"""
+                # Map transport names to their classes
+                transport_classes = {
+                    'gmail': 'syft_client.platforms.google_org.gmail.GmailTransport',
+                    'gdrive_files': 'syft_client.platforms.google_org.gdrive_files.GDriveFilesTransport',
+                    'gsheets': 'syft_client.platforms.google_org.gsheets.GSheetsTransport',
+                    'gforms': 'syft_client.platforms.google_org.gforms.GFormsTransport',
+                }
+                
+                if self._transport_name in transport_classes:
+                    # Import and call the static method
+                    module_path, class_name = transport_classes[self._transport_name].rsplit('.', 1)
+                    module = __import__(module_path, fromlist=[class_name])
+                    transport_class = getattr(module, class_name)
+                    
+                    # Get project_id from platform client if available
+                    project_id = getattr(self._platform_client, 'project_id', None)
+                    transport_class.disable_api_static(self._transport_name, self._platform_client.email, project_id)
+            
             def __getattr__(self, name):
                 # List of attributes that should be accessible without initialization
                 allowed_attrs = [
@@ -288,11 +328,24 @@ class GoogleOrgClient(BasePlatformClient):
                     '_real_transport', '_setup_called', 'login_complexity',
                     'is_keystore', 'is_notification_layer', 'is_html_compatible',
                     'is_reply_compatible', 'guest_submit', 'guest_read_file', 
-                    'guest_read_folder'
+                    'guest_read_folder', 'enable_api', 'disable_api'
                 ]
+                
+                # Service attributes that should return None when not initialized
+                service_attrs = ['gmail_service', 'drive_service', 'sheets_service', 'forms_service']
                 
                 if name in allowed_attrs:
                     return object.__getattribute__(self, name)
+                
+                # For service attributes, return None if not initialized
+                if name in service_attrs:
+                    if not self._setup_called:
+                        return None
+                    elif self._real_transport:
+                        return getattr(self._real_transport, name, None)
+                    else:
+                        return None
+                
                 if not self._setup_called:
                     raise RuntimeError(f"Transport '{self._transport_name}' is not initialized. Please call .init() first.")
                 if self._real_transport:
