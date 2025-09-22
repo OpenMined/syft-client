@@ -28,6 +28,69 @@ class GFormsTransport(BaseTransportLayer):
         self.drive_service = None  # Needed for deleting forms
         self.credentials = None
         self._setup_verified = False
+    
+    @staticmethod
+    def check_api_enabled(platform_client: Any) -> bool:
+        """
+        Check if Google Forms API is enabled.
+        
+        Args:
+            platform_client: The platform client with credentials
+            
+        Returns:
+            bool: True if API is enabled, False otherwise
+        """
+        try:
+            if not hasattr(platform_client, 'credentials') or not platform_client.credentials:
+                return False
+            
+            # Try to build service and make a simple API call
+            from googleapiclient.discovery import build
+            from google.auth.transport.requests import Request
+            
+            # Refresh credentials if needed
+            if platform_client.credentials.expired and platform_client.credentials.refresh_token:
+                platform_client.credentials.refresh(Request())
+            
+            # Use Drive API to check - Forms API has no simple test endpoint
+            drive_service = build('drive', 'v3', credentials=platform_client.credentials)
+            forms_service = build('forms', 'v1', credentials=platform_client.credentials)
+            
+            # Try to get forms list
+            drive_service.files().list(
+                q="mimeType='application/vnd.google-apps.form'",
+                pageSize=1,
+                fields="files(id)"
+            ).execute()
+            return True
+        except Exception:
+            return False
+    
+    @staticmethod
+    def enable_api_static(transport_name: str, email: str, project_id: Optional[str] = None) -> None:
+        """Show instructions for enabling Google Forms API"""
+        print(f"\n🔧 To enable the Google Forms API:")
+        print(f"\n1. Open this URL in your browser:")
+        if project_id:
+            print(f"   https://console.cloud.google.com/marketplace/product/google/forms.googleapis.com?authuser={email}&project={project_id}")
+        else:
+            print(f"   https://console.cloud.google.com/marketplace/product/google/forms.googleapis.com?authuser={email}")
+        print(f"\n2. Click the 'Enable' button")
+        print(f"\n3. Wait for the API to be enabled (may take 5-10 seconds)")
+        print(f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling")
+    
+    @staticmethod
+    def disable_api_static(transport_name: str, email: str, project_id: Optional[str] = None) -> None:
+        """Show instructions for disabling Google Forms API"""
+        print(f"\n🔧 To disable the Google Forms API:")
+        print(f"\n1. Open this URL in your browser:")
+        if project_id:
+            print(f"   https://console.cloud.google.com/apis/api/forms.googleapis.com/overview?authuser={email}&project={project_id}")
+        else:
+            print(f"   https://console.cloud.google.com/apis/api/forms.googleapis.com/overview?authuser={email}")
+        print(f"\n2. Click 'Manage' or 'Disable API'")
+        print(f"\n3. Confirm by clicking 'Disable'")
+        print(f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling")
         
     @property
     def api_is_active_by_default(self) -> bool:
