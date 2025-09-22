@@ -184,9 +184,21 @@ class GoogleOrgClient(BasePlatformClient):
                     elif not success and verbose:
                         print("  ✗ Failed to configure credentials")
                 else:
-                    if verbose:
-                        print("  • No credentials available (transport created but not authenticated)")
-                    success = True
+                    # Check if we're in Colab - transports can use Colab auth
+                    from ...environment import Environment
+                    if self._real_transport.environment == Environment.COLAB:
+                        if verbose:
+                            print("  • Setting up with Colab authentication...")
+                        # Call setup without credentials - transport will use Colab auth
+                        success = self._real_transport.setup(None)
+                        if success and verbose:
+                            print("  ✓ Colab authentication configured")
+                        elif not success and verbose:
+                            print("  ✗ Failed to configure with Colab auth")
+                    else:
+                        if verbose:
+                            print("  • No credentials available (transport created but not authenticated)")
+                        success = False
                 
                 self._setup_called = True
                 
