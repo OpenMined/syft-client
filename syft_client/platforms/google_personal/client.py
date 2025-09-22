@@ -400,6 +400,19 @@ class GooglePersonalClient(BasePlatformClient):
                     transport_class = getattr(module, class_name)
                     transport_class.disable_api_static(self._transport_name, self._platform_client.email)
             
+            def test(self, test_data: str = "test123", cleanup: bool = True):
+                """Test transport - requires initialization first"""
+                if not self._setup_called or not self._real_transport:
+                    print(f"❌ Transport '{self._transport_name}' is not initialized")
+                    print(f"   Please call .init() first to initialize the transport")
+                    return {"success": False, "error": "Transport not initialized"}
+                
+                # Delegate to real transport
+                if hasattr(self._real_transport, 'test'):
+                    return self._real_transport.test(test_data=test_data, cleanup=cleanup)
+                else:
+                    return {"success": False, "error": f"Transport '{self._transport_name}' does not support test()"}
+            
             def __getattr__(self, name):
                 # List of attributes that should be accessible without initialization
                 allowed_attrs = [
@@ -407,7 +420,7 @@ class GooglePersonalClient(BasePlatformClient):
                     '_real_transport', '_setup_called', 'login_complexity',
                     'is_keystore', 'is_notification_layer', 'is_html_compatible',
                     'is_reply_compatible', 'guest_submit', 'guest_read_file', 
-                    'guest_read_folder', 'enable_api', 'disable_api'
+                    'guest_read_folder', 'enable_api', 'disable_api', 'test'
                 ]
                 
                 # Service attributes that should return None when not initialized
