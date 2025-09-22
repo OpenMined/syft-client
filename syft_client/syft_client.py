@@ -617,16 +617,31 @@ class SyftClient:
                     import google.auth
                     # Authenticate and get credentials
                     colab_auth.authenticate_user()
-                    credentials, _ = google.auth.default()
+                    credentials, project = google.auth.default()
+                    
+                    # Debug: check what we got
+                    if project == 'default':
+                        # This means we got the project ID, not the email
+                        # Let's try a different approach
+                        pass
                     
                     # Try to get email from credentials
                     if hasattr(credentials, '_service_account_email'):
                         email = credentials._service_account_email
+                    elif hasattr(credentials, 'service_account_email'):
+                        email = credentials.service_account_email
                     else:
                         # Try to get from token info
                         import requests
                         from google.auth.transport.requests import Request
-                        credentials.refresh(Request())
+                        
+                        # Ensure credentials are valid
+                        if credentials.expired and credentials.refresh_token:
+                            credentials.refresh(Request())
+                        elif not hasattr(credentials, 'token') or credentials.token is None:
+                            # Force a refresh to get a token
+                            credentials.refresh(Request())
+                            
                         token = credentials.token
                         
                         # Get user info from Google
@@ -636,14 +651,19 @@ class SyftClient:
                             user_info = resp.json()
                             email = user_info.get('email')
                             
-                            if email:
+                            if email and email != 'default' and '@' in email:
                                 print(f"Auto-detected email from Colab auth: {email}")
                             else:
+                                if email == 'default':
+                                    print("Debug: Got 'default' as email from userinfo")
                                 raise ValueError("Could not detect email from Colab auth. Please specify: login(email='your@gmail.com')")
                         else:
                             raise ValueError("Could not detect email from Colab auth. Please specify: login(email='your@gmail.com')")
                 except Exception as e:
-                    # If anything fails, ask for email
+                    # If anything fails, show the actual error for debugging
+                    import traceback
+                    print(f"Debug: Colab auth error: {e}")
+                    traceback.print_exc()
                     raise ValueError("Please specify an email: login(email='your@gmail.com')")
             else:
                 # Look for existing emails in ~/.syft
