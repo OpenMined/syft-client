@@ -136,7 +136,8 @@ class SyftClient:
                         
                         # Use static method to check API status
                         # This works regardless of whether transport is initialized
-                        if platform_name in ['google_personal', 'google_org']:
+                        transport_map = None
+                        if platform_name == 'google_personal':
                             # Import the transport classes to use their static methods
                             transport_map = {
                                 'gmail': 'syft_client.platforms.google_personal.gmail.GmailTransport',
@@ -144,8 +145,16 @@ class SyftClient:
                                 'gsheets': 'syft_client.platforms.google_personal.gsheets.GSheetsTransport',
                                 'gforms': 'syft_client.platforms.google_personal.gforms.GFormsTransport'
                             }
+                        elif platform_name == 'google_org':
+                            # Import the transport classes to use their static methods
+                            transport_map = {
+                                'gmail': 'syft_client.platforms.google_org.gmail.GmailTransport',
+                                'gdrive_files': 'syft_client.platforms.google_org.gdrive_files.GDriveFilesTransport',
+                                'gsheets': 'syft_client.platforms.google_org.gsheets.GSheetsTransport',
+                                'gforms': 'syft_client.platforms.google_org.gforms.GFormsTransport'
+                            }
                             
-                            if transport_name in transport_map:
+                        if transport_map and transport_name in transport_map:
                                 try:
                                     # Import the transport class
                                     module_path, class_name = transport_map[transport_name].rsplit('.', 1)
@@ -358,7 +367,8 @@ class SyftClient:
                 
                 # Use static method to check API status
                 # This works regardless of whether transport is initialized
-                if platform_name in ['google_personal', 'google_org']:
+                transport_map = None
+                if platform_name == 'google_personal':
                     # Import the transport classes to use their static methods
                     transport_map = {
                         'gmail': 'syft_client.platforms.google_personal.gmail.GmailTransport',
@@ -366,8 +376,16 @@ class SyftClient:
                         'gsheets': 'syft_client.platforms.google_personal.gsheets.GSheetsTransport',
                         'gforms': 'syft_client.platforms.google_personal.gforms.GFormsTransport'
                     }
+                elif platform_name == 'google_org':
+                    # Import the transport classes to use their static methods
+                    transport_map = {
+                        'gmail': 'syft_client.platforms.google_org.gmail.GmailTransport',
+                        'gdrive_files': 'syft_client.platforms.google_org.gdrive_files.GDriveFilesTransport',
+                        'gsheets': 'syft_client.platforms.google_org.gsheets.GSheetsTransport',
+                        'gforms': 'syft_client.platforms.google_org.gforms.GFormsTransport'
+                    }
                     
-                    if transport_name in transport_map:
+                if transport_map and transport_name in transport_map:
                         try:
                             # Import the transport class
                             module_path, class_name = transport_map[transport_name].rsplit('.', 1)
