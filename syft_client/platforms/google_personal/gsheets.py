@@ -63,6 +63,25 @@ class GSheetsTransport(BaseTransportLayer):
             bool: True if API is enabled, False otherwise
         """
         try:
+            # Check if we're in Colab environment
+            if hasattr(platform_client, 'current_environment'):
+                from ...environment import Environment
+                if platform_client.current_environment == Environment.COLAB:
+                    # In Colab, try to use the API directly without credentials
+                    try:
+                        from googleapiclient.discovery import build
+                        sheets_service = build('sheets', 'v4')
+                        # Try to get a non-existent spreadsheet - will return 404 if API is enabled
+                        sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
+                        return True  # Unlikely to get here
+                    except Exception as e:
+                        # Check if it's a 404 error (spreadsheet not found = API is working)
+                        if "404" in str(e) or "Requested entity was not found" in str(e):
+                            return True
+                        else:
+                            return False
+            
+            # Regular OAuth credential check
             if not hasattr(platform_client, 'credentials') or not platform_client.credentials:
                 return False
             
@@ -74,17 +93,21 @@ class GSheetsTransport(BaseTransportLayer):
             if platform_client.credentials.expired and platform_client.credentials.refresh_token:
                 platform_client.credentials.refresh(Request())
             
-            service = build('sheets', 'v4', credentials=platform_client.credentials)
-            # Try to get a non-existent spreadsheet - 404 means API is working
+            # Test Sheets API directly
+            sheets_service = build('sheets', 'v4', credentials=platform_client.credentials)
+            
+            # Try to get a non-existent spreadsheet - will return 404 if API is enabled
             try:
-                service.spreadsheets().get(spreadsheetId='test123').execute()
+                sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
+                # If we get here, somehow the test spreadsheet exists (unlikely)
+                return True
             except Exception as e:
-                if "Requested entity was not found" in str(e) or "404" in str(e):
-                    # 404 means API is working
+                # Check if it's a 404 error (spreadsheet not found = API is working)
+                if "404" in str(e) or "Requested entity was not found" in str(e):
                     return True
                 else:
-                    raise
-            return True
+                    # API is disabled or other error
+                    return False
         except Exception:
             return False
     

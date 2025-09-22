@@ -45,6 +45,25 @@ class GSheetsTransport(BaseTransportLayer):
             bool: True if API is enabled, False otherwise
         """
         try:
+            # Check if we're in Colab environment
+            if hasattr(platform_client, 'current_environment'):
+                from ...environment import Environment
+                if platform_client.current_environment == Environment.COLAB:
+                    # In Colab, try to use the API directly without credentials
+                    try:
+                        from googleapiclient.discovery import build
+                        sheets_service = build('sheets', 'v4')
+                        # Try to get a non-existent spreadsheet - will return 404 if API is enabled
+                        sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
+                        return True  # Unlikely to get here
+                    except Exception as e:
+                        # Check if it's a 404 error (sheet not found = API is working)
+                        if "404" in str(e) or "not found" in str(e).lower():
+                            return True
+                        else:
+                            return False
+            
+            # Regular OAuth credential check
             if not hasattr(platform_client, 'credentials') or not platform_client.credentials:
                 return False
             

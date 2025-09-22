@@ -59,6 +59,25 @@ class GFormsTransport(BaseTransportLayer):
             bool: True if API is enabled, False otherwise
         """
         try:
+            # Check if we're in Colab environment
+            if hasattr(platform_client, 'current_environment'):
+                from ...environment import Environment
+                if platform_client.current_environment == Environment.COLAB:
+                    # In Colab, try to use the API directly without credentials
+                    try:
+                        from googleapiclient.discovery import build
+                        forms_service = build('forms', 'v1')
+                        # Try to get a non-existent form - will return 404 if API is enabled
+                        forms_service.forms().get(formId='test123').execute()
+                        return True  # Unlikely to get here
+                    except Exception as e:
+                        # Check if it's a 404 error (form not found = API is working)
+                        if "404" in str(e) or "not found" in str(e).lower():
+                            return True
+                        else:
+                            return False
+            
+            # Regular OAuth credential check
             if not hasattr(platform_client, 'credentials') or not platform_client.credentials:
                 return False
             
@@ -70,17 +89,21 @@ class GFormsTransport(BaseTransportLayer):
             if platform_client.credentials.expired and platform_client.credentials.refresh_token:
                 platform_client.credentials.refresh(Request())
             
-            service = build('forms', 'v1', credentials=platform_client.credentials)
-            # Try to get a non-existent form - 404 means API is working
+            # Test Forms API directly
+            forms_service = build('forms', 'v1', credentials=platform_client.credentials)
+            
+            # Try to get a non-existent form - will return 404 if API is enabled
             try:
-                service.forms().get(formId='test123').execute()
+                forms_service.forms().get(formId='test123').execute()
+                # If we get here, somehow the test form exists (unlikely)
+                return True
             except Exception as e:
-                if "not found" in str(e).lower() or "404" in str(e):
-                    # 404 means API is working
+                # Check if it's a 404 error (form not found = API is working)
+                if "404" in str(e) or "not found" in str(e).lower():
                     return True
                 else:
-                    raise
-            return True
+                    # API is disabled or other error
+                    return False
         except Exception:
             return False
     

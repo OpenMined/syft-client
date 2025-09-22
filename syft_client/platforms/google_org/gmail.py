@@ -54,6 +54,15 @@ class GmailTransport(BaseTransportLayer):
             bool: True if API is enabled, False otherwise
         """
         try:
+            # Check if we're in Colab environment
+            if hasattr(platform_client, 'current_environment'):
+                from ...environment import Environment
+                if platform_client.current_environment == Environment.COLAB:
+                    # Gmail doesn't work in Colab for Google Org accounts
+                    # Colab's auth doesn't provide the necessary Gmail scopes
+                    return False
+            
+            # Regular OAuth credential check
             if not hasattr(platform_client, 'credentials') or not platform_client.credentials:
                 return False
             

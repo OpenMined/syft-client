@@ -69,6 +69,21 @@ class GDriveFilesTransport(BaseTransportLayer):
             bool: True if API is enabled, False otherwise
         """
         try:
+            # Check if we're in Colab environment
+            if hasattr(platform_client, 'current_environment'):
+                from ...environment import Environment
+                if platform_client.current_environment == Environment.COLAB:
+                    # In Colab, try to use the API directly without credentials
+                    try:
+                        from googleapiclient.discovery import build
+                        drive_service = build('drive', 'v3')
+                        # Try to list files - will work if API is enabled
+                        drive_service.files().list(pageSize=1).execute()
+                        return True
+                    except Exception:
+                        return False
+            
+            # Regular OAuth credential check
             if not hasattr(platform_client, 'credentials') or not platform_client.credentials:
                 return False
             
@@ -80,8 +95,9 @@ class GDriveFilesTransport(BaseTransportLayer):
             if platform_client.credentials.expired and platform_client.credentials.refresh_token:
                 platform_client.credentials.refresh(Request())
             
-            service = build('drive', 'v3', credentials=platform_client.credentials)
-            service.files().list(pageSize=1).execute()
+            # Test Drive API directly
+            drive_service = build('drive', 'v3', credentials=platform_client.credentials)
+            drive_service.files().list(pageSize=1).execute()
             return True
         except Exception:
             return False
