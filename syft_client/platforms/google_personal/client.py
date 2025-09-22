@@ -72,6 +72,21 @@ class GooglePersonalClient(BasePlatformClient):
         for transport in [self.gmail, self.gdrive_files, self.gsheets, self.gforms]:
             transport._platform_client = self
         
+        # In Colab, automatically setup transports that support Colab auth
+        if self.current_environment == Environment.COLAB:
+            # Setup non-Gmail transports with Colab auth
+            for transport_name, transport in [
+                ('gdrive_files', self.gdrive_files),
+                ('gsheets', self.gsheets),
+                ('gforms', self.gforms)
+            ]:
+                try:
+                    # Pass None to use Colab auth
+                    transport.setup(None)
+                except Exception:
+                    # Ignore setup failures (e.g., API not enabled)
+                    pass
+        
         # Keep transports dict for backward compatibility
         from ..base import TransportRegistry
         self.transports = TransportRegistry({
