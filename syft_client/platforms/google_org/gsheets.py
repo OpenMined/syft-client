@@ -56,18 +56,23 @@ class GSheetsTransport(BaseTransportLayer):
             if platform_client.credentials.expired and platform_client.credentials.refresh_token:
                 platform_client.credentials.refresh(Request())
             
-            # Use Drive API to check - Sheets API has no simple test endpoint
-            drive_service = build('drive', 'v3', credentials=platform_client.credentials)
+            # Test Sheets API directly
             sheets_service = build('sheets', 'v4', credentials=platform_client.credentials)
             
-            # Try to get spreadsheets list
-            drive_service.files().list(
-                q="mimeType='application/vnd.google-apps.spreadsheet'",
-                pageSize=1,
-                fields="files(id)"
-            ).execute()
-            return True
-        except Exception:
+            # Try to get a non-existent spreadsheet - will return 404 if API is enabled
+            try:
+                sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
+                # If we get here, somehow the test sheet exists (unlikely)
+                return True
+            except Exception as e:
+                # Check if it's a 404 error (sheet not found = API is working)
+                if "404" in str(e) or "not found" in str(e).lower():
+                    return True
+                else:
+                    # API is disabled or other error
+                    return False
+        except Exception as e:
+            print(f"Error checking Sheets API: {e}")
             return False
     
     @staticmethod

@@ -52,17 +52,21 @@ class GFormsTransport(BaseTransportLayer):
             if platform_client.credentials.expired and platform_client.credentials.refresh_token:
                 platform_client.credentials.refresh(Request())
             
-            # Use Drive API to check - Forms API has no simple test endpoint
-            drive_service = build('drive', 'v3', credentials=platform_client.credentials)
+            # Test Forms API directly
             forms_service = build('forms', 'v1', credentials=platform_client.credentials)
             
-            # Try to get forms list
-            drive_service.files().list(
-                q="mimeType='application/vnd.google-apps.form'",
-                pageSize=1,
-                fields="files(id)"
-            ).execute()
-            return True
+            # Try to get a non-existent form - will return 404 if API is enabled
+            try:
+                forms_service.forms().get(formId='test123').execute()
+                # If we get here, somehow the test form exists (unlikely)
+                return True
+            except Exception as e:
+                # Check if it's a 404 error (form not found = API is working)
+                if "404" in str(e) or "not found" in str(e).lower():
+                    return True
+                else:
+                    # API is disabled or other error
+                    return False
         except Exception:
             return False
     
