@@ -46,6 +46,11 @@ class GoogleOrgClient(BasePlatformClient):
         self.credentials: Optional[Credentials] = None
         self.wallet = None
         
+        # Load project info from config
+        self.project_id = None
+        self.project_name = None
+        self._load_project_info()
+        
         # Initialize transport layers if requested
         if init_transport:
             self._initialize_transport_layers()
@@ -312,6 +317,18 @@ class GoogleOrgClient(BasePlatformClient):
         self.transports._email = self.email
         self.transports._platform = self.platform
         self.transports._credentials_path = self.find_oauth_credentials()
+    
+    def _load_project_info(self) -> None:
+        """Load project info from config.json if it exists"""
+        try:
+            config_path = Path.home() / ".syft" / self._sanitize_email() / "config.json"
+            if config_path.exists():
+                with open(config_path, 'r') as f:
+                    config_data = json.load(f)
+                    self.project_id = config_data.get('google_org_project_id')
+                    self.project_name = config_data.get('google_org_project_name')
+        except:
+            pass  # Ignore errors, project info is optional
     
     def initialize_transport(self, transport_name: str) -> bool:
         """Initialize a single transport layer"""

@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import json
 import sys
+from datetime import datetime
 from ...environment import detect_environment, Environment
 
 
@@ -634,6 +635,30 @@ def download_credentials_step(state: WizardState) -> str:
     state.has_credentials = True
     state.credentials_valid = True
     
+    # Save project info to config.json
+    if state.project_id:
+        config_path = target_dir / "config.json"
+        config_data = {}
+        
+        # Load existing config if it exists
+        if config_path.exists():
+            try:
+                with open(config_path, 'r') as f:
+                    config_data = json.load(f)
+            except:
+                config_data = {}
+        
+        # Update with project info
+        config_data['google_org_project_id'] = state.project_id
+        config_data['google_org_project_name'] = state.project_id  # Project ID is used as name
+        config_data['last_updated'] = datetime.now().isoformat()
+        
+        # Save config
+        with open(config_path, 'w') as f:
+            json.dump(config_data, f, indent=2)
+        
+        print(f"✅ Project info saved to config.json")
+    
     # Only mark as newly downloaded if we went through the full wizard
     # (i.e., created a new project). If using existing project, skip API test
     if hasattr(state, 'went_through_full_wizard'):
@@ -925,6 +950,30 @@ def check_or_create_credentials(email: Optional[str] = None, verbose: bool = Tru
         import shutil
         shutil.copy2(file_path, target_path)
         print(f"\n✅ Credentials copied to: {target_path}")
+        
+        # Save project info to config.json
+        if project_id:
+            config_path = target_dir / "config.json"
+            config_data = {}
+            
+            # Load existing config if it exists
+            if config_path.exists():
+                try:
+                    with open(config_path, 'r') as f:
+                        config_data = json.load(f)
+                except:
+                    config_data = {}
+            
+            # Update with project info
+            config_data['google_org_project_id'] = project_id
+            config_data['google_org_project_name'] = project_id  # Project ID is used as name
+            config_data['last_updated'] = datetime.now().isoformat()
+            
+            # Save config
+            with open(config_path, 'w') as f:
+                json.dump(config_data, f, indent=2)
+            
+            print(f"✅ Project info saved to config.json")
         
         return target_path
     

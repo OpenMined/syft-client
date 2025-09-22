@@ -348,8 +348,13 @@ class BaseTransportLayer(ABC):
         if 'gdrive' in transport_name:
             transport_name = 'gdrive_files'
         
-        # Call the static method
-        self.__class__.enable_api_static(transport_name, self.email)
+        # Get project_id from platform client if available
+        project_id = None
+        if hasattr(self, '_platform_client') and self._platform_client:
+            project_id = getattr(self._platform_client, 'project_id', None)
+        
+        # Call the static method with project_id
+        self.__class__.enable_api_static(transport_name, self.email, project_id)
     
     def disable_api(self) -> None:
         """Show instructions for disabling the API for this transport"""
@@ -358,5 +363,10 @@ class BaseTransportLayer(ABC):
         if 'gdrive' in transport_name:
             transport_name = 'gdrive_files'
         
-        # Call the static method
-        self.__class__.disable_api_static(transport_name, self.email)
+        # Get project_id from platform client if available
+        project_id = None
+        if hasattr(self, '_platform_client') and self._platform_client:
+            project_id = getattr(self._platform_client, 'project_id', None)
+        
+        # Call the static method with project_id
+        self.__class__.disable_api_static(transport_name, self.email, project_id)
