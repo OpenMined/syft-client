@@ -321,24 +321,28 @@ class SyftClient:
             # Try to get project ID from credentials or auth data
             project_info = ""
             if platform_name in ['google_personal', 'google_org']:
-                # Try to get project ID from credentials file
-                try:
-                    creds_path = None
-                    if hasattr(platform, 'find_oauth_credentials'):
-                        creds_path = platform.find_oauth_credentials()
-                    elif hasattr(platform, 'credentials_path'):
-                        creds_path = platform.credentials_path
-                    
-                    if creds_path and Path(creds_path).exists():
-                        import json
-                        with open(creds_path, 'r') as f:
-                            creds_data = json.load(f)
-                            if 'installed' in creds_data:
-                                project_id = creds_data['installed'].get('project_id')
-                                if project_id:
-                                    project_info = f" [dim](project: {project_id})[/dim]"
-                except:
-                    pass
+                # For Google Org, check if project_id is already loaded
+                if platform_name == 'google_org' and hasattr(platform, 'project_id') and platform.project_id:
+                    project_info = f" [dim](project: {platform.project_id})[/dim]"
+                else:
+                    # Try to get project ID from credentials file
+                    try:
+                        creds_path = None
+                        if hasattr(platform, 'find_oauth_credentials'):
+                            creds_path = platform.find_oauth_credentials()
+                        elif hasattr(platform, 'credentials_path'):
+                            creds_path = platform.credentials_path
+                        
+                        if creds_path and Path(creds_path).exists():
+                            import json
+                            with open(creds_path, 'r') as f:
+                                creds_data = json.load(f)
+                                if 'installed' in creds_data:
+                                    project_id = creds_data['installed'].get('project_id')
+                                    if project_id:
+                                        project_info = f" [dim](project: {project_id})[/dim]"
+                    except:
+                        pass
             
             main_table.add_row(platform_header + project_info)
             
