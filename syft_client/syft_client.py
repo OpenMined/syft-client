@@ -611,7 +611,40 @@ class SyftClient:
         if email is None:
             environment = detect_environment()
             if environment == Environment.COLAB:
-                raise ValueError("Please specify an email: login(email='your@gmail.com')")
+                # In Colab, try to get email from auth
+                try:
+                    from google.colab import auth as colab_auth
+                    import google.auth
+                    # Authenticate and get credentials
+                    colab_auth.authenticate_user()
+                    credentials, _ = google.auth.default()
+                    
+                    # Try to get email from credentials
+                    if hasattr(credentials, '_service_account_email'):
+                        email = credentials._service_account_email
+                    else:
+                        # Try to get from token info
+                        import requests
+                        from google.auth.transport.requests import Request
+                        credentials.refresh(Request())
+                        token = credentials.token
+                        
+                        # Get user info from Google
+                        headers = {'Authorization': f'Bearer {token}'}
+                        resp = requests.get('https://www.googleapis.com/oauth2/v1/userinfo', headers=headers)
+                        if resp.status_code == 200:
+                            user_info = resp.json()
+                            email = user_info.get('email')
+                            
+                            if email:
+                                print(f"Auto-detected email from Colab auth: {email}")
+                            else:
+                                raise ValueError("Could not detect email from Colab auth. Please specify: login(email='your@gmail.com')")
+                        else:
+                            raise ValueError("Could not detect email from Colab auth. Please specify: login(email='your@gmail.com')")
+                except Exception as e:
+                    # If anything fails, ask for email
+                    raise ValueError("Please specify an email: login(email='your@gmail.com')")
             else:
                 # Look for existing emails in ~/.syft
                 from pathlib import Path
