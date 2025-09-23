@@ -159,3 +159,7 @@ SyftBox/
 *.bak
 *.swp
 *~
+
+# Local tracking documents
+.test_rework_tracker.md
+.claude
