@@ -10,6 +10,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 import json
+import logging
 
 from googleapiclient.discovery import build
 from ..transport_base import BaseTransportLayer
@@ -63,6 +64,11 @@ class GmailTransport(BaseTransportLayer):
         Returns:
             bool: True if API is enabled, False otherwise
         """
+        # Suppress googleapiclient warnings during API check
+        googleapi_logger = logging.getLogger('googleapiclient.http')
+        original_level = googleapi_logger.level
+        googleapi_logger.setLevel(logging.ERROR)
+        
         try:
             # Check if we're in Colab environment
             if hasattr(platform_client, 'current_environment'):
@@ -89,6 +95,8 @@ class GmailTransport(BaseTransportLayer):
             return True
         except Exception:
             return False
+        finally:
+            googleapi_logger.setLevel(original_level)
     
     @staticmethod
     def enable_api_static(transport_name: str, email: str) -> None:

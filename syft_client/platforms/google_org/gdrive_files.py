@@ -5,6 +5,7 @@ import json
 import pickle
 import io
 from datetime import datetime
+import logging
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload, MediaIoBaseDownload
@@ -46,6 +47,11 @@ class GDriveFilesTransport(BaseTransportLayer):
         Returns:
             bool: True if API is enabled, False otherwise
         """
+        # Suppress googleapiclient warnings during API check
+        googleapi_logger = logging.getLogger('googleapiclient.http')
+        original_level = googleapi_logger.level
+        googleapi_logger.setLevel(logging.ERROR)
+        
         try:
             # Check if we're in Colab environment
             if hasattr(platform_client, 'current_environment'):
@@ -77,6 +83,8 @@ class GDriveFilesTransport(BaseTransportLayer):
             return True
         except Exception:
             return False
+        finally:
+            googleapi_logger.setLevel(original_level)
     
     @staticmethod
     def enable_api_static(transport_name: str, email: str, project_id: Optional[str] = None) -> None:

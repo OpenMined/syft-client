@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 import json
 import pickle
 from datetime import datetime
+import logging
 
 from googleapiclient.discovery import build
 from ..transport_base import BaseTransportLayer
@@ -44,6 +45,11 @@ class GSheetsTransport(BaseTransportLayer):
         Returns:
             bool: True if API is enabled, False otherwise
         """
+        # Suppress googleapiclient warnings during API check
+        googleapi_logger = logging.getLogger('googleapiclient.http')
+        original_level = googleapi_logger.level
+        googleapi_logger.setLevel(logging.ERROR)
+        
         try:
             # Check if we're in Colab environment
             if hasattr(platform_client, 'current_environment'):
@@ -93,6 +99,8 @@ class GSheetsTransport(BaseTransportLayer):
         except Exception as e:
             print(f"Error checking Sheets API: {e}")
             return False
+        finally:
+            googleapi_logger.setLevel(original_level)
     
     @staticmethod
     def enable_api_static(transport_name: str, email: str, project_id: Optional[str] = None) -> None:

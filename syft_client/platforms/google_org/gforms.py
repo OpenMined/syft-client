@@ -3,6 +3,7 @@
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 import json
+import logging
 
 from googleapiclient.discovery import build
 from ..transport_base import BaseTransportLayer
@@ -40,24 +41,20 @@ class GFormsTransport(BaseTransportLayer):
         Returns:
             bool: True if API is enabled, False otherwise
         """
+        # Suppress googleapiclient warnings during API check
+        googleapi_logger = logging.getLogger('googleapiclient.http')
+        original_level = googleapi_logger.level
+        googleapi_logger.setLevel(logging.ERROR)
+        
+        # Check if we're in Colab environment
+        if hasattr(platform_client, 'current_environment'):
+            from ...environment import Environment
+            if platform_client.current_environment == Environment.COLAB:
+                # Forms doesn't work properly in Colab for Google Org accounts
+                # Colab's auth doesn't provide the necessary Forms scopes
+                return False
+        
         try:
-            # Check if we're in Colab environment
-            if hasattr(platform_client, 'current_environment'):
-                from ...environment import Environment
-                if platform_client.current_environment == Environment.COLAB:
-                    # In Colab, try to use the API directly without credentials
-                    try:
-                        from googleapiclient.discovery import build
-                        forms_service = build('forms', 'v1')
-                        # Try to get a non-existent form - will return 404 if API is enabled
-                        forms_service.forms().get(formId='test123').execute()
-                        return True  # Unlikely to get here
-                    except Exception as e:
-                        # Check if it's a 404 error (form not found = API is working)
-                        if "404" in str(e) or "not found" in str(e).lower():
-                            return True
-                        else:
-                            return False
             
             # Regular OAuth credential check
             if not hasattr(platform_client, 'credentials') or not platform_client.credentials:
@@ -88,6 +85,8 @@ class GFormsTransport(BaseTransportLayer):
                     return False
         except Exception:
             return False
+        finally:
+            googleapi_logger.setLevel(original_level)
     
     @staticmethod
     def enable_api_static(transport_name: str, email: str, project_id: Optional[str] = None) -> None:

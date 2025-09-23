@@ -10,7 +10,7 @@ login = SyftClient.login
 # Wallet management
 reset_wallet = SyftClient.reset_wallet_static
 
-__version__ = "0.1.32"
+__version__ = "0.1.33"
 
 __all__ = [
     "login",
