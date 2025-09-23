@@ -46,6 +46,11 @@ class GoogleOrgClient(BasePlatformClient):
         self.credentials: Optional[Credentials] = None
         self.wallet = None
         
+        # Load project info from config
+        self.project_id = None
+        self.project_name = None
+        self._load_project_info()
+        
         # Initialize transport layers if requested
         if init_transport:
             self._initialize_transport_layers()
@@ -70,6 +75,21 @@ class GoogleOrgClient(BasePlatformClient):
         # Set platform reference for better repr
         for transport in [self.gmail, self.gdrive_files, self.gsheets, self.gforms]:
             transport._platform_client = self
+        
+        # In Colab, automatically setup transports that support Colab auth
+        if self.current_environment == Environment.COLAB:
+            # Setup non-Gmail transports with Colab auth
+            for transport_name, transport in [
+                ('gdrive_files', self.gdrive_files),
+                ('gsheets', self.gsheets),
+                ('gforms', self.gforms)
+            ]:
+                try:
+                    # Pass None to use Colab auth
+                    transport.setup(None)
+                except Exception:
+                    # Ignore setup failures (e.g., API not enabled)
+                    pass
         
         # Keep transports dict for backward compatibility
         from ..base import TransportRegistry
@@ -179,9 +199,21 @@ class GoogleOrgClient(BasePlatformClient):
                     elif not success and verbose:
                         print("  ✗ Failed to configure credentials")
                 else:
-                    if verbose:
-                        print("  • No credentials available (transport created but not authenticated)")
-                    success = True
+                    # Check if we're in Colab - transports can use Colab auth
+                    from ...environment import Environment
+                    if self._real_transport.environment == Environment.COLAB:
+                        if verbose:
+                            print("  • Setting up with Colab authentication...")
+                        # Call setup without credentials - transport will use Colab auth
+                        success = self._real_transport.setup(None)
+                        if success and verbose:
+                            print("  ✓ Colab authentication configured")
+                        elif not success and verbose:
+                            print("  ✗ Failed to configure with Colab auth")
+                    else:
+                        if verbose:
+                            print("  • No credentials available (transport created but not authenticated)")
+                        success = False
                 
                 self._setup_called = True
                 
@@ -276,6 +308,59 @@ class GoogleOrgClient(BasePlatformClient):
                 
                 return output.strip()
             
+            def enable_api(self) -> None:
+                """Show instructions for enabling the API even when transport is not initialized"""
+                # Map transport names to their classes
+                transport_classes = {
+                    'gmail': 'syft_client.platforms.google_org.gmail.GmailTransport',
+                    'gdrive_files': 'syft_client.platforms.google_org.gdrive_files.GDriveFilesTransport',
+                    'gsheets': 'syft_client.platforms.google_org.gsheets.GSheetsTransport',
+                    'gforms': 'syft_client.platforms.google_org.gforms.GFormsTransport',
+                }
+                
+                if self._transport_name in transport_classes:
+                    # Import and call the static method
+                    module_path, class_name = transport_classes[self._transport_name].rsplit('.', 1)
+                    module = __import__(module_path, fromlist=[class_name])
+                    transport_class = getattr(module, class_name)
+                    
+                    # Get project_id from platform client if available
+                    project_id = getattr(self._platform_client, 'project_id', None)
+                    transport_class.enable_api_static(self._transport_name, self._platform_client.email, project_id)
+            
+            def disable_api(self) -> None:
+                """Show instructions for disabling the API even when transport is not initialized"""
+                # Map transport names to their classes
+                transport_classes = {
+                    'gmail': 'syft_client.platforms.google_org.gmail.GmailTransport',
+                    'gdrive_files': 'syft_client.platforms.google_org.gdrive_files.GDriveFilesTransport',
+                    'gsheets': 'syft_client.platforms.google_org.gsheets.GSheetsTransport',
+                    'gforms': 'syft_client.platforms.google_org.gforms.GFormsTransport',
+                }
+                
+                if self._transport_name in transport_classes:
+                    # Import and call the static method
+                    module_path, class_name = transport_classes[self._transport_name].rsplit('.', 1)
+                    module = __import__(module_path, fromlist=[class_name])
+                    transport_class = getattr(module, class_name)
+                    
+                    # Get project_id from platform client if available
+                    project_id = getattr(self._platform_client, 'project_id', None)
+                    transport_class.disable_api_static(self._transport_name, self._platform_client.email, project_id)
+            
+            def test(self, test_data: str = "test123", cleanup: bool = True):
+                """Test transport - requires initialization first"""
+                if not self._setup_called or not self._real_transport:
+                    print(f"❌ Transport '{self._transport_name}' is not initialized")
+                    print(f"   Please call .init() first to initialize the transport")
+                    return {"success": False, "error": "Transport not initialized"}
+                
+                # Delegate to real transport
+                if hasattr(self._real_transport, 'test'):
+                    return self._real_transport.test(test_data=test_data, cleanup=cleanup)
+                else:
+                    return {"success": False, "error": f"Transport '{self._transport_name}' does not support test()"}
+            
             def __getattr__(self, name):
                 # List of attributes that should be accessible without initialization
                 allowed_attrs = [
@@ -283,11 +368,24 @@ class GoogleOrgClient(BasePlatformClient):
                     '_real_transport', '_setup_called', 'login_complexity',
                     'is_keystore', 'is_notification_layer', 'is_html_compatible',
                     'is_reply_compatible', 'guest_submit', 'guest_read_file', 
-                    'guest_read_folder'
+                    'guest_read_folder', 'enable_api', 'disable_api', 'test'
                 ]
+                
+                # Service attributes that should return None when not initialized
+                service_attrs = ['gmail_service', 'drive_service', 'sheets_service', 'forms_service']
                 
                 if name in allowed_attrs:
                     return object.__getattribute__(self, name)
+                
+                # For service attributes, return None if not initialized
+                if name in service_attrs:
+                    if not self._setup_called:
+                        return None
+                    elif self._real_transport:
+                        return getattr(self._real_transport, name, None)
+                    else:
+                        return None
+                
                 if not self._setup_called:
                     raise RuntimeError(f"Transport '{self._transport_name}' is not initialized. Please call .init() first.")
                 if self._real_transport:
@@ -312,6 +410,18 @@ class GoogleOrgClient(BasePlatformClient):
         self.transports._email = self.email
         self.transports._platform = self.platform
         self.transports._credentials_path = self.find_oauth_credentials()
+    
+    def _load_project_info(self) -> None:
+        """Load project info from config.json if it exists"""
+        try:
+            config_path = Path.home() / ".syft" / self._sanitize_email() / "config.json"
+            if config_path.exists():
+                with open(config_path, 'r') as f:
+                    config_data = json.load(f)
+                    self.project_id = config_data.get('google_org_project_id')
+                    self.project_name = config_data.get('google_org_project_name')
+        except:
+            pass  # Ignore errors, project info is optional
     
     def initialize_transport(self, transport_name: str) -> bool:
         """Initialize a single transport layer"""

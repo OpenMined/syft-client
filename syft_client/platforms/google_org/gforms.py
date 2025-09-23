@@ -3,6 +3,7 @@
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 import json
+import logging
 
 from googleapiclient.discovery import build
 from ..transport_base import BaseTransportLayer
@@ -28,6 +29,90 @@ class GFormsTransport(BaseTransportLayer):
         self.drive_service = None  # Needed for deleting forms
         self.credentials = None
         self._setup_verified = False
+    
+    @staticmethod
+    def check_api_enabled(platform_client: Any) -> bool:
+        """
+        Check if Google Forms API is enabled.
+        
+        Args:
+            platform_client: The platform client with credentials
+            
+        Returns:
+            bool: True if API is enabled, False otherwise
+        """
+        # Suppress googleapiclient warnings during API check
+        googleapi_logger = logging.getLogger('googleapiclient.http')
+        original_level = googleapi_logger.level
+        googleapi_logger.setLevel(logging.ERROR)
+        
+        # Check if we're in Colab environment
+        if hasattr(platform_client, 'current_environment'):
+            from ...environment import Environment
+            if platform_client.current_environment == Environment.COLAB:
+                # Forms doesn't work properly in Colab for Google Org accounts
+                # Colab's auth doesn't provide the necessary Forms scopes
+                return False
+        
+        try:
+            
+            # Regular OAuth credential check
+            if not hasattr(platform_client, 'credentials') or not platform_client.credentials:
+                return False
+            
+            # Try to build service and make a simple API call
+            from googleapiclient.discovery import build
+            from google.auth.transport.requests import Request
+            
+            # Refresh credentials if needed
+            if platform_client.credentials.expired and platform_client.credentials.refresh_token:
+                platform_client.credentials.refresh(Request())
+            
+            # Test Forms API directly
+            forms_service = build('forms', 'v1', credentials=platform_client.credentials)
+            
+            # Try to get a non-existent form - will return 404 if API is enabled
+            try:
+                forms_service.forms().get(formId='test123').execute()
+                # If we get here, somehow the test form exists (unlikely)
+                return True
+            except Exception as e:
+                # Check if it's a 404 error (form not found = API is working)
+                if "404" in str(e) or "not found" in str(e).lower():
+                    return True
+                else:
+                    # API is disabled or other error
+                    return False
+        except Exception:
+            return False
+        finally:
+            googleapi_logger.setLevel(original_level)
+    
+    @staticmethod
+    def enable_api_static(transport_name: str, email: str, project_id: Optional[str] = None) -> None:
+        """Show instructions for enabling Google Forms API"""
+        print(f"\n🔧 To enable the Google Forms API:")
+        print(f"\n1. Open this URL in your browser:")
+        if project_id:
+            print(f"   https://console.cloud.google.com/marketplace/product/google/forms.googleapis.com?authuser={email}&project={project_id}")
+        else:
+            print(f"   https://console.cloud.google.com/marketplace/product/google/forms.googleapis.com?authuser={email}")
+        print(f"\n2. Click the 'Enable' button")
+        print(f"\n3. Wait for the API to be enabled (may take 5-10 seconds)")
+        print(f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling")
+    
+    @staticmethod
+    def disable_api_static(transport_name: str, email: str, project_id: Optional[str] = None) -> None:
+        """Show instructions for disabling Google Forms API"""
+        print(f"\n🔧 To disable the Google Forms API:")
+        print(f"\n1. Open this URL in your browser:")
+        if project_id:
+            print(f"   https://console.cloud.google.com/apis/api/forms.googleapis.com/overview?authuser={email}&project={project_id}")
+        else:
+            print(f"   https://console.cloud.google.com/apis/api/forms.googleapis.com/overview?authuser={email}")
+        print(f"\n2. Click 'Manage' or 'Disable API'")
+        print(f"\n3. Confirm by clicking 'Disable'")
+        print(f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling")
         
     @property
     def api_is_active_by_default(self) -> bool:

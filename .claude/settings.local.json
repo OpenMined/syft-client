@@ -32,7 +32,11 @@
       "Bash(gh pr create:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr reopen:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(uv build:*)",
+      "Bash(uv publish:*)",
+      "Bash(uv publish:*)",
+      "Bash(diff:*)"
     ],
     "deny": []
   }
