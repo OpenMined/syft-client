@@ -163,6 +163,10 @@ class GFormsTransport(BaseTransportLayer):
         """Check if Forms transport is ready - NO CACHING, makes real API call"""
         if not self.forms_service:
             return False
+        
+        # In Colab, Forms doesn't work properly so just return False
+        if self.environment == Environment.COLAB:
+            return False
             
         try:
             # Try to get a non-existent form (expecting 404 if API works)
