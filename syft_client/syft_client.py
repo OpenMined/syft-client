@@ -28,6 +28,7 @@ class SyftClient:
         self._platforms: Dict[str, BasePlatformClient] = {}
         self.transport_instances: Dict[str, Any] = {}  # platform:transport -> instance
         self.local_syftbox_dir: Optional[Path] = None
+        self._job_client = None # Cache for lazy-loaded job client
         
     @property
     def platforms(self):
@@ -291,6 +292,52 @@ class SyftClient:
         """Get the local SyftBox directory path as a string"""
         syftbox_dir = self.get_syftbox_directory()
         return str(syftbox_dir) if syftbox_dir else None
+    
+    def _get_job_client(self):
+        """
+        Get the syft-job client instance (lazy-loaded and cached)
+        
+        Returns:
+            Job client from syft_job.get_client(folder)
+            
+        Raises:
+            ImportError: If syft-job package is not installed
+        """
+        if self._job_client is None:
+            try:
+                import syft_job as sj
+                self._job_client = sj.get_client(self.folder)
+            except ImportError:
+                raise ImportError(
+                    "syft-job package is not installed. "
+                    "Install it with: pip install syft-client[job]"
+                )
+        return self._job_client
+
+    @property
+    def jobs(self):
+        """
+        Access to jobs interface from syft-job package
+        
+        Returns:
+            Jobs interface from job_client.jobs
+        """
+        return self._get_job_client().jobs
+
+    def submit_bash_job(self, *args, **kwargs):
+        """
+        Submit a bash job using the syft-job package
+        
+        This method delegates to job_client.submit_bash_job()
+        
+        Args:
+            *args: Positional arguments passed to submit_bash_job
+            **kwargs: Keyword arguments passed to submit_bash_job
+            
+        Returns:
+            Result from job_client.submit_bash_job()
+        """
+        return self._get_job_client().submit_bash_job(*args, **kwargs)
     
     @property
     def platform_names(self) -> List[str]:
