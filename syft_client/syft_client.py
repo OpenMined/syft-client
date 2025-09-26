@@ -278,6 +278,36 @@ class SyftClient:
         # Store the path for later use
         self.local_syftbox_dir = syftbox_dir
     
+    def _setup_job_directories(self) -> None:
+        """
+        Setup job directory structure if syft-job is available.
+        Creates: SyftBox/datasites/<email>/app_data/job/{inbox,approved,done}
+        """
+        # Check if syft-job is available (silently skip if not)
+        try:
+            import syft_job
+        except ImportError:
+            return
+        
+        # Use the .folder property to get SyftBox directory
+        syftbox_dir = self.get_syftbox_directory()
+        if not syftbox_dir:
+            return
+        
+        try:
+            # Create the job base directory structure
+            job_base_dir = syftbox_dir / "datasites" / self.email / "app_data" / "job"
+            job_base_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create subdirectories
+            subdirs = ["inbox", "approved", "done"]
+            for subdir in subdirs:
+                (job_base_dir / subdir).mkdir(parents=True, exist_ok=True)
+                
+        except Exception as e:
+            # Print error if directory creation fails
+            print(f"⚠️  Could not create job directories: {e}")
+    
     def get_syftbox_directory(self) -> Optional[Path]:
         """Get the local SyftBox directory path"""
         if self.local_syftbox_dir:
@@ -644,6 +674,10 @@ class SyftClient:
             
             # Create local SyftBox directory after successful authentication
             self._create_local_syftbox_directory()
+
+            # Setup job directories if syft-job is available
+            self._setup_job_directories()
+            
             
             # Initialize transports for all secondary platforms if requested
             if init_transport:
