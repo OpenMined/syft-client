@@ -28,6 +28,7 @@ class SyftClient:
         self._platforms: Dict[str, BasePlatformClient] = {}
         self.transport_instances: Dict[str, Any] = {}  # platform:transport -> instance
         self.local_syftbox_dir: Optional[Path] = None
+        self._job_client = None # Cache for lazy-loaded job client
         
     @property
     def platforms(self):
@@ -277,6 +278,36 @@ class SyftClient:
         # Store the path for later use
         self.local_syftbox_dir = syftbox_dir
     
+    def _setup_job_directories(self) -> None:
+        """
+        Setup job directory structure if syft-job is available.
+        Creates: SyftBox/datasites/<email>/app_data/job/{inbox,approved,done}
+        """
+        # Check if syft-job is available (silently skip if not)
+        try:
+            import syft_job
+        except ImportError:
+            return
+        
+        # Use the .folder property to get SyftBox directory
+        syftbox_dir = self.get_syftbox_directory()
+        if not syftbox_dir:
+            return
+        
+        try:
+            # Create the job base directory structure
+            job_base_dir = syftbox_dir / "datasites" / self.email / "app_data" / "job"
+            job_base_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create subdirectories
+            subdirs = ["inbox", "approved", "done"]
+            for subdir in subdirs:
+                (job_base_dir / subdir).mkdir(parents=True, exist_ok=True)
+                
+        except Exception as e:
+            # Print error if directory creation fails
+            print(f"⚠️  Could not create job directories: {e}")
+    
     def get_syftbox_directory(self) -> Optional[Path]:
         """Get the local SyftBox directory path"""
         if self.local_syftbox_dir:
@@ -291,6 +322,52 @@ class SyftClient:
         """Get the local SyftBox directory path as a string"""
         syftbox_dir = self.get_syftbox_directory()
         return str(syftbox_dir) if syftbox_dir else None
+    
+    def _get_job_client(self):
+        """
+        Get the syft-job client instance (lazy-loaded and cached)
+        
+        Returns:
+            Job client from syft_job.get_client(folder)
+            
+        Raises:
+            ImportError: If syft-job package is not installed
+        """
+        if self._job_client is None:
+            try:
+                import syft_job as sj
+                self._job_client = sj.get_client(self.folder)
+            except ImportError:
+                raise ImportError(
+                    "syft-job package is not installed. "
+                    "Install it with: pip install syft-client[job]"
+                )
+        return self._job_client
+
+    @property
+    def jobs(self):
+        """
+        Access to jobs interface from syft-job package
+        
+        Returns:
+            Jobs interface from job_client.jobs
+        """
+        return self._get_job_client().jobs
+
+    def submit_bash_job(self, *args, **kwargs):
+        """
+        Submit a bash job using the syft-job package
+        
+        This method delegates to job_client.submit_bash_job()
+        
+        Args:
+            *args: Positional arguments passed to submit_bash_job
+            **kwargs: Keyword arguments passed to submit_bash_job
+            
+        Returns:
+            Result from job_client.submit_bash_job()
+        """
+        return self._get_job_client().submit_bash_job(*args, **kwargs)
     
     @property
     def platform_names(self) -> List[str]:
@@ -597,6 +674,10 @@ class SyftClient:
             
             # Create local SyftBox directory after successful authentication
             self._create_local_syftbox_directory()
+
+            # Setup job directories if syft-job is available
+            self._setup_job_directories()
+            
             
             # Initialize transports for all secondary platforms if requested
             if init_transport:
