@@ -28,6 +28,8 @@ class SyftClient:
         self._platforms: Dict[str, BasePlatformClient] = {}
         self.transport_instances: Dict[str, Any] = {}  # platform:transport -> instance
         self.local_syftbox_dir: Optional[Path] = None
+        self._sync = None  # Lazy-loaded sync manager
+        self.verbose = True  # Default verbose mode
         
     @property
     def platforms(self):
@@ -291,6 +293,57 @@ class SyftClient:
         """Get the local SyftBox directory path as a string"""
         syftbox_dir = self.get_syftbox_directory()
         return str(syftbox_dir) if syftbox_dir else None
+    
+    @property
+    def sync(self):
+        """Lazy-loaded sync manager for messaging and contact management"""
+        if self._sync is None:
+            from .sync import SyncManager
+            self._sync = SyncManager(self)
+        return self._sync
+    
+    # High-level sync API methods
+    def send_to_contacts(self, path: str) -> Dict[str, bool]:
+        """
+        Send file/folder to all contacts
+        
+        Args:
+            path: Path to file/folder (supports syft:// URLs)
+            
+        Returns:
+            Dict mapping contact emails to success status
+        """
+        return self.sync.send_to_contacts(path)
+    
+    def send_to(self, path: str, recipient: str) -> bool:
+        """
+        Send file/folder to specific recipient
+        
+        Args:
+            path: Path to file/folder (supports syft:// URLs)
+            recipient: Email address of recipient
+            
+        Returns:
+            True if successful
+        """
+        return self.sync.send_to(path, recipient)
+    
+    def add_contact(self, email: str) -> bool:
+        """
+        Add a contact for bidirectional communication
+        
+        Args:
+            email: Email address to add as contact
+            
+        Returns:
+            True if successful
+        """
+        return self.sync.add_contact(email)
+    
+    @property
+    def contacts(self) -> List[str]:
+        """List all contacts"""
+        return self.sync.contacts
     
     @property
     def platform_names(self) -> List[str]:
