@@ -26,36 +26,21 @@ class TransportSelector:
         self.client = client
         self.paths = PathResolver(client)
     
-    def select_transport(self, path: str, recipient: str) -> str:
+    def select_transport(self, archive_size: int) -> str:
         """
-        Determine best transport method based on file size
+        Determine best transport method based on archive size
         
         Args:
-            path: Path to file/folder to send
-            recipient: Recipient email address
+            archive_size: Size of the prepared message archive in bytes
             
         Returns:
             Transport method name: 'sheets' or 'drive'
         """
-        # Create a temporary directory to check size
-        with tempfile.TemporaryDirectory() as temp_dir:
-            result = self.prepare_message(path, recipient, temp_dir)
-            if not result:
-                return 'drive'  # Default to drive on error
-            
-            message_id, archive_path, archive_size = result
-            
-            # Clean up the temp message
-            message_path = Path(temp_dir) / message_id
-            if message_path.exists():
-                import shutil
-                shutil.rmtree(message_path)
-            
-            # Select based on size
-            if archive_size <= self.MAX_SHEETS_SIZE:
-                return 'sheets'
-            else:
-                return 'drive'
+        # Select based on size
+        if archive_size <= self.MAX_SHEETS_SIZE:
+            return 'sheets'
+        else:
+            return 'drive'
     
     def prepare_message(self, path: str, recipient: str, temp_dir: str, sync_from_anywhere: bool = False) -> Optional[Tuple[str, str, int]]:
         """
@@ -164,14 +149,23 @@ class TransportSelector:
                 print(f"❌ Platform {platform.platform} does not have gdrive_files transport")
                 return False
             
-            # Decide which method to use based on size
-            if archive_size <= self.MAX_SHEETS_SIZE:
+            # Select transport based on size
+            transport_method = self.select_transport(archive_size)
+            
+            # Use the selected transport
+            if transport_method == 'sheets':
                 if self.client.verbose:
                     print(f"📊 Using sheets transport (size: {archive_size:,} bytes)")
                 # Small file - use sheets (faster)
                 if hasattr(gdrive, 'send_file_or_folder_via_sheets'):
                     return gdrive.send_file_or_folder_via_sheets(path, recipient)
-            else:
+                else:
+                    # Fall back to drive if sheets not available
+                    if self.client.verbose:
+                        print("⚠️  Sheets transport not available, falling back to drive")
+                    transport_method = 'drive'
+            
+            if transport_method == 'drive':
                 if self.client.verbose:
                     if archive_size < 1024 * 1024:
                         print(f"📦 Using direct upload (size: {archive_size:,} bytes)")
@@ -180,10 +174,6 @@ class TransportSelector:
                 # Large file - use direct upload
                 if hasattr(gdrive, 'send_file_or_folder'):
                     return gdrive.send_file_or_folder(path, recipient)
-            
-            # Fallback to direct upload if method not available
-            if hasattr(gdrive, 'send_file_or_folder'):
-                return gdrive.send_file_or_folder(path, recipient)
             
             print(f"❌ Platform does not support sending files")
             return False
@@ -195,9 +185,7 @@ class TransportSelector:
         for platform_name in ['google_org', 'google_personal']:
             if platform_name in self.client._platforms:
                 platform = self.client._platforms[platform_name]
-                # Check if it has the required transport
-                if hasattr(platform, 'gdrive_files'):
-                    return platform
+                return platform
         
         return None
 
