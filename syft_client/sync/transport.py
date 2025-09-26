@@ -15,7 +15,15 @@ if TYPE_CHECKING:
 
 
 class TransportSelector:
-    """Selects appropriate transport method based on file characteristics"""
+    """
+    Selects appropriate transport method based on file characteristics
+    
+    Architecture notes:
+    - Platforms should have separate transports (gdrive_files, gsheets, etc.)
+    - Each transport handles its own sending logic
+    - Platform can optionally provide send_auto() to handle transport selection
+    - This class provides fallback transport selection if platform doesn't have send_auto
+    """
     
     # Google Sheets has a 50,000 character limit per cell
     # Base64 encoding increases size by ~33% (4/3 ratio)
@@ -143,39 +151,38 @@ class TransportSelector:
             
             message_id, archive_path, archive_size = result
             
-            # Get the gdrive_files transport from the platform
-            gdrive = platform.gdrive_files if hasattr(platform, 'gdrive_files') else None
-            if not gdrive:
-                print(f"❌ Platform {platform.platform} does not have gdrive_files transport")
-                return False
-            
             # Select transport based on size
             transport_method = self.select_transport(archive_size)
             
-            # Use the selected transport
-            if transport_method == 'sheets':
+            # Check if platform has send_auto method (preferred)
+            if hasattr(platform, 'send_auto'):
+                # Let the platform handle transport selection
+                return platform.send_auto(path, recipient, archive_size)
+            
+            # Fallback: manually select transport
+            if transport_method == 'sheets' and hasattr(platform, 'gsheets'):
                 if self.client.verbose:
                     print(f"📊 Using sheets transport (size: {archive_size:,} bytes)")
-                # Small file - use sheets (faster)
-                if hasattr(gdrive, 'send_file_or_folder_via_sheets'):
-                    return gdrive.send_file_or_folder_via_sheets(path, recipient)
+                # Use gsheets transport for small files
+                if hasattr(platform.gsheets, 'send_file_or_folder'):
+                    return platform.gsheets.send_file_or_folder(path, recipient)
                 else:
-                    # Fall back to drive if sheets not available
+                    # Fall back to drive if sheets doesn't have the method
                     if self.client.verbose:
-                        print("⚠️  Sheets transport not available, falling back to drive")
+                        print("⚠️  Sheets send method not available, falling back to drive")
                     transport_method = 'drive'
             
-            if transport_method == 'drive':
+            if transport_method == 'drive' and hasattr(platform, 'gdrive_files'):
                 if self.client.verbose:
                     if archive_size < 1024 * 1024:
                         print(f"📦 Using direct upload (size: {archive_size:,} bytes)")
                     else:
                         print(f"📦 Using direct upload (size: {archive_size / (1024*1024):.1f}MB)")
-                # Large file - use direct upload
-                if hasattr(gdrive, 'send_file_or_folder'):
-                    return gdrive.send_file_or_folder(path, recipient)
+                # Use gdrive_files transport for large files
+                if hasattr(platform.gdrive_files, 'send_file_or_folder'):
+                    return platform.gdrive_files.send_file_or_folder(path, recipient)
             
-            print(f"❌ Platform does not support sending files")
+            print(f"❌ Platform {platform.platform} does not support sending files")
             return False
     
     def _get_sync_platform(self):
