@@ -15,7 +15,6 @@ class SyncManager:
         self.client = client
         self._contacts = None
         self._sender = None
-        self._transport = None
         self._paths = None
     
     @property
@@ -33,14 +32,6 @@ class SyncManager:
             from .sender import MessageSender
             self._sender = MessageSender(self.client)
         return self._sender
-    
-    @property
-    def transport(self):
-        """Lazy load TransportSelector"""
-        if self._transport is None:
-            from .transport import TransportSelector
-            self._transport = TransportSelector(self.client)
-        return self._transport
     
     @property
     def paths(self):
@@ -77,6 +68,22 @@ class SyncManager:
     def resolve_path(self, path: str) -> str:
         """Resolve syft:// URLs to full paths"""
         return self.paths.resolve_syft_path(path)
+    
+    # Message preparation (mainly for testing)
+    def prepare_message(self, path: str, recipient: str, temp_dir: str, sync_from_anywhere: bool = False):
+        """
+        Prepare a message for sending (exposed for testing)
+        
+        Args:
+            path: Path to file/folder
+            recipient: Recipient email
+            temp_dir: Temporary directory for message
+            sync_from_anywhere: Allow files from outside SyftBox
+            
+        Returns:
+            Tuple of (message_id, archive_path, archive_size) or None
+        """
+        return self.sender.prepare_message(path, recipient, temp_dir, sync_from_anywhere)
 
 
 __all__ = ['SyncManager']
