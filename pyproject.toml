@@ -31,7 +31,8 @@ dependencies = [
     "google-auth-oauthlib>=1.0.0",
     "dnspython>=2.3.0",
     "cryptography>=41.0.0",
-    "rich>=13.0.0"
+    "rich>=13.0.0",
+    "watchdog>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -56,6 +57,9 @@ dev = [
 all = [
     "syft-client[test,dev]"
 ]
+
+[project.scripts]
+syft-watcher = "syft_client.cli.watcher:main"
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"
