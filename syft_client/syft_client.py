@@ -287,6 +287,12 @@ class SyftClient:
         return None
     
     @property
+    def folder(self) -> Optional[str]:
+        """Get the local SyftBox directory path as a string"""
+        syftbox_dir = self.get_syftbox_directory()
+        return str(syftbox_dir) if syftbox_dir else None
+    
+    @property
     def platform_names(self) -> List[str]:
         """Get list of authenticated platform names"""
         return list(self._platforms.keys())
@@ -343,9 +349,7 @@ class SyftClient:
         main_table.add_column("", no_wrap=False)
         
         # Add folder path
-        from pathlib import Path
-        syft_folder = Path.home() / "SyftBox" / self.email.replace('@', '_at_').replace('.', '_')
-        main_table.add_row(f"[dim].folder[/dim] = {syft_folder}")
+        main_table.add_row(f"[dim].folder[/dim] = {self.folder}")
         
         # Add platforms section
         main_table.add_row("")  # Empty row for spacing
