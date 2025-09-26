@@ -36,6 +36,9 @@
       "Bash(uv build:*)",
       "Bash(uv publish:*)",
       "Bash(uv publish:*)",
+      "Bash(diff:*)",
+      "Bash(git tag:*)",
+      "Bash(awk:*)",
       "Bash(diff:*)"
     ],
     "deny": []

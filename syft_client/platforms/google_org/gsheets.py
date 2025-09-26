@@ -4,14 +4,14 @@ from typing import Any, Dict, List, Optional
 import json
 import pickle
 from datetime import datetime
-import logging
 
 from googleapiclient.discovery import build
 from ..transport_base import BaseTransportLayer
 from ...environment import Environment
+from ...transports.base import BaseTransport
 
 
-class GSheetsTransport(BaseTransportLayer):
+class GSheetsTransport(BaseTransportLayer, BaseTransport):
     """Google Sheets API transport layer"""
     
     # STATIC Attributes
@@ -33,6 +33,24 @@ class GSheetsTransport(BaseTransportLayer):
         self.drive_service = None
         self.credentials = None
         self._setup_verified = False
+        
+    @property
+    def api_is_active_by_default(self) -> bool:
+        """Sheets API requires manual activation"""
+        return False
+        
+    @property
+    def login_complexity(self) -> int:
+        """Sheets requires same auth as GDrive"""
+        if self.is_setup():
+            return 0
+        if self._cached_credentials:
+            return 0  # Already logged in
+            
+        if self.environment == Environment.COLAB:
+            return 1  # Can reuse GDrive auth in Colab
+        else:
+            return 2  # OAuth2 flow required
     
     @staticmethod
     def check_api_enabled(platform_client: Any) -> bool:
@@ -45,11 +63,6 @@ class GSheetsTransport(BaseTransportLayer):
         Returns:
             bool: True if API is enabled, False otherwise
         """
-        # Suppress googleapiclient warnings during API check
-        googleapi_logger = logging.getLogger('googleapiclient.http')
-        original_level = googleapi_logger.level
-        googleapi_logger.setLevel(logging.ERROR)
-        
         try:
             # Check if we're in Colab environment
             if hasattr(platform_client, 'current_environment'):
@@ -63,8 +76,8 @@ class GSheetsTransport(BaseTransportLayer):
                         sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
                         return True  # Unlikely to get here
                     except Exception as e:
-                        # Check if it's a 404 error (sheet not found = API is working)
-                        if "404" in str(e) or "not found" in str(e).lower():
+                        # Check if it's a 404 error (spreadsheet not found = API is working)
+                        if "404" in str(e) or "Requested entity was not found" in str(e):
                             return True
                         else:
                             return False
@@ -87,64 +100,37 @@ class GSheetsTransport(BaseTransportLayer):
             # Try to get a non-existent spreadsheet - will return 404 if API is enabled
             try:
                 sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
-                # If we get here, somehow the test sheet exists (unlikely)
+                # If we get here, somehow the test spreadsheet exists (unlikely)
                 return True
             except Exception as e:
-                # Check if it's a 404 error (sheet not found = API is working)
-                if "404" in str(e) or "not found" in str(e).lower():
+                # Check if it's a 404 error (spreadsheet not found = API is working)
+                if "404" in str(e) or "Requested entity was not found" in str(e):
                     return True
                 else:
                     # API is disabled or other error
                     return False
-        except Exception as e:
-            print(f"Error checking Sheets API: {e}")
+        except Exception:
             return False
-        finally:
-            googleapi_logger.setLevel(original_level)
     
     @staticmethod
-    def enable_api_static(transport_name: str, email: str, project_id: Optional[str] = None) -> None:
+    def enable_api_static(transport_name: str, email: str) -> None:
         """Show instructions for enabling Google Sheets API"""
         print(f"\n🔧 To enable the Google Sheets API:")
         print(f"\n1. Open this URL in your browser:")
-        if project_id:
-            print(f"   https://console.cloud.google.com/marketplace/product/google/sheets.googleapis.com?authuser={email}&project={project_id}")
-        else:
-            print(f"   https://console.cloud.google.com/marketplace/product/google/sheets.googleapis.com?authuser={email}")
+        print(f"   https://console.cloud.google.com/marketplace/product/google/sheets.googleapis.com?authuser={email}")
         print(f"\n2. Click the 'Enable' button")
         print(f"\n3. Wait for the API to be enabled (may take 5-10 seconds)")
         print(f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling")
     
     @staticmethod
-    def disable_api_static(transport_name: str, email: str, project_id: Optional[str] = None) -> None:
+    def disable_api_static(transport_name: str, email: str) -> None:
         """Show instructions for disabling Google Sheets API"""
         print(f"\n🔧 To disable the Google Sheets API:")
         print(f"\n1. Open this URL in your browser:")
-        if project_id:
-            print(f"   https://console.cloud.google.com/apis/api/sheets.googleapis.com/overview?authuser={email}&project={project_id}")
-        else:
-            print(f"   https://console.cloud.google.com/apis/api/sheets.googleapis.com/overview?authuser={email}")
+        print(f"   https://console.cloud.google.com/apis/api/sheets.googleapis.com/overview?authuser={email}")
         print(f"\n2. Click 'Manage' or 'Disable API'")
         print(f"\n3. Confirm by clicking 'Disable'")
         print(f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling")
-        
-    @property
-    def api_is_active_by_default(self) -> bool:
-        """Sheets API requires manual activation"""
-        return False
-        
-    @property
-    def login_complexity(self) -> int:
-        """Sheets requires same auth as GDrive"""
-        if self.is_setup():
-            return 0
-        if self._cached_credentials:
-            return 0  # Already logged in
-            
-        if self.environment == Environment.COLAB:
-            return 1  # Can reuse GDrive auth in Colab
-        else:
-            return 2  # OAuth2 flow required
     
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
         """Setup Sheets transport with OAuth2 credentials or Colab auth"""
@@ -188,21 +174,21 @@ class GSheetsTransport(BaseTransportLayer):
             return False
     
     def is_setup(self) -> bool:
-        """Check if Sheets transport is ready"""
-        # First check if we're cached as setup
-        if self.is_cached_as_setup():
+        """Check if Sheets transport is ready - NO CACHING, makes real API call"""
+        if not self.sheets_service or not self.drive_service:
+            return False
+            
+        try:
+            # Try to get spreadsheet metadata for a non-existent sheet (fast operation)
+            self.sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
+            # Should never reach here
             return True
-            
-        # In Colab, we can always set up on demand
-        if self.environment == Environment.COLAB:
-            try:
-                from google.colab import auth as colab_auth
-                return True  # Can authenticate on demand
-            except ImportError:
-                pass
-            
-        # Otherwise check normal setup
-        return self.sheets_service is not None and self.drive_service is not None
+        except Exception as e:
+            # If it's just "not found", that means the API is working
+            if "Requested entity was not found" in str(e) or "404" in str(e):
+                return True
+            else:
+                return False
     
     def send(self, recipient: str, data: Any, subject: str = "Syft Data") -> bool:
         """Write data to a Google Sheet and share"""
@@ -286,6 +272,179 @@ class GSheetsTransport(BaseTransportLayer):
         except Exception as e:
             print(f"Error creating sheet: {e}")
             return False
+    
+    def receive_from_sheets(self, contacts: Optional[List[str]] = None, archive_messages: bool = True) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Check message sheets for new messages from contacts.
+        
+        Args:
+            contacts: List of contact emails to check (None = check all)
+            archive_messages: Whether to move messages to archive tab after reading
+            
+        Returns:
+            Dict mapping contact emails to list of messages
+        """
+        import base64
+        
+        # If no contacts specified, get all contacts
+        if contacts is None:
+            contacts = self.list_contacts()
+        
+        if not contacts:
+            return {}
+        
+        all_messages = {}
+        my_email = self.email.replace('@', '_at_').replace('.', '_')
+        
+        for contact_email in contacts:
+            try:
+                their_email = contact_email.replace('@', '_at_').replace('.', '_')
+                sheet_name = f"syft_{their_email}_to_{my_email}_messages"
+                
+                # Find the sheet
+                sheet_id = self._find_message_sheet(sheet_name, from_email=contact_email)
+                if not sheet_id:
+                    continue
+                
+                # Get all messages from the sheet
+                result = self.sheets_service.spreadsheets().values().get(
+                    spreadsheetId=sheet_id,
+                    range='messages!A:D'
+                ).execute()
+                
+                rows = result.get('values', [])
+                if not rows:
+                    continue
+                
+                messages = []
+                rows_to_archive = []
+                
+                # Process each row (no header)
+                for i, row in enumerate(rows, start=1):
+                    if len(row) >= 4:  # timestamp, msg_id, size, data
+                        timestamp, msg_id, size, encoded_data = row[:4]
+                        
+                        try:
+                            # Decode the message
+                            archive_data = base64.b64decode(encoded_data)
+                            
+                            message = {
+                                'timestamp': timestamp,
+                                'message_id': msg_id,
+                                'size': int(size),
+                                'data': archive_data,
+                                'row_number': i
+                            }
+                            messages.append(message)
+                            rows_to_archive.append(i)
+                            
+                        except Exception as e:
+                            print(f"   ⚠️  Failed to decode message {msg_id}: {e}")
+                
+                if messages:
+                    all_messages[contact_email] = messages
+                    print(f"📬 Received {len(messages)} message(s) from {contact_email}")
+                    
+                    # Archive messages if requested
+                    if archive_messages and rows_to_archive:
+                        self._archive_sheet_messages(sheet_id, rows_to_archive)
+                
+            except Exception as e:
+                print(f"⚠️  Error reading messages from {contact_email}: {e}")
+        
+        return all_messages
+    
+    def _archive_sheet_messages(self, sheet_id: str, row_numbers: List[int]) -> None:
+        """
+        Move messages to archive tab (following gdrive_unified.py pattern).
+        
+        Args:
+            sheet_id: The spreadsheet ID
+            row_numbers: List of row numbers to archive (1-indexed)
+        """
+        try:
+            # First, ensure Archive tab exists
+            spreadsheet = self.sheets_service.spreadsheets().get(
+                spreadsheetId=sheet_id,
+                fields='sheets.properties'
+            ).execute()
+            
+            # Check if Archive sheet exists
+            archive_exists = False
+            messages_sheet_id = None
+            
+            for sheet in spreadsheet.get('sheets', []):
+                if sheet['properties']['title'] == 'archive':
+                    archive_exists = True
+                elif sheet['properties']['title'] == 'messages':
+                    messages_sheet_id = sheet['properties']['sheetId']
+            
+            # Create Archive sheet if it doesn't exist
+            if not archive_exists:
+                request = {
+                    'addSheet': {
+                        'properties': {
+                            'title': 'archive',
+                            'gridProperties': {
+                                'columnCount': 4
+                            }
+                        }
+                    }
+                }
+                
+                self.sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=sheet_id,
+                    body={'requests': [request]}
+                ).execute()
+            
+            # Get the messages to archive
+            ranges = [f"messages!A{row}:D{row}" for row in sorted(row_numbers)]
+            result = self.sheets_service.spreadsheets().values().batchGet(
+                spreadsheetId=sheet_id,
+                ranges=ranges
+            ).execute()
+            
+            # Prepare data for archive
+            archive_data = []
+            for value_range in result.get('valueRanges', []):
+                values = value_range.get('values', [])
+                if values:
+                    archive_data.extend(values)
+            
+            if archive_data:
+                # Append to archive
+                self.sheets_service.spreadsheets().values().append(
+                    spreadsheetId=sheet_id,
+                    range='archive!A:D',
+                    valueInputOption='USER_ENTERED',
+                    insertDataOption='INSERT_ROWS',
+                    body={'values': archive_data}
+                ).execute()
+                
+                # Delete from messages tab (in reverse order to maintain row numbers)
+                requests = []
+                for row_num in sorted(row_numbers, reverse=True):
+                    requests.append({
+                        'deleteDimension': {
+                            'range': {
+                                'sheetId': messages_sheet_id,
+                                'dimension': 'ROWS',
+                                'startIndex': row_num - 1,  # 0-indexed
+                                'endIndex': row_num
+                            }
+                        }
+                    })
+                
+                if requests:
+                    self.sheets_service.spreadsheets().batchUpdate(
+                        spreadsheetId=sheet_id,
+                        body={'requests': requests}
+                    ).execute()
+                
+                print(f"   📦 Archived {len(row_numbers)} message(s)")
+                
+        except Exception as e:
+            print(f"   ⚠️  Failed to archive messages: {e}")
     
     def receive(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Read data from shared Google Sheets"""
@@ -405,6 +564,122 @@ class GSheetsTransport(BaseTransportLayer):
         except:
             return None
     
+    def _get_or_create_message_sheet(self, sheet_name: str, recipient_email: Optional[str] = None) -> Optional[str]:
+        """
+        Get or create a Google Sheet for messages following gdrive_unified.py pattern.
+        
+        Args:
+            sheet_name: Name of the sheet (e.g., syft_alice_to_bob_messages)
+            recipient_email: Email of recipient to grant write access (optional)
+            
+        Returns:
+            Spreadsheet ID if successful
+        """
+        try:
+            # First check if sheet already exists
+            query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+            results = self.drive_service.files().list(
+                q=query,
+                fields="files(id)",
+                pageSize=1
+            ).execute()
+            
+            if results.get('files'):
+                # Sheet exists, return its ID
+                return results['files'][0]['id']
+            
+            # Create new sheet with structure from gdrive_unified.py
+            spreadsheet = {
+                'properties': {
+                    'title': sheet_name
+                },
+                'sheets': [{
+                    'properties': {
+                        'title': 'messages',
+                        'gridProperties': {
+                            'columnCount': 4,
+                            'frozenRowCount': 0  # No header row
+                        }
+                    }
+                }]
+            }
+            
+            # Create the spreadsheet
+            sheet = self.sheets_service.spreadsheets().create(
+                body=spreadsheet,
+                fields='spreadsheetId'
+            ).execute()
+            sheet_id = sheet['spreadsheetId']
+            
+            # Grant recipient write access if specified
+            if recipient_email and self.drive_service:
+                try:
+                    permission = {
+                        'type': 'user',
+                        'role': 'writer',
+                        'emailAddress': recipient_email
+                    }
+                    self.drive_service.permissions().create(
+                        fileId=sheet_id,
+                        body=permission,
+                        sendNotificationEmail=False
+                    ).execute()
+                except Exception as e:
+                    print(f"   ⚠️  Could not grant access to {recipient_email}: {e}")
+            
+            return sheet_id
+            
+        except Exception as e:
+            print(f"❌ Error creating sheet: {e}")
+            return None
+    
+    def _find_message_sheet(self, sheet_name: str, from_email: Optional[str] = None) -> Optional[str]:
+        """
+        Find a message sheet, checking both owned and shared sheets.
+        
+        Args:
+            sheet_name: Name of the sheet to find
+            from_email: Email of the sheet owner (for shared sheets)
+            
+        Returns:
+            Sheet ID if found, None otherwise
+        """
+        try:
+            # First check owned sheets
+            query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and 'me' in owners and trashed=false"
+            results = self.drive_service.files().list(
+                q=query,
+                fields="files(id)",
+                pageSize=1
+            ).execute()
+            
+            if results.get('files'):
+                return results['files'][0]['id']
+            
+            # Then check shared sheets
+            query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe and trashed=false"
+            results = self.drive_service.files().list(
+                q=query,
+                fields="files(id, owners)",
+                pageSize=10  # Multiple sheets might have same name
+            ).execute()
+            
+            # If from_email specified, filter by owner
+            for file in results.get('files', []):
+                if from_email:
+                    owners = file.get('owners', [])
+                    for owner in owners:
+                        if owner.get('emailAddress', '').lower() == from_email.lower():
+                            return file['id']
+                else:
+                    # No from_email specified, return first match
+                    return file['id']
+            
+            return None
+            
+        except Exception:
+            return None
+    
     def test(self, test_data: str = "test123", cleanup: bool = True) -> Dict[str, Any]:
         """Test Google Sheets transport by creating a test spreadsheet with test data
         
@@ -425,7 +700,7 @@ class GSheetsTransport(BaseTransportLayer):
             # Create spreadsheet
             spreadsheet_body = {
                 'properties': {
-                    'title': f'Test Sheet (Org) - {test_data} - {datetime.now().strftime("%Y%m%d_%H%M%S")}'
+                    'title': f'Test Sheet - {test_data} - {datetime.now().strftime("%Y%m%d_%H%M%S")}'
                 },
                 'sheets': [{
                     'properties': {
@@ -445,7 +720,7 @@ class GSheetsTransport(BaseTransportLayer):
             # Prepare test data
             values = [
                 ['Test Data', 'Timestamp', 'Transport', 'Email'],
-                [test_data, datetime.now().isoformat(), 'Google Sheets (Org)', self.email],
+                [test_data, datetime.now().isoformat(), 'Google Sheets', self.email],
                 ['', '', '', ''],
                 ['This is a test spreadsheet created by syft-client', '', '', '']
             ]
@@ -519,3 +794,280 @@ class GSheetsTransport(BaseTransportLayer):
         except Exception as e:
             print(f"❌ Google Sheets test failed: {e}")
             return {"success": False, "error": str(e)}
+    
+    # BaseTransport interface implementation
+    def add_contact(self, email: str, verbose: bool = True) -> bool:
+        """
+        Add a contact for Google Sheets transport by creating message sheets.
+        
+        Creates two message sheets following gdrive_unified.py pattern:
+        - Outgoing: syft_{my_email}_to_{their_email}_messages
+        - Incoming: syft_{their_email}_to_{my_email}_messages (if possible)
+        """
+        try:
+            # Create outgoing message sheet name
+            my_email = self.email.replace('@', '_at_').replace('.', '_')
+            their_email = email.replace('@', '_at_').replace('.', '_')
+            outgoing_sheet_name = f"syft_{my_email}_to_{their_email}_messages"
+            
+            # Get or create the outgoing message sheet
+            sheet_id = self._get_or_create_message_sheet(outgoing_sheet_name, recipient_email=email)
+            
+            if sheet_id and verbose:
+                print(f"✅ Created/found outgoing message sheet for {email}")
+                print(f"   Sheet ID: {sheet_id}")
+                print(f"   Sheet name: {outgoing_sheet_name}")
+            
+            # Note: The incoming sheet will be created by the other party
+            if verbose:
+                incoming_sheet_name = f"syft_{their_email}_to_{my_email}_messages"
+                print(f"   📋 Incoming messages will use: {incoming_sheet_name}")
+            
+            return bool(sheet_id)
+            
+        except Exception as e:
+            if verbose:
+                print(f"❌ Failed to add contact {email} for Sheets: {e}")
+            return False
+    
+    def remove_contact(self, email: str, verbose: bool = True) -> bool:
+        """
+        Remove a contact by revoking access to message sheets.
+        """
+        try:
+            removed = False
+            my_email = self.email.replace('@', '_at_').replace('.', '_')
+            their_email = email.replace('@', '_at_').replace('.', '_')
+            
+            # Find outgoing message sheet
+            outgoing_sheet_name = f"syft_{my_email}_to_{their_email}_messages"
+            sheet_id = self._find_message_sheet(outgoing_sheet_name)
+            
+            if sheet_id and self.drive_service:
+                # Find and remove their permission
+                try:
+                    permissions = self.drive_service.permissions().list(
+                        fileId=sheet_id,
+                        fields='permissions(id,emailAddress)'
+                    ).execute()
+                    
+                    for perm in permissions.get('permissions', []):
+                        if perm.get('emailAddress', '').lower() == email.lower():
+                            self.drive_service.permissions().delete(
+                                fileId=sheet_id,
+                                permissionId=perm['id']
+                            ).execute()
+                            removed = True
+                            if verbose:
+                                print(f"✅ Revoked {email}'s access to outgoing message sheet")
+                            break
+                except Exception as e:
+                    if verbose:
+                        print(f"⚠️  Could not revoke permissions: {e}")
+            
+            if verbose and removed:
+                print(f"✅ Contact {email} removed from Sheets transport")
+            elif verbose:
+                print(f"ℹ️  No sheets found for {email}")
+            
+            return removed
+            
+        except Exception as e:
+            if verbose:
+                print(f"❌ Failed to remove contact: {e}")
+            return False
+    
+    def list_contacts(self) -> List[str]:
+        """
+        List contacts by scanning for message sheets.
+        
+        Returns email addresses extracted from sheet names.
+        """
+        try:
+            contacts = set()
+            my_email = self.email.replace('@', '_at_').replace('.', '_')
+            
+            # Search for outgoing message sheets I created
+            query = f"name contains 'syft_{my_email}_to_' and name contains '_messages' and mimeType='application/vnd.google-apps.spreadsheet' and 'me' in owners and trashed=false"
+            results = self.drive_service.files().list(
+                q=query,
+                fields="files(name)",
+                pageSize=100
+            ).execute()
+            
+            for file in results.get('files', []):
+                # Extract recipient email from sheet name
+                # Format: syft_{my_email}_to_{their_email}_messages
+                parts = file['name'].split('_to_')
+                if len(parts) == 2 and parts[1].endswith('_messages'):
+                    their_email = parts[1].replace('_messages', '')
+                    # Convert back to email format
+                    their_email = their_email.replace('_at_', '@').replace('_', '.')
+                    contacts.add(their_email)
+            
+            # Also search for incoming message sheets shared with me
+            query = f"name contains '_to_{my_email}_messages' and mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe and trashed=false"
+            results = self.drive_service.files().list(
+                q=query,
+                fields="files(name)",
+                pageSize=100
+            ).execute()
+            
+            for file in results.get('files', []):
+                # Extract sender email from sheet name
+                # Format: syft_{their_email}_to_{my_email}_messages
+                if file['name'].startswith('syft_') and f'_to_{my_email}_messages' in file['name']:
+                    their_email = file['name'].replace('syft_', '').replace(f'_to_{my_email}_messages', '')
+                    # Convert back to email format
+                    their_email = their_email.replace('_at_', '@').replace('_', '.')
+                    contacts.add(their_email)
+            
+            return list(contacts)
+            
+        except Exception:
+            return []
+    
+    def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
+        """
+        Send a pre-prepared archive via Google Sheets using gdrive_unified.py format.
+        
+        Stores message as: [timestamp, message_id, size, base64_data]
+        """
+        try:
+            import os
+            import base64
+            
+            if not os.path.exists(archive_path):
+                print(f"❌ Archive not found: {archive_path}")
+                return False
+            
+            # Read archive file
+            with open(archive_path, 'rb') as f:
+                archive_data = f.read()
+            
+            # Check size limit (conservative 37.5KB to stay under 50k char limit)
+            max_sheets_size = 37_500
+            if len(archive_data) > max_sheets_size:
+                print(f"❌ File too large for sheets transport: {len(archive_data):,} bytes (limit: {max_sheets_size:,} bytes)")
+                return False
+            
+            # Base64 encode the data
+            encoded_data = base64.b64encode(archive_data).decode('utf-8')
+            
+            # Create sheet name following gdrive_unified.py pattern
+            my_email = self.email.replace('@', '_at_').replace('.', '_')
+            their_email = recipient.replace('@', '_at_').replace('.', '_')
+            sheet_name = f"syft_{my_email}_to_{their_email}_messages"
+            
+            # Get or create the message sheet
+            sheet_id = self._get_or_create_message_sheet(sheet_name, recipient_email=recipient)
+            if not sheet_id:
+                return False
+            
+            # Prepare row data following gdrive_unified.py format
+            timestamp = datetime.now().isoformat()
+            message_data = {
+                'values': [[
+                    timestamp,
+                    message_id or f"msg_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    str(len(archive_data)),
+                    encoded_data
+                ]]
+            }
+            
+            # Append to sheet
+            self.sheets_service.spreadsheets().values().append(
+                spreadsheetId=sheet_id,
+                range='messages!A:D',
+                valueInputOption='USER_ENTERED',
+                insertDataOption='INSERT_ROWS',
+                body=message_data
+            ).execute()
+            
+            print(f"📊 Sent message via sheets: {message_id}")
+            print(f"   Size: {len(archive_data)} bytes")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to send via Sheets: {e}")
+            return False
+    
+    @property
+    def transport_name(self) -> str:
+        """Get the name of this transport"""
+        return "gsheets"
+    
+    # Legacy method for backward compatibility
+    def _find_contact_sheet(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Legacy method - now we use message sheets instead of contact sheets.
+        Redirects to find outgoing message sheet.
+        """
+        my_email = self.email.replace('@', '_at_').replace('.', '_')
+        their_email = email.replace('@', '_at_').replace('.', '_')
+        sheet_name = f"syft_{my_email}_to_{their_email}_messages"
+        
+        sheet_id = self._find_message_sheet(sheet_name)
+        if sheet_id:
+            return {
+                'id': sheet_id,
+                'name': sheet_name,
+                'url': f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+            }
+        return None
+    
+    def is_available(self) -> bool:
+        """Check if Sheets transport is available"""
+        return self.is_setup()
+    
+    def get_contact_resource(self, email: str) -> Optional[Any]:
+        """
+        Get the message sheets associated with a contact.
+        
+        Returns ContactResource with:
+        - outbox_inbox: Outgoing message sheet (syft_me_to_them_messages)
+        - pending: Incoming message sheet (syft_them_to_me_messages)
+        """
+        from ...sync.contact_resource import ContactResource
+        
+        my_email = self.email.replace('@', '_at_').replace('.', '_')
+        their_email = email.replace('@', '_at_').replace('.', '_')
+        
+        # Find outgoing sheet
+        outgoing_sheet_name = f"syft_{my_email}_to_{their_email}_messages"
+        outgoing_sheet_id = self._find_message_sheet(outgoing_sheet_name)
+        outgoing_sheet = None
+        
+        if outgoing_sheet_id:
+            outgoing_sheet = {
+                'id': outgoing_sheet_id,
+                'name': outgoing_sheet_name,
+                'url': f"https://docs.google.com/spreadsheets/d/{outgoing_sheet_id}",
+                'type': 'outgoing_messages'
+            }
+        
+        # Find incoming sheet
+        incoming_sheet_name = f"syft_{their_email}_to_{my_email}_messages"
+        incoming_sheet_id = self._find_message_sheet(incoming_sheet_name, from_email=email)
+        incoming_sheet = None
+        
+        if incoming_sheet_id:
+            incoming_sheet = {
+                'id': incoming_sheet_id,
+                'name': incoming_sheet_name,
+                'url': f"https://docs.google.com/spreadsheets/d/{incoming_sheet_id}",
+                'type': 'incoming_messages'
+            }
+        
+        # Create ContactResource with both sheets
+        return ContactResource(
+            contact_email=email,
+            transport_name=self.transport_name,
+            platform_name=getattr(self._platform_client, 'platform', 'google_org') if hasattr(self, '_platform_client') else 'google_org',
+            resource_type='message_sheets',
+            available=bool(outgoing_sheet or incoming_sheet),
+            # Map to folder structure for consistent display
+            outbox_inbox=outgoing_sheet,  # Outgoing messages
+            pending=incoming_sheet  # Incoming messages
+        )

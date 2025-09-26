@@ -14,9 +14,10 @@ import logging
 
 from googleapiclient.discovery import build
 from ..transport_base import BaseTransportLayer
+from ...transports.base import BaseTransport
 
 
-class GmailTransport(BaseTransportLayer):
+class GmailTransport(BaseTransportLayer, BaseTransport):
     """Gmail transport layer using Gmail API via OAuth2"""
     
     # STATIC Attributes
@@ -548,3 +549,130 @@ class GmailTransport(BaseTransportLayer):
         except Exception as e:
             print(f"❌ Gmail test failed: {e}")
             return {"success": False, "error": str(e)}
+    
+    # BaseTransport interface implementation
+    def add_contact(self, email: str, verbose: bool = True) -> bool:
+        """
+        Add a contact for Gmail transport
+        
+        For Gmail, this is always successful since we can send emails to any valid address.
+        We just validate the email format.
+        """
+        # Validate email format
+        if not email or '@' not in email or '.' not in email.split('@')[1]:
+            if verbose:
+                print(f"❌ Invalid email address: {email}")
+            return False
+        
+        # Gmail doesn't require any setup to send to a contact
+        if verbose:
+            print(f"✅ Contact {email} added for Gmail transport (no setup required)")
+        return True
+    
+    def remove_contact(self, email: str, verbose: bool = True) -> bool:
+        """
+        Remove a contact from Gmail transport
+        
+        For Gmail, this always succeeds since there's no persistent connection.
+        """
+        if verbose:
+            print(f"✅ Contact {email} removed from Gmail transport")
+        return True
+    
+    def list_contacts(self) -> List[str]:
+        """
+        List contacts for Gmail transport
+        
+        Gmail doesn't maintain a separate contact list for transport purposes.
+        Returns empty list.
+        """
+        return []
+    
+    def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
+        """
+        Send a pre-prepared archive via Gmail
+        
+        Args:
+            archive_path: Path to the .syftmsg archive file
+            recipient: Email address to send to
+            message_id: Optional message ID for tracking
+        
+        Returns:
+            True if send was successful
+        """
+        try:
+            # Create email message
+            msg = MIMEMultipart()
+            msg['To'] = recipient
+            msg['From'] = self.email
+            msg['Subject'] = f"{self.BACKEND_PREFIX} Syft Message" + (f" [{message_id}]" if message_id else "")
+            
+            # Add body
+            body = f"This is a Syft message containing encrypted data.\nMessage ID: {message_id or 'N/A'}"
+            msg.attach(MIMEText(body, 'plain'))
+            
+            # Attach the archive file
+            import os
+            if not os.path.exists(archive_path):
+                print(f"❌ Archive not found: {archive_path}")
+                return False
+            
+            with open(archive_path, 'rb') as f:
+                part = MIMEBase('application', 'octet-stream')
+                part.set_payload(f.read())
+                encoders.encode_base64(part)
+                part.add_header(
+                    'Content-Disposition',
+                    f'attachment; filename={os.path.basename(archive_path)}'
+                )
+                msg.attach(part)
+            
+            # Send the email
+            raw_msg = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+            message_body = {'raw': raw_msg}
+            
+            if self._labels and self.BACKEND_LABEL in self._labels:
+                message_body['labelIds'] = [self._labels[self.BACKEND_LABEL]]
+            
+            result = self.gmail_service.users().messages().send(
+                userId='me',
+                body=message_body
+            ).execute()
+            
+            return bool(result.get('id'))
+            
+        except Exception as e:
+            print(f"❌ Failed to send via Gmail: {e}")
+            return False
+    
+    @property
+    def transport_name(self) -> str:
+        """Get the name of this transport"""
+        return "gmail"
+    
+    def is_available(self) -> bool:
+        """Check if Gmail transport is available"""
+        return self.is_setup()
+    
+    def get_contact_resource(self, email: str) -> Optional[Any]:
+        """
+        Get the resource associated with a contact for Gmail
+        
+        Gmail doesn't have persistent folders/resources like Drive,
+        so we return basic availability info
+        
+        Args:
+            email: Email address of the contact
+            
+        Returns:
+            ContactResource with email info
+        """
+        from ...sync.contact_resource import ContactResource
+        
+        return ContactResource(
+            contact_email=email,
+            transport_name=self.transport_name,
+            platform_name=getattr(self._platform_client, 'platform', 'google_personal') if hasattr(self, '_platform_client') else 'google_personal',
+            resource_type='email',
+            available=self.is_setup()
+        )

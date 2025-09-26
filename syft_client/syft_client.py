@@ -315,18 +315,20 @@ class SyftClient:
         """
         return self.sync.send_to_contacts(path)
     
-    def send_to(self, path: str, recipient: str) -> bool:
+    def send_to(self, path: str, recipient: str, requested_latency_ms: Optional[int] = None, priority: str = "normal") -> bool:
         """
         Send file/folder to specific recipient
         
         Args:
             path: Path to file/folder (supports syft:// URLs)
             recipient: Email address of recipient
+            requested_latency_ms: Desired latency in milliseconds (optional)
+            priority: "urgent", "normal", or "background" (default: "normal")
             
         Returns:
             True if successful
         """
-        return self.sync.send_to(path, recipient)
+        return self.sync.send_to(path, recipient, requested_latency_ms, priority)
     
     def add_contact(self, email: str) -> bool:
         """
@@ -341,9 +343,76 @@ class SyftClient:
         return self.sync.add_contact(email)
     
     @property
-    def contacts(self) -> List[str]:
-        """List all contacts"""
-        return self.sync.contacts
+    def contacts(self):
+        """Access contacts with list and dict-style indexing"""
+        class ContactsProperty:
+            def __init__(self, sync_manager, client):
+                self._sync = sync_manager
+                self._client = client  # Store reference to the client
+            
+            def __getitem__(self, key):
+                if isinstance(key, int):
+                    # List-style access: contacts[0]
+                    contact_list = self._sync.contacts
+                    if 0 <= key < len(contact_list):
+                        email = contact_list[key]
+                        contact = self._sync.contacts_manager.get_contact(email)
+                        if contact:
+                            # Inject client reference
+                            contact._client = self._client
+                        return contact
+                    else:
+                        raise IndexError(f"Contact index {key} out of range")
+                elif isinstance(key, str):
+                    # Dict-style access: contacts['email@example.com']
+                    contact = self._sync.contacts_manager.get_contact(key)
+                    if contact is None:
+                        raise KeyError(f"Contact '{key}' not found")
+                    # Inject client reference
+                    contact._client = self._client
+                    return contact
+                else:
+                    raise TypeError(f"Invalid key type: {type(key)}")
+            
+            def __len__(self):
+                return len(self._sync.contacts)
+            
+            def __iter__(self):
+                # Allow iteration over contact emails
+                return iter(self._sync.contacts)
+            
+            def list(self):
+                """Get list of contact emails"""
+                return self._sync.contacts
+            
+            def all(self):
+                """Get all contact objects"""
+                return [self._sync.contacts_manager.get_contact(email) 
+                        for email in self._sync.contacts]
+            
+            def clear_caches(self):
+                """Clear all contact caches and force re-detection from online sources"""
+                return self._sync.contacts_manager.clear_all_caches()
+            
+            def __repr__(self):
+                contacts_list = self._sync.contacts
+                if not contacts_list:
+                    return "No contacts"
+                return f"Contacts ({len(contacts_list)}): {', '.join(contacts_list)}"
+        
+        return ContactsProperty(self.sync, self)
+    
+    def get_contact(self, email: str):
+        """
+        Get a specific contact object
+        
+        Args:
+            email: Email address of the contact
+            
+        Returns:
+            Contact object with transport information
+        """
+        return self.sync.contacts_manager.get_contact(email)
     
     @property
     def platform_names(self) -> List[str]:
@@ -650,6 +719,14 @@ class SyftClient:
             
             # Create local SyftBox directory after successful authentication
             self._create_local_syftbox_directory()
+            
+            # Clear contact caches to ensure fresh data from online sources
+            try:
+                # Access sync property to trigger initialization if needed
+                self.sync.contacts_manager.clear_all_caches(verbose=verbose)
+            except Exception:
+                # If sync isn't ready yet, that's okay - caches will be cleared on first access
+                pass
             
             # Initialize transports for all secondary platforms if requested
             if init_transport:

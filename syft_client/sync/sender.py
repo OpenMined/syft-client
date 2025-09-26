@@ -4,12 +4,14 @@ Message sending functionality for sync
 
 import os
 import tempfile
+import time
 from typing import Dict, Optional, Tuple, TYPE_CHECKING
 from pathlib import Path
 
 from .message import SyftMessage
 from .contacts import ContactManager
 from ..core.paths import PathResolver
+from .transport_negotiator import TransportNegotiator
 
 if TYPE_CHECKING:
     from ..syft_client import SyftClient
@@ -22,6 +24,7 @@ class MessageSender:
         self.client = client
         self.contacts = ContactManager(client)
         self.paths = PathResolver(client)
+        self.negotiator = TransportNegotiator(client)
     
     def send_to_contacts(self, path: str) -> Dict[str, bool]:
         """
@@ -62,7 +65,7 @@ class MessageSender:
                 print(f"\n[{i}/{len(contacts_list)}] Sending to {contact_email}...")
             
             try:
-                # Use auto method to choose best transport
+                # Use negotiator to choose best transport
                 success = self.send_to(resolved_path, contact_email)
                 results[contact_email] = success
                 
@@ -90,13 +93,15 @@ class MessageSender:
         
         return results
     
-    def send_to(self, path: str, recipient: str) -> bool:
+    def send_to(self, path: str, recipient: str, requested_latency_ms: Optional[int] = None, priority: str = "normal") -> bool:
         """
         Send file/folder to specific recipient
         
         Args:
             path: Path to the file or folder to send (supports syft:// URLs)
             recipient: Email address of the recipient
+            requested_latency_ms: Desired latency in milliseconds (optional)
+            priority: "urgent", "normal", or "background" (default: "normal")
             
         Returns:
             True if successful, False otherwise
@@ -106,19 +111,66 @@ class MessageSender:
             print(f"❌ {recipient} is not in your contacts. Add them first with add_contact()")
             return False
         
-        # Get platform with sync capability
-        platform = self._get_sync_platform()
-        if not platform:
-            print("❌ No platform available with sync capabilities")
+        # Get contact object
+        contact = self.contacts.get_contact(recipient)
+        if not contact:
+            print(f"❌ Could not load contact information for {recipient}")
             return False
         
-        # Check if platform has send_auto method
-        if hasattr(platform, 'send_auto'):
-            return platform.send_auto(path, recipient)
-        else:
-            print(f"❌ Platform {platform.platform} does not support automatic sending")
-            print("   Platform needs to implement send_auto(path, recipient) method")
-            return False
+        # Create temporary directory that persists for the whole send operation
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Prepare message to get actual compressed size
+            message_info = self.prepare_message(path, recipient, temp_dir)
+            if not message_info:
+                return False
+            
+            message_id, archive_path, archive_size = message_info
+            
+            # Use negotiator to select best transport based on actual archive size
+            transport_name = self.negotiator.select_transport(
+                contact=contact,
+                file_size=archive_size,  # Use actual compressed size
+                requested_latency_ms=requested_latency_ms,
+                priority=priority
+            )
+        
+            if not transport_name:
+                print(f"❌ No suitable transport found for sending to {recipient}")
+                return False
+            
+            # Get transport instance
+            transport = self._get_transport_instance(transport_name)
+            if not transport:
+                print(f"❌ Transport {transport_name} is not available")
+                return False
+            
+            # Send using the selected transport
+            start_time = time.time()
+            try:
+                # Call generic send_to method with prepared archive
+                if hasattr(transport, 'send_to'):
+                    result = transport.send_to(archive_path, recipient, message_id=message_id)
+                else:
+                    print(f"❌ Transport {transport_name} does not implement send_to() method")
+                    return False
+                
+                # Record result
+                elapsed_ms = (time.time() - start_time) * 1000
+                if result:
+                    if self.client.verbose:
+                        print(f"✅ Successfully sent via {transport_name} in {elapsed_ms:.0f}ms")
+                
+                return result
+                
+            except Exception as e:
+                print(f"❌ Error sending via {transport_name}: {e}")
+                return False
+        finally:
+            # Clean up temp directory
+            import shutil
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
     
     def prepare_message(self, path: str, recipient: str, temp_dir: str, sync_from_anywhere: bool = False) -> Optional[Tuple[str, str, int]]:
         """
@@ -254,6 +306,13 @@ class MessageSender:
                 if hasattr(platform, 'gdrive_files'):
                     return platform
         
+        return None
+    
+    def _get_transport_instance(self, transport_name: str):
+        """Get transport instance by name"""
+        for platform_name, platform in self.client._platforms.items():
+            if hasattr(platform, transport_name):
+                return getattr(platform, transport_name)
         return None
 
 
