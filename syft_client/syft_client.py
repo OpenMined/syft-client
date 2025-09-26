@@ -3,6 +3,7 @@ SyftClient class - Main client object that manages platforms and transport layer
 """
 
 from typing import Dict, List, Optional, Any
+from pathlib import Path
 from .platforms.base import BasePlatformClient
 from .platforms.detection import Platform, detect_primary_platform, get_secondary_platforms, PlatformDetector
 from .environment import Environment, detect_environment
@@ -26,6 +27,7 @@ class SyftClient:
         self.email = email
         self._platforms: Dict[str, BasePlatformClient] = {}
         self.transport_instances: Dict[str, Any] = {}  # platform:transport -> instance
+        self.local_syftbox_dir: Optional[Path] = None
         
     @property
     def platforms(self):
@@ -247,6 +249,42 @@ class SyftClient:
         
         # Add transports from this platform
         self._add_platform_transports(platform_name, platform_client)
+    
+    def _create_local_syftbox_directory(self) -> None:
+        """Create the local SyftBox directory structure"""
+        if not self.email:
+            return
+            
+        # Create ~/SyftBox_{email} directory
+        home_dir = Path.home()
+        syftbox_dir = home_dir / f"SyftBox_{self.email}"
+        
+        if not syftbox_dir.exists():
+            try:
+                syftbox_dir.mkdir(exist_ok=True)
+                print(f"📁 Created local SyftBox directory: {syftbox_dir}")
+                
+                # Create subdirectories
+                subdirs = ["datasites", "apps"]
+                for subdir in subdirs:
+                    (syftbox_dir / subdir).mkdir(exist_ok=True)
+                    
+            except Exception as e:
+                print(f"⚠️  Could not create SyftBox directory: {e}")
+        else:
+            print(f"📁 Using existing SyftBox directory: {syftbox_dir}")
+                
+        # Store the path for later use
+        self.local_syftbox_dir = syftbox_dir
+    
+    def get_syftbox_directory(self) -> Optional[Path]:
+        """Get the local SyftBox directory path"""
+        if self.local_syftbox_dir:
+            return self.local_syftbox_dir
+        elif self.email:
+            # Calculate the path even if not created yet
+            return Path.home() / f"SyftBox_{self.email}"
+        return None
     
     @property
     def platform_names(self) -> List[str]:
@@ -552,6 +590,9 @@ class SyftClient:
             
             # Add the authenticated platform to this client
             self.add_platform(client, auth_result)
+            
+            # Create local SyftBox directory after successful authentication
+            self._create_local_syftbox_directory()
             
             # Initialize transports for all secondary platforms if requested
             if init_transport:
