@@ -74,9 +74,9 @@ class ContactManager:
         
         # Use platform-specific method to add contact
         try:
-            # For now, we'll use the Google platform's method if available
-            if hasattr(platform, 'add_friend'):
-                result = platform.add_friend(email, verbose=True)
+            # Get the gdrive_files transport from the platform
+            if hasattr(platform, 'gdrive_files') and hasattr(platform.gdrive_files, 'add_friend'):
+                result = platform.gdrive_files.add_friend(email, verbose=True)
             else:
                 print(f"❌ Platform {platform.platform} does not support adding contacts")
                 return False
@@ -114,8 +114,8 @@ class ContactManager:
         
         # Use platform-specific method to remove contact
         try:
-            if hasattr(platform, 'remove_friend'):
-                result = platform.remove_friend(email)
+            if hasattr(platform, 'gdrive_files') and hasattr(platform.gdrive_files, 'remove_friend'):
+                result = platform.gdrive_files.remove_friend(email)
             else:
                 print(f"❌ Platform {platform.platform} does not support removing contacts")
                 return False
@@ -144,21 +144,23 @@ class ContactManager:
                 platform = self.client._platforms[platform_name]
                 # Check if it has the required transport
                 if hasattr(platform, 'gdrive_files'):
-                    return platform.gdrive_files
+                    return platform
         
         return None
     
     def _get_contacts_from_platform(self, platform) -> List[str]:
         """Get contacts list from a specific platform"""
         try:
-            if hasattr(platform, 'friends'):
-                # Platform uses 'friends' property (will be mapped to contacts)
-                return platform.friends
-            elif hasattr(platform, 'contacts'):
-                # Platform already uses 'contacts' property
-                return platform.contacts
-            else:
-                return []
+            # Get contacts from the gdrive_files transport
+            if hasattr(platform, 'gdrive_files'):
+                gdrive = platform.gdrive_files
+                if hasattr(gdrive, 'friends'):
+                    # Transport uses 'friends' property (will be mapped to contacts)
+                    return gdrive.friends
+                elif hasattr(gdrive, 'contacts'):
+                    # Transport already uses 'contacts' property
+                    return gdrive.contacts
+            return []
         except Exception as e:
             print(f"⚠️  Error getting contacts: {e}")
             return []

@@ -126,8 +126,8 @@ class MessageSender:
             return False
         
         # Use platform-specific method if available
-        if hasattr(platform, 'send_deletion'):
-            return platform.send_deletion(path, recipient)
+        if hasattr(platform, 'gdrive_files') and hasattr(platform.gdrive_files, 'send_deletion'):
+            return platform.gdrive_files.send_deletion(path, recipient)
         else:
             print("❌ Platform does not support sending deletion messages")
             return False
@@ -149,9 +149,9 @@ class MessageSender:
             return {}
         
         # Use platform-specific method if available
-        if hasattr(platform, 'send_deletion_to_friends'):
+        if hasattr(platform, 'gdrive_files') and hasattr(platform.gdrive_files, 'send_deletion_to_friends'):
             # Platform still uses 'friends' terminology internally
-            return platform.send_deletion_to_friends(path)
+            return platform.gdrive_files.send_deletion_to_friends(path)
         else:
             print("❌ Platform does not support sending deletion messages")
             return {}
@@ -165,7 +165,7 @@ class MessageSender:
                 platform = self.client._platforms[platform_name]
                 # Check if it has the required transport
                 if hasattr(platform, 'gdrive_files'):
-                    return platform.gdrive_files
+                    return platform
         
         return None
 

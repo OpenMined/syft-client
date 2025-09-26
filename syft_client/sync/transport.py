@@ -158,13 +158,19 @@ class TransportSelector:
             
             message_id, archive_path, archive_size = result
             
+            # Get the gdrive_files transport from the platform
+            gdrive = platform.gdrive_files if hasattr(platform, 'gdrive_files') else None
+            if not gdrive:
+                print(f"❌ Platform {platform.platform} does not have gdrive_files transport")
+                return False
+            
             # Decide which method to use based on size
             if archive_size <= self.MAX_SHEETS_SIZE:
                 if self.client.verbose:
                     print(f"📊 Using sheets transport (size: {archive_size:,} bytes)")
                 # Small file - use sheets (faster)
-                if hasattr(platform, 'send_file_or_folder_via_sheets'):
-                    return platform.send_file_or_folder_via_sheets(path, recipient)
+                if hasattr(gdrive, 'send_file_or_folder_via_sheets'):
+                    return gdrive.send_file_or_folder_via_sheets(path, recipient)
             else:
                 if self.client.verbose:
                     if archive_size < 1024 * 1024:
@@ -172,12 +178,12 @@ class TransportSelector:
                     else:
                         print(f"📦 Using direct upload (size: {archive_size / (1024*1024):.1f}MB)")
                 # Large file - use direct upload
-                if hasattr(platform, 'send_file_or_folder'):
-                    return platform.send_file_or_folder(path, recipient)
+                if hasattr(gdrive, 'send_file_or_folder'):
+                    return gdrive.send_file_or_folder(path, recipient)
             
             # Fallback to direct upload if method not available
-            if hasattr(platform, 'send_file_or_folder'):
-                return platform.send_file_or_folder(path, recipient)
+            if hasattr(gdrive, 'send_file_or_folder'):
+                return gdrive.send_file_or_folder(path, recipient)
             
             print(f"❌ Platform does not support sending files")
             return False
@@ -191,7 +197,7 @@ class TransportSelector:
                 platform = self.client._platforms[platform_name]
                 # Check if it has the required transport
                 if hasattr(platform, 'gdrive_files'):
-                    return platform.gdrive_files
+                    return platform
         
         return None
 
