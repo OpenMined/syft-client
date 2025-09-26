@@ -57,7 +57,7 @@ class TransportSelector:
             else:
                 return 'drive'
     
-    def prepare_message(self, path: str, recipient: str, temp_dir: str) -> Optional[Tuple[str, str, int]]:
+    def prepare_message(self, path: str, recipient: str, temp_dir: str, sync_from_anywhere: bool = False) -> Optional[Tuple[str, str, int]]:
         """
         Prepare a SyftMessage archive for sending
         
@@ -65,6 +65,7 @@ class TransportSelector:
             path: Path to the file or folder to send
             recipient: Email address of the recipient
             temp_dir: Temporary directory to create the message in
+            sync_from_anywhere: If True, allow sending files from outside SyftBox (default: False)
             
         Returns:
             Tuple of (message_id, archive_path, archive_size) if successful, None otherwise
@@ -79,8 +80,8 @@ class TransportSelector:
                 print(f"   (resolved from: {path})")
             return None
         
-        # Validate that the file is within THIS client's SyftBox folder
-        if not self.paths.validate_path_ownership(resolved_path):
+        # Validate that the file is within THIS client's SyftBox folder (unless override is set)
+        if not sync_from_anywhere and not self.paths.validate_path_ownership(resolved_path):
             syftbox_dir = self.paths.get_syftbox_directory()
             print(f"❌ Error: Files must be within YOUR SyftBox folder to be sent")
             print(f"   Your SyftBox: {syftbox_dir}")
@@ -97,11 +98,22 @@ class TransportSelector:
                 message_root=Path(temp_dir)
             )
             
-            # Get relative path from SyftBox root
-            relative_path = self.paths.get_relative_syftbox_path(resolved_path)
-            if not relative_path:
-                print(f"❌ Could not determine relative path within SyftBox")
-                return None
+            # Get relative path from SyftBox root or use basename if sync_from_anywhere
+            if sync_from_anywhere:
+                # If syncing from anywhere, use a simple path structure
+                from pathlib import Path
+                source_path = Path(resolved_path)
+                if source_path.is_file():
+                    relative_path = f"external/{source_path.name}"
+                else:
+                    relative_path = f"external/{source_path.name}"
+                if self.client.verbose:
+                    print(f"⚠️  Syncing from outside SyftBox - file will be placed in: {relative_path}")
+            else:
+                relative_path = self.paths.get_relative_syftbox_path(resolved_path)
+                if not relative_path:
+                    print(f"❌ Could not determine relative path within SyftBox")
+                    return None
             
             # Add file/folder to message
             if not message.add_file(resolved_path, relative_path):
