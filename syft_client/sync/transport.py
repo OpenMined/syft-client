@@ -101,7 +101,6 @@ class TransportSelector:
             # Get relative path from SyftBox root or use basename if sync_from_anywhere
             if sync_from_anywhere:
                 # If syncing from anywhere, use a simple path structure
-                from pathlib import Path
                 source_path = Path(resolved_path)
                 if source_path.is_file():
                     relative_path = f"external/{source_path.name}"
