@@ -1027,7 +1027,7 @@ class SyftClient:
         
         # Step 3: Environment detection
         current_step += 1
-        print_progress(current_step, f"Detecting environment ({platform.value})")
+        print_progress(current_step, "Detecting environment")
         environment = detect_environment()
         
         # Step 4: Create platform client
@@ -1035,12 +1035,30 @@ class SyftClient:
         
         try:
             current_step += 1
-            print_progress(current_step, f"Initializing {platform.value} client")
+            # Create user-friendly platform description for initialization
+            if platform.value == 'google_personal':
+                init_desc = "Google client"
+            elif platform.value == 'google_org':
+                init_desc = "Google Workspace client"
+            elif platform.value == 'microsoft':
+                init_desc = "Microsoft client"
+            else:
+                init_desc = f"{platform.value} client"
+            
+            print_progress(current_step, f"Initializing {init_desc}")
             client = get_platform_client(platform, self.email, init_transport=init_transport, wizard=wizard)
             
             # Step 5: Authenticate
             current_step += 1
-            print_progress(current_step, f"Authenticating with {platform.value}")
+            # Create simple, non-scary platform description
+            if platform.value in ['google_personal', 'google_org']:
+                platform_desc = f"Google ({self.email})"
+            elif platform.value == 'microsoft':
+                platform_desc = f"Microsoft ({self.email})"
+            else:
+                platform_desc = f"{platform.value} ({self.email})"
+            
+            print_progress(current_step, f"Authenticating via {platform_desc}")
             auth_result = client.authenticate()
             
             # Add the authenticated platform to this client

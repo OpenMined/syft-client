@@ -268,7 +268,7 @@ class PeerManager:
             elif 'google_org' in platforms_used:
                 peer.platform = 'google_org'
             
-            self._save_peer(contact)
+            self._save_peer(peer)
             
             return True
         else:
@@ -532,7 +532,7 @@ class PeerManager:
         # Use the discovery system
         if self._discovery.discover_capabilities(peer):
             # Save discovered capabilities
-            self._save_peer(contact)
+            self._save_peer(peer)
             self._discovery.save_discovery_cache(peer)
     
     def check_all_peer_requests(self, verbose: bool = True) -> Dict[str, List[PeerRequest]]:
