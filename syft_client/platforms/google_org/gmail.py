@@ -14,10 +14,10 @@ import logging
 
 from googleapiclient.discovery import build
 from ..transport_base import BaseTransportLayer
-from ...environment import Environment
+from ...transports.base import BaseTransport
 
 
-class GmailTransport(BaseTransportLayer):
+class GmailTransport(BaseTransportLayer, BaseTransport):
     """Gmail transport layer using Gmail API via OAuth2"""
     
     # STATIC Attributes
@@ -41,7 +41,18 @@ class GmailTransport(BaseTransportLayer):
         self.credentials = None
         self._labels = {}
         self._setup_verified = False
-        self._last_api_error = None
+    
+    @property
+    def api_is_active_by_default(self) -> bool:
+        """Gmail API requires manual activation"""
+        return False
+        
+    @property
+    def login_complexity(self) -> int:
+        """No additional complexity after OAuth2"""
+        if self.is_setup():
+            return 0
+        return 0
     
     @staticmethod
     def check_api_enabled(platform_client: Any) -> bool:
@@ -64,7 +75,7 @@ class GmailTransport(BaseTransportLayer):
             if hasattr(platform_client, 'current_environment'):
                 from ...environment import Environment
                 if platform_client.current_environment == Environment.COLAB:
-                    # Gmail doesn't work in Colab for Google Org accounts
+                    # Gmail doesn't work in Colab for Google Personal accounts
                     # Colab's auth doesn't provide the necessary Gmail scopes
                     return False
             
@@ -80,9 +91,8 @@ class GmailTransport(BaseTransportLayer):
             if platform_client.credentials.expired and platform_client.credentials.refresh_token:
                 platform_client.credentials.refresh(Request())
             
-            gmail_service = build('gmail', 'v1', credentials=platform_client.credentials)
-            # Use messages().list() like google_personal to ensure consistent API detection
-            gmail_service.users().messages().list(userId='me', maxResults=1).execute()
+            service = build('gmail', 'v1', credentials=platform_client.credentials)
+            service.users().messages().list(userId='me', maxResults=1).execute()
             return True
         except Exception:
             return False
@@ -90,42 +100,24 @@ class GmailTransport(BaseTransportLayer):
             googleapi_logger.setLevel(original_level)
     
     @staticmethod
-    def enable_api_static(transport_name: str, email: str, project_id: Optional[str] = None) -> None:
+    def enable_api_static(transport_name: str, email: str) -> None:
         """Show instructions for enabling Gmail API"""
         print(f"\n🔧 To enable the Gmail API:")
         print(f"\n1. Open this URL in your browser:")
-        if project_id:
-            print(f"   https://console.cloud.google.com/marketplace/product/google/gmail.googleapis.com?authuser={email}&project={project_id}")
-        else:
-            print(f"   https://console.cloud.google.com/marketplace/product/google/gmail.googleapis.com?authuser={email}")
+        print(f"   https://console.cloud.google.com/marketplace/product/google/gmail.googleapis.com?authuser={email}")
         print(f"\n2. Click the 'Enable' button")
         print(f"\n3. Wait for the API to be enabled (may take 5-10 seconds)")
         print(f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling")
     
     @staticmethod
-    def disable_api_static(transport_name: str, email: str, project_id: Optional[str] = None) -> None:
+    def disable_api_static(transport_name: str, email: str) -> None:
         """Show instructions for disabling Gmail API"""
         print(f"\n🔧 To disable the Gmail API:")
         print(f"\n1. Open this URL in your browser:")
-        if project_id:
-            print(f"   https://console.cloud.google.com/apis/api/gmail.googleapis.com/overview?authuser={email}&project={project_id}")
-        else:
-            print(f"   https://console.cloud.google.com/apis/api/gmail.googleapis.com/overview?authuser={email}")
+        print(f"   https://console.cloud.google.com/apis/api/gmail.googleapis.com/overview?authuser={email}")
         print(f"\n2. Click 'Manage' or 'Disable API'")
         print(f"\n3. Confirm by clicking 'Disable'")
         print(f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling")
-    
-    @property
-    def api_is_active_by_default(self) -> bool:
-        """Gmail API requires manual activation"""
-        return False
-        
-    @property
-    def login_complexity(self) -> int:
-        """No additional complexity after OAuth2"""
-        if self.is_setup():
-            return 0
-        return 0
     
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
         """Setup Gmail transport with OAuth2 credentials"""
@@ -147,29 +139,16 @@ class GmailTransport(BaseTransportLayer):
             return False
     
     def is_setup(self) -> bool:
-        """Check if Gmail transport is ready"""
-        # First check if we're cached as setup
-        if self.is_cached_as_setup():
-            return True
-            
-        # Gmail doesn't work in Colab for Google Org accounts
-        # Colab's auth doesn't provide the necessary Gmail scopes
-        if self.environment == Environment.COLAB:
-            return False
-            
-        # Otherwise check normal setup
+        """Check if Gmail transport is ready - NO CACHING, makes real API call"""
         if not self.gmail_service:
             return False
         
-        if self._setup_verified:
+        try:
+            # Simple API call - just list 1 message
+            self.gmail_service.users().messages().list(userId='me', maxResults=1).execute()
             return True
-        
-        # Test by sending email to self
-        if self._test_email_to_self():
-            self._setup_verified = True
-            return True
-            
-        return False
+        except Exception:
+            return False
     
     def _setup_gmail(self) -> None:
         """Setup Gmail labels and filters for backend emails"""
@@ -334,8 +313,6 @@ class GmailTransport(BaseTransportLayer):
             
             # Check if it's an API not enabled error
             if "has not been used in project" in str(e) and "before or it is disabled" in str(e):
-                self._last_api_error = "API_NOT_ENABLED"
-                
                 if not in_repr:
                     print(f"\n⚠️  Gmail API is not enabled for your project!")
                     print("To fix this:")
@@ -498,12 +475,10 @@ class GmailTransport(BaseTransportLayer):
             Dictionary with 'success' (bool) and 'url' (str) if successful
         """
         if not self.gmail_service:
-            print("Gmail service not initialized")
+            print("Gmail service not initialized. Please authenticate first using client.auth()")
             return {"success": False, "error": "Gmail service not initialized"}
             
         try:
-            from datetime import datetime
-            
             # Send test email to self
             success = self.send(
                 recipient=self.email,
@@ -574,3 +549,130 @@ class GmailTransport(BaseTransportLayer):
         except Exception as e:
             print(f"❌ Gmail test failed: {e}")
             return {"success": False, "error": str(e)}
+    
+    # BaseTransport interface implementation
+    def add_peer(self, email: str, verbose: bool = True) -> bool:
+        """
+        Add a peer for Gmail transport
+        
+        For Gmail, this is always successful since we can send emails to any valid address.
+        We just validate the email format.
+        """
+        # Validate email format
+        if not email or '@' not in email or '.' not in email.split('@')[1]:
+            if verbose:
+                print(f"❌ Invalid email address: {email}")
+            return False
+        
+        # Gmail doesn't require any setup to send to a contact
+        if verbose:
+            print(f"✅ Peer {email} added for Gmail transport (no setup required)")
+        return True
+    
+    def remove_peer(self, email: str, verbose: bool = True) -> bool:
+        """
+        Remove a peer from Gmail transport
+        
+        For Gmail, this always succeeds since there's no persistent connection.
+        """
+        if verbose:
+            print(f"✅ Peer {email} removed from Gmail transport")
+        return True
+    
+    def list_peers(self) -> List[str]:
+        """
+        List contacts for Gmail transport
+        
+        Gmail doesn't maintain a separate peer list for transport purposes.
+        Returns empty list.
+        """
+        return []
+    
+    def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
+        """
+        Send a pre-prepared archive via Gmail
+        
+        Args:
+            archive_path: Path to the .syftmsg archive file
+            recipient: Email address to send to
+            message_id: Optional message ID for tracking
+        
+        Returns:
+            True if send was successful
+        """
+        try:
+            # Create email message
+            msg = MIMEMultipart()
+            msg['To'] = recipient
+            msg['From'] = self.email
+            msg['Subject'] = f"{self.BACKEND_PREFIX} Syft Message" + (f" [{message_id}]" if message_id else "")
+            
+            # Add body
+            body = f"This is a Syft message containing encrypted data.\nMessage ID: {message_id or 'N/A'}"
+            msg.attach(MIMEText(body, 'plain'))
+            
+            # Attach the archive file
+            import os
+            if not os.path.exists(archive_path):
+                print(f"❌ Archive not found: {archive_path}")
+                return False
+            
+            with open(archive_path, 'rb') as f:
+                part = MIMEBase('application', 'octet-stream')
+                part.set_payload(f.read())
+                encoders.encode_base64(part)
+                part.add_header(
+                    'Content-Disposition',
+                    f'attachment; filename={os.path.basename(archive_path)}'
+                )
+                msg.attach(part)
+            
+            # Send the email
+            raw_msg = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+            message_body = {'raw': raw_msg}
+            
+            if self._labels and self.BACKEND_LABEL in self._labels:
+                message_body['labelIds'] = [self._labels[self.BACKEND_LABEL]]
+            
+            result = self.gmail_service.users().messages().send(
+                userId='me',
+                body=message_body
+            ).execute()
+            
+            return bool(result.get('id'))
+            
+        except Exception as e:
+            print(f"❌ Failed to send via Gmail: {e}")
+            return False
+    
+    @property
+    def transport_name(self) -> str:
+        """Get the name of this transport"""
+        return "gmail"
+    
+    def is_available(self) -> bool:
+        """Check if Gmail transport is available"""
+        return self.is_setup()
+    
+    def get_peer_resource(self, email: str) -> Optional[Any]:
+        """
+        Get the resource associated with a peer for Gmail
+        
+        Gmail doesn't have persistent folders/resources like Drive,
+        so we return basic availability info
+        
+        Args:
+            email: Email address of the contact
+            
+        Returns:
+            PeerResource with email info
+        """
+        from ...sync.peer_resource import PeerResource
+        
+        return PeerResource(
+            peer_email=email,
+            transport_name=self.transport_name,
+            platform_name=getattr(self._platform_client, 'platform', 'google_org') if hasattr(self, '_platform_client') else 'google_org',
+            resource_type='email',
+            available=self.is_setup()
+        )
