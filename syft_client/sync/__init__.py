@@ -13,17 +13,17 @@ class SyncManager:
     
     def __init__(self, client: 'SyftClient'):
         self.client = client
-        self._contacts = None
+        self._peers = None
         self._sender = None
         self._paths = None
     
     @property
-    def contacts_manager(self):
-        """Lazy load ContactManager"""
-        if self._contacts is None:
-            from .contacts import ContactManager
-            self._contacts = ContactManager(self.client)
-        return self._contacts
+    def peers_manager(self):
+        """Lazy load PeerManager"""
+        if self._peers is None:
+            from .peers import PeerManager
+            self._peers = PeerManager(self.client)
+        return self._peers
     
     @property
     def sender(self):
@@ -41,24 +41,24 @@ class SyncManager:
             self._paths = PathResolver(self.client)
         return self._paths
     
-    # Contact management
+    # Peer management
     @property
-    def contacts(self) -> List[str]:
-        """List all contacts"""
-        return self.contacts_manager.contacts
+    def peers(self) -> List[str]:
+        """List all peers"""
+        return self.peers_manager.peers
     
-    def add_contact(self, email: str) -> bool:
-        """Add a contact for bidirectional communication"""
-        return self.contacts_manager.add_contact(email)
+    def add_peer(self, email: str) -> bool:
+        """Add a peer for bidirectional communication"""
+        return self.peers_manager.add_peer(email)
     
-    def remove_contact(self, email: str) -> bool:
-        """Remove a contact"""
-        return self.contacts_manager.remove_contact(email)
+    def remove_peer(self, email: str) -> bool:
+        """Remove a peer"""
+        return self.peers_manager.remove_peer(email)
     
     # Sending functionality
-    def send_to_contacts(self, path: str) -> Dict[str, bool]:
-        """Send file/folder to all contacts"""
-        return self.sender.send_to_contacts(path)
+    def send_to_peers(self, path: str) -> Dict[str, bool]:
+        """Send file/folder to all peers"""
+        return self.sender.send_to_peers(path)
     
     def send_to(self, path: str, recipient: str, requested_latency_ms: Optional[int] = None, priority: str = "normal") -> bool:
         """Send file/folder to specific recipient"""

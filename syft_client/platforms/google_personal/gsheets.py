@@ -278,17 +278,17 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         Check message sheets for new messages from contacts.
         
         Args:
-            contacts: List of contact emails to check (None = check all)
+            contacts: List of peer emails to check (None = check all)
             archive_messages: Whether to move messages to archive tab after reading
             
         Returns:
-            Dict mapping contact emails to list of messages
+            Dict mapping peer emails to list of messages
         """
         import base64
         
         # If no contacts specified, get all contacts
         if contacts is None:
-            contacts = self.list_contacts()
+            contacts = self.list_peers()
         
         if not contacts:
             return {}
@@ -296,13 +296,13 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         all_messages = {}
         my_email = self.email.replace('@', '_at_').replace('.', '_')
         
-        for contact_email in contacts:
+        for peer_email in contacts:
             try:
-                their_email = contact_email.replace('@', '_at_').replace('.', '_')
+                their_email = peer_email.replace('@', '_at_').replace('.', '_')
                 sheet_name = f"syft_{their_email}_to_{my_email}_messages"
                 
                 # Find the sheet
-                sheet_id = self._find_message_sheet(sheet_name, from_email=contact_email)
+                sheet_id = self._find_message_sheet(sheet_name, from_email=peer_email)
                 if not sheet_id:
                     continue
                 
@@ -342,15 +342,15 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                             print(f"   ⚠️  Failed to decode message {msg_id}: {e}")
                 
                 if messages:
-                    all_messages[contact_email] = messages
-                    print(f"📬 Received {len(messages)} message(s) from {contact_email}")
+                    all_messages[peer_email] = messages
+                    print(f"📬 Received {len(messages)} message(s) from {peer_email}")
                     
                     # Archive messages if requested
                     if archive_messages and rows_to_archive:
                         self._archive_sheet_messages(sheet_id, rows_to_archive)
                 
             except Exception as e:
-                print(f"⚠️  Error reading messages from {contact_email}: {e}")
+                print(f"⚠️  Error reading messages from {peer_email}: {e}")
         
         return all_messages
     
@@ -796,9 +796,9 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             return {"success": False, "error": str(e)}
     
     # BaseTransport interface implementation
-    def add_contact(self, email: str, verbose: bool = True) -> bool:
+    def add_peer(self, email: str, verbose: bool = True) -> bool:
         """
-        Add a contact for Google Sheets transport by creating message sheets.
+        Add a peer for Google Sheets transport by creating message sheets.
         
         Creates two message sheets following gdrive_unified.py pattern:
         - Outgoing: syft_{my_email}_to_{their_email}_messages
@@ -827,12 +827,12 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
         except Exception as e:
             if verbose:
-                print(f"❌ Failed to add contact {email} for Sheets: {e}")
+                print(f"❌ Failed to add peer {email} for Sheets: {e}")
             return False
     
-    def remove_contact(self, email: str, verbose: bool = True) -> bool:
+    def remove_peer(self, email: str, verbose: bool = True) -> bool:
         """
-        Remove a contact by revoking access to message sheets.
+        Remove a peer by revoking access to message sheets.
         """
         try:
             removed = False
@@ -866,7 +866,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                         print(f"⚠️  Could not revoke permissions: {e}")
             
             if verbose and removed:
-                print(f"✅ Contact {email} removed from Sheets transport")
+                print(f"✅ Peer {email} removed from Sheets transport")
             elif verbose:
                 print(f"ℹ️  No sheets found for {email}")
             
@@ -877,7 +877,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                 print(f"❌ Failed to remove contact: {e}")
             return False
     
-    def list_contacts(self) -> List[str]:
+    def list_peers(self) -> List[str]:
         """
         List contacts by scanning for message sheets.
         
@@ -1001,7 +1001,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
     # Legacy method for backward compatibility
     def _find_contact_sheet(self, email: str) -> Optional[Dict[str, Any]]:
         """
-        Legacy method - now we use message sheets instead of contact sheets.
+        Legacy method - now we use message sheets instead of peer sheets.
         Redirects to find outgoing message sheet.
         """
         my_email = self.email.replace('@', '_at_').replace('.', '_')
@@ -1021,15 +1021,15 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         """Check if Sheets transport is available"""
         return self.is_setup()
     
-    def get_contact_resource(self, email: str) -> Optional[Any]:
+    def get_peer_resource(self, email: str) -> Optional[Any]:
         """
         Get the message sheets associated with a contact.
         
-        Returns ContactResource with:
+        Returns PeerResource with:
         - outbox_inbox: Outgoing message sheet (syft_me_to_them_messages)
         - pending: Incoming message sheet (syft_them_to_me_messages)
         """
-        from ...sync.contact_resource import ContactResource
+        from ...sync.peer_resource import PeerResource
         
         my_email = self.email.replace('@', '_at_').replace('.', '_')
         their_email = email.replace('@', '_at_').replace('.', '_')
@@ -1060,9 +1060,9 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                 'type': 'incoming_messages'
             }
         
-        # Create ContactResource with both sheets
-        return ContactResource(
-            contact_email=email,
+        # Create PeerResource with both sheets
+        return PeerResource(
+            peer_email=email,
             transport_name=self.transport_name,
             platform_name=getattr(self._platform_client, 'platform', 'google_personal') if hasattr(self, '_platform_client') else 'google_personal',
             resource_type='message_sheets',
@@ -1071,3 +1071,59 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             outbox_inbox=outgoing_sheet,  # Outgoing messages
             pending=incoming_sheet  # Incoming messages
         )
+    
+    def check_peer_requests(self) -> List[str]:
+        """
+        Check for incoming peer requests by looking for shared message sheets
+        
+        Returns:
+            List of email addresses who have shared message sheets with us
+        """
+        if not self.is_setup():
+            return []
+        
+        try:
+            # Get our email
+            my_email = self.email
+            if not my_email:
+                return []
+            
+            pending_requests = set()
+            existing_contacts = set(self.list_peers())
+            
+            # Search for shared message sheets
+            query = f"sharedWithMe=true and name contains 'syft_' and name contains '_messages' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+            
+            results = self.sheets_service.files().list(
+                q=query,
+                fields="files(id, name, owners)",
+                pageSize=1000
+            ).execute()
+            
+            shared_sheets = results.get('files', [])
+            
+            # Check each shared sheet
+            for sheet in shared_sheets:
+                name = sheet['name']
+                
+                # Check if it follows syft message sheet pattern: syft_{sender}_to_{receiver}_messages
+                if '_to_' in name and name.startswith('syft_') and name.endswith('_messages'):
+                    parts = name.replace('_messages', '').split('_to_')
+                    if len(parts) == 2:
+                        sender = parts[0].replace('syft_', '')
+                        receiver = parts[1]
+                        
+                        # If they're sharing with us and not already a contact
+                        if receiver == my_email and sender not in existing_contacts:
+                            # Verify it's from the owner
+                            owners = sheet.get('owners', [])
+                            for owner in owners:
+                                if owner.get('emailAddress', '').lower() == sender.lower():
+                                    pending_requests.add(sender)
+                                    break
+            
+            return sorted(list(pending_requests))
+            
+        except Exception as e:
+            # Silently fail - peer request checking is optional
+            return []

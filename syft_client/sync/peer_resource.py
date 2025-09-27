@@ -1,5 +1,5 @@
 """
-Contact resource model for transport-specific resources
+Peer resource model for transport-specific resources
 """
 
 from dataclasses import dataclass
@@ -7,10 +7,10 @@ from typing import Dict, Any, Optional, List
 
 
 @dataclass
-class ContactResource:
-    """Represents a contact's resources on a specific transport"""
+class PeerResource:
+    """Represents a peer's resources on a specific transport"""
     
-    contact_email: str
+    peer_email: str
     transport_name: str
     platform_name: str
     
@@ -41,7 +41,7 @@ class ContactResource:
         return folders
     
     def __repr__(self) -> str:
-        """Rich representation of contact resources"""
+        """Rich representation of peer resources"""
         from rich.console import Console
         from rich.table import Table
         from rich.panel import Panel
@@ -55,7 +55,7 @@ class ContactResource:
         table.add_column("", no_wrap=False)
         
         # Header
-        table.add_row(f"[bold cyan]Contact:[/bold cyan] {self.contact_email}")
+        table.add_row(f"[bold cyan]Peer:[/bold cyan] {self.peer_email}")
         table.add_row(f"[bold cyan]Transport:[/bold cyan] {self.platform_name}.{self.transport_name}")
         
         if self.has_folders:
@@ -84,7 +84,7 @@ class ContactResource:
                     for perm in permissions:
                         email = perm.get('emailAddress', 'Unknown')
                         role = perm.get('role', 'Unknown')
-                        if email != self.contact_email:  # Don't show owner
+                        if email != self.peer_email:  # Don't show owner
                             table.add_row(f"     • {email} ({role})")
             
             if self.archive:
@@ -112,4 +112,4 @@ class ContactResource:
         return string_buffer.getvalue().strip()
 
 
-__all__ = ['ContactResource']
+__all__ = ['PeerResource']

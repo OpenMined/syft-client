@@ -12,7 +12,7 @@ from .transport_capabilities import (
     get_transport_capabilities,
     TRANSPORT_CAPABILITIES
 )
-from .contact_model import Contact
+from .peer_model import Peer
 
 if TYPE_CHECKING:
     from ..syft_client import SyftClient
@@ -38,7 +38,7 @@ class TransportNegotiator:
         
     def select_transport(
         self,
-        contact: Contact,
+        peer: Peer,
         file_size: int,
         requested_latency_ms: Optional[int] = None,
         priority: str = "normal"
@@ -47,7 +47,7 @@ class TransportNegotiator:
         Select the best transport for sending to a contact
         
         Args:
-            contact: The contact to send to
+            peer: The peer to send to
             file_size: Size of the file in bytes
             requested_latency_ms: Desired latency in milliseconds
             priority: "urgent", "normal", or "background"
@@ -62,18 +62,18 @@ class TransportNegotiator:
             priority=priority
         )
         
-        # Get available transports for this contact
-        available_transports = self._get_available_transports(contact)
+        # Get available transports for this peer
+        available_transports = self._get_available_transports(peer)
         
         if not available_transports:
             if self.client.verbose:
-                print(f"⚠️  No available transports for {contact.email}")
+                print(f"⚠️  No available transports for {peer.email}")
             return None
         
         # Score each transport
         scores = []
         for transport_name in available_transports:
-            score = self._score_transport(transport_name, contact, requirements)
+            score = self._score_transport(transport_name, peer, requirements)
             if score:
                 scores.append(score)
         
@@ -87,7 +87,7 @@ class TransportNegotiator:
         
         # Log decision if verbose
         if self.client.verbose:
-            print(f"\n🔄 Transport negotiation for {contact.email}:")
+            print(f"\n🔄 Transport negotiation for {peer.email}:")
             print(f"   File size: {self._format_size(file_size)}")
             if requested_latency_ms:
                 print(f"   Requested latency: {requested_latency_ms}ms")
@@ -105,8 +105,8 @@ class TransportNegotiator:
         
         return best.transport_name
     
-    def _get_available_transports(self, contact: Contact) -> List[str]:
-        """Get list of transports available for both us and the contact"""
+    def _get_available_transports(self, peer: Peer) -> List[str]:
+        """Get list of transports available for both us and the peer"""
         # Get our available transports
         our_transports = set()
         
@@ -121,16 +121,16 @@ class TransportNegotiator:
                             # This looks like a transport with send_to method
                             our_transports.add(attr_name)
         
-        # Get contact's available transports
-        contact_transports = set(contact.available_transports.keys())
+        # Get peer's available transports
+        peer_transports = set(peer.available_transports.keys())
         
         # Return intersection (transports both parties have)
-        return list(our_transports & contact_transports)
+        return list(our_transports & peer_transports)
     
     def _score_transport(
         self, 
         transport_name: str, 
-        contact: Contact,
+        peer: Peer,
         requirements: TransportRequirements
     ) -> Optional[TransportScore]:
         """Score a transport based on how well it meets requirements"""
@@ -148,14 +148,14 @@ class TransportNegotiator:
         
         # 1. Latency scoring (40% weight)
         latency_score = self._score_latency(
-            transport_name, contact, requirements, capabilities
+            transport_name, peer, requirements, capabilities
         )
         score += latency_score['score'] * 0.4
         reasons.extend(latency_score['reasons'])
         estimated_latency = latency_score['estimated_latency']
         
         # 2. Reliability scoring (30% weight) 
-        reliability_score = self._score_reliability(transport_name, contact)
+        reliability_score = self._score_reliability(transport_name, peer)
         score += reliability_score['score'] * 0.3
         reasons.extend(reliability_score['reasons'])
         
@@ -167,7 +167,7 @@ class TransportNegotiator:
         reasons.extend(efficiency_score['reasons'])
         
         # 4. Recency scoring (10% weight)
-        recency_score = self._score_recency(transport_name, contact)
+        recency_score = self._score_recency(transport_name, peer)
         score += recency_score['score'] * 0.1
         reasons.extend(recency_score['reasons'])
         
@@ -181,7 +181,7 @@ class TransportNegotiator:
     def _score_latency(
         self, 
         transport_name: str,
-        contact: Contact,
+        peer: Peer,
         requirements: TransportRequirements,
         capabilities: TransportCapabilities
     ) -> Dict:
@@ -190,8 +190,8 @@ class TransportNegotiator:
         reasons = []
         
         # Get historical latency if available
-        if transport_name in contact.transport_stats:
-            stats = contact.transport_stats[transport_name]
+        if transport_name in peer.transport_stats:
+            stats = peer.transport_stats[transport_name]
             if stats.success_count > 0:
                 estimated_latency = stats.avg_latency_ms
                 reasons.append(f"Historical avg: {estimated_latency:.0f}ms")
@@ -236,13 +236,13 @@ class TransportNegotiator:
             'estimated_latency': estimated_latency
         }
     
-    def _score_reliability(self, transport_name: str, contact: Contact) -> Dict:
+    def _score_reliability(self, transport_name: str, peer: Peer) -> Dict:
         """Score based on historical reliability"""
         score = 0.5  # Default for unknown
         reasons = []
         
-        if transport_name in contact.transport_stats:
-            stats = contact.transport_stats[transport_name]
+        if transport_name in peer.transport_stats:
+            stats = peer.transport_stats[transport_name]
             total = stats.success_count + stats.failure_count
             
             if total > 0:
@@ -265,8 +265,8 @@ class TransportNegotiator:
                 reasons.append("No history - using default")
         else:
             # Bonus for verified transports
-            if transport_name in contact.available_transports:
-                if contact.available_transports[transport_name].verified:
+            if transport_name in peer.available_transports:
+                if peer.available_transports[transport_name].verified:
                     score = 0.7
                     reasons.append("Verified transport")
                 else:
@@ -329,13 +329,13 @@ class TransportNegotiator:
         
         return {'score': score, 'reasons': reasons}
     
-    def _score_recency(self, transport_name: str, contact: Contact) -> Dict:
+    def _score_recency(self, transport_name: str, peer: Peer) -> Dict:
         """Score based on how recently the transport was used successfully"""
         score = 0.5
         reasons = []
         
-        if transport_name in contact.transport_stats:
-            stats = contact.transport_stats[transport_name]
+        if transport_name in peer.transport_stats:
+            stats = peer.transport_stats[transport_name]
             if stats.last_success:
                 # Calculate hours since last success
                 hours_ago = (time.time() - stats.last_success.timestamp()) / 3600

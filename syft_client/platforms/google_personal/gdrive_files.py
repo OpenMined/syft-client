@@ -478,7 +478,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             print(f"❌ Google Drive test failed: {e}")
             return {"success": False, "error": str(e)}
     
-    # Contact Management Methods (implementing BaseTransport interface)
+    # Peer Management Methods (implementing BaseTransport interface)
     
     @property
     def transport_name(self) -> str:
@@ -514,7 +514,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             
             if not outbox_id:
                 if self.verbose:
-                    print(f"❌ No outbox folder found for {recipient}. Add them as a contact first.")
+                    print(f"❌ No outbox folder found for {recipient}. Add them as a peer first.")
                 return False
             
             # Read the archive file
@@ -554,9 +554,9 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 print(f"Error sending via Google Drive: {e}")
             return False
     
-    def add_contact(self, email: str, verbose: bool = True) -> bool:
+    def add_peer(self, email: str, verbose: bool = True) -> bool:
         """
-        Add a contact by setting up bidirectional communication folders in Google Drive
+        Add a peer by setting up bidirectional communication folders in Google Drive
         
         This method:
         1. Creates your outgoing channel to them (pending and outbox_inbox folders)
@@ -564,11 +564,11 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         3. Sets up the folder structure for communication
         
         Args:
-            email: Email address of the contact to add
+            email: Email address of the peer to add
             verbose: Whether to print status messages
             
         Returns:
-            True if contact was successfully added, False otherwise
+            True if peer was successfully added, False otherwise
         """
         if not self.is_setup():
             if verbose:
@@ -599,21 +599,21 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 return False
             
             if verbose:
-                print(f"✅ Added {email} as a contact!")
+                print(f"✅ Added {email} as a peer!")
                 print(f"   📤 Your outgoing channel is ready")
                 print(f"   📥 Your incoming archive is ready")
-                print(f"\n💡 Ask {email} to run: client.add_contact('{self.email}')")
+                print(f"\n💡 Ask {email} to run: client.add_peer('{self.email}')")
             
             return True
             
         except Exception as e:
             if verbose:
-                print(f"❌ Error adding contact: {e}")
+                print(f"❌ Error adding peer: {e}")
             return False
     
-    def remove_contact(self, email: str, verbose: bool = True) -> bool:
+    def remove_peer(self, email: str, verbose: bool = True) -> bool:
         """
-        Remove a contact by revoking their access to communication folders
+        Remove a peer by revoking their access to communication folders
         
         This revokes access to:
         1. The outbox_inbox folder (where you send messages)
@@ -622,11 +622,11 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         Note: This doesn't delete the folders, just removes their access
         
         Args:
-            email: Email address of the contact to remove
+            email: Email address of the peer to remove
             verbose: Whether to print status messages
             
         Returns:
-            True if contact was successfully removed, False otherwise
+            True if peer was successfully removed, False otherwise
         """
         if not self.is_setup():
             if verbose:
@@ -702,17 +702,17 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             
         except Exception as e:
             if verbose:
-                print(f"❌ Error removing contact: {e}")
+                print(f"❌ Error removing peer: {e}")
             return False
     
-    def list_contacts(self) -> List[str]:
+    def list_peers(self) -> List[str]:
         """
-        List all contacts by scanning for outbox folders in SyftBox
+        List all peers by scanning for outbox folders in SyftBox
         
         Looks for folders with pattern: syft_{my_email}_to_{their_email}_outbox_inbox
         
         Returns:
-            List of email addresses that are contacts on this transport
+            List of email addresses that are peers on this transport
         """
         if not self.is_setup():
             return []
@@ -752,29 +752,29 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             
         except Exception as e:
             if self.verbose:
-                print(f"Error listing contacts: {e}")
+                print(f"Error listing peers: {e}")
             return []
     
     def is_available(self) -> bool:
         """Check if this transport is currently available and authenticated"""
         return self.is_setup()
     
-    def get_contact_resource(self, email: str) -> Optional[Any]:
+    def get_peer_resource(self, email: str) -> Optional[Any]:
         """
-        Get all folders associated with a contact
+        Get all folders associated with a peer
         
-        This returns a ContactResource object containing all three folders:
+        This returns a PeerResource object containing all three folders:
         - Pending folder (private)
-        - Outbox/Inbox folder (shared with contact) 
+        - Outbox/Inbox folder (shared with peer) 
         - Archive folder (for processed messages)
         
         Args:
-            email: Email address of the contact
+            email: Email address of the peer
             
         Returns:
-            ContactResource object or None if no folders found
+            PeerResource object or None if no folders found
         """
-        from ...sync.contact_resource import ContactResource
+        from ...sync.peer_resource import PeerResource
         
         # Ensure we have SyftBox folder
         self._ensure_syftbox_folder()
@@ -806,10 +806,10 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         if not folders_found:
             return None
         
-        return ContactResource(
-            contact_email=email,
+        return PeerResource(
+            peer_email=email,
             transport_name=self.transport_name,
-            platform_name=getattr(self._platform_client, 'platform', 'google_personal') if hasattr(self, '_platform_client') else 'google_personal',
+            platform_name=getattr(self._platform_client, 'platform', 'google_org') if hasattr(self, '_platform_client') else 'google_org',
             pending=pending_folder,
             outbox_inbox=outbox_folder,
             archive=archive_folder,
@@ -817,7 +817,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             available=True
         )
     
-    # Helper methods for contact management
+    # Helper methods for peer management
     
     def _ensure_syftbox_folder(self) -> None:
         """Ensure the main SyftBox folder exists"""
@@ -1075,23 +1075,23 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         except:
             return None
     
-    def _ensure_contacts_folder(self) -> Optional[Dict[str, Any]]:
-        """Ensure contacts folder exists and return it"""
+    def _ensure_peers_folder(self) -> Optional[Dict[str, Any]]:
+        """Ensure peers folder exists and return it"""
         try:
             self._ensure_syftbox_folder()
             parent_id = self._syftbox_folder_id or 'root'
             
-            # Search for existing contacts folder
-            query = f"name='contacts' and mimeType='application/vnd.google-apps.folder' and '{parent_id}' in parents and trashed=false"
+            # Search for existing peers folder
+            query = f"name='peers' and mimeType='application/vnd.google-apps.folder' and '{parent_id}' in parents and trashed=false"
             results = self.drive_service.files().list(q=query, fields="files(id, name)").execute()
             items = results.get('files', [])
             
             if items:
                 return items[0]
             else:
-                # Create contacts folder
+                # Create peers folder
                 file_metadata = {
-                    'name': 'contacts',
+                    'name': 'peers',
                     'mimeType': 'application/vnd.google-apps.folder',
                     'parents': [parent_id]
                 }
@@ -1102,15 +1102,15 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         except:
             return None
     
-    def _find_contacts_folder(self) -> Optional[Dict[str, Any]]:
-        """Find the contacts folder"""
+    def _find_peers_folder(self) -> Optional[Dict[str, Any]]:
+        """Find the peers folder"""
         try:
             # Search in SyftBox folder first
             if self._syftbox_folder_id:
-                query = f"name='contacts' and mimeType='application/vnd.google-apps.folder' and '{self._syftbox_folder_id}' in parents and trashed=false"
+                query = f"name='peers' and mimeType='application/vnd.google-apps.folder' and '{self._syftbox_folder_id}' in parents and trashed=false"
             else:
                 # Search anywhere
-                query = "name='contacts' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+                query = "name='peers' and mimeType='application/vnd.google-apps.folder' and trashed=false"
                 
             results = self.drive_service.files().list(q=query, fields="files(id, name)").execute()
             items = results.get('files', [])
@@ -1118,12 +1118,12 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         except:
             return None
     
-    def _find_contact_folder(self, contact_identifier: str) -> Optional[Dict[str, Any]]:
+    def _find_peer_folder(self, peer_identifier: str) -> Optional[Dict[str, Any]]:
         """
-        Find a contact's outbox folder in the new structure
+        Find a peer's outbox folder in the new structure
         
         Args:
-            contact_identifier: Email address of the contact
+            peer_identifier: Email address of the peer
             
         Returns:
             Folder dict with 'id', 'name', 'url' or None if not found
@@ -1135,7 +1135,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 return None
                 
             # Look for outbox folder
-            folder_name = f"syft_{self.email}_to_{contact_identifier}_outbox_inbox"
+            folder_name = f"syft_{self.email}_to_{peer_identifier}_outbox_inbox"
             
             # Search for the specific folder
             query = f"name='{folder_name}' and '{self._syftbox_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -1156,6 +1156,67 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             
         except Exception as e:
             if self.verbose:
-                print(f"Error finding contact folder: {e}")
+                print(f"Error finding peer folder: {e}")
             return None
+    
+    def check_peer_requests(self) -> List[str]:
+        """
+        Check for incoming peer requests by looking for shared folders
+        
+        Returns:
+            List of email addresses who have shared folders with us
+        """
+        if not self.is_setup():
+            return []
+        
+        try:
+            # Get our email
+            my_email = self.email
+            if not my_email:
+                return []
+            
+            pending_requests = set()
+            existing_contacts = set(self.list_peers())
+            
+            # Search for syft folders shared with us
+            query = f"sharedWithMe=true and name contains 'syft_' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            
+            results = self.drive_service.files().list(
+                q=query,
+                fields="files(id, name, owners)",
+                pageSize=1000
+            ).execute()
+            
+            shared_folders = results.get('files', [])
+            
+            # Check each shared folder
+            for folder in shared_folders:
+                name = folder['name']
+                
+                # Check if it follows syft folder pattern
+                if '_to_' in name and name.startswith('syft_'):
+                    parts = name.split('_to_')
+                    if len(parts) == 2:
+                        sender = parts[0].replace('syft_', '')
+                        recipient_with_suffix = parts[1]
+                        
+                        # Remove suffixes to get clean email
+                        recipient = recipient_with_suffix
+                        for suffix in ['_outbox_inbox', '_outbox', '_pending', '_archive']:
+                            recipient = recipient.replace(suffix, '')
+                        
+                        # If they're sharing with us and not already a contact
+                        if recipient == my_email and sender not in existing_contacts:
+                            # Verify it's from the owner
+                            owners = folder.get('owners', [])
+                            for owner in owners:
+                                if owner.get('emailAddress', '').lower() == sender.lower():
+                                    pending_requests.add(sender)
+                                    break
+            
+            return sorted(list(pending_requests))
+            
+        except Exception as e:
+            # Silently fail - peer request checking is optional
+            return []
     

@@ -25,12 +25,12 @@ class BaseTransport(ABC):
         pass
     
     @abstractmethod
-    def add_contact(self, email: str, verbose: bool = True) -> bool:
+    def add_peer(self, email: str, verbose: bool = True) -> bool:
         """
         Add a contact for this transport
         
         Args:
-            email: Email address of the contact to add
+            email: Email address of the peer to add
             verbose: Whether to print status messages
             
         Returns:
@@ -39,12 +39,12 @@ class BaseTransport(ABC):
         pass
     
     @abstractmethod
-    def remove_contact(self, email: str, verbose: bool = True) -> bool:
+    def remove_peer(self, email: str, verbose: bool = True) -> bool:
         """
-        Remove a contact from this transport
+        Remove a peer from this transport
         
         Args:
-            email: Email address of the contact to remove
+            email: Email address of the peer to remove
             verbose: Whether to print status messages
             
         Returns:
@@ -53,7 +53,7 @@ class BaseTransport(ABC):
         pass
     
     @abstractmethod
-    def list_contacts(self) -> list[str]:
+    def list_peers(self) -> list[str]:
         """
         List all contacts for this transport
         
@@ -72,7 +72,7 @@ class BaseTransport(ABC):
         """Check if this transport is currently available and authenticated"""
         return True
     
-    def get_contact_resource(self, email: str) -> Optional[dict]:
+    def get_peer_resource(self, email: str) -> Optional[dict]:
         """
         Get the resource (folder, sheet, etc.) associated with a contact
         

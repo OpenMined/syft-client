@@ -1,5 +1,5 @@
 """
-Contact model with transport capabilities tracking
+Peer model with transport capabilities tracking
 """
 
 from dataclasses import dataclass, field, asdict
@@ -11,7 +11,7 @@ from pathlib import Path
 
 @dataclass
 class TransportEndpoint:
-    """Information about a specific transport endpoint for a contact"""
+    """Information about a specific transport endpoint for a peer"""
     transport_name: str  # "gdrive_files", "gsheets", "gmail", etc.
     verified: bool = False  # Have we successfully used this?
     last_verified: Optional[datetime] = None
@@ -89,8 +89,8 @@ class TransportStats:
 
 
 @dataclass
-class Contact:
-    """Represents a contact with their transport capabilities"""
+class Peer:
+    """Represents a peer with their transport capabilities"""
     email: str
     platform: Optional[str] = None  # "google_org", "microsoft", etc.
     
@@ -107,7 +107,7 @@ class Contact:
     transport_stats: Dict[str, TransportStats] = field(default_factory=dict)
     
     def add_transport(self, transport_name: str, endpoint_data: Optional[Dict[str, Any]] = None):
-        """Add a transport capability to this contact"""
+        """Add a transport capability to this peer"""
         self.available_transports[transport_name] = TransportEndpoint(
             transport_name=transport_name,
             endpoint_data=endpoint_data or {}
@@ -158,7 +158,7 @@ class Contact:
         }
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Contact':
+    def from_dict(cls, data: Dict[str, Any]) -> 'Peer':
         """Create from dictionary"""
         # Parse dates
         if data.get('capabilities_last_updated'):
@@ -185,15 +185,15 @@ class Contact:
         return cls(**data)
     
     def save(self, directory: Path):
-        """Save contact to disk"""
+        """Save peer to disk"""
         directory.mkdir(parents=True, exist_ok=True)
         file_path = directory / f"{self.email.replace('@', '_at_').replace('.', '_')}.json"
         with open(file_path, 'w') as f:
             json.dump(self.to_dict(), f, indent=2)
     
     @classmethod
-    def load(cls, file_path: Path) -> 'Contact':
-        """Load contact from disk"""
+    def load(cls, file_path: Path) -> 'Peer':
+        """Load peer from disk"""
         with open(file_path, 'r') as f:
             data = json.load(f)
         return cls.from_dict(data)
@@ -202,11 +202,11 @@ class Contact:
     def platforms(self):
         """Access transport resources through platform hierarchy"""
         class PlatformAccess:
-            def __init__(self, contact):
-                self.contact = contact
-                self._client = getattr(contact, '_client', None)
+            def __init__(self, peer):
+                self.peer = peer
+                self._client = getattr(peer, '_client', None)
                 if not self._client:
-                    raise ValueError("Contact must be accessed through client.contacts to use platforms")
+                    raise ValueError("Peer must be accessed through client.peers to use platforms")
             
             def __getattr__(self, platform_name):
                 # Check if platform exists
@@ -215,8 +215,8 @@ class Contact:
                 
                 # Return transport accessor for this platform
                 class TransportAccess:
-                    def __init__(self, contact, platform, platform_name):
-                        self.contact = contact
+                    def __init__(self, peer, platform, platform_name):
+                        self.peer = peer
                         self.platform = platform
                         self.platform_name = platform_name
                     
@@ -227,17 +227,67 @@ class Contact:
                         
                         transport = getattr(self.platform, transport_name)
                         
-                        # Dynamically call get_contact_resource if it exists
-                        if hasattr(transport, 'get_contact_resource'):
-                            return transport.get_contact_resource(self.contact.email)
+                        # Create a transport stub that can be used to setup or get resources
+                        class TransportStub:
+                            def __init__(self, transport_obj, peer_email, platform_name, transport_name):
+                                self._transport = transport_obj
+                                self._peer_email = peer_email
+                                self._platform_name = platform_name
+                                self._transport_name = transport_name
+                                self._resource = None
+                                
+                                # Try to get resource if transport has the method
+                                if hasattr(transport_obj, 'get_peer_resource'):
+                                    self._resource = transport_obj.get_peer_resource(peer_email)
+                            
+                            def setup(self):
+                                """Set up the communication channel with this peer on this transport"""
+                                # For peer transport setup, we need to create the shared resources
+                                # This means calling add_peer for this specific transport
+                                if hasattr(self._transport, 'add_peer'):
+                                    try:
+                                        # Add this peer on this specific transport
+                                        result = self._transport.add_peer(self._peer_email, verbose=True)
+                                        if result:
+                                            # Update the peer's verified transports
+                                            # Get the peer object through the client
+                                            if hasattr(self._transport, '_platform_client'):
+                                                client = getattr(self._transport._platform_client, '_client', None)
+                                                if client and hasattr(client, 'sync'):
+                                                    peer_obj = client.sync.peers_manager.get_peer(self._peer_email)
+                                                    if peer_obj:
+                                                        peer_obj.add_transport(self._transport_name)
+                                                        peer_obj.verify_transport(self._transport_name)
+                                                        client.sync.peers_manager._save_peer(peer_obj)
+                                        return result
+                                    except Exception as e:
+                                        print(f"❌ Error setting up {self._transport_name} for {self._peer_email}: {e}")
+                                        return False
+                                else:
+                                    print(f"❌ Transport {self._transport_name} does not support peer setup")
+                                    return False
+                            
+                            def is_setup(self):
+                                """Check if transport is setup"""
+                                if hasattr(self._transport, 'is_setup'):
+                                    return self._transport.is_setup()
+                                return False
+                            
+                            def __getattr__(self, name):
+                                # If we have a resource, delegate to it
+                                if self._resource and hasattr(self._resource, name):
+                                    return getattr(self._resource, name)
+                                # Otherwise delegate to the transport
+                                return getattr(self._transport, name)
+                            
+                            def __repr__(self):
+                                if self._resource:
+                                    return repr(self._resource)
+                                else:
+                                    setup_status = "setup" if self.is_setup() else "not setup"
+                                    return f"<TransportStub {self._platform_name}.{self._transport_name} ({setup_status}) for {self._peer_email}>"
                         
-                        # If transport doesn't have resource lookup methods, return basic info
-                        return {
-                            'email': self.contact.email,
-                            'transport': transport_name,
-                            'platform': self.platform_name,
-                            'available': hasattr(transport, 'is_setup') and transport.is_setup()
-                        }
+                        return TransportStub(transport, self.peer.email, self.platform_name, transport_name)
                     
                     def __dir__(self):
                         """List available transports"""
@@ -272,15 +322,15 @@ class Contact:
                         table.add_column("", no_wrap=False)
                         
                         # Add each transport with its resource status
-                        # Only show transports that are in the contact's available_transports
+                        # Only show transports that are in the peer's available_transports
                         for transport_name in sorted(self.__dir__()):
-                            if hasattr(self.platform, transport_name) and transport_name in self.contact.available_transports:
+                            if hasattr(self.platform, transport_name) and transport_name in self.peer.available_transports:
                                 try:
                                     resource = getattr(self, transport_name)
                                     
-                                    # Check if it's a ContactResource object
-                                    if resource and hasattr(resource, '__class__') and resource.__class__.__name__ == 'ContactResource':
-                                        # Handle ContactResource objects
+                                    # Check if it's a PeerResource object
+                                    if resource and hasattr(resource, '__class__') and resource.__class__.__name__ == 'PeerResource':
+                                        # Handle PeerResource objects
                                         if resource.available:
                                             status = f"[green]✓[/green] [cyan].{transport_name}[/cyan]"
                                             # Add resource type if not default
@@ -315,7 +365,7 @@ class Contact:
                                         else:
                                             status = f"[red]✗[/red] [dim].{transport_name}[/dim] [dim](not available)[/dim]"
                                     else:
-                                        # Resource is None or not a dict/ContactResource
+                                        # Resource is None or not a dict/PeerResource
                                         status = f"[red]✗[/red] [dim].{transport_name}[/dim] [dim](no resource)[/dim]"
                                 except Exception as e:
                                     status = f"[yellow]?[/yellow] [dim].{transport_name}[/dim] [dim](error: {str(e)[:20]}...)[/dim]"
@@ -324,7 +374,7 @@ class Contact:
                         
                         panel = Panel(
                             table,
-                            title=f"{self.platform_name} Resources for {self.contact.email}",
+                            title=f"{self.platform_name} Resources for {self.peer.email}",
                             expand=False,
                             width=80
                         )
@@ -332,7 +382,7 @@ class Contact:
                         console.print(panel)
                         return string_buffer.getvalue().strip()
                 
-                return TransportAccess(self.contact, self._client._platforms[platform_name], platform_name)
+                return TransportAccess(self.peer, self._client._platforms[platform_name], platform_name)
             
             def __dir__(self):
                 """List available platforms"""
@@ -376,7 +426,7 @@ class Contact:
                 
                 panel = Panel(
                     table,
-                    title=f"Platforms for {self.contact.email}",
+                    title=f"Platforms for {self.peer.email}",
                     expand=False,
                     width=80
                 )
@@ -401,7 +451,7 @@ class Contact:
         main_table = Table(show_header=False, show_edge=False, box=None, padding=0)
         main_table.add_column("", no_wrap=False)
         
-        # Add contact info
+        # Add peer info
         main_table.add_row(f"[bold cyan]Email:[/bold cyan] {self.email}")
         if self.platform:
             main_table.add_row(f"[bold cyan]Platform:[/bold cyan] {self.platform}")
@@ -509,7 +559,7 @@ class Contact:
         # Create panel
         panel = Panel(
             main_table,
-            title=f"Contact: {self.email.split('@')[0]}",
+            title=f"Peer: {self.email.split('@')[0]}",
             expand=False,
             width=80,
             padding=(1, 2)
@@ -522,4 +572,4 @@ class Contact:
         return output.strip()
 
 
-__all__ = ['Contact', 'TransportEndpoint', 'TransportStats']
+__all__ = ['Peer', 'TransportEndpoint', 'TransportStats']

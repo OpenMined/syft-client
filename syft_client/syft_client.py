@@ -296,24 +296,24 @@ class SyftClient:
     
     @property
     def sync(self):
-        """Lazy-loaded sync manager for messaging and contact management"""
+        """Lazy-loaded sync manager for messaging and peer management"""
         if self._sync is None:
             from .sync import SyncManager
             self._sync = SyncManager(self)
         return self._sync
     
     # High-level sync API methods
-    def send_to_contacts(self, path: str) -> Dict[str, bool]:
+    def send_to_peers(self, path: str) -> Dict[str, bool]:
         """
-        Send file/folder to all contacts
+        Send file/folder to all peers
         
         Args:
             path: Path to file/folder (supports syft:// URLs)
             
         Returns:
-            Dict mapping contact emails to success status
+            Dict mapping peer emails to success status
         """
-        return self.sync.send_to_contacts(path)
+        return self.sync.send_to_peers(path)
     
     def send_to(self, path: str, recipient: str, requested_latency_ms: Optional[int] = None, priority: str = "normal") -> bool:
         """
@@ -330,89 +330,263 @@ class SyftClient:
         """
         return self.sync.send_to(path, recipient, requested_latency_ms, priority)
     
-    def add_contact(self, email: str) -> bool:
+    def add_peer(self, email: str) -> bool:
         """
-        Add a contact for bidirectional communication
+        Add a peer for bidirectional communication
         
         Args:
-            email: Email address to add as contact
+            email: Email address to add as peer
             
         Returns:
             True if successful
         """
-        return self.sync.add_contact(email)
+        return self.sync.add_peer(email)
+    
+    def check_peer_requests(self) -> Dict[str, List]:
+        """
+        Check all transports for incoming peer requests
+        
+        Returns:
+            Dictionary mapping platform.transport to list of PeerRequest objects
+        """
+        return self.sync.peers_manager.check_all_peer_requests(verbose=True)
     
     @property
-    def contacts(self):
-        """Access contacts with list and dict-style indexing"""
-        class ContactsProperty:
+    def peers(self):
+        """Access peers with list and dict-style indexing"""
+        class PeersProperty:
             def __init__(self, sync_manager, client):
                 self._sync = sync_manager
                 self._client = client  # Store reference to the client
             
             def __getitem__(self, key):
                 if isinstance(key, int):
-                    # List-style access: contacts[0]
-                    contact_list = self._sync.contacts
-                    if 0 <= key < len(contact_list):
-                        email = contact_list[key]
-                        contact = self._sync.contacts_manager.get_contact(email)
-                        if contact:
+                    # List-style access: peers[0]
+                    peer_list = self._sync.peers
+                    if 0 <= key < len(peer_list):
+                        email = peer_list[key]
+                        peer = self._sync.peers_manager.get_peer(email)
+                        if peer:
                             # Inject client reference
-                            contact._client = self._client
-                        return contact
+                            peer._client = self._client
+                        return peer
                     else:
-                        raise IndexError(f"Contact index {key} out of range")
+                        raise IndexError(f"Peer index {key} out of range")
                 elif isinstance(key, str):
-                    # Dict-style access: contacts['email@example.com']
-                    contact = self._sync.contacts_manager.get_contact(key)
-                    if contact is None:
-                        raise KeyError(f"Contact '{key}' not found")
+                    # Dict-style access: peers['email@example.com']
+                    peer = self._sync.peers_manager.get_peer(key)
+                    if peer is None:
+                        raise KeyError(f"Peer '{key}' not found")
                     # Inject client reference
-                    contact._client = self._client
-                    return contact
+                    peer._client = self._client
+                    return peer
                 else:
                     raise TypeError(f"Invalid key type: {type(key)}")
             
             def __len__(self):
-                return len(self._sync.contacts)
+                return len(self._sync.peers)
             
             def __iter__(self):
-                # Allow iteration over contact emails
-                return iter(self._sync.contacts)
+                # Allow iteration over peer emails
+                return iter(self._sync.peers)
             
             def list(self):
-                """Get list of contact emails"""
-                return self._sync.contacts
+                """Get list of peer emails"""
+                return self._sync.peers
             
             def all(self):
-                """Get all contact objects"""
-                return [self._sync.contacts_manager.get_contact(email) 
-                        for email in self._sync.contacts]
+                """Get all peer objects"""
+                return [self._sync.peers_manager.get_peer(email) 
+                        for email in self._sync.peers]
             
             def clear_caches(self):
-                """Clear all contact caches and force re-detection from online sources"""
-                return self._sync.contacts_manager.clear_all_caches()
+                """Clear all peer caches and force re-detection from online sources"""
+                return self._sync.peers_manager.clear_all_caches()
+            
+            @property
+            def requests(self):
+                """Access peer requests"""
+                class PeerRequestsProperty:
+                    def __init__(self, sync_manager):
+                        self._sync = sync_manager
+                        self._requests_cache = None
+                    
+                    def _get_all_requests(self):
+                        """Get all peer requests organized by email"""
+                        if self._requests_cache is None:
+                            try:
+                                requests_data = self._sync.peers_manager.check_all_peer_requests(verbose=False)
+                                # Group by email
+                                by_email = {}
+                                for transport_key, reqs in requests_data.items():
+                                    for req in reqs:
+                                        if req.email not in by_email:
+                                            by_email[req.email] = {
+                                                'email': req.email,
+                                                'transports': [],
+                                                'platforms': []
+                                            }
+                                        by_email[req.email]['transports'].append(req.transport)
+                                        by_email[req.email]['platforms'].append(req.platform)
+                                self._requests_cache = by_email
+                            except:
+                                self._requests_cache = {}
+                        return self._requests_cache
+                    
+                    def __getitem__(self, key):
+                        """Access requests by index or email"""
+                        all_requests = self._get_all_requests()
+                        
+                        if isinstance(key, int):
+                            # Index access: requests[0]
+                            emails = sorted(all_requests.keys())
+                            if 0 <= key < len(emails):
+                                email = emails[key]
+                                return all_requests[email]
+                            else:
+                                raise IndexError(f"Request index {key} out of range")
+                        elif isinstance(key, str):
+                            # Email access: requests['email@example.com']
+                            if key in all_requests:
+                                return all_requests[key]
+                            else:
+                                raise KeyError(f"No peer request from '{key}'")
+                        else:
+                            raise TypeError(f"Invalid key type: {type(key)}")
+                    
+                    def __repr__(self):
+                        # Get peer requests
+                        all_requests = self._get_all_requests()
+                        total = len(all_requests)
+                        
+                        if total == 0:
+                            return "No pending peer requests"
+                        
+                        # Build string representation
+                        lines = [f"Peer Requests ({total}):"]
+                        
+                        # Display each unique email
+                        for email in sorted(all_requests.keys()):
+                            data = all_requests[email]
+                            transports_str = ", ".join(sorted(set(data['transports'])))
+                            lines.append(f"  • {email} (via {transports_str})")
+                        
+                        lines.append("\nAccept with: client.add_peer('email')")
+                        return "\n".join(lines)
+                    
+                    def __len__(self):
+                        return len(self._get_all_requests())
+                    
+                    def __iter__(self):
+                        """Allow iteration over request emails"""
+                        return iter(sorted(self._get_all_requests().keys()))
+                    
+                    def list(self):
+                        """Get list of unique emails with pending requests"""
+                        return sorted(self._get_all_requests().keys())
+                    
+                    def check(self):
+                        """Manually check for new peer requests"""
+                        self._requests_cache = None  # Clear cache
+                        return self._sync.peers_manager.check_all_peer_requests(verbose=True)
+                
+                return PeerRequestsProperty(self._sync)
             
             def __repr__(self):
-                contacts_list = self._sync.contacts
-                if not contacts_list:
-                    return "No contacts"
-                return f"Contacts ({len(contacts_list)}): {', '.join(contacts_list)}"
+                """Display peers and peer requests in a compact format"""
+                from rich.console import Console
+                from rich.panel import Panel
+                from rich.text import Text
+                from io import StringIO
+                
+                # Create string buffer for rich output
+                string_buffer = StringIO()
+                console = Console(file=string_buffer, force_terminal=True, width=75)
+                
+                # Get peers and peer requests
+                peers_list = self._sync.peers
+                
+                # Check for peer requests
+                try:
+                    peer_requests_data = self._sync.peers_manager.check_all_peer_requests(verbose=False)
+                    # Flatten to unique emails
+                    peer_requests = set()
+                    for transport_key, requests in peer_requests_data.items():
+                        for request in requests:
+                            peer_requests.add(request.email)
+                    peer_requests = sorted(list(peer_requests))
+                except:
+                    peer_requests = []
+                
+                # Build content lines
+                lines = []
+                
+                # Peers section
+                if peers_list:
+                    lines.append(Text("client.peers", style="bold green") + Text(f"  [0] or ['email']", style="dim"))
+                    for i, email in enumerate(peers_list):
+                        peer = self._sync.peers_manager.get_peer(email)
+                        if peer:
+                            verified_transports = peer.get_verified_transports()
+                            transports_str = ", ".join(verified_transports) if verified_transports else "none"
+                            lines.append(Text(f"  [{i}] {email:<28} ✓ {transports_str}", style=""))
+                else:
+                    lines.append(Text("client.peers", style="bold green") + Text("  None", style="dim"))
+                
+                # Separator
+                if peers_list and peer_requests:
+                    lines.append(Text(""))
+                
+                # Requests section
+                if peer_requests:
+                    lines.append(Text("client.peers.requests", style="bold yellow") + Text(f"  [0] or ['email']", style="dim"))
+                    for i, email in enumerate(peer_requests):
+                        # Find which transports the request came from
+                        request_transports = []
+                        for transport_key, requests in peer_requests_data.items():
+                            for request in requests:
+                                if request.email == email:
+                                    request_transports.append(request.transport)
+                        
+                        transports_str = ", ".join(set(request_transports)) if request_transports else "?"
+                        lines.append(Text(f"  [{i}] {email:<28} ⏳ via {transports_str}", style=""))
+                elif peers_list:
+                    if lines:
+                        lines.append(Text(""))
+                    lines.append(Text("client.peers.requests", style="bold yellow") + Text("  None", style="dim"))
+                
+                # Empty state
+                if not peers_list and not peer_requests:
+                    lines.append(Text("No peers yet. ", style="dim") + Text("Add with: client.add_peer('email')", style="dim italic"))
+                
+                # Create panel with all lines
+                content = Text("\n").join(lines)
+                title = Text("Peers & Requests", style="bold") + Text(f"  ({len(peers_list)} active, {len(peer_requests)} pending)", style="dim")
+                
+                panel = Panel(
+                    content,
+                    title=title,
+                    title_align="left",
+                    padding=(1, 2),
+                    expand=False
+                )
+                
+                console.print(panel)
+                return string_buffer.getvalue().strip()
         
-        return ContactsProperty(self.sync, self)
+        return PeersProperty(self.sync, self)
     
-    def get_contact(self, email: str):
+    def get_peer(self, email: str):
         """
-        Get a specific contact object
+        Get a specific peer object
         
         Args:
-            email: Email address of the contact
+            email: Email address of the peer
             
         Returns:
-            Contact object with transport information
+            Peer object with transport information
         """
-        return self.sync.contacts_manager.get_contact(email)
+        return self.sync.peers_manager.get_peer(email)
     
     @property
     def platform_names(self) -> List[str]:
@@ -461,6 +635,13 @@ class SyftClient:
         from rich.table import Table
         from rich.panel import Panel
         from io import StringIO
+        import sys
+        
+        # Show progress while loading
+        total_steps = 3
+        current_step = 1
+        sys.stdout.write(f"\r[{current_step}/{total_steps}] Loading client info...")
+        sys.stdout.flush()
         
         # Create a string buffer to capture the rich output
         string_buffer = StringIO()
@@ -475,12 +656,46 @@ class SyftClient:
         
         # Add platforms section
         main_table.add_row("")  # Empty row for spacing
-        main_table.add_row("[dim].platforms[/dim]")
+        main_table.add_row("[dim].platforms[/dim] [dim](for peer-to-peer communication)[/dim]")
+        
+        # Update progress
+        current_step += 1
+        sys.stdout.write(f"\r{' ' * 80}\r")  # Clear previous line
+        sys.stdout.write(f"[{current_step}/{total_steps}] Checking platforms and transports...")
+        sys.stdout.flush()
+        
+        # Get peer counts by platform and transport
+        platform_peer_counts = {}
+        transport_peer_counts = {}
+        try:
+            if hasattr(self, 'sync') and hasattr(self.sync, 'peers_manager'):
+                # Get all peers
+                peers_dict = self.sync.peers_manager.get_peers_dict()
+                for email, peer in peers_dict.items():
+                    if peer.platform:
+                        # Count by platform
+                        if peer.platform not in platform_peer_counts:
+                            platform_peer_counts[peer.platform] = 0
+                        platform_peer_counts[peer.platform] += 1
+                        
+                        # Count by transport
+                        for transport in peer.get_verified_transports():
+                            key = f"{peer.platform}.{transport}"
+                            if key not in transport_peer_counts:
+                                transport_peer_counts[key] = 0
+                            transport_peer_counts[key] += 1
+        except:
+            pass
         
         # Add each platform with its transports
         for platform_name, platform in self._platforms.items():
-            # Platform header with project info
+            # Platform header with peer count
             platform_header = f"  [bold yellow].{platform_name}[/bold yellow]"
+            
+            # Add peer count for this platform
+            if platform_name in platform_peer_counts:
+                peer_count = platform_peer_counts[platform_name]
+                platform_header += f" [dim]({peer_count} peer{'s' if peer_count != 1 else ''})[/dim]"
             
             # Try to get project ID from credentials or auth data
             project_info = ""
@@ -590,8 +805,73 @@ class SyftClient:
                         if message == "":
                             message = " [dim](not initialized)[/dim]"
                 
+                # Add peer count for this transport
+                transport_peer_info = ""
+                transport_key = f"{platform_name}.{transport_name}"
+                if transport_key in transport_peer_counts:
+                    peer_count = transport_peer_counts[transport_key]
+                    transport_peer_info = f" [dim]({peer_count} peer{'s' if peer_count != 1 else ''})[/dim]"
+                
                 # Show both statuses
-                main_table.add_row(f"    {api_status} {auth_status} [{transport_style}].{transport_name}[/{transport_style}]{message}")
+                main_table.add_row(f"    {api_status} {auth_status} [{transport_style}].{transport_name}[/{transport_style}]{transport_peer_info}{message}")
+        
+        # Update progress
+        current_step += 1
+        sys.stdout.write(f"\r{' ' * 80}\r")  # Clear previous line
+        sys.stdout.write(f"[{current_step}/{total_steps}] Loading peer information...")
+        sys.stdout.flush()
+        
+        # Add peers section if sync is available
+        try:
+            if hasattr(self, "sync") and hasattr(self.sync, "peers"):
+                # Get peer counts
+                peers_list = self.sync.peers
+                peer_count = len(peers_list)
+                
+                # Check for requests
+                request_count = 0
+                try:
+                    requests_data = self.sync.peers_manager.check_all_peer_requests(verbose=False)
+                    # Count unique emails across all transports
+                    unique_emails = set()
+                    for transport_key, reqs in requests_data.items():
+                        for req in reqs:
+                            unique_emails.add(req.email)
+                    request_count = len(unique_emails)
+                except:
+                    pass
+                
+                # Add separator
+                main_table.add_row("")
+                main_table.add_row("[dim]━" * 50 + "[/dim]")
+                main_table.add_row("")
+                
+                # Add contacts section header
+                if peer_count > 0 or request_count > 0:
+                    main_table.add_row(f"[bold cyan].peers[/bold cyan]  [dim]({peer_count} active, {request_count} pending)[/dim]")
+                    
+                    # Show active contacts
+                    if peer_count > 0:
+                        main_table.add_row("")
+                        for i, email in enumerate(peers_list[:3]):  # Show first 3
+                            main_table.add_row(f"  [{i}] {email}")
+                        if peer_count > 3:
+                            main_table.add_row(f"  [dim]... and {peer_count - 3} more[/dim]")
+                    
+                    # Show pending requests
+                    if request_count > 0:
+                        main_table.add_row("")
+                        main_table.add_row(f"  [yellow]⏳ {request_count} pending request{'s' if request_count != 1 else ''}[/yellow]")
+                else:
+                    main_table.add_row("[bold cyan].peers[/bold cyan]  [dim](none)[/dim]")
+                    main_table.add_row("  [dim]Add peers with: client.add_peer('email')[/dim]")
+        except:
+            # If there's any error accessing contacts, just skip this section
+            pass
+        
+        # Clear the progress message before final rendering
+        sys.stdout.write(f"\r{' ' * 80}\r")
+        sys.stdout.flush()
         
         # Create the panel
         panel = Panel(
@@ -602,19 +882,50 @@ class SyftClient:
             padding=(1, 2)
         )
         
+        # First capture the output to string
         console.print(panel)
         output = string_buffer.getvalue()
         string_buffer.close()
         
+        # Return the output
         return output.strip()
     
     
     def __str__(self) -> str:
         """User-friendly string representation"""
         lines = [f"SyftClient - {self.email}"]
+        
+        # Platform info
         for platform_name, platform in self._platforms.items():
             transports = platform.get_transport_layers()
             lines.append(f"  • {platform_name}: {', '.join(transports)}")
+        
+        # Peers summary
+        try:
+            if hasattr(self, "sync") and hasattr(self.sync, "peers"):
+                peers_list = self.sync.peers
+                peer_count = len(peers_list)
+                
+                # Count requests
+                request_count = 0
+                try:
+                    requests_data = self.sync.peers_manager.check_all_peer_requests(verbose=False)
+                    unique_emails = set()
+                    for transport_key, reqs in requests_data.items():
+                        for req in reqs:
+                            unique_emails.add(req.email)
+                    request_count = len(unique_emails)
+                except:
+                    pass
+                
+                # Add peers line
+                if peer_count > 0 or request_count > 0:
+                    lines.append(f"  • peers: {peer_count} active, {request_count} pending")
+                else:
+                    lines.append("  • peers: none")
+        except:
+            pass
+            
         return "\n".join(lines)
     
     def reset_wallet(self, confirm: bool = True) -> bool:
@@ -671,7 +982,7 @@ class SyftClient:
             print(f"\n✗ Error deleting wallet: {e}")
             return False
     
-    def _login(self, provider: Optional[str] = None, verbose: bool = False, init_transport: bool = True, wizard: Optional[bool] = None) -> None:
+    def _login(self, provider: Optional[str] = None, verbose: bool = False, init_transport: bool = True, wizard: Optional[bool] = None, accept_requests: bool = True) -> None:
         """
         Instance method that handles the actual login process
         
@@ -684,68 +995,180 @@ class SyftClient:
         Raises:
             Exception: If authentication fails
         """
-        # Step 1: login(email) is called
-        if verbose:
-            print(f"Logging in as {self.email}...")
+        # Progress tracking
+        import sys
+        import time
+        total_steps = 9  # Added steps for peer requests and cache warming
+        current_step = 0
         
-        # Step 2: Platform detection (includes unknown platform handling and support validation)
+        def print_progress(step: int, message: str, is_final: bool = False):
+            """Print progress with carriage return"""
+            if verbose:
+                if is_final:
+                    # Clear the line first, then print final message
+                    sys.stdout.write(f"\r{' ' * 80}\r")
+                    sys.stdout.flush()
+                    print(f"✅ {message}")
+                else:
+                    # Progress message with carriage return
+                    sys.stdout.write(f"\r[{step}/{total_steps}] {message}...{' ' * 40}\r")
+                    sys.stdout.flush()
+                    # Small delay to make progress visible
+                    time.sleep(0.1)
+        
+        # Step 1: Starting login
+        current_step += 1
+        print_progress(current_step, f"Starting login for {self.email}")
+        
+        # Step 2: Platform detection
+        current_step += 1
+        print_progress(current_step, "Detecting email platform")
         platform = detect_primary_platform(self.email, provider)
-        if verbose:
-            print(f"{'Using specified' if provider else 'Detected'} platform: {platform.value}")
         
         # Step 3: Environment detection
+        current_step += 1
+        print_progress(current_step, f"Detecting environment ({platform.value})")
         environment = detect_environment()
-        if verbose:
-            print(f"Detected environment: {environment.value}")
         
-        # Steps 4-5: Create platform client and authenticate
+        # Step 4: Create platform client
         from .platforms import get_platform_client
         
         try:
-            # Create platform client with init_transport parameter
+            current_step += 1
+            print_progress(current_step, f"Initializing {platform.value} client")
             client = get_platform_client(platform, self.email, init_transport=init_transport, wizard=wizard)
             
-            if verbose:
-                print(f"\nAuthenticating with {platform.value}...")
-            
-            # Step 5: Attempt authentication (looks for 1-step auth)
+            # Step 5: Authenticate
+            current_step += 1
+            print_progress(current_step, f"Authenticating with {platform.value}")
             auth_result = client.authenticate()
-            
-            if verbose:
-                print(f"Authentication successful!")
             
             # Add the authenticated platform to this client
             self.add_platform(client, auth_result)
             
-            # Create local SyftBox directory after successful authentication
-            self._create_local_syftbox_directory()
+            # Step 6: Setup local environment
+            current_step += 1
+            print_progress(current_step, "Setting up local SyftBox directory")
             
-            # Clear contact caches to ensure fresh data from online sources
-            try:
-                # Access sync property to trigger initialization if needed
-                self.sync.contacts_manager.clear_all_caches(verbose=verbose)
-            except Exception:
-                # If sync isn't ready yet, that's okay - caches will be cleared on first access
-                pass
+            # Temporarily suppress output from directory creation
+            import io, contextlib
+            if verbose:
+                f = io.StringIO()
+                with contextlib.redirect_stdout(f):
+                    self._create_local_syftbox_directory()
+                # Check if it was created or exists
+                output = f.getvalue()
+                if "Created" in output:
+                    pass  # Progress already shown
+                elif "Using existing" in output:
+                    pass  # Progress already shown
+            else:
+                self._create_local_syftbox_directory()
             
-            # Initialize transports for all secondary platforms if requested
+            # Clear peer caches
+            if verbose:
+                f = io.StringIO()
+                with contextlib.redirect_stdout(f):
+                    try:
+                        self.sync.peers_manager.clear_all_caches(verbose=True)
+                    except:
+                        pass
+            else:
+                try:
+                    self.sync.peers_manager.clear_all_caches(verbose=False)
+                except:
+                    pass
+            
+            # Step 7: Initialize transports
+            current_step += 1
+            print_progress(current_step, "Activating peer-to-peer channels")
             if init_transport:
                 self._initialize_all_transports()
             
-            # Check for secondary platforms
+            # Check for secondary platforms (don't count as step)
             secondary_platforms = get_secondary_platforms()
-            if secondary_platforms and verbose:
-                print(f"\nSecondary platforms available: {', '.join([p.value for p in secondary_platforms])}")
-                print("(These can work with any email address)")
             
-            if verbose:
-                print(f"\n{self}")
+            # Step 8: Check for peer requests
+            current_step += 1
+            print_progress(current_step, "Checking for peer requests")
+            peer_request_output = None
+            accepted_peers = []
+            try:
+                # Check for peer requests
+                if hasattr(self, 'sync') and hasattr(self.sync, 'peers_manager'):
+                    # Get all peer requests
+                    peer_requests_data = self.sync.peers_manager.check_all_peer_requests(verbose=False)
+                    
+                    # Collect unique emails from all requests
+                    unique_peer_emails = set()
+                    for transport_key, requests in peer_requests_data.items():
+                        for request in requests:
+                            unique_peer_emails.add(request.email)
+                    
+                    # Accept requests if flag is True
+                    if accept_requests and unique_peer_emails:
+                        for peer_email in unique_peer_emails:
+                            try:
+                                # Silently accept each peer
+                                success = self.add_peer(peer_email)
+                                if success:
+                                    accepted_peers.append(peer_email)
+                            except:
+                                # Continue even if one fails
+                                pass
+                    
+                    # Generate output message
+                    if unique_peer_emails:
+                        if accept_requests and accepted_peers:
+                            peer_request_output = f"📬 Automatically accepted {len(accepted_peers)} peer request{'s' if len(accepted_peers) != 1 else ''}: {', '.join(accepted_peers)}"
+                        elif not accept_requests:
+                            import io, contextlib
+                            f = io.StringIO()
+                            with contextlib.redirect_stdout(f):
+                                self.sync.peers_manager.check_all_peer_requests(verbose=True)
+                            peer_request_output = f.getvalue().strip()
+            except Exception:
+                # If there's any error checking peer requests, just continue
+                pass
+            
+            # Step 9: Warm the cache
+            current_step += 1
+            print_progress(current_step, "Warming the cache")
+            str_self = str(self)
+            
+            # Final success message with peer count
+            peer_count = 0
+            try:
+                if hasattr(self, 'sync') and hasattr(self.sync, 'peers'):
+                    peer_count = len(self.sync.peers)
+            except:
+                pass
+            
+            # Get list of active transports
+            active_transports = []
+            for platform_name, platform in self._platforms.items():
+                for transport in platform.get_transport_layers():
+                    if hasattr(platform, transport):
+                        transport_obj = getattr(platform, transport)
+                        if hasattr(transport_obj, 'is_setup') and transport_obj.is_setup():
+                            active_transports.append(transport.title())
+            
+            if peer_count > 0:
+                print_progress(total_steps, f"Connected peer-to-peer to {peer_count} peer{'s' if peer_count != 1 else ''} via: {', '.join(active_transports)}", is_final=True)
+            else:
+                print_progress(total_steps, f"Peer-to-peer ready via: {', '.join(active_transports)}", is_final=True)
+            
+            # Print peer request output if there were any
+            if verbose and peer_request_output:
+                print(f"\n{peer_request_output}")
                 
         except NotImplementedError as e:
+            if verbose:
+                print(f"\n❌ Login failed: {e}")
             raise e
         except Exception as e:
             if verbose:
-                print(f"Authentication failed: {e}")
+                print(f"\n❌ Authentication failed: {e}")
             raise
     
     @staticmethod
@@ -765,8 +1188,8 @@ class SyftClient:
     
     @staticmethod
     def login(email: Optional[str] = None, provider: Optional[str] = None, 
-              quickstart: bool = True, verbose: bool = False, init_transport: bool = True, 
-              wizard: Optional[bool] = None, **kwargs) -> 'SyftClient':
+              quickstart: bool = True, verbose: bool = True, init_transport: bool = True, 
+              wizard: Optional[bool] = None, accept_requests: bool = True, **kwargs) -> 'SyftClient':
         """
         Simple login function for syft_client
         
@@ -774,9 +1197,10 @@ class SyftClient:
             email: Email address to authenticate as
             provider: Email provider name (e.g., 'google', 'microsoft'). Required if auto-detection fails.
             quickstart: If True and in supported environment, use fastest available login
-            verbose: If True, print detailed progress information
+            verbose: If True (default), show login progress. Set to False for silent login
             init_transport: If True (default), initialize transport layers during login. If False, skip transport initialization.
             wizard: If True, run interactive setup wizard for credentials. If None, auto-detect based on missing credentials.
+            accept_requests: If True (default), automatically accept all pending peer requests. Set to False to skip.
             **kwargs: Additional arguments for authentication
             
         Returns:
@@ -865,5 +1289,5 @@ class SyftClient:
         
         # Create SyftClient and login
         client = SyftClient(email)
-        client._login(provider=provider, verbose=verbose, init_transport=init_transport, wizard=wizard)
+        client._login(provider=provider, verbose=verbose, init_transport=init_transport, wizard=wizard, accept_requests=accept_requests)
         return client

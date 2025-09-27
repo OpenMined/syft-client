@@ -9,7 +9,7 @@ from typing import Dict, Optional, Tuple, TYPE_CHECKING
 from pathlib import Path
 
 from .message import SyftMessage
-from .contacts import ContactManager
+from .peers import PeerManager
 from ..core.paths import PathResolver
 from .transport_negotiator import TransportNegotiator
 
@@ -22,11 +22,11 @@ class MessageSender:
     
     def __init__(self, client: 'SyftClient'):
         self.client = client
-        self.contacts = ContactManager(client)
+        self.peers = PeerManager(client)
         self.paths = PathResolver(client)
         self.negotiator = TransportNegotiator(client)
     
-    def send_to_contacts(self, path: str) -> Dict[str, bool]:
+    def send_to_peers(self, path: str) -> Dict[str, bool]:
         """
         Send file/folder to all contacts
         
@@ -34,7 +34,7 @@ class MessageSender:
             path: Path to the file or folder to send (supports syft:// URLs)
             
         Returns:
-            Dict mapping contact emails to success status
+            Dict mapping peer emails to success status
         """
         # Resolve syft:// URLs
         resolved_path = self.paths.resolve_syft_path(path)
@@ -47,41 +47,41 @@ class MessageSender:
             return {}
         
         # Get list of contacts
-        contacts_list = self.contacts.contacts
-        if not contacts_list:
-            print("❌ No contacts to send to. Add contacts first with add_contact()")
+        peers_list = self.peers.peers
+        if not peers_list:
+            print("❌ No peers to send to. Add peers first with add_peer()")
             return {}
         
         verbose = getattr(self.client, 'verbose', True)
         if verbose:
-            print(f"📤 Sending {os.path.basename(resolved_path)} to {len(contacts_list)} contact(s)...")
+            print(f"📤 Sending {os.path.basename(resolved_path)} to {len(peers_list)} peer(s)...")
         
         results = {}
         successful = 0
         failed = 0
         
-        for i, contact_email in enumerate(contacts_list, 1):
+        for i, peer_email in enumerate(peers_list, 1):
             if verbose:
-                print(f"\n[{i}/{len(contacts_list)}] Sending to {contact_email}...")
+                print(f"\n[{i}/{len(peers_list)}] Sending to {peer_email}...")
             
             try:
                 # Use negotiator to choose best transport
-                success = self.send_to(resolved_path, contact_email)
-                results[contact_email] = success
+                success = self.send_to(resolved_path, peer_email)
+                results[peer_email] = success
                 
                 if success:
                     if verbose:
-                        print(f"   ✅ Successfully sent to {contact_email}")
+                        print(f"   ✅ Successfully sent to {peer_email}")
                     successful += 1
                 else:
                     if verbose:
-                        print(f"   ❌ Failed to send to {contact_email}")
+                        print(f"   ❌ Failed to send to {peer_email}")
                     failed += 1
                     
             except Exception as e:
                 if verbose:
-                    print(f"   ❌ Error sending to {contact_email}: {str(e)}")
-                results[contact_email] = False
+                    print(f"   ❌ Error sending to {peer_email}: {str(e)}")
+                results[peer_email] = False
                 failed += 1
         
         # Summary
@@ -89,7 +89,7 @@ class MessageSender:
             print(f"\n📊 Summary:")
             print(f"   ✅ Successful: {successful}")
             print(f"   ❌ Failed: {failed}")
-            print(f"   📨 Total: {len(contacts_list)}")
+            print(f"   📨 Total: {len(peers_list)}")
         
         return results
     
@@ -107,14 +107,14 @@ class MessageSender:
             True if successful, False otherwise
         """
         # Check if recipient is in contacts list
-        if recipient not in self.contacts.contacts:
-            print(f"❌ {recipient} is not in your contacts. Add them first with add_contact()")
+        if recipient not in self.peers.peers:
+            print(f"❌ {recipient} is not in your peers. Add them first with add_peer()")
             return False
         
-        # Get contact object
-        contact = self.contacts.get_contact(recipient)
+        # Get peer object
+        peer = self.peers.get_peer(recipient)
         if not contact:
-            print(f"❌ Could not load contact information for {recipient}")
+            print(f"❌ Could not load peer information for {recipient}")
             return False
         
         # Create temporary directory that persists for the whole send operation
@@ -129,7 +129,7 @@ class MessageSender:
             
             # Use negotiator to select best transport based on actual archive size
             transport_name = self.negotiator.select_transport(
-                contact=contact,
+                peer=peer,
                 file_size=archive_size,  # Use actual compressed size
                 requested_latency_ms=requested_latency_ms,
                 priority=priority
@@ -271,15 +271,15 @@ class MessageSender:
             print("❌ Platform does not support sending deletion messages")
             return False
     
-    def send_deletion_to_contacts(self, path: str) -> Dict[str, bool]:
+    def send_deletion_to_peers(self, path: str) -> Dict[str, bool]:
         """
-        Send deletion message to all contacts
+        Send deletion message to all peers
         
         Args:
             path: Path to the deleted file (supports syft:// URLs)
             
         Returns:
-            Dict mapping contact emails to success status
+            Dict mapping peer emails to success status
         """
         # Get platform with sync capability
         platform = self._get_sync_platform()

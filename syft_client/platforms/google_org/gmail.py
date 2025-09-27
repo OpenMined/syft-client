@@ -551,9 +551,9 @@ class GmailTransport(BaseTransportLayer, BaseTransport):
             return {"success": False, "error": str(e)}
     
     # BaseTransport interface implementation
-    def add_contact(self, email: str, verbose: bool = True) -> bool:
+    def add_peer(self, email: str, verbose: bool = True) -> bool:
         """
-        Add a contact for Gmail transport
+        Add a peer for Gmail transport
         
         For Gmail, this is always successful since we can send emails to any valid address.
         We just validate the email format.
@@ -566,24 +566,24 @@ class GmailTransport(BaseTransportLayer, BaseTransport):
         
         # Gmail doesn't require any setup to send to a contact
         if verbose:
-            print(f"✅ Contact {email} added for Gmail transport (no setup required)")
+            print(f"✅ Peer {email} added for Gmail transport (no setup required)")
         return True
     
-    def remove_contact(self, email: str, verbose: bool = True) -> bool:
+    def remove_peer(self, email: str, verbose: bool = True) -> bool:
         """
-        Remove a contact from Gmail transport
+        Remove a peer from Gmail transport
         
         For Gmail, this always succeeds since there's no persistent connection.
         """
         if verbose:
-            print(f"✅ Contact {email} removed from Gmail transport")
+            print(f"✅ Peer {email} removed from Gmail transport")
         return True
     
-    def list_contacts(self) -> List[str]:
+    def list_peers(self) -> List[str]:
         """
         List contacts for Gmail transport
         
-        Gmail doesn't maintain a separate contact list for transport purposes.
+        Gmail doesn't maintain a separate peer list for transport purposes.
         Returns empty list.
         """
         return []
@@ -654,9 +654,9 @@ class GmailTransport(BaseTransportLayer, BaseTransport):
         """Check if Gmail transport is available"""
         return self.is_setup()
     
-    def get_contact_resource(self, email: str) -> Optional[Any]:
+    def get_peer_resource(self, email: str) -> Optional[Any]:
         """
-        Get the resource associated with a contact for Gmail
+        Get the resource associated with a peer for Gmail
         
         Gmail doesn't have persistent folders/resources like Drive,
         so we return basic availability info
@@ -665,12 +665,12 @@ class GmailTransport(BaseTransportLayer, BaseTransport):
             email: Email address of the contact
             
         Returns:
-            ContactResource with email info
+            PeerResource with email info
         """
-        from ...sync.contact_resource import ContactResource
+        from ...sync.peer_resource import PeerResource
         
-        return ContactResource(
-            contact_email=email,
+        return PeerResource(
+            peer_email=email,
             transport_name=self.transport_name,
             platform_name=getattr(self._platform_client, 'platform', 'google_org') if hasattr(self, '_platform_client') else 'google_org',
             resource_type='email',
