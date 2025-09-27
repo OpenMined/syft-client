@@ -35,6 +35,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+job = [
+    "syft-job"
+]
 test = [
     "pytest>=7.0.0",
     "pytest-mock>=3.10.0",
@@ -54,8 +57,12 @@ dev = [
     "tqdm>=4.64.0"
 ]
 all = [
-    "syft-client[test,dev]"
+    "syft-client[test,dev,job]"
 ]
+
+
+[tool.uv.sources]
+"syft-job" = { git = "https://github.com/OpenMined/syft-job" , branch = "main" }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"
