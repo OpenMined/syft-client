@@ -570,6 +570,92 @@ class Peer:
         string_buffer.close()
         
         return output.strip()
+    
+    def check_inbox(self, download_dir: Optional[str] = None, verbose: bool = True, 
+                    transport: Optional[str] = None) -> Dict[str, List[Dict]]:
+        """
+        Check all transport layers for incoming messages from this peer
+        
+        Args:
+            download_dir: Optional directory to download messages to. If None, uses SyftBox directory
+            verbose: Whether to print progress
+            transport: Specific transport to check (e.g., "gdrive_files", "gsheets", "gmail").
+                      If None, checks all verified transports.
+            
+        Returns:
+            Dictionary mapping transport names to list of downloaded messages
+        """
+        if not hasattr(self, '_client') or not self._client:
+            raise ValueError("Peer must be accessed through client.peers to use check_inbox()")
+        
+        results = {}
+        total_messages = 0
+        
+        if verbose:
+            if transport:
+                print(f"📬 Checking {transport} inbox for messages from {self.email}...")
+            else:
+                print(f"📬 Checking inbox for messages from {self.email}...")
+        
+        # Determine which transports to check
+        if transport:
+            # Check specific transport only
+            if transport not in self.available_transports:
+                print(f"❌ Transport '{transport}' is not available for {self.email}")
+                print(f"   Available transports: {list(self.available_transports.keys())}")
+                return {}
+            if not self.available_transports[transport].verified:
+                print(f"⚠️  Transport '{transport}' is not verified for {self.email}")
+            transports_to_check = [transport]
+        else:
+            # Check all verified transports
+            transports_to_check = self.get_verified_transports()
+        
+        # Check each transport
+        for transport_name in transports_to_check:
+            if verbose:
+                print(f"\n🔄 Checking {transport_name}...")
+            
+            try:
+                # Get the transport
+                if self.platform not in self._client._platforms:
+                    continue
+                    
+                platform = self._client._platforms[self.platform]
+                if not hasattr(platform, transport_name):
+                    continue
+                    
+                transport = getattr(platform, transport_name)
+                
+                # Check if transport has check_inbox method
+                if hasattr(transport, 'check_inbox'):
+                    # Call transport-specific check_inbox
+                    messages = transport.check_inbox(
+                        sender_email=self.email,
+                        download_dir=download_dir,
+                        verbose=verbose
+                    )
+                    
+                    if messages:
+                        results[transport_name] = messages
+                        total_messages += len(messages)
+                        if verbose:
+                            print(f"   ✅ Found {len(messages)} message{'s' if len(messages) != 1 else ''}")
+                    else:
+                        if verbose:
+                            print(f"   📭 No messages")
+                else:
+                    if verbose:
+                        print(f"   ⚠️  Transport doesn't support inbox checking")
+                        
+            except Exception as e:
+                if verbose:
+                    print(f"   ❌ Error checking {transport_name}: {e}")
+        
+        if verbose:
+            print(f"\n📊 Summary: Found {total_messages} message{'s' if total_messages != 1 else ''} across {len(results)} transport{'s' if len(results) != 1 else ''}")
+        
+        return results
 
 
 __all__ = ['Peer', 'TransportEndpoint', 'TransportStats']

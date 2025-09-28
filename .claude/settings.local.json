@@ -233,7 +233,8 @@
       "Bash(-e 's/contact: The contact/peer: The peer/g' )",
       "Bash(-e 's/contact\\./peer./g' )",
       "Bash(-e 's/Contact object/Peer object/g' )",
-      "Bash(-e 's/ contact,/ peer,/g' )"
+      "Bash(-e 's/ contact,/ peer,/g' )",
+      "Bash(true)"
     ],
     "deny": []
   }
