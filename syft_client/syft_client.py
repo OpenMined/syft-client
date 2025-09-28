@@ -392,7 +392,8 @@ class SyftClient:
         """
         return self.sync.send_to_peers(path)
     
-    def send_to(self, path: str, recipient: str, requested_latency_ms: Optional[int] = None, priority: str = "normal") -> bool:
+    def send_to(self, path: str, recipient: str, requested_latency_ms: Optional[int] = None, 
+                priority: str = "normal", transport: Optional[str] = None) -> bool:
         """
         Send file/folder to specific recipient
         
@@ -401,11 +402,13 @@ class SyftClient:
             recipient: Email address of recipient
             requested_latency_ms: Desired latency in milliseconds (optional)
             priority: "urgent", "normal", or "background" (default: "normal")
+            transport: Specific transport to use (e.g., "gdrive_files", "gsheets", "gmail"). 
+                      If None, automatically selects best transport.
             
         Returns:
             True if successful
         """
-        return self.sync.send_to(path, recipient, requested_latency_ms, priority)
+        return self.sync.send_to(path, recipient, requested_latency_ms, priority, transport)
     
     def add_peer(self, email: str) -> bool:
         """

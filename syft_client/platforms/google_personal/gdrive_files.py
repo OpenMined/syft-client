@@ -40,6 +40,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         self._setup_verified = False
         self._contacts_folder_id = None
         self._syftbox_folder_id = None
+        self.verbose = True  # Default verbose mode
     
     @staticmethod
     def check_api_enabled(platform_client: Any) -> bool:

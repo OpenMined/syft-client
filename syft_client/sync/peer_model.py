@@ -571,13 +571,16 @@ class Peer:
         
         return output.strip()
     
-    def check_inbox(self, download_dir: Optional[str] = None, verbose: bool = True) -> Dict[str, List[Dict]]:
+    def check_inbox(self, download_dir: Optional[str] = None, verbose: bool = True, 
+                    transport: Optional[str] = None) -> Dict[str, List[Dict]]:
         """
         Check all transport layers for incoming messages from this peer
         
         Args:
             download_dir: Optional directory to download messages to. If None, uses SyftBox directory
             verbose: Whether to print progress
+            transport: Specific transport to check (e.g., "gdrive_files", "gsheets", "gmail").
+                      If None, checks all verified transports.
             
         Returns:
             Dictionary mapping transport names to list of downloaded messages
@@ -589,10 +592,27 @@ class Peer:
         total_messages = 0
         
         if verbose:
-            print(f"📬 Checking inbox for messages from {self.email}...")
+            if transport:
+                print(f"📬 Checking {transport} inbox for messages from {self.email}...")
+            else:
+                print(f"📬 Checking inbox for messages from {self.email}...")
         
-        # Check each verified transport
-        for transport_name in self.get_verified_transports():
+        # Determine which transports to check
+        if transport:
+            # Check specific transport only
+            if transport not in self.available_transports:
+                print(f"❌ Transport '{transport}' is not available for {self.email}")
+                print(f"   Available transports: {list(self.available_transports.keys())}")
+                return {}
+            if not self.available_transports[transport].verified:
+                print(f"⚠️  Transport '{transport}' is not verified for {self.email}")
+            transports_to_check = [transport]
+        else:
+            # Check all verified transports
+            transports_to_check = self.get_verified_transports()
+        
+        # Check each transport
+        for transport_name in transports_to_check:
             if verbose:
                 print(f"\n🔄 Checking {transport_name}...")
             

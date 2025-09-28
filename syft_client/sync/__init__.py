@@ -60,9 +60,10 @@ class SyncManager:
         """Send file/folder to all peers"""
         return self.sender.send_to_peers(path)
     
-    def send_to(self, path: str, recipient: str, requested_latency_ms: Optional[int] = None, priority: str = "normal") -> bool:
+    def send_to(self, path: str, recipient: str, requested_latency_ms: Optional[int] = None, 
+                priority: str = "normal", transport: Optional[str] = None) -> bool:
         """Send file/folder to specific recipient"""
-        return self.sender.send_to(path, recipient, requested_latency_ms, priority)
+        return self.sender.send_to(path, recipient, requested_latency_ms, priority, transport)
     
     # Path resolution
     def resolve_path(self, path: str) -> str:

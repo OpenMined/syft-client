@@ -93,7 +93,8 @@ class MessageSender:
         
         return results
     
-    def send_to(self, path: str, recipient: str, requested_latency_ms: Optional[int] = None, priority: str = "normal") -> bool:
+    def send_to(self, path: str, recipient: str, requested_latency_ms: Optional[int] = None, 
+                priority: str = "normal", transport: Optional[str] = None) -> bool:
         """
         Send file/folder to specific recipient
         
@@ -102,6 +103,8 @@ class MessageSender:
             recipient: Email address of the recipient
             requested_latency_ms: Desired latency in milliseconds (optional)
             priority: "urgent", "normal", or "background" (default: "normal")
+            transport: Specific transport to use (e.g., "gdrive_files", "gsheets", "gmail"). 
+                      If None, automatically selects best transport.
             
         Returns:
             True if successful, False otherwise
@@ -127,17 +130,34 @@ class MessageSender:
             
             message_id, archive_path, archive_size = message_info
             
-            # Use negotiator to select best transport based on actual archive size
-            transport_name = self.negotiator.select_transport(
-                peer=peer,
-                file_size=archive_size,  # Use actual compressed size
-                requested_latency_ms=requested_latency_ms,
-                priority=priority
-            )
-        
-            if not transport_name:
-                print(f"❌ No suitable transport found for sending to {recipient}")
-                return False
+            # Determine which transport to use
+            if transport:
+                # Use the specified transport
+                transport_name = transport
+                
+                # Validate that the transport is available for this peer
+                if transport_name not in peer.available_transports:
+                    print(f"❌ Transport '{transport_name}' is not available for {recipient}")
+                    print(f"   Available transports: {list(peer.available_transports.keys())}")
+                    return False
+                    
+                if not peer.available_transports[transport_name].verified:
+                    print(f"⚠️  Transport '{transport_name}' is not verified for {recipient}")
+                    
+                if self.client.verbose:
+                    print(f"📤 Using specified transport: {transport_name}")
+            else:
+                # Use negotiator to select best transport based on actual archive size
+                transport_name = self.negotiator.select_transport(
+                    peer=peer,
+                    file_size=archive_size,  # Use actual compressed size
+                    requested_latency_ms=requested_latency_ms,
+                    priority=priority
+                )
+            
+                if not transport_name:
+                    print(f"❌ No suitable transport found for sending to {recipient}")
+                    return False
             
             # Get transport instance
             transport = self._get_transport_instance(transport_name)
