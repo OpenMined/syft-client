@@ -159,3 +159,6 @@ SyftBox/
 *.bak
 *.swp
 *~
+
+# Claude AI settings
+.claude/
