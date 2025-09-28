@@ -32,7 +32,8 @@ dependencies = [
     "dnspython>=2.3.0",
     "cryptography>=41.0.0",
     "rich>=13.0.0",
-    "syft-serve",
+    "watchdog>=3.0.0",
+    "syft-serve>=0.1.0"
     "loguru>=0.7.3",
 ]
 
