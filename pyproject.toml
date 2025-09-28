@@ -31,7 +31,9 @@ dependencies = [
     "google-auth-oauthlib>=1.0.0",
     "dnspython>=2.3.0",
     "cryptography>=41.0.0",
-    "rich>=13.0.0"
+    "rich>=13.0.0",
+    "syft-serve",
+    "loguru>=0.7.3",
 ]
 
 [project.optional-dependencies]
