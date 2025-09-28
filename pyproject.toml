@@ -65,6 +65,7 @@ all = [
 
 [tool.uv.sources]
 "syft-job" = { git = "https://github.com/OpenMined/syft-job" , branch = "main" }
+"syft-serve" = { path = "../syft-serve" }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"
