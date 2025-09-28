@@ -66,6 +66,75 @@ class MessageProcessor:
         
         return stats
     
+    def approve_inbox_files(self, auto_approve: bool = True) -> Dict[str, int]:
+        """
+        Approve files from inbox and move them to their final destination
+        
+        Args:
+            auto_approve: If True, approve all files. If False, would require manual approval (future feature)
+            
+        Returns:
+            Dict with counts of approved, failed files
+        """
+        stats = {
+            "approved": 0,
+            "failed": 0,
+            "skipped": 0
+        }
+        
+        if not auto_approve:
+            # Future: implement manual approval process
+            if self.verbose:
+                print("Manual approval not yet implemented")
+            return stats
+            
+        # Look for files in inbox/datasites/
+        inbox_datasites = self.inbox_dir / "datasites"
+        if not inbox_datasites.exists():
+            return stats
+            
+        # Process each peer's folder
+        for peer_folder in inbox_datasites.iterdir():
+            if not peer_folder.is_dir():
+                continue
+                
+            peer_email = peer_folder.name
+            
+            # Destination in main datasites
+            dest_folder = self.syftbox_dir / "datasites" / peer_email
+            dest_folder.mkdir(parents=True, exist_ok=True)
+            
+            # Move all files from inbox to destination
+            for item in peer_folder.iterdir():
+                try:
+                    dest = dest_folder / item.name
+                    
+                    if self.verbose:
+                        print(f"Approving: {item.name} from {peer_email}")
+                    
+                    # Move the file/directory
+                    if item.is_dir():
+                        if dest.exists():
+                            import shutil
+                            shutil.rmtree(dest)
+                        item.rename(dest)
+                    else:
+                        if dest.exists():
+                            dest.unlink()
+                        item.rename(dest)
+                    
+                    stats["approved"] += 1
+                    
+                    if self.verbose:
+                        print(f"   ✓ Moved to: {dest}")
+                        
+                except Exception as e:
+                    if self.verbose:
+                        print(f"   ✗ Failed to approve {item.name}: {e}")
+                    stats["failed"] += 1
+        
+        return stats
+    
     def _process_single_message(self, message: Dict, peer_email: str, 
                                transport: str) -> bool:
         """

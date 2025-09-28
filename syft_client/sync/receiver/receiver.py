@@ -204,6 +204,19 @@ def create_receiver_endpoint(email: str, check_interval: int = 30,
                 if verbose and total_messages > 0:
                     print(f"\n✓ Total messages processed this cycle: {total_messages}", flush=True)
                 
+                # After processing all messages, approve files from inbox
+                try:
+                    approval_stats = message_processor.approve_inbox_files(auto_approve=True)
+                    if approval_stats["approved"] > 0:
+                        stats["files_approved"] = stats.get("files_approved", 0) + approval_stats["approved"]
+                        if verbose:
+                            print(f"\n✓ Approved {approval_stats['approved']} files to datasites", flush=True)
+                    if approval_stats["failed"] > 0 and verbose:
+                        print(f"⚠️  Failed to approve {approval_stats['failed']} files", flush=True)
+                except Exception as e:
+                    if verbose:
+                        print(f"Error approving files: {e}", flush=True)
+                
                 # Wait for next check
                 time.sleep(check_interval)
                 
