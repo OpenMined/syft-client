@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 import json
 import pickle
 from datetime import datetime
+from pathlib import Path
 
 from googleapiclient.discovery import build
 from ..transport_base import BaseTransportLayer
@@ -1094,7 +1095,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             # Search for shared message sheets
             query = f"sharedWithMe=true and name contains 'syft_' and name contains '_messages' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
             
-            results = self.sheets_service.files().list(
+            results = self.drive_service.files().list(
                 q=query,
                 fields="files(id, name, owners)",
                 pageSize=1000
@@ -1127,3 +1128,263 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         except Exception as e:
             # Silently fail - peer request checking is optional
             return []
+    
+    def check_inbox(self, sender_email: str, download_dir: Optional[str] = None, verbose: bool = True) -> List[Dict]:
+        """
+        Check for incoming messages from a specific sender in Google Sheets
+        
+        Args:
+            sender_email: Email of the sender to check messages from
+            download_dir: Directory to download messages to (defaults to SyftBox directory)
+            verbose: Whether to print progress
+            
+        Returns:
+            List of message info dicts with keys: id, timestamp, size, data, extracted_to
+        """
+        if not self.is_setup():
+            return []
+        
+        downloaded_messages = []
+        
+        try:
+            # Determine the message sheet name pattern
+            my_email = self.email
+            
+            # Try both naming patterns
+            sheet_names = [
+                # New pattern with @ and . 
+                f"syft_{sender_email}_to_{my_email}_outbox_inbox",
+                # Legacy pattern with underscores and _messages suffix
+                f"syft_{sender_email.replace('@', '_at_').replace('.', '_')}_to_{my_email.replace('@', '_at_').replace('.', '_')}_messages"
+            ]
+            
+            sheet = None
+            sheet_id = None
+            
+            # Try each pattern
+            for sheet_name in sheet_names:
+                query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+                results = self.drive_service.files().list(
+                    q=query,
+                    fields="files(id, name, webViewLink)",
+                    pageSize=10
+                ).execute()
+                
+                sheets = results.get('files', [])
+                if sheets:
+                    sheet = sheets[0]
+                    sheet_id = sheet['id']
+                    if verbose:
+                        print(f"   Found message sheet: {sheet['name']}")
+                    break
+            
+            if not sheet:
+                if verbose:
+                    print(f"   No message sheet found for patterns: {sheet_names}")
+                return []
+            
+            # Read messages from the sheet
+            result = self.sheets_service.spreadsheets().values().get(
+                spreadsheetId=sheet_id,
+                range="messages!A:D"
+            ).execute()
+            
+            values = result.get('values', [])
+            
+            if not values:
+                return []
+            
+            # Skip header if present
+            if values and values[0] == ['timestamp', 'message_id', 'size', 'data']:
+                values = values[1:]
+            
+            # Set up download directory
+            if download_dir is None:
+                # Use SyftBox directory
+                if hasattr(self._platform_client, '_client') and self._platform_client._client:
+                    client = self._platform_client._client
+                    if hasattr(client, 'local_syftbox_dir') and client.local_syftbox_dir:
+                        download_dir = str(client.local_syftbox_dir)
+                    else:
+                        download_dir = str(Path.home() / f"SyftBox_{my_email}")
+                else:
+                    download_dir = str(Path.home() / f"SyftBox_{my_email}")
+            
+            download_path = Path(download_dir)
+            download_path.mkdir(parents=True, exist_ok=True)
+            
+            # Process each message
+            messages_to_archive = []
+            
+            for row in values:
+                if len(row) >= 4:
+                    timestamp, message_id, size_str, data = row
+                    
+                    try:
+                        # Decode the base64 data
+                        import base64
+                        message_data = base64.b64decode(data)
+                        
+                        # Save to temporary file
+                        temp_file = download_path / f"{message_id}.tar.gz"
+                        with open(temp_file, 'wb') as f:
+                            f.write(message_data)
+                        
+                        # Extract the archive
+                        import tarfile
+                        with tarfile.open(temp_file, 'r:gz') as tar:
+                            # Extract to the download directory
+                            tar.extractall(download_path)
+                        
+                        # Find the extracted message directory
+                        extracted_dir = download_path / message_id
+                        
+                        # Read metadata if available
+                        metadata = {}
+                        metadata_file = extracted_dir / f"{message_id}.json"
+                        if metadata_file.exists():
+                            import json
+                            with open(metadata_file, 'r') as f:
+                                metadata = json.load(f)
+                        
+                        # Process the data files to their final destination
+                        data_dir = extracted_dir / "data"
+                        if data_dir.exists():
+                            # Move files from data dir to their proper location
+                            import shutil
+                            for item in data_dir.iterdir():
+                                # Determine destination based on metadata
+                                if 'original_path' in metadata:
+                                    # Use original path from metadata
+                                    dest = download_path / metadata['original_path'] / item.name
+                                else:
+                                    # Default to root of download dir
+                                    dest = download_path / item.name
+                                
+                                # Create parent directories
+                                dest.parent.mkdir(parents=True, exist_ok=True)
+                                
+                                # Move the file/directory
+                                if item.is_dir():
+                                    if dest.exists():
+                                        shutil.rmtree(dest)
+                                    shutil.move(str(item), str(dest))
+                                else:
+                                    shutil.move(str(item), str(dest))
+                                
+                                if verbose:
+                                    print(f"   📥 Extracted: {dest.name}")
+                        
+                        # Clean up temporary files
+                        temp_file.unlink()
+                        if extracted_dir.exists():
+                            import shutil
+                            shutil.rmtree(extracted_dir)
+                        
+                        # Add to results
+                        downloaded_messages.append({
+                            'id': message_id,
+                            'timestamp': timestamp,
+                            'size': int(size_str) if size_str.isdigit() else 0,
+                            'metadata': metadata,
+                            'extracted_to': str(download_path)
+                        })
+                        
+                        # Mark for archiving
+                        messages_to_archive.append(row)
+                        
+                    except Exception as e:
+                        if verbose:
+                            print(f"   ❌ Error processing message {message_id}: {e}")
+            
+            # Archive processed messages
+            if messages_to_archive:
+                self._archive_messages(sheet_id, messages_to_archive, verbose)
+            
+            return downloaded_messages
+            
+        except Exception as e:
+            if verbose:
+                print(f"   ❌ Error checking inbox: {e}")
+            return []
+    
+    def _archive_messages(self, sheet_id: str, messages: List[List[str]], verbose: bool = True):
+        """Archive processed messages to the archive sheet"""
+        try:
+            # Check if archive sheet exists
+            spreadsheet = self.sheets_service.spreadsheets().get(
+                spreadsheetId=sheet_id
+            ).execute()
+            
+            sheets = {sheet['properties']['title']: sheet['properties']['sheetId'] 
+                     for sheet in spreadsheet.get('sheets', [])}
+            
+            if 'archive' not in sheets:
+                # Create archive sheet
+                requests = [{
+                    'addSheet': {
+                        'properties': {
+                            'title': 'archive',
+                            'gridProperties': {
+                                'columnCount': 4,
+                                'frozenRowCount': 0
+                            }
+                        }
+                    }
+                }]
+                
+                self.sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=sheet_id,
+                    body={'requests': requests}
+                ).execute()
+                
+                # Add header
+                self.sheets_service.spreadsheets().values().update(
+                    spreadsheetId=sheet_id,
+                    range='archive!A1:D1',
+                    valueInputOption='RAW',
+                    body={'values': [['timestamp', 'message_id', 'size', 'data']]}
+                ).execute()
+            
+            # Append to archive
+            self.sheets_service.spreadsheets().values().append(
+                spreadsheetId=sheet_id,
+                range='archive!A:D',
+                valueInputOption='RAW',
+                body={'values': messages}
+            ).execute()
+            
+            # Remove from messages sheet
+            # Get current messages
+            result = self.sheets_service.spreadsheets().values().get(
+                spreadsheetId=sheet_id,
+                range="messages!A:D"
+            ).execute()
+            
+            current_values = result.get('values', [])
+            
+            # Filter out archived messages
+            message_ids = {row[1] for row in messages}  # message_id is in column 2
+            new_values = [row for row in current_values 
+                         if len(row) < 2 or row[1] not in message_ids]
+            
+            # Clear and rewrite messages sheet
+            self.sheets_service.spreadsheets().values().clear(
+                spreadsheetId=sheet_id,
+                range="messages!A:D"
+            ).execute()
+            
+            if new_values:
+                self.sheets_service.spreadsheets().values().update(
+                    spreadsheetId=sheet_id,
+                    range='messages!A:D',
+                    valueInputOption='RAW',
+                    body={'values': new_values}
+                ).execute()
+            
+            if verbose:
+                print(f"   📦 Archived {len(messages)} message{'s' if len(messages) != 1 else ''}")
+                
+        except Exception as e:
+            if verbose:
+                print(f"   ⚠️  Error archiving messages: {e}")

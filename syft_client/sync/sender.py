@@ -113,7 +113,7 @@ class MessageSender:
         
         # Get peer object
         peer = self.peers.get_peer(recipient)
-        if not contact:
+        if not peer:
             print(f"❌ Could not load peer information for {recipient}")
             return False
         

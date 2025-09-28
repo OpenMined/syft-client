@@ -7,6 +7,7 @@ import io
 import os
 from datetime import datetime
 import logging
+from pathlib import Path
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload, MediaIoBaseDownload
@@ -1219,4 +1220,257 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         except Exception as e:
             # Silently fail - peer request checking is optional
             return []
+    
+    def check_inbox(self, sender_email: str, download_dir: Optional[str] = None, verbose: bool = True) -> List[Dict]:
+        """
+        Check for incoming messages from a specific sender in Google Drive
+        
+        Args:
+            sender_email: Email of the sender to check messages from
+            download_dir: Directory to download messages to (defaults to SyftBox directory)
+            verbose: Whether to print progress
+            
+        Returns:
+            List of message info dicts with keys: id, name, size, downloaded_to
+        """
+        if not self.is_setup():
+            return []
+        
+        downloaded_messages = []
+        
+        try:
+            # Determine the inbox folder name pattern
+            my_email = self.email
+            folder_name = f"syft_{sender_email}_to_{my_email}_outbox_inbox"
+            
+            # Find the folder
+            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = self.drive_service.files().list(
+                q=query,
+                fields="files(id, name)",
+                pageSize=10
+            ).execute()
+            
+            folders = results.get('files', [])
+            if not folders:
+                if verbose:
+                    print(f"   No inbox folder found: {folder_name}")
+                return []
+            
+            folder_id = folders[0]['id']
+            
+            # List files in the folder
+            query = f"'{folder_id}' in parents and trashed=false"
+            results = self.drive_service.files().list(
+                q=query,
+                fields="files(id, name, size, mimeType, modifiedTime)",
+                pageSize=100
+            ).execute()
+            
+            files = results.get('files', [])
+            if not files:
+                return []
+            
+            # Set up download directory
+            if download_dir is None:
+                # Use SyftBox directory
+                if hasattr(self._platform_client, '_client') and self._platform_client._client:
+                    client = self._platform_client._client
+                    if hasattr(client, 'local_syftbox_dir') and client.local_syftbox_dir:
+                        download_dir = str(client.local_syftbox_dir)
+                    else:
+                        download_dir = str(Path.home() / f"SyftBox_{my_email}")
+                else:
+                    download_dir = str(Path.home() / f"SyftBox_{my_email}")
+            
+            download_path = Path(download_dir)
+            download_path.mkdir(parents=True, exist_ok=True)
+            
+            # Download each file
+            for file in files:
+                try:
+                    file_name = file['name']
+                    file_id = file['id']
+                    
+                    # Skip if it's a folder
+                    if file['mimeType'] == 'application/vnd.google-apps.folder':
+                        continue
+                    
+                    # Download the file
+                    if file_name.endswith('.tar.gz'):
+                        # This is likely a message archive
+                        temp_file = download_path / file_name
+                        
+                        # Download the file
+                        request = self.drive_service.files().get_media(fileId=file_id)
+                        import io
+                        from googleapiclient.http import MediaIoBaseDownload
+                        
+                        fh = io.FileIO(str(temp_file), 'wb')
+                        downloader = MediaIoBaseDownload(fh, request)
+                        
+                        done = False
+                        while not done:
+                            status, done = downloader.next_chunk()
+                        
+                        fh.close()
+                        
+                        # Extract if it's a tar.gz
+                        if file_name.endswith('.tar.gz'):
+                            message_id = file_name.replace('.tar.gz', '')
+                            
+                            # Extract the archive
+                            import tarfile
+                            with tarfile.open(temp_file, 'r:gz') as tar:
+                                tar.extractall(download_path)
+                            
+                            # Find the extracted message directory
+                            extracted_dir = download_path / message_id
+                            
+                            # Read metadata if available
+                            metadata = {}
+                            metadata_file = extracted_dir / f"{message_id}.json"
+                            if metadata_file.exists():
+                                import json
+                                with open(metadata_file, 'r') as f:
+                                    metadata = json.load(f)
+                            
+                            # Process the data files to their final destination
+                            data_dir = extracted_dir / "data"
+                            if data_dir.exists():
+                                import shutil
+                                for item in data_dir.iterdir():
+                                    # Determine destination based on metadata
+                                    if 'original_path' in metadata:
+                                        # Use original path from metadata
+                                        dest = download_path / metadata['original_path'] / item.name
+                                    else:
+                                        # Default to root of download dir
+                                        dest = download_path / item.name
+                                    
+                                    # Create parent directories
+                                    dest.parent.mkdir(parents=True, exist_ok=True)
+                                    
+                                    # Move the file/directory
+                                    if item.is_dir():
+                                        if dest.exists():
+                                            shutil.rmtree(dest)
+                                        shutil.move(str(item), str(dest))
+                                    else:
+                                        shutil.move(str(item), str(dest))
+                                    
+                                    if verbose:
+                                        print(f"   📥 Extracted: {dest.name}")
+                            
+                            # Clean up temporary files
+                            temp_file.unlink()
+                            if extracted_dir.exists():
+                                import shutil
+                                shutil.rmtree(extracted_dir)
+                            
+                            # Archive the message by moving to archive folder
+                            self._archive_message(file_id, folder_id, verbose)
+                            
+                            downloaded_messages.append({
+                                'id': message_id,
+                                'name': file_name,
+                                'size': file.get('size', 0),
+                                'metadata': metadata,
+                                'downloaded_to': str(download_path)
+                            })
+                        else:
+                            # Regular file download
+                            if verbose:
+                                print(f"   📥 Downloaded: {file_name}")
+                            
+                            downloaded_messages.append({
+                                'id': file_id,
+                                'name': file_name,
+                                'size': file.get('size', 0),
+                                'downloaded_to': str(temp_file)
+                            })
+                    
+                except Exception as e:
+                    if verbose:
+                        print(f"   ❌ Error downloading {file['name']}: {e}")
+            
+            return downloaded_messages
+            
+        except Exception as e:
+            if verbose:
+                print(f"   ❌ Error checking inbox: {e}")
+            return []
+    
+    def _archive_message(self, file_id: str, inbox_folder_id: str, verbose: bool = True):
+        """Move a processed message to the archive folder"""
+        try:
+            # Get sender email from folder name
+            folder_info = self.drive_service.files().get(
+                fileId=inbox_folder_id,
+                fields='name'
+            ).execute()
+            
+            folder_name = folder_info['name']
+            # Extract emails from folder name: syft_{sender}_to_{receiver}_outbox_inbox
+            parts = folder_name.replace('syft_', '').replace('_outbox_inbox', '').split('_to_')
+            if len(parts) == 2:
+                sender_email = parts[0]
+                my_email = parts[1]
+                
+                # Find or create archive folder
+                archive_folder_name = f"syft_{sender_email}_to_{my_email}_archive"
+                
+                # Check if archive folder exists
+                query = f"name='{archive_folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+                results = self.drive_service.files().list(
+                    q=query,
+                    fields="files(id)",
+                    pageSize=1
+                ).execute()
+                
+                archive_folders = results.get('files', [])
+                
+                if not archive_folders:
+                    # Create archive folder in same parent as inbox
+                    # Get inbox parent
+                    inbox_info = self.drive_service.files().get(
+                        fileId=inbox_folder_id,
+                        fields='parents'
+                    ).execute()
+                    
+                    parents = inbox_info.get('parents', [])
+                    
+                    # Create archive folder
+                    folder_metadata = {
+                        'name': archive_folder_name,
+                        'mimeType': 'application/vnd.google-apps.folder',
+                        'parents': parents
+                    }
+                    
+                    archive_folder = self.drive_service.files().create(
+                        body=folder_metadata,
+                        fields='id'
+                    ).execute()
+                    
+                    archive_folder_id = archive_folder['id']
+                else:
+                    archive_folder_id = archive_folders[0]['id']
+                
+                # Move file to archive
+                file_metadata = {
+                    'addParents': archive_folder_id,
+                    'removeParents': inbox_folder_id
+                }
+                
+                self.drive_service.files().update(
+                    fileId=file_id,
+                    body=file_metadata
+                ).execute()
+                
+                if verbose:
+                    print(f"   📦 Archived message")
+                    
+        except Exception as e:
+            if verbose:
+                print(f"   ⚠️  Error archiving message: {e}")
     

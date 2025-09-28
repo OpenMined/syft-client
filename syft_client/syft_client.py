@@ -1231,8 +1231,8 @@ class SyftClient:
             
             # Step 9: Warm the cache
             current_step += 1
-            print_progress(current_step, "Warming the cache")
-            str_self = str(self)
+            print_progress(current_step, "Getting list of active transports")
+            
             
             # Final success message with peer count
             peer_count = 0
