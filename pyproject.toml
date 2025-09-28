@@ -34,6 +34,7 @@ dependencies = [
     "rich>=13.0.0",
     "watchdog>=3.0.0",
     "syft-serve>=0.1.0"
+    "loguru>=0.7.3",
 ]
 
 [project.optional-dependencies]
@@ -65,6 +66,7 @@ all = [
 
 [tool.uv.sources]
 "syft-job" = { git = "https://github.com/OpenMined/syft-job" , branch = "main" }
+"syft-serve" = { path = "../syft-serve" }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"
