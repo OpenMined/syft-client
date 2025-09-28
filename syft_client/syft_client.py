@@ -379,6 +379,22 @@ class SyftClient:
             self._sync = SyncManager(self)
         return self._sync
     
+    @property
+    def watcher(self):
+        """Access to file watcher functionality"""
+        from .sync.watcher import WatcherManager
+        if not hasattr(self, '_watcher'):
+            self._watcher = WatcherManager(self)
+        return self._watcher
+    
+    @property
+    def receiver(self):
+        """Access to inbox receiver functionality"""
+        from .sync.receiver import ReceiverManager
+        if not hasattr(self, '_receiver'):
+            self._receiver = ReceiverManager(self)
+        return self._receiver
+    
     # High-level sync API methods
     def send_to_peers(self, path: str) -> Dict[str, bool]:
         """
@@ -430,6 +446,38 @@ class SyftClient:
             Dictionary mapping platform.transport to list of PeerRequest objects
         """
         return self.sync.peers_manager.check_all_peer_requests(verbose=True)
+    
+    def start_watcher(self, **kwargs):
+        """
+        Start the file watcher for automatic synchronization
+        
+        Args:
+            paths: Optional list of paths to watch
+            exclude_patterns: Optional list of patterns to exclude
+            bidirectional: Whether to poll for incoming messages (default: True)
+            check_interval: Inbox polling interval in seconds (default: 30)
+            verbose: Whether to show status messages (default: True)
+            
+        Returns:
+            Status dictionary with watcher information
+        """
+        return self.watcher.start(**kwargs)
+    
+    def start_receiver(self, **kwargs):
+        """
+        Start the inbox receiver for automatic message processing
+        
+        Args:
+            check_interval: Seconds between inbox checks (default: 30)
+            process_immediately: Process existing messages on start (default: True)
+            transports: Specific transports to monitor (default: all)
+            auto_accept: Auto-accept peer requests (default: True)
+            verbose: Show status messages (default: True)
+            
+        Returns:
+            Status dictionary with receiver information
+        """
+        return self.receiver.start(**kwargs)
     
     @property
     def peers(self):
