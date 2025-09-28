@@ -704,6 +704,47 @@ class SyftClient:
         
         return PeersProperty(self.sync, self)
     
+    @property
+    def watcher(self):
+        """Access watcher service"""
+        return self.sync.services.watcher
+    
+    @property
+    def receiver(self):
+        """Access receiver service"""
+        return self.sync.services.receiver
+    
+    def start_sync_services(self, verbose: bool = True):
+        """Start both watcher and receiver services"""
+        watcher_started = self.sync.services.ensure_watcher_running(verbose=verbose)
+        receiver_started = self.sync.services.ensure_receiver_running(verbose=verbose)
+        
+        if verbose:
+            if watcher_started and receiver_started:
+                print("✅ Both sync services started")
+            elif watcher_started:
+                print("📡 Watcher started (receiver may already be running)")
+            elif receiver_started:
+                print("📥 Receiver started (watcher may already be running)")
+            else:
+                print("ℹ️  Sync services may already be running")
+        
+        return watcher_started or receiver_started
+    
+    def stop_sync_services(self, verbose: bool = True):
+        """Stop both watcher and receiver services"""
+        watcher_stopped = self.sync.services.stop_watcher(verbose=verbose)
+        receiver_stopped = self.sync.services.stop_receiver(verbose=verbose)
+        
+        if verbose and not (watcher_stopped or receiver_stopped):
+            print("ℹ️  No sync services were running")
+        
+        return watcher_stopped or receiver_stopped
+    
+    def sync_status(self, verbose: bool = True):
+        """Get status of sync services"""
+        return self.sync.services.status(verbose=verbose)
+    
     def get_peer(self, email: str):
         """
         Get a specific peer object
@@ -1126,8 +1167,12 @@ class SyftClient:
         # Progress tracking
         import sys
         import time
-        total_steps = 9  # Added steps for peer requests and cache warming
+        total_steps = 10  # Added step for sync services
         current_step = 0
+        
+        # Initialize sync service status
+        watcher_status = "unavailable"
+        receiver_status = "unavailable"
         
         def print_progress(step: int, message: str, is_final: bool = False):
             """Print progress with carriage return"""
@@ -1280,7 +1325,34 @@ class SyftClient:
                 # If there's any error checking peer requests, just continue
                 pass
             
-            # Step 9: Warm the cache
+            # Step 9: Check and start sync services
+            current_step += 1
+            print_progress(current_step, "Checking sync services")
+            
+            # Check for watcher and receiver
+            try:
+                # Check if they're already running and link them
+                watcher_status = "existing" if self.sync.services.watcher else "not running"
+                receiver_status = "existing" if self.sync.services.receiver else "not running"
+                
+                # Try to start them if not running
+                if not self.sync.services.watcher:
+                    if self.sync.services.ensure_watcher_running(verbose=False):
+                        watcher_status = "started"
+                    else:
+                        watcher_status = "failed"
+                
+                if not self.sync.services.receiver:
+                    if self.sync.services.ensure_receiver_running(verbose=False):
+                        receiver_status = "started"
+                    else:
+                        receiver_status = "failed"
+            except Exception:
+                # If there's any error with sync services, just continue
+                watcher_status = "unavailable"
+                receiver_status = "unavailable"
+            
+            # Step 10: Warm the cache
             current_step += 1
             print_progress(current_step, "Getting list of active transports")
             
@@ -1307,9 +1379,40 @@ class SyftClient:
             else:
                 print_progress(total_steps, f"Peer-to-peer ready via: {', '.join(active_transports)}", is_final=True)
             
-            # Print peer request output if there were any
+            # Collect additional status messages
+            additional_status = []
+            
+            # Add peer request info
             if verbose and peer_request_output:
-                print(f"\n{peer_request_output}")
+                additional_status.append(peer_request_output)
+            
+            # Add sync services status if available
+            if verbose and (watcher_status != "unavailable" or receiver_status != "unavailable"):
+                sync_status_parts = []
+                
+                # Watcher status
+                if watcher_status == "existing":
+                    sync_status_parts.append("📡 Watcher already running")
+                elif watcher_status == "started":
+                    sync_status_parts.append("📡 Watcher started")
+                elif watcher_status == "failed":
+                    sync_status_parts.append("⚠️  Watcher failed to start")
+                
+                # Receiver status
+                if receiver_status == "existing":
+                    sync_status_parts.append("📥 Receiver already running")
+                elif receiver_status == "started":
+                    sync_status_parts.append("📥 Receiver started")
+                elif receiver_status == "failed":
+                    sync_status_parts.append("⚠️  Receiver failed to start")
+                
+                if sync_status_parts:
+                    additional_status.append(" | ".join(sync_status_parts))
+            
+            # Print all additional status messages
+            if verbose and additional_status:
+                for msg in additional_status:
+                    print(f"\n{msg}")
                 
         except NotImplementedError as e:
             if verbose:

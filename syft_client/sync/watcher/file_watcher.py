@@ -91,7 +91,8 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         # Always use client's syftbox directory to ensure consistency
         syftbox_dir = client.get_syftbox_directory()
         
-        watch_path = syftbox_dir / "datasites" / email
+        # Watch the entire datasites folder instead of just the user's own folder
+        watch_path = syftbox_dir / "datasites"
         watch_path.mkdir(parents=True, exist_ok=True)
         
         # Initialize sync history
