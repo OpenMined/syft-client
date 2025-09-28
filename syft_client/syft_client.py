@@ -1374,45 +1374,35 @@ class SyftClient:
                         if hasattr(transport_obj, 'is_setup') and transport_obj.is_setup():
                             active_transports.append(transport.title())
             
+            # Build final message with sync services status
             if peer_count > 0:
-                print_progress(total_steps, f"Connected peer-to-peer to {peer_count} peer{'s' if peer_count != 1 else ''} via: {', '.join(active_transports)}", is_final=True)
+                final_msg = f"Connected peer-to-peer to {peer_count} peer{'s' if peer_count != 1 else ''} via: {', '.join(active_transports)}"
             else:
-                print_progress(total_steps, f"Peer-to-peer ready via: {', '.join(active_transports)}", is_final=True)
+                final_msg = f"Peer-to-peer ready via: {', '.join(active_transports)}"
             
-            # Collect additional status messages
-            additional_status = []
-            
-            # Add peer request info
-            if verbose and peer_request_output:
-                additional_status.append(peer_request_output)
-            
-            # Add sync services status if available
-            if verbose and (watcher_status != "unavailable" or receiver_status != "unavailable"):
-                sync_status_parts = []
+            # Add sync services status to final message
+            if watcher_status != "unavailable" or receiver_status != "unavailable":
+                sync_indicators = []
                 
-                # Watcher status
-                if watcher_status == "existing":
-                    sync_status_parts.append("📡 Watcher already running")
-                elif watcher_status == "started":
-                    sync_status_parts.append("📡 Watcher started")
+                # Add simple status indicators
+                if watcher_status in ["existing", "started"]:
+                    sync_indicators.append("📡")
                 elif watcher_status == "failed":
-                    sync_status_parts.append("⚠️  Watcher failed to start")
+                    sync_indicators.append("⚠️")
                 
-                # Receiver status
-                if receiver_status == "existing":
-                    sync_status_parts.append("📥 Receiver already running")
-                elif receiver_status == "started":
-                    sync_status_parts.append("📥 Receiver started")
+                if receiver_status in ["existing", "started"]:
+                    sync_indicators.append("📥")
                 elif receiver_status == "failed":
-                    sync_status_parts.append("⚠️  Receiver failed to start")
+                    sync_indicators.append("⚠️")
                 
-                if sync_status_parts:
-                    additional_status.append(" | ".join(sync_status_parts))
+                if sync_indicators:
+                    final_msg += f" {' '.join(sync_indicators)}"
             
-            # Print all additional status messages
-            if verbose and additional_status:
-                for msg in additional_status:
-                    print(f"\n{msg}")
+            print_progress(total_steps, final_msg, is_final=True)
+            
+            # Print peer request output if there were any
+            if verbose and peer_request_output:
+                print(f"\n{peer_request_output}")
                 
         except NotImplementedError as e:
             if verbose:
