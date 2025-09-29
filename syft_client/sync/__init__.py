@@ -16,6 +16,7 @@ class SyncManager:
         self._peers = None
         self._sender = None
         self._paths = None
+        self._services = None
     
     @property
     def peers_manager(self):
@@ -40,6 +41,14 @@ class SyncManager:
             from ..core.paths import PathResolver
             self._paths = PathResolver(self.client)
         return self._paths
+    
+    @property
+    def services(self):
+        """Lazy load SyncServiceManager"""
+        if self._services is None:
+            from .sync_services import SyncServiceManager
+            self._services = SyncServiceManager(self.client)
+        return self._services
     
     # Peer management
     @property

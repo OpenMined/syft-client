@@ -8,6 +8,8 @@ from .platforms.base import BasePlatformClient
 from .platforms.detection import Platform, detect_primary_platform, get_secondary_platforms, PlatformDetector
 from .environment import Environment, detect_environment
 
+import requests
+
 
 class SyftClient:
     """
@@ -280,16 +282,15 @@ class SyftClient:
         # Store the path for later use
         self.local_syftbox_dir = syftbox_dir
     
+    def _sanitize_email(self) -> str:
+        """Sanitize email for use in file paths"""
+        return self.email.replace('@', '_at_').replace('.', '_')
+
+    # TODO: Rethink this strategy, when syft-job is an isolated app
     def _setup_job_directories(self) -> None:
         """
-        Setup job directory structure if syft-job is available.
         Creates: SyftBox/datasites/<email>/app_data/job/{inbox,approved,done}
         """
-        # Check if syft-job is available (silently skip if not)
-        try:
-            import syft_job
-        except ImportError:
-            return
         
         # Use the .folder property to get SyftBox directory
         syftbox_dir = self.get_syftbox_directory()
@@ -309,6 +310,103 @@ class SyftClient:
         except Exception as e:
             # Print error if directory creation fails
             print(f"⚠️  Could not create job directories: {e}")
+
+
+    # TODO: Temporary workaround until we shift from syft-serve to using
+    # app scheduler for scheduling apps in syft-client
+    def _create_job_runner_functions(self, syftbox_folder: str, poll_interval: int = 1):
+        """Factory that returns syft-serve compatible functions"""
+
+        def start_runner():
+            """Function compatible with syft-serve"""
+            import threading
+            import tempfile
+            import os
+            from pathlib import Path
+
+            # Use a file-based lock
+            lock_file = Path(tempfile.gettempdir()) / f"job_runner_{abs(hash(syftbox_folder))}.lock"
+
+            # Try to create lock file atomically
+            try:
+                fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, str(os.getpid()).encode())
+                os.close(fd)
+            except OSError:
+                # Lock file exists, check if process is still running
+                try:
+                    with open(lock_file, 'r') as f:
+                        pid = int(f.read().strip())
+                        os.kill(pid, 0)  # Check if process exists
+                    return {"status": "already_running"}
+                except (ValueError, ProcessLookupError, FileNotFoundError):
+                    # Stale lock file, remove it
+                    lock_file.unlink(missing_ok=True)
+                    try:
+                        fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                        os.write(fd, str(os.getpid()).encode())
+                        os.close(fd)
+                    except OSError:
+                        return {"status": "error", "message": "Failed to acquire lock"}
+                    
+            def _main_job_runner():
+                
+                from syft_job.job_runner import create_runner
+
+                runner = create_runner(str(syftbox_folder), poll_interval)
+                runner.run()
+
+            # Start the job
+            thread = threading.Thread(target=_main_job_runner, daemon=True)
+            thread.start()
+
+            return {
+                "syftbox_folder": syftbox_folder,
+                "poll_interval": poll_interval
+            }
+
+        return start_runner
+
+    
+    def _setup_job_runner(self) -> None:
+        """
+        Setup job runner if syft-job is available
+        """
+
+        # Check if syft-job is available (silently skip if not)
+        try:
+            import syft_job
+        except ImportError:
+            return
+
+        import syft_serve as ss
+        from syft_serve._exceptions import ServerAlreadyExistsError
+        
+        # Setup Job Directories
+        self._setup_job_directories()
+
+        # Create Job Runner
+        # Step 1: Create the functions
+        start_fn = self._create_job_runner_functions(self.folder, poll_interval=1)
+
+        # Step 2: Create syft-serve server
+        try: 
+            server = ss.create(
+                name=f"job_runner_{self._sanitize_email()}",
+                endpoints={
+                    "/start": start_fn,
+                },
+                dependencies=["syft-job"],
+                force=False,
+            )
+        except ServerAlreadyExistsError:
+            server = ss.servers[f"job_runner_{self._sanitize_email()}"]
+        
+
+        res = requests.get(f"{server.url}/start")
+        res.raise_for_status()
+
+
     
     def get_syftbox_directory(self) -> Optional[Path]:
         """Get the local SyftBox directory path"""
@@ -703,6 +801,47 @@ class SyftClient:
                 return string_buffer.getvalue().strip()
         
         return PeersProperty(self.sync, self)
+    
+    @property
+    def watcher(self):
+        """Access watcher service"""
+        return self.sync.services.watcher
+    
+    @property
+    def receiver(self):
+        """Access receiver service"""
+        return self.sync.services.receiver
+    
+    def start_sync_services(self, verbose: bool = True):
+        """Start both watcher and receiver services"""
+        watcher_started = self.sync.services.ensure_watcher_running(verbose=verbose)
+        receiver_started = self.sync.services.ensure_receiver_running(verbose=verbose)
+        
+        if verbose:
+            if watcher_started and receiver_started:
+                print("✅ Both sync services started")
+            elif watcher_started:
+                print("📡 Watcher started (receiver may already be running)")
+            elif receiver_started:
+                print("📥 Receiver started (watcher may already be running)")
+            else:
+                print("ℹ️  Sync services may already be running")
+        
+        return watcher_started or receiver_started
+    
+    def stop_sync_services(self, verbose: bool = True):
+        """Stop both watcher and receiver services"""
+        watcher_stopped = self.sync.services.stop_watcher(verbose=verbose)
+        receiver_stopped = self.sync.services.stop_receiver(verbose=verbose)
+        
+        if verbose and not (watcher_stopped or receiver_stopped):
+            print("ℹ️  No sync services were running")
+        
+        return watcher_stopped or receiver_stopped
+    
+    def sync_status(self, verbose: bool = True):
+        """Get status of sync services"""
+        return self.sync.services.status(verbose=verbose)
     
     def get_peer(self, email: str):
         """
@@ -1129,6 +1268,10 @@ class SyftClient:
         total_steps = 11  # Added steps for peer requests and cache warming
         current_step = 0
         
+        # Initialize sync service status
+        watcher_status = "unavailable"
+        receiver_status = "unavailable"
+        
         def print_progress(step: int, message: str, is_final: bool = False):
             """Print progress with carriage return"""
             if verbose:
@@ -1227,6 +1370,7 @@ class SyftClient:
 
             # Setup job directories if syft-job is available
             self._setup_job_directories()
+            self._setup_job_runner()
             
             # Step 7: Initialize transports
             current_step += 1
@@ -1279,7 +1423,6 @@ class SyftClient:
             except Exception:
                 # If there's any error checking peer requests, just continue
                 pass
-            
 
             if not skip_server_setup:
                 # Step 9: Start watcher and receiver
@@ -1293,6 +1436,7 @@ class SyftClient:
                 self.start_receiver()
 
             # Step 9: Warm the cache
+
             current_step += 1
             print_progress(current_step, "Getting list of active transports")
             
@@ -1314,10 +1458,31 @@ class SyftClient:
                         if hasattr(transport_obj, 'is_setup') and transport_obj.is_setup():
                             active_transports.append(transport.title())
             
+            # Build final message with sync services status
             if peer_count > 0:
-                print_progress(total_steps, f"Connected peer-to-peer to {peer_count} peer{'s' if peer_count != 1 else ''} via: {', '.join(active_transports)}", is_final=True)
+                final_msg = f"Connected peer-to-peer to {peer_count} peer{'s' if peer_count != 1 else ''} via: {', '.join(active_transports)}"
             else:
-                print_progress(total_steps, f"Peer-to-peer ready via: {', '.join(active_transports)}", is_final=True)
+                final_msg = f"Peer-to-peer ready via: {', '.join(active_transports)}"
+            
+            # Add sync services status to final message
+            if watcher_status != "unavailable" or receiver_status != "unavailable":
+                sync_indicators = []
+                
+                # Add simple status indicators
+                if watcher_status in ["existing", "started"]:
+                    sync_indicators.append("📡")
+                elif watcher_status == "failed":
+                    sync_indicators.append("⚠️")
+                
+                if receiver_status in ["existing", "started"]:
+                    sync_indicators.append("📥")
+                elif receiver_status == "failed":
+                    sync_indicators.append("⚠️")
+                
+                if sync_indicators:
+                    final_msg += f" {' '.join(sync_indicators)}"
+            
+            print_progress(total_steps, final_msg, is_final=True)
             
             # Print peer request output if there were any
             if verbose and peer_request_output:
