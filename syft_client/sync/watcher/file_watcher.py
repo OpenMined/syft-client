@@ -1,7 +1,7 @@
 """
 File watcher server endpoint implementation using syft-serve
 """
-
+import time
 import os
 from pathlib import Path
 
@@ -69,23 +69,13 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         from syft_client.sync.watcher.event_handler import SyftBoxEventHandler
         from syft_client.sync.watcher.sync_history import SyncHistory
         
-        # Silence output if not verbose
-        if not verbose:
-            sys.stdout = open(os.devnull, 'w')
-            sys.stderr = open(os.devnull, 'w')
-        
         # Login to syft client with provided email
         print(f"Starting watcher for {email}...", flush=True)
         
         # Try to login - if no credentials exist, create a minimal client
-        try:
-            client = sc.login(email, verbose=False, force_relogin=False)
-            print(f"Login successful!", flush=True)
-        except Exception as e:
-            print(f"Warning: Could not login ({e}). Creating minimal client...", flush=True)
-            # Create a minimal client for testing
-            client = sc.SyftClient(email)
-            client.email = email
+        client = sc.login(email, verbose=False, force_relogin=False, skip_server_setup=True)
+        print(f"Login successful!", flush=True)
+    
         
         # Get the SyftBox directory to watch
         # Always use client's syftbox directory to ensure consistency
@@ -193,7 +183,8 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
             "google-auth-httplib2",
             "rich",
             "dnspython",
-            "cryptography"
+            "cryptography",
+            "syft-serve"
         ],
         endpoints={"/": watcher_main}
     )
@@ -201,10 +192,11 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
     # Trigger the watcher to start
     response = requests.get(server.url)
     if response.status_code == 200:
-        if verbose:
-            print(f"✓ Watcher started successfully at {server.url}")
+        # if verbose:
+        #     print(f"✓ Watcher started successfully at {server.url}")
+        """continue"""
     else:
-        print(f"Error starting watcher: {response.status_code}")
+        print(f"Error starting watcher: {response}")
     
     return server
 

@@ -75,14 +75,10 @@ def create_receiver_endpoint(email: str, check_interval: int = 30,
         print(f"Starting receiver for {email}...", flush=True)
         
         # Try to login
-        try:
-            client = sc.login(email, verbose=False, force_relogin=False)
-            print(f"Login successful!", flush=True)
-        except Exception as e:
-            print(f"Warning: Could not login ({e}). Creating minimal client...", flush=True)
-            client = sc.SyftClient(email)
-            client.email = email
-        
+    
+        client = sc.login(email, verbose=False, force_relogin=False, skip_server_setup=True)
+        print(f"Login successful!", flush=True)
+    
         # Initialize components
         inbox_monitor = InboxMonitor()
         
@@ -252,7 +248,8 @@ def create_receiver_endpoint(email: str, check_interval: int = 30,
             "google-auth-httplib2",
             "rich",
             "dnspython",
-            "cryptography"
+            "cryptography",
+            "syft-serve"
         ],
         endpoints={"/": receiver_main}
     )
@@ -262,24 +259,25 @@ def create_receiver_endpoint(email: str, check_interval: int = 30,
     max_retries = 10
     retry_delay = 1  # seconds
     
-    if verbose:
-        print(f"Waiting for receiver to initialize...")
+    # if verbose:
+    #     print(f"Waiting for receiver to initialize...")
     
     for i in range(max_retries):
         try:
-            response = requests.get(f"{server.url}/health", timeout=2)
+            response = requests.get(f"{server.url}/", timeout=2)
             if response.status_code == 200:
-                if verbose:
-                    print(f"✓ Receiver started successfully at {server.url}")
+                # if verbose:
+                #     print(f"✓ Receiver started successfully at {server.url}")
                 break
         except requests.exceptions.RequestException:
             if i < max_retries - 1:
                 time.sleep(retry_delay)
             else:
-                if verbose:
-                    print(f"⚠️  Receiver server created but may still be initializing")
-                    print(f"    Server URL: {server.url}")
-                    print(f"    You can check status with: client.receiver.status()")
+                """continue"""
+                # if verbose:
+                #     print(f"⚠️  Receiver server created but may still be initializing")
+                #     print(f"    Server URL: {server.url}")
+                #     print(f"    You can check status with: client.receiver.status()")
     
     return server
 

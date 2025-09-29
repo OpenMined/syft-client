@@ -1110,7 +1110,7 @@ class SyftClient:
             print(f"\n✗ Error deleting wallet: {e}")
             return False
     
-    def _login(self, provider: Optional[str] = None, verbose: bool = False, init_transport: bool = True, wizard: Optional[bool] = None, accept_requests: bool = True) -> None:
+    def _login(self, provider: Optional[str] = None, verbose: bool = False, init_transport: bool = True, wizard: Optional[bool] = None, accept_requests: bool = True, skip_server_setup: bool = False) -> None:
         """
         Instance method that handles the actual login process
         
@@ -1126,7 +1126,7 @@ class SyftClient:
         # Progress tracking
         import sys
         import time
-        total_steps = 9  # Added steps for peer requests and cache warming
+        total_steps = 11  # Added steps for peer requests and cache warming
         current_step = 0
         
         def print_progress(step: int, message: str, is_final: bool = False):
@@ -1280,6 +1280,18 @@ class SyftClient:
                 # If there's any error checking peer requests, just continue
                 pass
             
+
+            if not skip_server_setup:
+                # Step 9: Start watcher and receiver
+                current_step += 1
+                print_progress(current_step, "Starting watcher")
+                # Start watcher and receiver
+                self.start_watcher()
+
+                current_step += 1
+                print_progress(current_step, "Starting receiver")
+                self.start_receiver()
+
             # Step 9: Warm the cache
             current_step += 1
             print_progress(current_step, "Getting list of active transports")
@@ -1338,7 +1350,7 @@ class SyftClient:
     @staticmethod
     def login(email: Optional[str] = None, provider: Optional[str] = None, 
               quickstart: bool = True, verbose: bool = True, init_transport: bool = True, 
-              wizard: Optional[bool] = None, accept_requests: bool = True, **kwargs) -> 'SyftClient':
+              wizard: Optional[bool] = None, accept_requests: bool = True, skip_server_setup: bool = False, **kwargs) -> 'SyftClient':
         """
         Simple login function for syft_client
         
@@ -1438,5 +1450,5 @@ class SyftClient:
         
         # Create SyftClient and login
         client = SyftClient(email)
-        client._login(provider=provider, verbose=verbose, init_transport=init_transport, wizard=wizard, accept_requests=accept_requests)
+        client._login(provider=provider, verbose=verbose, init_transport=init_transport, wizard=wizard, accept_requests=accept_requests, skip_server_setup=skip_server_setup)
         return client
