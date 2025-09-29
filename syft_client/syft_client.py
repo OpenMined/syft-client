@@ -8,9 +8,6 @@ from .platforms.base import BasePlatformClient
 from .platforms.detection import Platform, detect_primary_platform, get_secondary_platforms, PlatformDetector
 from .environment import Environment, detect_environment
 
-import syft_serve as ss
-from syft_serve._exceptions import ServerAlreadyExistsError
-
 import requests
 
 
@@ -381,7 +378,9 @@ class SyftClient:
             import syft_job
         except ImportError:
             return
-    
+
+        import syft_serve as ss
+        from syft_serve._exceptions import ServerAlreadyExistsError
         
         # Setup Job Directories
         self._setup_job_directories()
