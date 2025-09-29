@@ -8,6 +8,11 @@ from .platforms.base import BasePlatformClient
 from .platforms.detection import Platform, detect_primary_platform, get_secondary_platforms, PlatformDetector
 from .environment import Environment, detect_environment
 
+import syft_serve as ss
+from syft_serve._exceptions import ServerAlreadyExistsError
+
+import requests
+
 
 class SyftClient:
     """
@@ -280,16 +285,15 @@ class SyftClient:
         # Store the path for later use
         self.local_syftbox_dir = syftbox_dir
     
+    def _sanitize_email(self) -> str:
+        """Sanitize email for use in file paths"""
+        return self.email.replace('@', '_at_').replace('.', '_')
+
+    # TODO: Rethink this strategy, when syft-job is an isolated app
     def _setup_job_directories(self) -> None:
         """
-        Setup job directory structure if syft-job is available.
         Creates: SyftBox/datasites/<email>/app_data/job/{inbox,approved,done}
         """
-        # Check if syft-job is available (silently skip if not)
-        try:
-            import syft_job
-        except ImportError:
-            return
         
         # Use the .folder property to get SyftBox directory
         syftbox_dir = self.get_syftbox_directory()
@@ -309,6 +313,100 @@ class SyftClient:
         except Exception as e:
             # Print error if directory creation fails
             print(f"⚠️  Could not create job directories: {e}")
+
+
+    # TODO: Temporary workaround until we shift from syft-serve to using
+    # app scheduler for scheduling apps in syft-client
+    def _create_job_runner_functions(self, syftbox_folder: str, poll_interval: int = 1):
+        """Factory that returns syft-serve compatible functions"""
+
+        def start_runner():
+            """Function compatible with syft-serve"""
+            import threading
+            import tempfile
+            import os
+            from pathlib import Path
+
+            # Use a file-based lock
+            lock_file = Path(tempfile.gettempdir()) / f"job_runner_{abs(hash(syftbox_folder))}.lock"
+
+            # Try to create lock file atomically
+            try:
+                fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, str(os.getpid()).encode())
+                os.close(fd)
+            except OSError:
+                # Lock file exists, check if process is still running
+                try:
+                    with open(lock_file, 'r') as f:
+                        pid = int(f.read().strip())
+                        os.kill(pid, 0)  # Check if process exists
+                    return {"status": "already_running"}
+                except (ValueError, ProcessLookupError, FileNotFoundError):
+                    # Stale lock file, remove it
+                    lock_file.unlink(missing_ok=True)
+                    try:
+                        fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                        os.write(fd, str(os.getpid()).encode())
+                        os.close(fd)
+                    except OSError:
+                        return {"status": "error", "message": "Failed to acquire lock"}
+                    
+            def _main_job_runner():
+                
+                from syft_job.job_runner import create_runner
+
+                runner = create_runner(str(syftbox_folder), poll_interval)
+                runner.run()
+
+            # Start the job
+            thread = threading.Thread(target=_main_job_runner, daemon=True)
+            thread.start()
+
+            return {
+                "syftbox_folder": syftbox_folder,
+                "poll_interval": poll_interval
+            }
+
+        return start_runner
+
+    
+    def _setup_job_runner(self) -> None:
+        """
+        Setup job runner if syft-job is available
+        """
+
+        # Check if syft-job is available (silently skip if not)
+        try:
+            import syft_job
+        except ImportError:
+            return
+    
+        
+        # Setup Job Directories
+        self._setup_job_directories()
+
+        # Create Job Runner
+        # Step 1: Create the functions
+        start_fn = self._create_job_runner_functions(self.folder, poll_interval=1)
+
+        # Step 2: Create syft-serve server
+        try: 
+            server = ss.create(
+                name=f"job_runner_{self._sanitize_email()}",
+                endpoints={
+                    "/start": start_fn,
+                },
+                dependencies=["syft-job"],
+            )
+        except ServerAlreadyExistsError:
+            server = ss.servers[f"job_runner_{self._sanitize_email()}"]
+        
+
+        res = requests.get(f"{server.url}/start")
+        res.raise_for_status()
+
+
     
     def get_syftbox_directory(self) -> Optional[Path]:
         """Get the local SyftBox directory path"""
@@ -1272,6 +1370,7 @@ class SyftClient:
 
             # Setup job directories if syft-job is available
             self._setup_job_directories()
+            self._setup_job_runner()
             
             # Step 7: Initialize transports
             current_step += 1
