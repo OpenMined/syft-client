@@ -371,6 +371,42 @@ class BaseTransportLayer(ABC):
         # Call the static method with project_id
         self.__class__.disable_api_static(transport_name, self.email, project_id)
     
+    def _create_deletion_marker(self, path: Path) -> Path:
+        """Create marker file before deletion to prevent echo"""
+        marker_path = path.parent / f".syft_deleting_{path.name}"
+        
+        # Write simple metadata
+        import json
+        import os
+        metadata = {
+            "target_path": str(path),
+            "timestamp": time.time(),
+            "pid": os.getpid()
+        }
+        
+        try:
+            with open(marker_path, 'w') as f:
+                json.dump(metadata, f)
+        except Exception:
+            # If we can't create marker, continue anyway
+            pass
+            
+        return marker_path
+    
+    def _cleanup_deletion_marker(self, marker_path: Path, delay: float = 5.0) -> None:
+        """Clean up deletion marker after a delay"""
+        import threading
+        
+        def cleanup():
+            try:
+                if marker_path.exists():
+                    marker_path.unlink()
+            except:
+                pass
+        
+        # Clean up marker after delay
+        threading.Timer(delay, cleanup).start()
+    
     def check_inbox(self, sender_email: str, download_dir: Optional[str] = None, verbose: bool = True) -> List[Dict]:
         """
         Base implementation for checking inbox. Transport-specific classes should override
@@ -552,16 +588,23 @@ class BaseTransportLayer(ABC):
                                     if verbose:
                                         print(f"   ℹ️  Could not record deletion (file may already be gone): {e}")
                             
-                            # THEN: Delete the file/directory
+                            # THEN: Delete the file/directory with marker to prevent echo
                             if path_to_delete.exists():
-                                if path_to_delete.is_dir():
-                                    shutil.rmtree(path_to_delete)
-                                    if verbose:
-                                        print(f"   🗑️  Deleted directory: {path_to_delete.name}")
-                                else:
-                                    path_to_delete.unlink()
-                                    if verbose:
-                                        print(f"   🗑️  Deleted file: {path_to_delete.name}")
+                                # Create deletion marker BEFORE deleting
+                                marker = self._create_deletion_marker(path_to_delete)
+                                
+                                try:
+                                    if path_to_delete.is_dir():
+                                        shutil.rmtree(path_to_delete)
+                                        if verbose:
+                                            print(f"   🗑️  Deleted directory: {path_to_delete.name}")
+                                    else:
+                                        path_to_delete.unlink()
+                                        if verbose:
+                                            print(f"   🗑️  Deleted file: {path_to_delete.name}")
+                                finally:
+                                    # Schedule marker cleanup
+                                    self._cleanup_deletion_marker(marker)
                             else:
                                 if verbose:
                                     print(f"   ℹ️  Already deleted: {path_to_delete.name}")

@@ -5,6 +5,7 @@ File system event handler for the watcher
 import os
 from pathlib import Path
 from watchdog.events import FileSystemEventHandler
+import time
 
 
 class SyftBoxEventHandler(FileSystemEventHandler):
@@ -74,6 +75,13 @@ class SyftBoxEventHandler(FileSystemEventHandler):
             if event_type == "deleted":
                 if self.verbose:
                     print(f"Sending deletion: {filename}", flush=True)
+                
+                # Check for deletion marker first (fastest check)
+                marker_path = Path(event.src_path).parent / f".syft_deleting_{filename}"
+                if marker_path.exists():
+                    if self.verbose:
+                        print(f"✋ Skipping deletion: {filename} (has deletion marker)", flush=True)
+                    return
                 
                 # Check if this deletion was recently synced from a peer (don't echo back)
                 threshold = int(os.environ.get('SYFT_SYNC_ECHO_THRESHOLD', '60'))
