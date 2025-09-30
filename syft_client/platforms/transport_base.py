@@ -423,6 +423,9 @@ class BaseTransportLayer(ABC):
                     timestamp = message_info.get('timestamp', '')
                     size_str = message_info.get('size', '0')
                     
+                    if verbose:
+                        print(f"   📦 Processing message {message_id} ({len(message_data)} bytes)")
+                    
                     # Save to temporary file
                     temp_file = download_path / f"{message_id}.tar.gz"
                     with open(temp_file, 'wb') as f:
@@ -432,9 +435,35 @@ class BaseTransportLayer(ABC):
                     import tarfile
                     with tarfile.open(temp_file, 'r:gz') as tar:
                         tar.extractall(download_path)
+                        
+                    if verbose:
+                        # List what was actually extracted
+                        print(f"   📂 Extracted to {download_path}:")
+                        for item in download_path.iterdir():
+                            if item.name.startswith(message_id):
+                                print(f"      - {item.name}")
                     
                     # Find the extracted message directory
-                    extracted_dir = download_path / message_id
+                    # The directory might have a suffix after the message_id
+                    extracted_dir = None
+                    for item in download_path.iterdir():
+                        if item.is_dir() and item.name.startswith(message_id):
+                            extracted_dir = item
+                            break
+                    
+                    if not extracted_dir:
+                        # Fallback to exact match
+                        extracted_dir = download_path / message_id
+                    
+                    if verbose:
+                        print(f"   📁 Looking for extracted dir: {extracted_dir}")
+                        if extracted_dir.exists():
+                            print(f"   ✅ Found extracted directory")
+                            # List contents
+                            for item in extracted_dir.iterdir():
+                                print(f"      - {item.name} {'(dir)' if item.is_dir() else '(file)'}")
+                        else:
+                            print(f"   ❌ Extracted directory not found!")
                     
                     # Read metadata if available
                     metadata = {}
@@ -512,6 +541,8 @@ class BaseTransportLayer(ABC):
                     
                     # Process the data files to their final destination
                     elif (data_dir := extracted_dir / "data").exists():
+                        if verbose:
+                            print(f"   📂 Found data directory, processing files...")
                         # Move files from data dir to their proper location
                         for item in data_dir.iterdir():
                             # Determine destination based on metadata
@@ -605,6 +636,8 @@ class BaseTransportLayer(ABC):
                 except Exception as e:
                     if verbose:
                         print(f"   ❌ Error processing message {message_info.get('message_id', 'unknown')}: {e}")
+                        import traceback
+                        traceback.print_exc()
             
             # Archive processed messages
             if messages_to_archive:
