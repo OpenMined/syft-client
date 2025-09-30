@@ -528,18 +528,23 @@ class BaseTransportLayer(ABC):
                                     except:
                                         pass
                                 
-                                sync_history.record_sync(
-                                    str(path_to_delete),
-                                    message_id,
-                                    sender_email,
-                                    self.transport_name,
-                                    'incoming',
-                                    0,  # Size is 0 for deletions
-                                    file_hash=file_hash,
-                                    operation='delete'  # Mark this as a deletion
-                                )
-                                if verbose:
-                                    print(f"   📝 Recorded incoming deletion for {path_to_delete}")
+                                try:
+                                    sync_history.record_sync(
+                                        str(path_to_delete),
+                                        message_id,
+                                        sender_email,
+                                        self.transport_name,
+                                        'incoming',
+                                        0,  # Size is 0 for deletions
+                                        file_hash=file_hash,
+                                        operation='delete'  # Mark this as a deletion
+                                    )
+                                    if verbose:
+                                        print(f"   📝 Recorded incoming deletion for {path_to_delete}")
+                                except Exception as e:
+                                    # This is ok - file may already be gone
+                                    if verbose:
+                                        print(f"   ℹ️  Could not record deletion (file may already be gone): {e}")
                             
                             # THEN: Delete the file/directory
                             if path_to_delete.exists():
