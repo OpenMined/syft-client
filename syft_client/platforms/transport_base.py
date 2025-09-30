@@ -650,17 +650,15 @@ class BaseTransportLayer(ABC):
                                     import shutil
                                     shutil.move(str(item), str(dest))
                             else:
-                                # For files, use atomic replace to avoid triggering deletion events
+                                # For files, use direct write to prevent deletion events
                                 import shutil
-                                import time
                                 
                                 if dest.exists():
-                                    # Use atomic replacement to prevent watcher from seeing deletion
-                                    # Create temp file with timestamp to ensure uniqueness
-                                    temp_dest = dest.with_suffix(f'.tmp.{int(time.time() * 1000000)}')
-                                    shutil.move(str(item), str(temp_dest))
-                                    # Atomic replace (on most filesystems)
-                                    temp_dest.replace(dest)
+                                    # Direct write prevents watchdog from seeing deletion events
+                                    with open(item, 'rb') as src:
+                                        content = src.read()
+                                    with open(dest, 'wb') as dst:
+                                        dst.write(content)
                                 else:
                                     # No existing file, just move normally
                                     shutil.move(str(item), str(dest))
@@ -774,14 +772,13 @@ class BaseTransportLayer(ABC):
                 # Always recurse into directories, never move them wholesale
                 self._merge_directories(str(s), str(d))
             else:
-                # For files, use atomic replace to avoid triggering deletion events
+                # For files, use direct write to prevent deletion events
                 if d.exists():
-                    # Use atomic replacement to prevent watcher from seeing deletion
-                    import time
-                    temp_dest = d.with_suffix(f'.tmp.{int(time.time() * 1000000)}')
-                    shutil.move(str(s), str(temp_dest))
-                    # Atomic replace (on most filesystems)
-                    temp_dest.replace(d)
+                    # Direct write prevents watchdog from seeing deletion events
+                    with open(s, 'rb') as src:
+                        content = src.read()
+                    with open(d, 'wb') as dst:
+                        dst.write(content)
                 else:
                     # No existing file, just move normally
                     shutil.move(str(s), str(d))
