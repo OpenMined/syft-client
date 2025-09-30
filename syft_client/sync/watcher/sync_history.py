@@ -27,35 +27,89 @@ class SyncHistory:
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
     
-    def is_recent_sync(self, file_path: str, threshold_seconds: int = 60) -> bool:
-        """Check if a file was recently synced (to prevent echoes)"""
+    def is_recent_sync(self, file_path: str, direction: Optional[str] = None, threshold_seconds: int = 60) -> bool:
+        """Check if a file was recently synced in a specific direction (to prevent echoes)
+        
+        Args:
+            file_path: Path to the file to check
+            direction: Optional direction to check ('incoming' or 'outgoing'). 
+                      If None, checks any recent sync regardless of direction.
+            threshold_seconds: Time window to consider as "recent"
+            
+        Returns:
+            True if file was recently synced in the specified direction
+        """
         try:
+            print(f"   🔍 Checking sync history for: {file_path}, direction={direction}", flush=True)
             file_hash = self.compute_file_hash(file_path)
             metadata_path = self.history_dir / file_hash / "metadata.json"
             
             if not metadata_path.exists():
+                print(f"      No metadata found for hash {file_hash}", flush=True)
                 return False
             
             with open(metadata_path, "r") as f:
                 metadata = json.load(f)
             
-            last_sync = metadata.get("last_sync", {})
-            if not last_sync:
-                return False
+            print(f"      Found metadata with {len(metadata.get('sync_history', []))} sync records", flush=True)
             
-            # Check if the sync was recent
-            last_sync_time = last_sync.get("timestamp", 0)
+            # If no direction specified, check last sync regardless of direction
+            if direction is None:
+                last_sync = metadata.get("last_sync", {})
+                if not last_sync:
+                    return False
+                
+                last_sync_time = last_sync.get("timestamp", 0)
+                current_time = time.time()
+                return (current_time - last_sync_time) < threshold_seconds
+            
+            # If direction specified, check sync history for recent syncs in that direction
+            sync_history = metadata.get("sync_history", [])
             current_time = time.time()
             
-            return (current_time - last_sync_time) < threshold_seconds
+            # Debug: print all directions found
+            directions = [s.get("direction", "unknown") for s in sync_history]
+            print(f"      Directions in history: {directions}", flush=True)
+            
+            # Check from most recent to oldest
+            for sync in reversed(sync_history):
+                if sync.get("direction") == direction:
+                    sync_time = sync.get("timestamp", 0)
+                    age = current_time - sync_time
+                    print(f"      Found {direction} sync, age: {age:.1f}s (threshold: {threshold_seconds}s)", flush=True)
+                    if age < threshold_seconds:
+                        return True
+                    else:
+                        # If the most recent sync in this direction is old, no need to check further
+                        return False
+            
+            print(f"      No {direction} sync found in history", flush=True)
+            return False
             
         except Exception:
             return False
     
     def record_sync(self, file_path: str, message_id: str, peer_email: str, 
-                    transport: str, direction: str, file_size: int):
-        """Record a sync operation in history"""
-        file_hash = self.compute_file_hash(file_path)
+                    transport: str, direction: str, file_size: int, file_hash: Optional[str] = None):
+        """Record a sync operation in history
+        
+        Args:
+            file_path: Path to the file
+            message_id: Message ID
+            peer_email: Email of the peer
+            transport: Transport used
+            direction: 'incoming' or 'outgoing'
+            file_size: Size of the file
+            file_hash: Optional pre-computed hash (useful when recording before file exists)
+        """
+        # Always print for debugging
+        import sys
+        print(f"📝 Recording sync: {file_path} direction={direction} peer={peer_email}", file=sys.stderr, flush=True)
+        
+        # Use provided hash or compute it
+        if file_hash is None:
+            file_hash = self.compute_file_hash(file_path)
+            
         hash_dir = self.history_dir / file_hash
         hash_dir.mkdir(exist_ok=True)
         

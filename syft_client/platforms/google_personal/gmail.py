@@ -588,17 +588,10 @@ class GmailTransport(BaseTransportLayer, BaseTransport):
         """
         return []
     
-    def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
+    def _send_archive_via_transport(self, archive_data: bytes, filename: str, 
+                                   recipient: str, message_id: Optional[str] = None) -> bool:
         """
-        Send a pre-prepared archive via Gmail
-        
-        Args:
-            archive_path: Path to the .syftmsg archive file
-            recipient: Email address to send to
-            message_id: Optional message ID for tracking
-        
-        Returns:
-            True if send was successful
+        Send archive data via Gmail as an email attachment
         """
         try:
             # Create email message
@@ -611,21 +604,15 @@ class GmailTransport(BaseTransportLayer, BaseTransport):
             body = f"This is a Syft message containing encrypted data.\nMessage ID: {message_id or 'N/A'}"
             msg.attach(MIMEText(body, 'plain'))
             
-            # Attach the archive file
-            import os
-            if not os.path.exists(archive_path):
-                print(f"❌ Archive not found: {archive_path}")
-                return False
-            
-            with open(archive_path, 'rb') as f:
-                part = MIMEBase('application', 'octet-stream')
-                part.set_payload(f.read())
-                encoders.encode_base64(part)
-                part.add_header(
-                    'Content-Disposition',
-                    f'attachment; filename={os.path.basename(archive_path)}'
-                )
-                msg.attach(part)
+            # Attach the archive data
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(archive_data)
+            encoders.encode_base64(part)
+            part.add_header(
+                'Content-Disposition',
+                f'attachment; filename={filename}'
+            )
+            msg.attach(part)
             
             # Send the email
             raw_msg = base64.urlsafe_b64encode(msg.as_bytes()).decode()

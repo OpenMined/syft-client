@@ -128,20 +128,8 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
                         for peer in peers:
                             try:
                                 if hasattr(peer, 'check_inbox'):
-                                    messages = peer.check_inbox(download_dir=str(watch_path), verbose=False)
-                                    if messages:
-                                        # Record syncs in history
-                                        for transport, msgs in messages.items():
-                                            for msg in msgs:
-                                                if 'file_path' in msg:
-                                                    sync_history.record_sync(
-                                                        msg['file_path'],
-                                                        msg.get('message_id', 'unknown'),
-                                                        peer.email,
-                                                        transport,
-                                                        'received',
-                                                        msg.get('size', 0)
-                                                    )
+                                    # check_inbox now handles recording sync history internally
+                                    messages = peer.check_inbox(download_dir=str(syftbox_dir), verbose=False)
                             except Exception as e:
                                 if verbose:
                                     print(f"Error checking inbox for peer: {e}", flush=True)

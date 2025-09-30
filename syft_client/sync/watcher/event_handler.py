@@ -54,10 +54,20 @@ class SyftBoxEventHandler(FileSystemEventHandler):
             # Check if this file change is from a recent sync to prevent echo
             threshold = int(os.environ.get('SYFT_SYNC_ECHO_THRESHOLD', '60'))
             
-            if threshold > 0 and self.sync_history.is_recent_sync(event.src_path, threshold_seconds=threshold):
+            # Debug logging
+            if self.verbose:
+                print(f"\n🔍 Checking sync history for: {event.src_path}", flush=True)
+                print(f"   Threshold: {threshold} seconds", flush=True)
+            
+            if threshold > 0:
+                is_recent = self.sync_history.is_recent_sync(event.src_path, direction='incoming', threshold_seconds=threshold)
                 if self.verbose:
-                    print(f"Skipping echo: {filename} (matches recent sync)", flush=True)
-                return
+                    print(f"   Is recent incoming sync: {is_recent}", flush=True)
+                
+                if is_recent:
+                    if self.verbose:
+                        print(f"✋ Skipping echo: {filename} (was recently received)", flush=True)
+                    return
         
         # Send the file or deletion to all peers
         try:
@@ -111,7 +121,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                                 message_id,
                                 peer_email,
                                 "auto",  # Transport will be selected automatically
-                                "sent",
+                                "outgoing",
                                 file_size
                             )
                     except Exception as e:

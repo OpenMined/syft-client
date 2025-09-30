@@ -928,23 +928,15 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         except Exception:
             return []
     
-    def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
+    def _send_archive_via_transport(self, archive_data: bytes, filename: str, 
+                                   recipient: str, message_id: Optional[str] = None) -> bool:
         """
-        Send a pre-prepared archive via Google Sheets using gdrive_unified.py format.
+        Send archive data via Google Sheets using gdrive_unified.py format.
         
         Stores message as: [timestamp, message_id, size, base64_data]
         """
         try:
-            import os
             import base64
-            
-            if not os.path.exists(archive_path):
-                print(f"❌ Archive not found: {archive_path}")
-                return False
-            
-            # Read archive file
-            with open(archive_path, 'rb') as f:
-                archive_data = f.read()
             
             # Check size limit (conservative 37.5KB to stay under 50k char limit)
             max_sheets_size = 37_500

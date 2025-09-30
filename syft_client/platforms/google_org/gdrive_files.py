@@ -487,23 +487,11 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         """Get the name of this transport"""
         return "gdrive_files"
     
-    def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
+    def _send_archive_via_transport(self, archive_data: bytes, filename: str, 
+                                   recipient: str, message_id: Optional[str] = None) -> bool:
         """
-        Send a pre-prepared archive to a recipient via Google Drive
-        
-        This uploads the file to the outbox_inbox folder shared with the recipient
-        
-        Args:
-            archive_path: Path to the prepared .syftmsg archive
-            recipient: Email address of the recipient
-            message_id: Optional message ID for tracking
-            
-        Returns:
-            True if send was successful, False otherwise
+        Send archive data via Google Drive by uploading to the outbox_inbox folder
         """
-        if not self.is_setup():
-            return False
-            
         try:
             # Ensure we have SyftBox folder
             self._ensure_syftbox_folder()
@@ -519,15 +507,6 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     print(f"❌ No outbox folder found for {recipient}. Add them as a peer first.")
                 return False
             
-            # Read the archive file
-            with open(archive_path, 'rb') as f:
-                file_data = f.read()
-            
-            # Create filename with message ID if provided
-            filename = os.path.basename(archive_path)
-            if message_id:
-                filename = f"{message_id}_{filename}"
-            
             # Upload file to outbox
             file_metadata = {
                 'name': filename,
@@ -535,7 +514,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             }
             
             media = MediaIoBaseUpload(
-                io.BytesIO(file_data),
+                io.BytesIO(archive_data),
                 mimetype='application/octet-stream',
                 resumable=True
             )

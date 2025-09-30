@@ -406,8 +406,11 @@ class BaseTransportLayer(ABC):
             download_path.mkdir(parents=True, exist_ok=True)
             
             # Initialize sync history for this SyftBox directory
+            # Use the root SyftBox directory for sync history, not the download path
+            # This ensures consistency with the watcher's sync history
             from ..sync.watcher.sync_history import SyncHistory
-            sync_history = SyncHistory(download_path)
+            syftbox_root = download_path  # download_path IS the syftbox root
+            sync_history = SyncHistory(syftbox_root)
             
             # Process each message
             messages_to_archive = []
@@ -457,7 +460,41 @@ class BaseTransportLayer(ABC):
                             # Create parent directories
                             dest.parent.mkdir(parents=True, exist_ok=True)
                             
-                            # Move the file/directory
+                            # FIRST: Record sync history BEFORE moving files (to prevent watcher from seeing them)
+                            if sync_history:
+                                # Helper function to record all files that WILL BE in the destination
+                                def record_files_in_source_tree(src_path: Path, dest_path: Path):
+                                    if src_path.is_file():
+                                        try:
+                                            file_size = src_path.stat().st_size
+                                            # Compute hash from source file
+                                            src_hash = sync_history.compute_file_hash(str(src_path))
+                                            if verbose:
+                                                print(f"   📝 Pre-recording incoming sync for {dest_path}")
+                                            sync_history.record_sync(
+                                                str(dest_path),
+                                                message_id,
+                                                sender_email,
+                                                self.transport_name,
+                                                'incoming',
+                                                file_size,
+                                                file_hash=src_hash  # Pass pre-computed hash
+                                            )
+                                            if verbose:
+                                                print(f"   ✅ Pre-recorded incoming sync history")
+                                        except Exception as e:
+                                            if verbose:
+                                                print(f"   ⚠️  Could not pre-record sync history for {dest_path}: {e}")
+                                    elif src_path.is_dir():
+                                        # Recursively record all files in directory
+                                        for child in src_path.iterdir():
+                                            child_dest = dest_path / child.name
+                                            record_files_in_source_tree(child, child_dest)
+                                
+                                # Pre-record files BEFORE moving them
+                                record_files_in_source_tree(item, dest)
+                            
+                            # THEN: Move the file/directory
                             if item.is_dir():
                                 if dest.exists():
                                     # Merge directories instead of replacing
@@ -474,22 +511,6 @@ class BaseTransportLayer(ABC):
                             
                             if verbose:
                                 print(f"   📥 Extracted: {dest.name}")
-                            
-                            # Record in sync history to prevent re-syncing
-                            if sync_history and dest.is_file():
-                                try:
-                                    file_size = dest.stat().st_size
-                                    sync_history.record_sync(
-                                        str(dest),
-                                        message_id,
-                                        sender_email,
-                                        self.transport_name,
-                                        'incoming',
-                                        file_size
-                                    )
-                                except Exception as e:
-                                    if verbose:
-                                        print(f"   ⚠️  Could not record sync history: {e}")
                     
                     # Clean up temporary files
                     temp_file.unlink()
@@ -599,3 +620,65 @@ class BaseTransportLayer(ABC):
                 if d.exists():
                     d.unlink()
                 shutil.move(str(s), str(d))
+    
+    def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
+        """
+        Base implementation for sending messages. Transport-specific classes should override
+        _send_archive_via_transport() to provide the actual sending logic.
+        
+        Args:
+            archive_path: Path to the prepared .syftmsg archive
+            recipient: Email address of the recipient
+            message_id: Optional message ID for tracking
+            
+        Returns:
+            True if send was successful, False otherwise
+        """
+        if not self.is_setup():
+            return False
+            
+        try:
+            # Validate archive exists
+            import os
+            if not os.path.exists(archive_path):
+                if hasattr(self, 'verbose') and self.verbose:
+                    print(f"❌ Archive not found: {archive_path}")
+                return False
+            
+            # Read archive file
+            with open(archive_path, 'rb') as f:
+                archive_data = f.read()
+            
+            # Get filename
+            filename = os.path.basename(archive_path)
+            if message_id and not filename.startswith(message_id):
+                filename = f"{message_id}_{filename}"
+            
+            # Call transport-specific implementation
+            return self._send_archive_via_transport(
+                archive_data=archive_data,
+                filename=filename,
+                recipient=recipient,
+                message_id=message_id
+            )
+            
+        except Exception as e:
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"❌ Error sending via {self.transport_name}: {e}")
+            return False
+    
+    def _send_archive_via_transport(self, archive_data: bytes, filename: str, 
+                                   recipient: str, message_id: Optional[str] = None) -> bool:
+        """
+        Transport-specific method to send the archive data. Must be overridden by subclasses.
+        
+        Args:
+            archive_data: Raw bytes of the archive file
+            filename: Suggested filename for the archive
+            recipient: Email address of the recipient
+            message_id: Optional message ID for tracking
+            
+        Returns:
+            True if send was successful, False otherwise
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} must implement _send_archive_via_transport()")
