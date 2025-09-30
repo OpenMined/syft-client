@@ -64,8 +64,6 @@ def create_receiver_endpoint(email: str, check_interval: int = 1,
                 break
         
         import syft_client as sc
-        from syft_client.sync.receiver.inbox_monitor import InboxMonitor
-        from syft_client.sync.receiver.message_processor import MessageProcessor
         
         # Silence output if not verbose
         if not verbose:
@@ -79,25 +77,14 @@ def create_receiver_endpoint(email: str, check_interval: int = 1,
         client = sc.login(email, verbose=False, force_relogin=False, skip_server_setup=True)
         print(f"Login successful!", flush=True)
     
-        # Initialize components
-        inbox_monitor = InboxMonitor()
+        # No need for message processor or inbox monitor - check_inbox handles everything
         
-        # Get SyftBox directory
-        if hasattr(client, 'get_syftbox_directory') and client.get_syftbox_directory():
-            syftbox_dir = client.get_syftbox_directory()
-        else:
-            syftbox_dir = Path.home() / "SyftBox"
-            syftbox_dir.mkdir(exist_ok=True)
-        
-        message_processor = MessageProcessor(syftbox_dir, verbose=verbose)
-        
-        # Track statistics
+        # Track simple statistics
         stats = {
             "start_time": datetime.now().isoformat(),
             "last_check": None,
             "checks_performed": 0,
-            "messages_processed": 0,
-            "messages_failed": 0,
+            "total_messages": 0,
             "peers_checked": 0,
             "errors": 0,
             "last_error": None
@@ -146,39 +133,26 @@ def create_receiver_endpoint(email: str, check_interval: int = 1,
                         
                         # Check if peer has check_inbox method
                         if hasattr(peer, 'check_inbox'):
-                            # Check inbox
-                            download_dir = str(message_processor.inbox_dir)
-                            messages = peer.check_inbox(
-                                download_dir=download_dir,
-                                verbose=False
-                            )
+                            # Simply call check_inbox - let it use default behavior
+                            messages = peer.check_inbox(verbose=verbose)
                             
                             if messages:
-                                # Process the messages
-                                process_stats = message_processor.process_messages(
-                                    messages, peer_email
-                                )
+                                # Count messages for stats
+                                msg_count = sum(len(msg_list) for msg_list in messages.values())
+                                total_messages += msg_count
+                                stats["total_messages"] += msg_count
                                 
-                                stats["messages_processed"] += process_stats["processed"]
-                                stats["messages_failed"] += process_stats["failed"]
-                                total_messages += process_stats["processed"]
-                                
-                                # Mark messages as processed
-                                for transport, msg_list in messages.items():
-                                    for msg in msg_list:
-                                        msg_id = msg.get('message_id', 'unknown')
-                                        inbox_monitor.mark_message_processed(
-                                            peer_email, msg_id
-                                        )
-                                
-                                if verbose and process_stats["processed"] > 0:
-                                    print(f"  Processed {process_stats['processed']} messages")
+                                if verbose:
+                                    print(f"  ✓ Found {msg_count} messages")
+                        else:
+                            if verbose:
+                                print(f"  ⚠️  Peer doesn't support check_inbox")
                         
                     except Exception as e:
                         stats["errors"] += 1
                         stats["last_error"] = str(e)
                         if verbose:
-                            print(f"Error checking peer: {e}", flush=True)
+                            print(f"  ❌ Error checking {peer_email}: {e}", flush=True)
                 
                 # Auto-accept peer requests if enabled
                 if auto_accept:
@@ -198,20 +172,7 @@ def create_receiver_endpoint(email: str, check_interval: int = 1,
                         pass
                 
                 if verbose and total_messages > 0:
-                    print(f"\n✓ Total messages processed this cycle: {total_messages}", flush=True)
-                
-                # After processing all messages, approve files from inbox
-                try:
-                    approval_stats = message_processor.approve_inbox_files(auto_approve=True)
-                    if approval_stats["approved"] > 0:
-                        stats["files_approved"] = stats.get("files_approved", 0) + approval_stats["approved"]
-                        if verbose:
-                            print(f"\n✓ Approved {approval_stats['approved']} files to datasites", flush=True)
-                    if approval_stats["failed"] > 0 and verbose:
-                        print(f"⚠️  Failed to approve {approval_stats['failed']} files", flush=True)
-                except Exception as e:
-                    if verbose:
-                        print(f"Error approving files: {e}", flush=True)
+                    print(f"\n✓ Total messages found this cycle: {total_messages}", flush=True)
                 
                 # Wait for next check
                 time.sleep(check_interval)
@@ -228,7 +189,7 @@ def create_receiver_endpoint(email: str, check_interval: int = 1,
         
         return {
             "status": "stopped",
-            "message": f"Receiver stopped after processing {stats['messages_processed']} messages",
+            "message": f"Receiver stopped after receiving {stats['total_messages']} messages",
             "stats": stats
         }
     
