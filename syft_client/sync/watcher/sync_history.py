@@ -19,8 +19,30 @@ class SyncHistory:
         self.history_dir.mkdir(parents=True, exist_ok=True)
     
     def compute_file_hash(self, file_path: str) -> str:
-        """Compute SHA256 hash of a file"""
+        """Compute SHA256 hash of file contents + path from /datasites/ onward"""
         sha256_hash = hashlib.sha256()
+        
+        # Normalize the file path
+        normalized_path = os.path.normpath(os.path.abspath(file_path))
+        
+        # Extract path from /datasites/ onward
+        # This ensures the same file has the same hash regardless of which SyftBox it's in
+        datasites_marker = os.sep + "datasites" + os.sep
+        if datasites_marker in normalized_path:
+            # Get everything after /datasites/
+            datasites_idx = normalized_path.find(datasites_marker)
+            relative_path = normalized_path[datasites_idx + 1:]  # +1 to skip the leading separator
+        else:
+            # Fallback to path relative to syftbox_dir if not in datasites
+            try:
+                relative_path = os.path.relpath(normalized_path, self.syftbox_dir)
+            except ValueError:
+                relative_path = normalized_path
+        
+        # Add the datasites-relative path to hash
+        sha256_hash.update(relative_path.encode('utf-8'))
+        
+        # Add file contents to hash
         with open(file_path, "rb") as f:
             # Read in chunks to handle large files
             for byte_block in iter(lambda: f.read(4096), b""):
