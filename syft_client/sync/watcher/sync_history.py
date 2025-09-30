@@ -19,21 +19,8 @@ class SyncHistory:
         self.history_dir.mkdir(parents=True, exist_ok=True)
     
     def compute_file_hash(self, file_path: str) -> str:
-        """Compute SHA256 hash of a file including its path"""
+        """Compute SHA256 hash of a file"""
         sha256_hash = hashlib.sha256()
-        
-        # Include the relative path in the hash to distinguish identical files in different locations
-        # Use path relative to syftbox_dir for consistency across syncs
-        try:
-            relative_path = os.path.relpath(file_path, self.syftbox_dir)
-        except ValueError:
-            # If file is outside syftbox_dir, use absolute path
-            relative_path = file_path
-        
-        # Add path to hash
-        sha256_hash.update(relative_path.encode('utf-8'))
-        
-        # Add file contents to hash
         with open(file_path, "rb") as f:
             # Read in chunks to handle large files
             for byte_block in iter(lambda: f.read(4096), b""):
