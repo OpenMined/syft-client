@@ -15,7 +15,7 @@ class ReceiverManager:
         self._server = None
         self._server_name = f"receiver_{client.email.replace('@', '_').replace('.', '_')}"
     
-    def start(self, check_interval: int = 30,
+    def start(self, check_interval: int = 10,
               process_immediately: bool = True,
               transports: Optional[List[str]] = None,
               auto_accept: bool = True,

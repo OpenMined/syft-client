@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 
-def create_receiver_endpoint(email: str, check_interval: int = 30, 
+def create_receiver_endpoint(email: str, check_interval: int = 1, 
                            process_immediately: bool = True,
                            auto_accept: bool = True,
                            verbose: bool = True):
@@ -251,7 +251,8 @@ def create_receiver_endpoint(email: str, check_interval: int = 30,
             "cryptography",
             "syft-serve"
         ],
-        endpoints={"/": receiver_main}
+        endpoints={"/": receiver_main},
+        force=True
     )
     
     # Give the server time to initialize
