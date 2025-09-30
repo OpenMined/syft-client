@@ -150,10 +150,10 @@ class MessageSender:
                 # Send directly with specified transport
                 if self.client.verbose:
                     print(f"📤 Using specified transport: {transport}")
-                return transport_obj.send_to(archive_path, recipient)
+                return transport_obj.send_to(archive_path, recipient, message_id)
             else:
                 # Use the generic send method that selects best transport
-                return self._send_prepared_archive(archive_path, recipient, archive_size)
+                return self._send_prepared_archive(archive_path, recipient, archive_size, message_id)
         finally:
             # Clean up temp directory
             import shutil
@@ -398,7 +398,7 @@ class MessageSender:
         
         return None
     
-    def _send_prepared_archive(self, archive_path: str, recipient: str, archive_size: int) -> bool:
+    def _send_prepared_archive(self, archive_path: str, recipient: str, archive_size: int, message_id: Optional[str] = None) -> bool:
         """
         Send a pre-prepared archive to a recipient
         
@@ -406,6 +406,7 @@ class MessageSender:
             archive_path: Path to the prepared archive
             recipient: Email address of the recipient
             archive_size: Size of the archive in bytes
+            message_id: Optional message ID from the archive
             
         Returns:
             True if successful, False otherwise
@@ -420,6 +421,14 @@ class MessageSender:
         if not peer:
             print(f"❌ Could not load peer information for {recipient}")
             return False
+        
+        # Extract message_id from archive filename if not provided
+        if not message_id:
+            archive_name = os.path.basename(archive_path)
+            # Archive name format: msg_YYYYMMDD_HHMMSS_hash.tar.gz
+            if archive_name.startswith('msg_') and '.tar.gz' in archive_name:
+                # Extract everything before .tar.gz
+                message_id = archive_name.split('.tar.gz')[0]
         
         # Select transport
         transport_name = self.negotiator.select_transport(
@@ -442,7 +451,7 @@ class MessageSender:
         if hasattr(transport, 'send_to'):
             if self.client.verbose:
                 print(f"   📤 Sending via {transport_name}")
-            return transport.send_to(archive_path, recipient)
+            return transport.send_to(archive_path, recipient, message_id)
         else:
             print(f"❌ Transport {transport_name} does not implement send_to() method")
             return False

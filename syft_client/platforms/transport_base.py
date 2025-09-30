@@ -457,15 +457,27 @@ class BaseTransportLayer(ABC):
                                 print(f"      - {item.name}")
                     
                     # Find the extracted message directory
-                    # The directory might have a suffix after the message_id
+                    # Look for any directory starting with 'msg_' that was just extracted
                     extracted_dir = None
-                    for item in download_path.iterdir():
-                        if item.is_dir() and item.name.startswith(message_id):
-                            extracted_dir = item
-                            break
                     
+                    # First try to find based on extracted items list
+                    for extracted_item in extracted_items:
+                        if extracted_item.startswith('msg_') and '/' not in extracted_item:
+                            # This is a top-level message directory
+                            potential_dir = download_path / extracted_item
+                            if potential_dir.is_dir():
+                                extracted_dir = potential_dir
+                                break
+                    
+                    # Fallback: look for directories starting with message_id 
                     if not extracted_dir:
-                        # Fallback to exact match
+                        for item in download_path.iterdir():
+                            if item.is_dir() and item.name.startswith(message_id):
+                                extracted_dir = item
+                                break
+                    
+                    # Final fallback to exact match
+                    if not extracted_dir:
                         extracted_dir = download_path / message_id
                     
                     if verbose:
@@ -480,11 +492,15 @@ class BaseTransportLayer(ABC):
                     
                     # Read metadata if available
                     metadata = {}
-                    metadata_file = extracted_dir / f"{message_id}.json"
-                    if metadata_file.exists():
-                        import json
-                        with open(metadata_file, 'r') as f:
-                            metadata = json.load(f)
+                    # Look for any .json file in the extracted directory
+                    if extracted_dir.exists():
+                        json_files = list(extracted_dir.glob('*.json'))
+                        if json_files:
+                            # Use the first JSON file found
+                            metadata_file = json_files[0]
+                            import json
+                            with open(metadata_file, 'r') as f:
+                                metadata = json.load(f)
                     
                     # Check if this is a deletion message
                     deletion_manifest_file = extracted_dir / "deletion_manifest.json"
