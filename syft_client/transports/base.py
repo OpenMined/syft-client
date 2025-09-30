@@ -72,6 +72,21 @@ class BaseTransport(ABC):
         """Check if this transport is currently available and authenticated"""
         return True
     
+    def check_inbox(self, sender_email: str, download_dir: Optional[str] = None, verbose: bool = True) -> list[dict]:
+        """
+        Check for incoming messages from a specific sender
+        
+        Args:
+            sender_email: Email of the sender to check messages from
+            download_dir: Directory to download messages to (defaults to SyftBox directory)
+            verbose: Whether to print progress
+            
+        Returns:
+            List of message info dicts with keys: id, timestamp, size, metadata, extracted_to
+        """
+        # Default implementation - transports should override if they support inbox
+        return []
+    
     def get_peer_resource(self, email: str) -> Optional[dict]:
         """
         Get the resource (folder, sheet, etc.) associated with a contact

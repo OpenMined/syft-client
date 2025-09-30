@@ -1129,25 +1129,11 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             # Silently fail - peer request checking is optional
             return []
     
-    def check_inbox(self, sender_email: str, download_dir: Optional[str] = None, verbose: bool = True) -> List[Dict]:
+    def _get_messages_from_transport(self, sender_email: str, verbose: bool = True) -> List[Dict]:
         """
-        Check for incoming messages from a specific sender in Google Sheets
-        
-        Args:
-            sender_email: Email of the sender to check messages from
-            download_dir: Directory to download messages to (defaults to SyftBox directory)
-            verbose: Whether to print progress
-            
-        Returns:
-            List of message info dicts with keys: id, timestamp, size, data, extracted_to
+        Google Sheets specific implementation to retrieve messages
         """
-        if not self.is_setup():
-            return []
-        
-        downloaded_messages = []
-        
-        # Initialize sync history to prevent re-syncing
-        sync_history = None
+        messages = []
         
         try:
             # Determine the message sheet name pattern
@@ -1177,6 +1163,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                 if sheets:
                     sheet = sheets[0]
                     sheet_id = sheet['id']
+                    self._current_sheet_id = sheet_id  # Store for archiving
                     if verbose:
                         print(f"   Found message sheet: {sheet['name']}")
                     break
@@ -1201,28 +1188,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             if values and values[0] == ['timestamp', 'message_id', 'size', 'data']:
                 values = values[1:]
             
-            # Set up download directory
-            if download_dir is None:
-                # Use SyftBox directory
-                if hasattr(self._platform_client, '_client') and self._platform_client._client:
-                    client = self._platform_client._client
-                    if hasattr(client, 'local_syftbox_dir') and client.local_syftbox_dir:
-                        download_dir = str(client.local_syftbox_dir)
-                    else:
-                        download_dir = str(Path.home() / f"SyftBox_{my_email}")
-                else:
-                    download_dir = str(Path.home() / f"SyftBox_{my_email}")
-            
-            download_path = Path(download_dir)
-            download_path.mkdir(parents=True, exist_ok=True)
-            
-            # Initialize sync history for this SyftBox directory
-            from ...sync.watcher.sync_history import SyncHistory
-            sync_history = SyncHistory(download_path)
-            
-            # Process each message
-            messages_to_archive = []
-            
+            # Process each row into message format
             for row in values:
                 if len(row) >= 4:
                     timestamp, message_id, size_str, data = row
@@ -1232,111 +1198,44 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                         import base64
                         message_data = base64.b64decode(data)
                         
-                        # Save to temporary file
-                        temp_file = download_path / f"{message_id}.tar.gz"
-                        with open(temp_file, 'wb') as f:
-                            f.write(message_data)
-                        
-                        # Extract the archive
-                        import tarfile
-                        with tarfile.open(temp_file, 'r:gz') as tar:
-                            # Extract to the download directory
-                            tar.extractall(download_path)
-                        
-                        # Find the extracted message directory
-                        extracted_dir = download_path / message_id
-                        
-                        # Read metadata if available
-                        metadata = {}
-                        metadata_file = extracted_dir / f"{message_id}.json"
-                        if metadata_file.exists():
-                            import json
-                            with open(metadata_file, 'r') as f:
-                                metadata = json.load(f)
-                        
-                        # Process the data files to their final destination
-                        data_dir = extracted_dir / "data"
-                        if data_dir.exists():
-                            # Move files from data dir to their proper location
-                            import shutil
-                            for item in data_dir.iterdir():
-                                # Determine destination based on metadata
-                                if 'original_path' in metadata:
-                                    # Use original path from metadata
-                                    dest = download_path / metadata['original_path'] / item.name
-                                else:
-                                    # Default to root of download dir
-                                    dest = download_path / item.name
-                                
-                                # Create parent directories
-                                dest.parent.mkdir(parents=True, exist_ok=True)
-                                
-                                # Move the file/directory
-                                if item.is_dir():
-                                    if dest.exists():
-                                        # Merge directories instead of replacing
-                                        self._merge_directories(str(item), str(dest))
-                                    else:
-                                        shutil.move(str(item), str(dest))
-                                else:
-                                    # For files, overwrite if exists
-                                    if dest.exists():
-                                        dest.unlink()
-                                    shutil.move(str(item), str(dest))
-                                
-                                if verbose:
-                                    print(f"   📥 Extracted: {dest.name}")
-                                
-                                # Record in sync history to prevent re-syncing
-                                if sync_history and dest.is_file():
-                                    try:
-                                        file_size = dest.stat().st_size
-                                        sync_history.record_sync(
-                                            str(dest),
-                                            message_id,
-                                            sender_email,
-                                            'gsheets',
-                                            'incoming',
-                                            file_size
-                                        )
-                                    except Exception as e:
-                                        if verbose:
-                                            print(f"   ⚠️  Could not record sync history: {e}")
-                        
-                        # Clean up temporary files
-                        temp_file.unlink()
-                        if extracted_dir.exists():
-                            import shutil
-                            shutil.rmtree(extracted_dir)
-                        
-                        # Add to results
-                        downloaded_messages.append({
-                            'id': message_id,
+                        messages.append({
+                            'message_id': message_id,
+                            'data': message_data,
                             'timestamp': timestamp,
-                            'size': int(size_str) if size_str.isdigit() else 0,
-                            'metadata': metadata,
-                            'extracted_to': str(download_path)
+                            'size': size_str,
+                            'row': row  # Store original row for archiving
                         })
-                        
-                        # Mark for archiving
-                        messages_to_archive.append(row)
-                        
                     except Exception as e:
                         if verbose:
-                            print(f"   ❌ Error processing message {message_id}: {e}")
+                            print(f"   ⚠️  Failed to decode message {message_id}: {e}")
             
-            # Archive processed messages
-            if messages_to_archive:
-                self._archive_messages(sheet_id, messages_to_archive, verbose)
-            
-            return downloaded_messages
+            return messages
             
         except Exception as e:
             if verbose:
-                print(f"   ❌ Error checking inbox: {e}")
+                print(f"   ❌ Error retrieving messages from sheets: {e}")
             return []
     
-    def _archive_messages(self, sheet_id: str, messages: List[List[str]], verbose: bool = True):
+    def _archive_messages(self, messages: List[Dict], verbose: bool = True):
+        """
+        Archive processed messages to the archive tab
+        """
+        if not hasattr(self, '_current_sheet_id') or not self._current_sheet_id:
+            return
+        
+        try:
+            # Extract the rows from message info
+            rows_to_archive = [msg['row'] for msg in messages if 'row' in msg]
+            if not rows_to_archive:
+                return
+            
+            # Use the existing archive sheet messages method
+            self._archive_sheet_messages(self._current_sheet_id, rows_to_archive, verbose)
+        except Exception as e:
+            if verbose:
+                print(f"   ⚠️  Error archiving messages: {e}")
+    
+    def _archive_sheet_messages(self, sheet_id: str, messages: List[List[str]], verbose: bool = True):
         """Archive processed messages to the archive sheet"""
         try:
             # Check if archive sheet exists
@@ -1417,30 +1316,4 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             if verbose:
                 print(f"   ⚠️  Error archiving messages: {e}")
     
-    def _merge_directories(self, src: str, dest: str) -> None:
-        """
-        Recursively merge src directory into dest directory.
-        Only files are moved, directories are created as needed.
-        Files in src will overwrite files in dest with the same name.
-        """
-        import shutil
-        from pathlib import Path
-        
-        src_path = Path(src)
-        dest_path = Path(dest)
-        
-        # Ensure destination directory exists
-        dest_path.mkdir(parents=True, exist_ok=True)
-        
-        for item in src_path.iterdir():
-            s = item
-            d = dest_path / item.name
-            
-            if s.is_dir():
-                # Always recurse into directories, never move them wholesale
-                self._merge_directories(str(s), str(d))
-            else:
-                # For files, move (overwriting if exists)
-                if d.exists():
-                    d.unlink()
-                shutil.move(str(s), str(d))
+    # Note: _merge_directories is now inherited from BaseTransportLayer

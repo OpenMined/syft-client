@@ -370,3 +370,232 @@ class BaseTransportLayer(ABC):
         
         # Call the static method with project_id
         self.__class__.disable_api_static(transport_name, self.email, project_id)
+    
+    def check_inbox(self, sender_email: str, download_dir: Optional[str] = None, verbose: bool = True) -> List[Dict]:
+        """
+        Base implementation for checking inbox. Transport-specific classes should override
+        _get_messages_from_transport() to provide the actual message retrieval logic.
+        
+        Args:
+            sender_email: Email of the sender to check messages from
+            download_dir: Directory to download messages to (defaults to SyftBox directory)
+            verbose: Whether to print progress
+            
+        Returns:
+            List of message info dicts with keys: id, timestamp, size, metadata, extracted_to
+        """
+        if not self.is_setup():
+            return []
+        
+        downloaded_messages = []
+        
+        # Initialize sync history to prevent re-syncing
+        sync_history = None
+        
+        try:
+            # Get messages from transport-specific implementation
+            messages = self._get_messages_from_transport(sender_email, verbose)
+            if not messages:
+                return []
+            
+            # Set up download directory
+            if download_dir is None:
+                download_dir = self._get_default_download_dir()
+            
+            download_path = Path(download_dir)
+            download_path.mkdir(parents=True, exist_ok=True)
+            
+            # Initialize sync history for this SyftBox directory
+            from ..sync.watcher.sync_history import SyncHistory
+            sync_history = SyncHistory(download_path)
+            
+            # Process each message
+            messages_to_archive = []
+            
+            for message_info in messages:
+                try:
+                    # Extract message data
+                    message_id = message_info['message_id']
+                    message_data = message_info['data']  # Should be raw bytes
+                    timestamp = message_info.get('timestamp', '')
+                    size_str = message_info.get('size', '0')
+                    
+                    # Save to temporary file
+                    temp_file = download_path / f"{message_id}.tar.gz"
+                    with open(temp_file, 'wb') as f:
+                        f.write(message_data)
+                    
+                    # Extract the archive
+                    import tarfile
+                    with tarfile.open(temp_file, 'r:gz') as tar:
+                        tar.extractall(download_path)
+                    
+                    # Find the extracted message directory
+                    extracted_dir = download_path / message_id
+                    
+                    # Read metadata if available
+                    metadata = {}
+                    metadata_file = extracted_dir / f"{message_id}.json"
+                    if metadata_file.exists():
+                        import json
+                        with open(metadata_file, 'r') as f:
+                            metadata = json.load(f)
+                    
+                    # Process the data files to their final destination
+                    data_dir = extracted_dir / "data"
+                    if data_dir.exists():
+                        # Move files from data dir to their proper location
+                        for item in data_dir.iterdir():
+                            # Determine destination based on metadata
+                            if 'original_path' in metadata:
+                                # Use original path from metadata
+                                dest = download_path / metadata['original_path'] / item.name
+                            else:
+                                # Default to root of download dir
+                                dest = download_path / item.name
+                            
+                            # Create parent directories
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            
+                            # Move the file/directory
+                            if item.is_dir():
+                                if dest.exists():
+                                    # Merge directories instead of replacing
+                                    self._merge_directories(str(item), str(dest))
+                                else:
+                                    import shutil
+                                    shutil.move(str(item), str(dest))
+                            else:
+                                # For files, overwrite if exists
+                                if dest.exists():
+                                    dest.unlink()
+                                import shutil
+                                shutil.move(str(item), str(dest))
+                            
+                            if verbose:
+                                print(f"   📥 Extracted: {dest.name}")
+                            
+                            # Record in sync history to prevent re-syncing
+                            if sync_history and dest.is_file():
+                                try:
+                                    file_size = dest.stat().st_size
+                                    sync_history.record_sync(
+                                        str(dest),
+                                        message_id,
+                                        sender_email,
+                                        self.transport_name,
+                                        'incoming',
+                                        file_size
+                                    )
+                                except Exception as e:
+                                    if verbose:
+                                        print(f"   ⚠️  Could not record sync history: {e}")
+                    
+                    # Clean up temporary files
+                    temp_file.unlink()
+                    if extracted_dir.exists():
+                        import shutil
+                        shutil.rmtree(extracted_dir)
+                    
+                    # Add to results
+                    downloaded_messages.append({
+                        'id': message_id,
+                        'timestamp': timestamp,
+                        'size': int(size_str) if str(size_str).isdigit() else 0,
+                        'metadata': metadata,
+                        'extracted_to': str(download_path)
+                    })
+                    
+                    # Mark for archiving
+                    messages_to_archive.append(message_info)
+                    
+                except Exception as e:
+                    if verbose:
+                        print(f"   ❌ Error processing message {message_info.get('message_id', 'unknown')}: {e}")
+            
+            # Archive processed messages
+            if messages_to_archive:
+                self._archive_messages(messages_to_archive, verbose)
+            
+            return downloaded_messages
+            
+        except Exception as e:
+            if verbose:
+                print(f"   ❌ Error checking inbox: {e}")
+            return []
+    
+    def _get_messages_from_transport(self, sender_email: str, verbose: bool = True) -> List[Dict]:
+        """
+        Transport-specific method to retrieve messages. Must be overridden by subclasses.
+        
+        Should return a list of dicts with:
+        - message_id: Unique identifier for the message
+        - data: Raw bytes of the message (tar.gz archive)
+        - timestamp: When the message was sent
+        - size: Size of the message in bytes
+        - any other transport-specific info needed for archiving
+        """
+        return []
+    
+    def _archive_messages(self, messages: List[Dict], verbose: bool = True):
+        """
+        Transport-specific method to archive processed messages. Override in subclasses.
+        """
+        pass
+    
+    def _get_default_download_dir(self) -> str:
+        """
+        Get the default download directory (SyftBox directory)
+        """
+        if hasattr(self._platform_client, '_client') and self._platform_client._client:
+            client = self._platform_client._client
+            if hasattr(client, 'local_syftbox_dir') and client.local_syftbox_dir:
+                return str(client.local_syftbox_dir)
+        
+        # Fallback to home directory pattern
+        return str(Path.home() / f"SyftBox_{self.email}")
+    
+    @property
+    def transport_name(self) -> str:
+        """
+        Get the name of this transport (e.g., 'gdrive_files', 'gsheets')
+        """
+        # Default implementation based on class name
+        name = self.__class__.__name__.replace('Transport', '').lower()
+        if 'gdrive' in name:
+            return 'gdrive_files'
+        elif 'gsheets' in name:
+            return 'gsheets'
+        elif 'gmail' in name:
+            return 'gmail'
+        elif 'gforms' in name:
+            return 'gforms'
+        return name
+    
+    def _merge_directories(self, src: str, dest: str) -> None:
+        """
+        Recursively merge src directory into dest directory.
+        Only files are moved, directories are created as needed.
+        Files in src will overwrite files in dest with the same name.
+        """
+        import shutil
+        from pathlib import Path
+        
+        src_path = Path(src)
+        dest_path = Path(dest)
+        
+        # Ensure destination directory exists
+        dest_path.mkdir(parents=True, exist_ok=True)
+        
+        for item in src_path.iterdir():
+            s = item
+            d = dest_path / item.name
+            
+            if s.is_dir():
+                # Always recurse into directories, never move them wholesale
+                self._merge_directories(str(s), str(d))
+            else:
+                # For files, move (overwriting if exists)
+                if d.exists():
+                    d.unlink()
+                shutil.move(str(s), str(d))
