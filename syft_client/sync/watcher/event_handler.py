@@ -2,10 +2,11 @@
 File system event handler for the watcher
 """
 
+import hashlib
 import os
+import time
 from pathlib import Path
 from watchdog.events import FileSystemEventHandler
-import time
 
 
 class SyftBoxEventHandler(FileSystemEventHandler):
@@ -27,6 +28,118 @@ class SyftBoxEventHandler(FileSystemEventHandler):
     def on_deleted(self, event):
         # Handle both file and directory deletions
         self._handle_file_event(event, "deleted")
+    
+    def on_moved(self, event):
+        """Handle move events by decomposing into delete + create"""
+        # Skip hidden files (starting with .)
+        src_filename = os.path.basename(event.src_path)
+        dest_filename = os.path.basename(event.dest_path)
+        
+        if src_filename.startswith('.') or dest_filename.startswith('.'):
+            return
+        
+        # Skip any path containing hidden directories
+        src_parts = event.src_path.split(os.sep)
+        dest_parts = event.dest_path.split(os.sep)
+        
+        for part in src_parts + dest_parts:
+            if part.startswith('.'):
+                return
+        
+        # Skip temporary files and system files
+        if (src_filename.endswith(('.tmp', '.swp', '.DS_Store', '~', '.lock')) or 
+            dest_filename.endswith(('.tmp', '.swp', '.DS_Store', '~', '.lock'))):
+            return
+        
+        # Skip if in .syft_sync directory
+        if '.syft_sync' in event.src_path or '.syft_sync' in event.dest_path:
+            return
+        
+        if self.verbose:
+            type_str = "directory" if event.is_directory else "file"
+            print(f"\n🚚 Move detected ({type_str}): {src_filename} → {dest_filename}", flush=True)
+        
+        try:
+            # Handle move as two operations:
+            # 1. Send the file/directory at the new location (creation)
+            # 2. Send deletion of the old location
+            
+            # For files, send the file at new location
+            if not event.is_directory and os.path.exists(event.dest_path):
+                # Check echo prevention for the destination
+                threshold = int(os.environ.get('SYFT_SYNC_ECHO_THRESHOLD', '60'))
+                if threshold > 0:
+                    is_recent = self.sync_history.is_recent_sync(event.dest_path, direction='incoming', threshold_seconds=threshold)
+                    if is_recent:
+                        if self.verbose:
+                            print(f"✋ Skipping move destination echo: {dest_filename} (was recently received)", flush=True)
+                        return
+                
+                # Send file at new location
+                if self.verbose:
+                    print(f"📤 Sending file at new location: {dest_filename}", flush=True)
+                
+                self._send_file_to_peers(event.dest_path, "moved (create)")
+            
+            # Send deletion of old location (for both files and directories)
+            if self.verbose:
+                print(f"🗑️  Sending deletion of old location: {src_filename}", flush=True)
+            
+            # Check if this deletion was recently synced from a peer
+            threshold = int(os.environ.get('SYFT_SYNC_ECHO_THRESHOLD', '60'))
+            if threshold > 0:
+                is_recent_deletion = False
+                try:
+                    is_recent_deletion = self.sync_history.is_recent_sync(
+                        event.src_path, 
+                        direction='incoming', 
+                        threshold_seconds=threshold,
+                        operation='delete'
+                    )
+                except:
+                    pass
+                
+                if is_recent_deletion:
+                    if self.verbose:
+                        print(f"✋ Skipping move source deletion echo: {src_filename} (was recently deleted by peer)", flush=True)
+                    return
+            
+            # Send deletion to all peers
+            results = self.client.send_deletion_to_peers(event.src_path)
+            
+            # Record the deletion in sync history for echo prevention
+            message_id = f"msg_{int(time.time() * 1000)}"
+            for peer_email, success in results.items():
+                if success:
+                    # For deletions, we need to generate a hash based on the path alone
+                    # since the file doesn't exist anymore
+                    import hashlib
+                    path_hash = hashlib.sha256(event.src_path.encode('utf-8')).hexdigest()
+                    
+                    self.sync_history.record_sync(
+                        event.src_path,
+                        message_id,
+                        peer_email,
+                        "auto",
+                        "outgoing",
+                        0,
+                        file_hash=path_hash,
+                        operation='delete'
+                    )
+            
+            # Report results
+            successful = sum(1 for success in results.values() if success)
+            total = len(results)
+            if successful > 0:
+                if self.verbose:
+                    print(f"✓ Move operation completed: sent to {successful}/{total} peers", flush=True)
+            else:
+                if self.verbose:
+                    print(f"Failed to send move to any peers", flush=True)
+                    
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error handling move: {e}", flush=True)
     
     def _handle_file_event(self, event, event_type):
         """Process a file system event"""
@@ -114,6 +227,10 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                 message_id = f"msg_{int(time.time() * 1000)}"
                 for peer_email, success in results.items():
                     if success:
+                        # For deletions, we need to generate a hash based on the path alone
+                        # since the file doesn't exist anymore
+                        path_hash = hashlib.sha256(event.src_path.encode('utf-8')).hexdigest()
+                        
                         self.sync_history.record_sync(
                             event.src_path,
                             message_id,
@@ -121,6 +238,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                             "auto",  # Transport will be selected automatically
                             "outgoing",
                             0,  # Size is 0 for deletions
+                            file_hash=path_hash,  # Provide hash so it doesn't try to read the file
                             operation='delete'  # Mark as deletion
                         )
                 
@@ -134,72 +252,77 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                     if self.verbose:
                         print(f"Failed to send deletion to any peers", flush=True)
             else:
-                if self.verbose:
-                    print(f"Sending {event_type}: {filename}", flush=True)
-                
-                # Get all peers
-                try:
-                    # Get peers list
-                    peers = list(self.client.peers)
-                        
-                    if not peers:
-                        print("No peers configured", flush=True)
-                        return
-                except Exception as e:
-                    print(f"Warning: Could not get peers: {e}", flush=True)
-                    print("Watcher running in demo mode - file changes detected but not sent", flush=True)
-                    return
-                
-                # Send to each peer
-                results = {}
-                for peer in peers:
-                    try:
-                        # Get peer email
-                        if isinstance(peer, str):
-                            peer_email = peer
-                        elif hasattr(peer, 'email'):
-                            peer_email = peer.email
-                        elif hasattr(peer, 'peer_email'):
-                            peer_email = peer.peer_email
-                        else:
-                            print(f"Warning: Cannot determine email for peer: {peer}", flush=True)
-                            continue
-                            
-                        # Use send_to method
-                        success = self.client.send_to(event.src_path, peer_email)
-                        results[peer_email] = success
-                        
-                        if success:
-                            # Record the sync in history
-                            file_size = os.path.getsize(event.src_path)
-                            message_id = f"msg_{int(time.time() * 1000)}"
-                            self.sync_history.record_sync(
-                                event.src_path,
-                                message_id,
-                                peer_email,
-                                "auto",  # Transport will be selected automatically
-                                "outgoing",
-                                file_size
-                            )
-                    except Exception as e:
-                        if self.verbose:
-                            print(f"Error sending to {peer_email if 'peer_email' in locals() else peer}: {e}", flush=True)
-                        if 'peer_email' in locals():
-                            results[peer_email] = False
-                
-                # Report results
-                successful = sum(1 for success in results.values() if success)
-                total = len(results)
-                if successful > 0:
-                    if self.verbose:
-                        print(f"✓ Sent to {successful}/{total} peers", flush=True)
-                else:
-                    if self.verbose:
-                        print(f"Failed to send to any peers", flush=True)
+                # Use the helper method to send file to peers
+                self._send_file_to_peers(event.src_path, event_type)
                 
         except Exception as e:
             if self.verbose:
                 print(f"Error processing {filename}: {e}", flush=True)
-
-
-import time  # Add this import at the top of the file
+    
+    def _send_file_to_peers(self, file_path, event_type):
+        """Helper method to send a file to all peers (extracted from _handle_file_event)"""
+        filename = os.path.basename(file_path)
+        
+        if self.verbose:
+            print(f"Sending {event_type}: {filename}", flush=True)
+        
+        # Get all peers
+        try:
+            peers = list(self.client.peers)
+            
+            if not peers:
+                print("No peers configured", flush=True)
+                return
+        except Exception as e:
+            print(f"Warning: Could not get peers: {e}", flush=True)
+            print("Watcher running in demo mode - file changes detected but not sent", flush=True)
+            return
+        
+        # Send to each peer
+        results = {}
+        for peer in peers:
+            try:
+                # Get peer email
+                if isinstance(peer, str):
+                    peer_email = peer
+                elif hasattr(peer, 'email'):
+                    peer_email = peer.email
+                elif hasattr(peer, 'peer_email'):
+                    peer_email = peer.peer_email
+                else:
+                    print(f"Warning: Cannot determine email for peer: {peer}", flush=True)
+                    continue
+                
+                # Use send_to method
+                success = self.client.send_to(file_path, peer_email)
+                results[peer_email] = success
+                
+                if success:
+                    # Record the sync in history
+                    file_size = os.path.getsize(file_path)
+                    message_id = f"msg_{int(time.time() * 1000)}"
+                    self.sync_history.record_sync(
+                        file_path,
+                        message_id,
+                        peer_email,
+                        "auto",  # Transport will be selected automatically
+                        "outgoing",
+                        file_size
+                    )
+            except Exception as e:
+                if self.verbose:
+                    print(f"Error sending to {peer_email if 'peer_email' in locals() else peer}: {e}", flush=True)
+                if 'peer_email' in locals():
+                    results[peer_email] = False
+        
+        # Report results
+        successful = sum(1 for success in results.values() if success)
+        total = len(results)
+        if successful > 0:
+            if self.verbose:
+                print(f"✓ Sent to {successful}/{total} peers", flush=True)
+        else:
+            if self.verbose:
+                print(f"Failed to send to any peers", flush=True)
+        
+        return results
