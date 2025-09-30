@@ -88,6 +88,10 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         # Initialize sync history
         sync_history = SyncHistory(syftbox_dir)
         
+        # Warm up sync history with existing files
+        print(f"Warming up sync history...", flush=True)
+        sync_history.warm_up_from_directory(verbose=verbose)
+        
         # Create event handler
         handler = SyftBoxEventHandler(client, sync_history, verbose=verbose)
         

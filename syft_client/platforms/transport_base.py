@@ -444,9 +444,74 @@ class BaseTransportLayer(ABC):
                         with open(metadata_file, 'r') as f:
                             metadata = json.load(f)
                     
+                    # Check if this is a deletion message
+                    deletion_manifest_file = extracted_dir / "deletion_manifest.json"
+                    if deletion_manifest_file.exists():
+                        # Process deletion
+                        import json
+                        import shutil
+                        with open(deletion_manifest_file, 'r') as f:
+                            deletion_manifest = json.load(f)
+                        
+                        if verbose:
+                            print(f"   🗑️  Processing deletion message")
+                        
+                        # Process each deletion
+                        for item in deletion_manifest.get('items', []):
+                            path_to_delete = download_path / item['path']
+                            
+                            # FIRST: Record in sync history to prevent echo
+                            if sync_history:
+                                # Pre-record deletion with hash if file still exists
+                                file_hash = None
+                                if path_to_delete.exists() and path_to_delete.is_file():
+                                    try:
+                                        file_hash = sync_history.compute_file_hash(str(path_to_delete))
+                                    except:
+                                        pass
+                                
+                                sync_history.record_sync(
+                                    str(path_to_delete),
+                                    message_id,
+                                    sender_email,
+                                    self.transport_name,
+                                    'incoming',
+                                    0,  # Size is 0 for deletions
+                                    file_hash=file_hash,
+                                    operation='delete'  # Mark this as a deletion
+                                )
+                                if verbose:
+                                    print(f"   📝 Recorded incoming deletion for {path_to_delete}")
+                            
+                            # THEN: Delete the file/directory
+                            if path_to_delete.exists():
+                                if path_to_delete.is_dir():
+                                    shutil.rmtree(path_to_delete)
+                                    if verbose:
+                                        print(f"   🗑️  Deleted directory: {path_to_delete.name}")
+                                else:
+                                    path_to_delete.unlink()
+                                    if verbose:
+                                        print(f"   🗑️  Deleted file: {path_to_delete.name}")
+                            else:
+                                if verbose:
+                                    print(f"   ℹ️  Already deleted: {path_to_delete.name}")
+                        
+                        # Add to results
+                        downloaded_messages.append({
+                            'id': message_id,
+                            'timestamp': deletion_manifest.get('timestamp', ''),
+                            'size': 0,
+                            'metadata': metadata,
+                            'operation': 'delete',
+                            'deleted_items': deletion_manifest.get('items', [])
+                        })
+                        
+                        # Mark for archiving
+                        messages_to_archive.append(message_info)
+                    
                     # Process the data files to their final destination
-                    data_dir = extracted_dir / "data"
-                    if data_dir.exists():
+                    elif (data_dir := extracted_dir / "data").exists():
                         # Move files from data dir to their proper location
                         for item in data_dir.iterdir():
                             # Determine destination based on metadata
@@ -493,6 +558,13 @@ class BaseTransportLayer(ABC):
                                 
                                 # Pre-record files BEFORE moving them
                                 record_files_in_source_tree(item, dest)
+                                
+                                # If we have access to file index, mark files as received
+                                if hasattr(self._platform_client, '_client') and self._platform_client._client:
+                                    client = self._platform_client._client
+                                    if hasattr(client, '_file_index') and client._file_index:
+                                        # Mark this file as received from sender
+                                        client._file_index.mark_as_received(str(dest), sender_email)
                             
                             # THEN: Move the file/directory
                             if item.is_dir():
@@ -512,23 +584,23 @@ class BaseTransportLayer(ABC):
                             if verbose:
                                 print(f"   📥 Extracted: {dest.name}")
                     
+                        # Add to results
+                        downloaded_messages.append({
+                            'id': message_id,
+                            'timestamp': timestamp,
+                            'size': int(size_str) if str(size_str).isdigit() else 0,
+                            'metadata': metadata,
+                            'extracted_to': str(download_path)
+                        })
+                        
+                        # Mark for archiving
+                        messages_to_archive.append(message_info)
+                    
                     # Clean up temporary files
                     temp_file.unlink()
                     if extracted_dir.exists():
                         import shutil
                         shutil.rmtree(extracted_dir)
-                    
-                    # Add to results
-                    downloaded_messages.append({
-                        'id': message_id,
-                        'timestamp': timestamp,
-                        'size': int(size_str) if str(size_str).isdigit() else 0,
-                        'metadata': metadata,
-                        'extracted_to': str(download_path)
-                    })
-                    
-                    # Mark for archiving
-                    messages_to_archive.append(message_info)
                     
                 except Exception as e:
                     if verbose:

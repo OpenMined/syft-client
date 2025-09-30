@@ -74,8 +74,57 @@ class SyftBoxEventHandler(FileSystemEventHandler):
             if event_type == "deleted":
                 if self.verbose:
                     print(f"Sending deletion: {filename}", flush=True)
-                # TODO: Implement deletion sending when available
-                print(f"Warning: Deletion sending not yet implemented", flush=True)
+                
+                # Check if this deletion was recently synced from a peer (don't echo back)
+                threshold = int(os.environ.get('SYFT_SYNC_ECHO_THRESHOLD', '60'))
+                if threshold > 0:
+                    # Check if file exists in sync history (it won't exist if deleted, but sync history might have it)
+                    # We need to check if this was a recent incoming deletion
+                    is_recent_deletion = False
+                    try:
+                        # Try to check with the file that might not exist
+                        # This will use the path-only lookup in sync history
+                        is_recent_deletion = self.sync_history.is_recent_sync(
+                            event.src_path, 
+                            direction='incoming', 
+                            threshold_seconds=threshold,
+                            operation='delete'
+                        )
+                    except:
+                        pass
+                    
+                    if is_recent_deletion:
+                        if self.verbose:
+                            print(f"✋ Skipping deletion echo: {filename} (was recently deleted by peer)", flush=True)
+                        return
+                
+                
+                # Send deletion to all peers
+                results = self.client.send_deletion_to_peers(event.src_path)
+                
+                # Record the deletion in sync history for echo prevention
+                message_id = f"msg_{int(time.time() * 1000)}"
+                for peer_email, success in results.items():
+                    if success:
+                        self.sync_history.record_sync(
+                            event.src_path,
+                            message_id,
+                            peer_email,
+                            "auto",  # Transport will be selected automatically
+                            "outgoing",
+                            0,  # Size is 0 for deletions
+                            operation='delete'  # Mark as deletion
+                        )
+                
+                # Report results
+                successful = sum(1 for success in results.values() if success)
+                total = len(results)
+                if successful > 0:
+                    if self.verbose:
+                        print(f"✓ Sent deletion to {successful}/{total} peers", flush=True)
+                else:
+                    if self.verbose:
+                        print(f"Failed to send deletion to any peers", flush=True)
             else:
                 if self.verbose:
                     print(f"Sending {event_type}: {filename}", flush=True)

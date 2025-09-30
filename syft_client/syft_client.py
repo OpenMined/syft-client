@@ -426,6 +426,31 @@ class SyftClient:
         """
         return self.sync.send_to(path, recipient, requested_latency_ms, priority, transport)
     
+    def send_deletion_to_peers(self, path: str) -> Dict[str, bool]:
+        """
+        Send deletion message to all peers
+        
+        Args:
+            path: Path to the deleted file (supports syft:// URLs)
+            
+        Returns:
+            Dict mapping peer emails to success status
+        """
+        return self.sync.send_deletion_to_peers(path)
+    
+    def send_deletion(self, path: str, recipient: str) -> bool:
+        """
+        Send deletion message to specific recipient
+        
+        Args:
+            path: Path to the deleted file (supports syft:// URLs)
+            recipient: Email address of recipient
+            
+        Returns:
+            True if successful
+        """
+        return self.sync.send_deletion(path, recipient)
+    
     def add_peer(self, email: str) -> bool:
         """
         Add a peer for bidirectional communication
@@ -1282,6 +1307,14 @@ class SyftClient:
             
 
             if not skip_server_setup:
+                # Warm up sync history before starting watcher
+                if self.local_syftbox_dir:
+                    from .sync.watcher.sync_history import SyncHistory
+                    sync_history = SyncHistory(self.local_syftbox_dir)
+                    if verbose:
+                        print(f"\n📂 Warming up sync history...")
+                    sync_history.warm_up_from_directory(verbose=verbose)
+                
                 # Step 9: Start watcher and receiver
                 current_step += 1
                 print_progress(current_step, "Starting watcher")

@@ -267,6 +267,68 @@ class MessageSender:
             print(f"❌ Error preparing message: {e}")
             return None
     
+    def prepare_deletion_message(self, path: str, recipient: str, temp_dir: str) -> Optional[Tuple[str, str, int]]:
+        """
+        Prepare a SyftMessage archive for deletion
+        
+        Args:
+            path: Path to the deleted file (supports syft:// URLs)
+            recipient: Email address of the recipient
+            temp_dir: Temporary directory to create the message in
+            
+        Returns:
+            Tuple of (message_id, archive_path, archive_size) if successful, None otherwise
+        """
+        # Resolve path
+        resolved_path = self.paths.resolve_syft_path(path)
+        
+        # Get relative path from SyftBox root
+        relative_path = self.paths.get_relative_syftbox_path(resolved_path)
+        if not relative_path:
+            # If file is not in SyftBox, use the full path as relative
+            # This can happen if file was already deleted
+            relative_path = resolved_path
+        
+        try:
+            # Create SyftMessage
+            message = SyftMessage.create(
+                sender_email=self.client.email,
+                recipient_email=recipient,
+                message_root=Path(temp_dir)
+            )
+            
+            # Create deletion manifest
+            deletion_manifest = {
+                "operation": "delete",
+                "items": [{
+                    "path": relative_path,
+                    "timestamp": time.time(),
+                    "deleted_by": self.client.email
+                }]
+            }
+            
+            # Write deletion manifest to message directory
+            manifest_path = Path(temp_dir) / message.message_id / "deletion_manifest.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            import json
+            with open(manifest_path, 'w') as f:
+                json.dump(deletion_manifest, f, indent=2)
+            
+            # Create archive
+            archive_path = message.create_archive()
+            if not archive_path:
+                return None
+            
+            # Get archive size
+            archive_size = message.get_archive_size()
+            
+            return (message.message_id, archive_path, archive_size)
+            
+        except Exception as e:
+            print(f"❌ Error preparing deletion message: {e}")
+            return None
+    
     def send_deletion(self, path: str, recipient: str) -> bool:
         """
         Send a deletion message for a file to a specific recipient
@@ -278,18 +340,24 @@ class MessageSender:
         Returns:
             True if successful, False otherwise
         """
-        # Get platform with sync capability
-        platform = self._get_sync_platform()
-        if not platform:
-            print("❌ No platform available with sync capabilities")
-            return False
-        
-        # Use platform-specific method if available
-        if hasattr(platform, 'gdrive_files') and hasattr(platform.gdrive_files, 'send_deletion'):
-            return platform.gdrive_files.send_deletion(path, recipient)
-        else:
-            print("❌ Platform does not support sending deletion messages")
-            return False
+        # Create temporary directory for the deletion message
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Prepare deletion message
+            message_info = self.prepare_deletion_message(path, recipient, temp_dir)
+            if not message_info:
+                return False
+            
+            message_id, archive_path, archive_size = message_info
+            
+            # Send using the regular send_to method (transport will be auto-selected)
+            return self.send_to(archive_path, recipient)
+            
+        finally:
+            # Clean up temp directory
+            import shutil
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
     
     def send_deletion_to_peers(self, path: str) -> Dict[str, bool]:
         """
@@ -301,19 +369,53 @@ class MessageSender:
         Returns:
             Dict mapping peer emails to success status
         """
-        # Get platform with sync capability
-        platform = self._get_sync_platform()
-        if not platform:
-            print("❌ No platform available with sync capabilities")
+        # Get list of peers
+        peers_list = self.peers.peers
+        if not peers_list:
+            print("❌ No peers to send deletion to")
             return {}
         
-        # Use platform-specific method if available
-        if hasattr(platform, 'gdrive_files') and hasattr(platform.gdrive_files, 'send_deletion_to_friends'):
-            # Platform still uses 'friends' terminology internally
-            return platform.gdrive_files.send_deletion_to_friends(path)
-        else:
-            print("❌ Platform does not support sending deletion messages")
-            return {}
+        verbose = getattr(self.client, 'verbose', True)
+        if verbose:
+            # Resolve path for display
+            resolved_path = self.paths.resolve_syft_path(path)
+            print(f"🗑️  Sending deletion of {os.path.basename(resolved_path)} to {len(peers_list)} peer(s)...")
+        
+        results = {}
+        successful = 0
+        failed = 0
+        
+        for i, peer_email in enumerate(peers_list, 1):
+            if verbose:
+                print(f"\n[{i}/{len(peers_list)}] Sending deletion to {peer_email}...")
+            
+            try:
+                success = self.send_deletion(path, peer_email)
+                results[peer_email] = success
+                
+                if success:
+                    if verbose:
+                        print(f"   ✅ Successfully sent deletion to {peer_email}")
+                    successful += 1
+                else:
+                    if verbose:
+                        print(f"   ❌ Failed to send deletion to {peer_email}")
+                    failed += 1
+                    
+            except Exception as e:
+                if verbose:
+                    print(f"   ❌ Error sending deletion to {peer_email}: {str(e)}")
+                results[peer_email] = False
+                failed += 1
+        
+        # Summary
+        if verbose:
+            print(f"\n📊 Summary:")
+            print(f"   ✅ Successful: {successful}")
+            print(f"   ❌ Failed: {failed}")
+            print(f"   🗑️  Total: {len(peers_list)}")
+        
+        return results
     
     def _get_sync_platform(self):
         """Get a platform that supports sync functionality"""
