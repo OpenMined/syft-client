@@ -1263,13 +1263,26 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                                 
                                 # Create parent directories
                                 dest.parent.mkdir(parents=True, exist_ok=True)
-                                
+                                print("--------------------------------")
+                                print("download_path: " + str(download_path))
+                                if 'original_path' in metadata:
+                                    print("metadata['original_path']: " + str(metadata['original_path']))
+                                else:
+                                    print("metadata['original_path']: None")
+                                print("item.name: " + str(item.name))
+                                print("item: " + str(item))
+                                print("dest: " + str(dest))
                                 # Move the file/directory
                                 if item.is_dir():
                                     if dest.exists():
-                                        shutil.rmtree(dest)
-                                    shutil.move(str(item), str(dest))
+                                        # Merge directories instead of replacing
+                                        self._merge_directories(str(item), str(dest))
+                                    else:
+                                        shutil.move(str(item), str(dest))
                                 else:
+                                    # For files, overwrite if exists
+                                    if dest.exists():
+                                        dest.unlink()
                                     shutil.move(str(item), str(dest))
                                 
                                 if verbose:
@@ -1388,3 +1401,33 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         except Exception as e:
             if verbose:
                 print(f"   ⚠️  Error archiving messages: {e}")
+    
+    def _merge_directories(self, src: str, dest: str) -> None:
+        """
+        Recursively merge src directory into dest directory.
+        Files in src will overwrite files in dest with the same name.
+        """
+        import os
+        import shutil
+        from pathlib import Path
+        
+        src_path = Path(src)
+        dest_path = Path(dest)
+        
+        for item in src_path.iterdir():
+            s = item
+            d = dest_path / item.name
+            
+            if s.is_dir():
+                if d.exists():
+                    # Recursively merge subdirectories
+                    self._merge_directories(str(s), str(d))
+                else:
+                    # Move entire directory if it doesn't exist in dest
+                    shutil.move(str(s), str(d))
+            else:
+                # For files, create parent dir and move (overwriting if exists)
+                d.parent.mkdir(parents=True, exist_ok=True)
+                if d.exists():
+                    d.unlink()
+                shutil.move(str(s), str(d))
