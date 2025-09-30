@@ -1239,6 +1239,9 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         
         downloaded_messages = []
         
+        # Initialize sync history to prevent re-syncing
+        sync_history = None
+        
         try:
             # Determine the inbox folder name pattern
             my_email = self.email
@@ -1286,6 +1289,10 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             
             download_path = Path(download_dir)
             download_path.mkdir(parents=True, exist_ok=True)
+            
+            # Initialize sync history for this SyftBox directory
+            from ...sync.watcher.sync_history import SyncHistory
+            sync_history = SyncHistory(download_path)
             
             # Download each file
             for file in files:
@@ -1362,6 +1369,22 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                                     
                                     if verbose:
                                         print(f"   📥 Extracted: {dest.name}")
+                                    
+                                    # Record in sync history to prevent re-syncing
+                                    if sync_history and dest.is_file():
+                                        try:
+                                            file_size = dest.stat().st_size
+                                            sync_history.record_sync(
+                                                str(dest),
+                                                message_id,
+                                                sender_email,
+                                                'gdrive_files',
+                                                'incoming',
+                                                file_size
+                                            )
+                                        except Exception as e:
+                                            if verbose:
+                                                print(f"   ⚠️  Could not record sync history: {e}")
                             
                             # Clean up temporary files
                             temp_file.unlink()

@@ -1146,6 +1146,9 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         
         downloaded_messages = []
         
+        # Initialize sync history to prevent re-syncing
+        sync_history = None
+        
         try:
             # Determine the message sheet name pattern
             my_email = self.email
@@ -1212,6 +1215,10 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             download_path = Path(download_dir)
             download_path.mkdir(parents=True, exist_ok=True)
+            
+            # Initialize sync history for this SyftBox directory
+            from ...sync.watcher.sync_history import SyncHistory
+            sync_history = SyncHistory(download_path)
             
             # Process each message
             messages_to_archive = []
@@ -1287,9 +1294,25 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                                 
                                 if verbose:
                                     print(f"   📥 Extracted: {dest.name}")
+                                
+                                # Record in sync history to prevent re-syncing
+                                if sync_history and dest.is_file():
+                                    try:
+                                        file_size = dest.stat().st_size
+                                        sync_history.record_sync(
+                                            str(dest),
+                                            message_id,
+                                            sender_email,
+                                            'gsheets',
+                                            'incoming',
+                                            file_size
+                                        )
+                                    except Exception as e:
+                                        if verbose:
+                                            print(f"   ⚠️  Could not record sync history: {e}")
                         
                         # Clean up temporary files
-                        temp_file.unlink()
+                        # temp_file.unlink()
                         if extracted_dir.exists():
                             import shutil
                             shutil.rmtree(extracted_dir)
@@ -1405,29 +1428,27 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
     def _merge_directories(self, src: str, dest: str) -> None:
         """
         Recursively merge src directory into dest directory.
+        Only files are moved, directories are created as needed.
         Files in src will overwrite files in dest with the same name.
         """
-        import os
         import shutil
         from pathlib import Path
         
         src_path = Path(src)
         dest_path = Path(dest)
         
+        # Ensure destination directory exists
+        dest_path.mkdir(parents=True, exist_ok=True)
+        
         for item in src_path.iterdir():
             s = item
             d = dest_path / item.name
             
             if s.is_dir():
-                if d.exists():
-                    # Recursively merge subdirectories
-                    self._merge_directories(str(s), str(d))
-                else:
-                    # Move entire directory if it doesn't exist in dest
-                    shutil.move(str(s), str(d))
+                # Always recurse into directories, never move them wholesale
+                self._merge_directories(str(s), str(d))
             else:
-                # For files, create parent dir and move (overwriting if exists)
-                d.parent.mkdir(parents=True, exist_ok=True)
+                # For files, move (overwriting if exists)
                 if d.exists():
                     d.unlink()
                 shutil.move(str(s), str(d))
