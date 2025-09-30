@@ -24,8 +24,8 @@ class SyftBoxEventHandler(FileSystemEventHandler):
             self._handle_file_event(event, "modified")
     
     def on_deleted(self, event):
-        if not event.is_directory:
-            self._handle_file_event(event, "deleted")
+        # Handle both file and directory deletions
+        self._handle_file_event(event, "deleted")
     
     def _handle_file_event(self, event, event_type):
         """Process a file system event"""
