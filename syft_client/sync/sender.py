@@ -130,62 +130,30 @@ class MessageSender:
             
             message_id, archive_path, archive_size = message_info
             
-            # Determine which transport to use
+            # If user specified a transport, validate and use it
             if transport:
-                # Use the specified transport
-                transport_name = transport
-                
                 # Validate that the transport is available for this peer
-                if transport_name not in peer.available_transports:
-                    print(f"❌ Transport '{transport_name}' is not available for {recipient}")
+                if transport not in peer.available_transports:
+                    print(f"❌ Transport '{transport}' is not available for {recipient}")
                     print(f"   Available transports: {list(peer.available_transports.keys())}")
                     return False
                     
-                if not peer.available_transports[transport_name].verified:
-                    print(f"⚠️  Transport '{transport_name}' is not verified for {recipient}")
-                    
+                if not peer.available_transports[transport].verified:
+                    print(f"⚠️  Transport '{transport}' is not verified for {recipient}")
+                
+                # Get transport instance
+                transport_obj = self._get_transport_instance(transport)
+                if not transport_obj:
+                    print(f"❌ Transport {transport} is not available")
+                    return False
+                
+                # Send directly with specified transport
                 if self.client.verbose:
-                    print(f"📤 Using specified transport: {transport_name}")
+                    print(f"📤 Using specified transport: {transport}")
+                return transport_obj.send_to(archive_path, recipient)
             else:
-                # Use negotiator to select best transport based on actual archive size
-                transport_name = self.negotiator.select_transport(
-                    peer=peer,
-                    file_size=archive_size,  # Use actual compressed size
-                    requested_latency_ms=requested_latency_ms,
-                    priority=priority
-                )
-            
-                if not transport_name:
-                    print(f"❌ No suitable transport found for sending to {recipient}")
-                    return False
-            
-            # Get transport instance
-            transport = self._get_transport_instance(transport_name)
-            if not transport:
-                print(f"❌ Transport {transport_name} is not available")
-                return False
-            
-            # Send using the selected transport
-            start_time = time.time()
-            try:
-                # Call generic send_to method with prepared archive
-                if hasattr(transport, 'send_to'):
-                    result = transport.send_to(archive_path, recipient, message_id=message_id)
-                else:
-                    print(f"❌ Transport {transport_name} does not implement send_to() method")
-                    return False
-                
-                # Record result
-                elapsed_ms = (time.time() - start_time) * 1000
-                if result:
-                    if self.client.verbose:
-                        print(f"✅ Successfully sent via {transport_name} in {elapsed_ms:.0f}ms")
-                
-                return result
-                
-            except Exception as e:
-                print(f"❌ Error sending via {transport_name}: {e}")
-                return False
+                # Use the generic send method that selects best transport
+                return self._send_prepared_archive(archive_path, recipient, archive_size)
         finally:
             # Clean up temp directory
             import shutil
@@ -350,8 +318,8 @@ class MessageSender:
             
             message_id, archive_path, archive_size = message_info
             
-            # Send using the regular send_to method (transport will be auto-selected)
-            return self.send_to(archive_path, recipient)
+            # Send the prepared archive
+            return self._send_prepared_archive(archive_path, recipient, archive_size)
             
         finally:
             # Clean up temp directory
@@ -429,6 +397,55 @@ class MessageSender:
                     return platform
         
         return None
+    
+    def _send_prepared_archive(self, archive_path: str, recipient: str, archive_size: int) -> bool:
+        """
+        Send a pre-prepared archive to a recipient
+        
+        Args:
+            archive_path: Path to the prepared archive
+            recipient: Email address of the recipient
+            archive_size: Size of the archive in bytes
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Check if recipient is in contacts list
+        if recipient not in self.peers.peers:
+            print(f"❌ {recipient} is not in your peers. Add them first with add_peer()")
+            return False
+        
+        # Get peer object
+        peer = self.peers.get_peer(recipient)
+        if not peer:
+            print(f"❌ Could not load peer information for {recipient}")
+            return False
+        
+        # Select transport
+        transport_name = self.negotiator.select_transport(
+            peer=peer,
+            file_size=archive_size,
+            priority="normal"
+        )
+        
+        if not transport_name:
+            print(f"❌ No suitable transport found for sending to {recipient}")
+            return False
+        
+        # Get transport instance
+        transport = self._get_transport_instance(transport_name)
+        if not transport:
+            print(f"❌ Transport {transport_name} is not available")
+            return False
+        
+        # Send the archive directly via transport
+        if hasattr(transport, 'send_to'):
+            if self.client.verbose:
+                print(f"   📤 Sending via {transport_name}")
+            return transport.send_to(archive_path, recipient)
+        else:
+            print(f"❌ Transport {transport_name} does not implement send_to() method")
+            return False
     
     def _get_transport_instance(self, transport_name: str):
         """Get transport instance by name"""
