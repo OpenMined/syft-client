@@ -409,7 +409,13 @@ class BaseTransportLayer(ABC):
             # Use the root SyftBox directory for sync history, not the download path
             # This ensures consistency with the watcher's sync history
             from ..sync.watcher.sync_history import SyncHistory
-            syftbox_root = download_path  # download_path IS the syftbox root
+            # Get the actual SyftBox root - download_path might be the inbox subdirectory
+            if download_path.name == 'inbox' and download_path.parent.exists():
+                # download_path is the inbox dir, so parent is syftbox root
+                syftbox_root = download_path.parent
+            else:
+                # download_path is already the syftbox root
+                syftbox_root = download_path
             sync_history = SyncHistory(syftbox_root)
             
             # Process each message
@@ -579,8 +585,12 @@ class BaseTransportLayer(ABC):
                             print(f"   📂 Found data directory, processing files...")
                         # Move files from data dir to their proper location
                         for item in data_dir.iterdir():
-                            # Determine destination based on metadata
-                            if 'original_path' in metadata:
+                            # Determine destination based on item name and structure
+                            # If the item is a 'datasites' directory, it should go to syftbox root
+                            if item.name == 'datasites' and item.is_dir():
+                                # datasites should always go to syftbox root
+                                dest = syftbox_root / item.name
+                            elif 'original_path' in metadata:
                                 # Use original path from metadata
                                 dest = download_path / metadata['original_path'] / item.name
                             else:
