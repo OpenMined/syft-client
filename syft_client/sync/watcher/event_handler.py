@@ -14,7 +14,6 @@ class SyftBoxEventHandler(FileSystemEventHandler):
         self.client = client
         self.sync_history = sync_history
         self.verbose = verbose
-        self.processed_events = set()  # Track processed events to avoid duplicates
     
     def on_created(self, event):
         if not event.is_directory:
@@ -34,6 +33,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
         filename = os.path.basename(event.src_path)
         if filename.startswith('.'):
             return
+        
         
         # Skip any path containing hidden directories
         path_parts = event.src_path.split(os.sep)

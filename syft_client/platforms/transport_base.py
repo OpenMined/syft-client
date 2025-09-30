@@ -433,8 +433,21 @@ class BaseTransportLayer(ABC):
                     
                     # Extract the archive
                     import tarfile
-                    with tarfile.open(temp_file, 'r:gz') as tar:
-                        tar.extractall(download_path)
+                    extracted_items = []
+                    try:
+                        with tarfile.open(temp_file, 'r:gz') as tar:
+                            # List contents first
+                            members = tar.getmembers()
+                            if verbose:
+                                print(f"   📦 Archive contains {len(members)} items")
+                            tar.extractall(download_path)
+                            extracted_items = [m.name for m in members]
+                    except tarfile.ReadError as e:
+                        if verbose:
+                            print(f"   ❌ Failed to extract archive: {e}")
+                        # Skip this message
+                        temp_file.unlink()
+                        continue
                         
                     if verbose:
                         # List what was actually extracted
