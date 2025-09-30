@@ -650,11 +650,20 @@ class BaseTransportLayer(ABC):
                                     import shutil
                                     shutil.move(str(item), str(dest))
                             else:
-                                # For files, overwrite if exists
-                                if dest.exists():
-                                    dest.unlink()
+                                # For files, use atomic replace to avoid triggering deletion events
                                 import shutil
-                                shutil.move(str(item), str(dest))
+                                import time
+                                
+                                if dest.exists():
+                                    # Use atomic replacement to prevent watcher from seeing deletion
+                                    # Create temp file with timestamp to ensure uniqueness
+                                    temp_dest = dest.with_suffix(f'.tmp.{int(time.time() * 1000000)}')
+                                    shutil.move(str(item), str(temp_dest))
+                                    # Atomic replace (on most filesystems)
+                                    temp_dest.replace(dest)
+                                else:
+                                    # No existing file, just move normally
+                                    shutil.move(str(item), str(dest))
                             
                             if verbose:
                                 print(f"   📥 Extracted: {dest.name}")
@@ -765,10 +774,17 @@ class BaseTransportLayer(ABC):
                 # Always recurse into directories, never move them wholesale
                 self._merge_directories(str(s), str(d))
             else:
-                # For files, move (overwriting if exists)
+                # For files, use atomic replace to avoid triggering deletion events
                 if d.exists():
-                    d.unlink()
-                shutil.move(str(s), str(d))
+                    # Use atomic replacement to prevent watcher from seeing deletion
+                    import time
+                    temp_dest = d.with_suffix(f'.tmp.{int(time.time() * 1000000)}')
+                    shutil.move(str(s), str(temp_dest))
+                    # Atomic replace (on most filesystems)
+                    temp_dest.replace(d)
+                else:
+                    # No existing file, just move normally
+                    shutil.move(str(s), str(d))
     
     def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
         """
