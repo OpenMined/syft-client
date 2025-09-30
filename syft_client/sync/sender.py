@@ -327,6 +327,166 @@ class MessageSender:
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
     
+    def prepare_move_message(self, source_path: str, dest_path: str, recipient: str, temp_dir: str) -> Optional[Tuple[str, str, int]]:
+        """
+        Prepare a SyftMessage archive for move operation
+        
+        Args:
+            source_path: Path to the source file/directory (supports syft:// URLs)
+            dest_path: Path to the destination file/directory (supports syft:// URLs)
+            recipient: Email address of the recipient
+            temp_dir: Temporary directory to create the message in
+            
+        Returns:
+            Tuple of (message_id, archive_path, archive_size) if successful, None otherwise
+        """
+        # Resolve paths
+        resolved_source = self.paths.resolve_syft_path(source_path)
+        resolved_dest = self.paths.resolve_syft_path(dest_path)
+        
+        # Get relative paths from SyftBox root
+        relative_source = self.paths.get_relative_syftbox_path(resolved_source)
+        relative_dest = self.paths.get_relative_syftbox_path(resolved_dest)
+        
+        if not relative_source:
+            # If file is not in SyftBox, use the full path as relative
+            relative_source = resolved_source
+            
+        if not relative_dest:
+            relative_dest = resolved_dest
+        
+        try:
+            # Create SyftMessage
+            message = SyftMessage.create(
+                sender_email=self.client.email,
+                recipient_email=recipient,
+                message_root=Path(temp_dir)
+            )
+            
+            # Create move manifest
+            move_manifest = {
+                "operation": "move",
+                "items": [{
+                    "source_path": relative_source,
+                    "dest_path": relative_dest,
+                    "timestamp": time.time(),
+                    "moved_by": self.client.email
+                }]
+            }
+            
+            # Write move manifest to message directory
+            manifest_path = Path(temp_dir) / message.message_id / "move_manifest.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            import json
+            with open(manifest_path, 'w') as f:
+                json.dump(move_manifest, f, indent=2)
+            
+            # Create archive
+            archive_path = message.create_archive()
+            if not archive_path:
+                return None
+            
+            # Get archive size
+            archive_size = message.get_archive_size()
+            
+            return (message.message_id, archive_path, archive_size)
+            
+        except Exception as e:
+            print(f"❌ Error preparing move message: {e}")
+            return None
+    
+    def send_move(self, source_path: str, dest_path: str, recipient: str) -> bool:
+        """
+        Send a move message for a file/directory to a specific recipient
+        
+        Args:
+            source_path: Path to the source file/directory (supports syft:// URLs)
+            dest_path: Path to the destination file/directory (supports syft:// URLs) 
+            recipient: Email address of the recipient
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Create temporary directory for the move message
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Prepare move message
+            message_info = self.prepare_move_message(source_path, dest_path, recipient, temp_dir)
+            if not message_info:
+                return False
+            
+            message_id, archive_path, archive_size = message_info
+            
+            # Send the prepared archive
+            return self._send_prepared_archive(archive_path, recipient, archive_size)
+            
+        finally:
+            # Clean up temp directory
+            import shutil
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+    
+    def send_move_to_peers(self, source_path: str, dest_path: str) -> Dict[str, bool]:
+        """
+        Send move message to all peers
+        
+        Args:
+            source_path: Path to the source file/directory (supports syft:// URLs)
+            dest_path: Path to the destination file/directory (supports syft:// URLs)
+            
+        Returns:
+            Dict mapping peer emails to success status
+        """
+        # Get list of peers
+        peers_list = self.peers.peers
+        if not peers_list:
+            print("❌ No peers to send move to")
+            return {}
+        
+        verbose = getattr(self.client, 'verbose', True)
+        if verbose:
+            # Resolve paths for display
+            resolved_source = self.paths.resolve_syft_path(source_path)
+            resolved_dest = self.paths.resolve_syft_path(dest_path)
+            print(f"🚚 Sending move of {os.path.basename(resolved_source)} → {os.path.basename(resolved_dest)} to {len(peers_list)} peer(s)...")
+        
+        results = {}
+        successful = 0
+        failed = 0
+        
+        for i, peer_email in enumerate(peers_list, 1):
+            if verbose:
+                print(f"\n[{i}/{len(peers_list)}] Sending move to {peer_email}...")
+            
+            try:
+                success = self.send_move(source_path, dest_path, peer_email)
+                results[peer_email] = success
+                
+                if success:
+                    if verbose:
+                        print(f"   ✅ Successfully sent move to {peer_email}")
+                    successful += 1
+                else:
+                    if verbose:
+                        print(f"   ❌ Failed to send move to {peer_email}")
+                    failed += 1
+                    
+            except Exception as e:
+                if verbose:
+                    print(f"   ❌ Error sending move to {peer_email}: {str(e)}")
+                results[peer_email] = False
+                failed += 1
+        
+        # Summary
+        if verbose:
+            print(f"\n📊 Summary:")
+            print(f"   ✅ Successful: {successful}")
+            print(f"   ❌ Failed: {failed}")
+            print(f"   🚚 Total: {len(peers_list)}")
+        
+        return results
+    
     def send_deletion_to_peers(self, path: str) -> Dict[str, bool]:
         """
         Send deletion message to all peers

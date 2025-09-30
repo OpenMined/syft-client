@@ -82,6 +82,14 @@ class SyncManager:
         """Send deletion message to specific recipient"""
         return self.sender.send_deletion(path, recipient)
     
+    def send_move_to_peers(self, source_path: str, dest_path: str) -> Dict[str, bool]:
+        """Send move message to all peers"""
+        return self.sender.send_move_to_peers(source_path, dest_path)
+    
+    def send_move(self, source_path: str, dest_path: str, recipient: str) -> bool:
+        """Send move message to specific recipient"""
+        return self.sender.send_move(source_path, dest_path, recipient)
+    
     # Path resolution
     def resolve_path(self, path: str) -> str:
         """Resolve syft:// URLs to full paths"""

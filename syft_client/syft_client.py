@@ -451,6 +451,33 @@ class SyftClient:
         """
         return self.sync.send_deletion(path, recipient)
     
+    def send_move_to_peers(self, source_path: str, dest_path: str) -> Dict[str, bool]:
+        """
+        Send move message to all peers
+        
+        Args:
+            source_path: Path to the source file/directory (supports syft:// URLs)
+            dest_path: Path to the destination file/directory (supports syft:// URLs)
+            
+        Returns:
+            Dict mapping peer emails to success status
+        """
+        return self.sync.send_move_to_peers(source_path, dest_path)
+    
+    def send_move(self, source_path: str, dest_path: str, recipient: str) -> bool:
+        """
+        Send move message to specific recipient
+        
+        Args:
+            source_path: Path to the source file/directory (supports syft:// URLs)
+            dest_path: Path to the destination file/directory (supports syft:// URLs)
+            recipient: Email address of recipient
+            
+        Returns:
+            True if successful
+        """
+        return self.sync.send_move(source_path, dest_path, recipient)
+    
     def add_peer(self, email: str) -> bool:
         """
         Add a peer for bidirectional communication

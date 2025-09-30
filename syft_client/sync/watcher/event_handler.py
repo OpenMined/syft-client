@@ -30,7 +30,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
         self._handle_file_event(event, "deleted")
     
     def on_moved(self, event):
-        """Handle move events by decomposing into delete + create"""
+        """Handle move events using native move message type"""
         # Skip hidden files (starting with .)
         src_filename = os.path.basename(event.src_path)
         dest_filename = os.path.basename(event.dest_path)
@@ -60,35 +60,10 @@ class SyftBoxEventHandler(FileSystemEventHandler):
             print(f"\n🚚 Move detected ({type_str}): {src_filename} → {dest_filename}", flush=True)
         
         try:
-            # Handle move as two operations:
-            # 1. Send the file/directory at the new location (creation)
-            # 2. Send deletion of the old location
-            
-            # For files, send the file at new location
-            if not event.is_directory and os.path.exists(event.dest_path):
-                # Check echo prevention for the destination
-                threshold = int(os.environ.get('SYFT_SYNC_ECHO_THRESHOLD', '60'))
-                if threshold > 0:
-                    is_recent = self.sync_history.is_recent_sync(event.dest_path, direction='incoming', threshold_seconds=threshold)
-                    if is_recent:
-                        if self.verbose:
-                            print(f"✋ Skipping move destination echo: {dest_filename} (was recently received)", flush=True)
-                        return
-                
-                # Send file at new location
-                if self.verbose:
-                    print(f"📤 Sending file at new location: {dest_filename}", flush=True)
-                
-                self._send_file_to_peers(event.dest_path, "moved (create)")
-            
-            # Send deletion of old location (for both files and directories)
-            if self.verbose:
-                print(f"🗑️  Sending deletion of old location: {src_filename}", flush=True)
-            
-            # Check if this deletion was recently synced from a peer
+            # Check echo prevention - was this move recently synced from a peer?
             threshold = int(os.environ.get('SYFT_SYNC_ECHO_THRESHOLD', '60'))
             if threshold > 0:
-                is_recent_deletion = False
+                # Check if source was recently deleted by incoming sync
                 try:
                     is_recent_deletion = self.sync_history.is_recent_sync(
                         event.src_path, 
@@ -96,43 +71,69 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                         threshold_seconds=threshold,
                         operation='delete'
                     )
+                    if is_recent_deletion:
+                        if self.verbose:
+                            print(f"✋ Skipping move echo: source was recently deleted by peer", flush=True)
+                        return
                 except:
                     pass
                 
-                if is_recent_deletion:
-                    if self.verbose:
-                        print(f"✋ Skipping move source deletion echo: {src_filename} (was recently deleted by peer)", flush=True)
-                    return
+                # Check if destination was recently created by incoming sync
+                if os.path.exists(event.dest_path):
+                    try:
+                        is_recent_creation = self.sync_history.is_recent_sync(
+                            event.dest_path,
+                            direction='incoming',
+                            threshold_seconds=threshold
+                        )
+                        if is_recent_creation:
+                            if self.verbose:
+                                print(f"✋ Skipping move echo: destination was recently created by peer", flush=True)
+                            return
+                    except:
+                        pass
             
-            # Send deletion to all peers
-            results = self.client.send_deletion_to_peers(event.src_path)
+            # Send move message to all peers
+            results = self.client.send_move_to_peers(event.src_path, event.dest_path)
             
-            # Record the deletion in sync history for echo prevention
+            # Record in sync history for echo prevention
             message_id = f"msg_{int(time.time() * 1000)}"
             for peer_email, success in results.items():
                 if success:
-                    # For deletions, we need to generate a hash based on the path alone
-                    # since the file doesn't exist anymore
-                    import hashlib
-                    path_hash = hashlib.sha256(event.src_path.encode('utf-8')).hexdigest()
-                    
+                    # Record deletion at source
+                    source_hash = hashlib.sha256(event.src_path.encode('utf-8')).hexdigest()
                     self.sync_history.record_sync(
                         event.src_path,
-                        message_id,
+                        message_id + "_move_del",
                         peer_email,
                         "auto",
                         "outgoing",
                         0,
-                        file_hash=path_hash,
+                        file_hash=source_hash,
                         operation='delete'
                     )
+                    
+                    # Record creation at destination (if file exists)
+                    if os.path.exists(event.dest_path) and not event.is_directory:
+                        try:
+                            file_size = os.path.getsize(event.dest_path)
+                            self.sync_history.record_sync(
+                                event.dest_path,
+                                message_id + "_move_create",
+                                peer_email,
+                                "auto",
+                                "outgoing",
+                                file_size
+                            )
+                        except:
+                            pass
             
             # Report results
             successful = sum(1 for success in results.values() if success)
             total = len(results)
             if successful > 0:
                 if self.verbose:
-                    print(f"✓ Move operation completed: sent to {successful}/{total} peers", flush=True)
+                    print(f"✓ Move message sent to {successful}/{total} peers", flush=True)
             else:
                 if self.verbose:
                     print(f"Failed to send move to any peers", flush=True)

@@ -3,6 +3,8 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+import hashlib
+import time
 from ..environment import Environment
 
 
@@ -543,6 +545,120 @@ class BaseTransportLayer(ABC):
                             import json
                             with open(metadata_file, 'r') as f:
                                 metadata = json.load(f)
+                    
+                    # Check if this is a move message
+                    move_manifest_file = extracted_dir / "move_manifest.json"
+                    if move_manifest_file.exists():
+                        # Process move
+                        import json
+                        import shutil
+                        with open(move_manifest_file, 'r') as f:
+                            move_manifest = json.load(f)
+                        
+                        if verbose:
+                            print(f"   🚚 Processing move message")
+                        
+                        # Process each move
+                        for item in move_manifest.get('items', []):
+                            source_path = download_path / item['source_path']
+                            dest_path = download_path / item['dest_path']
+                            
+                            # Ensure destination directory exists
+                            dest_path.parent.mkdir(parents=True, exist_ok=True)
+                            
+                            # FIRST: Record in sync history to prevent echo
+                            if sync_history and source_path.exists():
+                                # Record the move as both a deletion at source and creation at dest
+                                try:
+                                    # Record deletion at source
+                                    source_hash = None
+                                    if source_path.is_file():
+                                        source_hash = sync_history.compute_file_hash(str(source_path))
+                                    else:
+                                        # For directories, use path-based hash
+                                        source_hash = hashlib.sha256(str(source_path).encode('utf-8')).hexdigest()
+                                    
+                                    sync_history.record_sync(
+                                        str(source_path),
+                                        message_id + "_move_del",
+                                        sender_email,
+                                        self.transport_name,
+                                        'incoming',
+                                        0,
+                                        file_hash=source_hash,
+                                        operation='delete'
+                                    )
+                                    
+                                    # We'll record the creation after the move succeeds
+                                except Exception as e:
+                                    if verbose:
+                                        print(f"   ⚠️  Could not record move source in history: {e}")
+                            
+                            # THEN: Perform the move
+                            if source_path.exists():
+                                try:
+                                    # If destination exists, remove it first
+                                    if dest_path.exists():
+                                        if dest_path.is_dir():
+                                            shutil.rmtree(dest_path)
+                                        else:
+                                            dest_path.unlink()
+                                    
+                                    # Move the file/directory
+                                    source_path.rename(dest_path)
+                                    
+                                    if verbose:
+                                        print(f"   🚚 Moved: {source_path.name} → {dest_path}")
+                                    
+                                    # Record creation at destination in sync history
+                                    if sync_history and dest_path.exists():
+                                        try:
+                                            if dest_path.is_file():
+                                                dest_size = dest_path.stat().st_size
+                                                sync_history.record_sync(
+                                                    str(dest_path),
+                                                    message_id + "_move_create",
+                                                    sender_email,
+                                                    self.transport_name,
+                                                    'incoming',
+                                                    dest_size
+                                                )
+                                            else:
+                                                # For directories, record with size 0
+                                                sync_history.record_sync(
+                                                    str(dest_path),
+                                                    message_id + "_move_create",
+                                                    sender_email,
+                                                    self.transport_name,
+                                                    'incoming',
+                                                    0
+                                                )
+                                        except Exception as e:
+                                            if verbose:
+                                                print(f"   ⚠️  Could not record move dest in history: {e}")
+                                        
+                                except Exception as e:
+                                    if verbose:
+                                        print(f"   ❌ Failed to move {source_path.name}: {e}")
+                            else:
+                                if verbose:
+                                    print(f"   ⚠️  Source path not found: {source_path}")
+                        
+                        # Clean up the extracted message
+                        temp_file.unlink()
+                        if extracted_dir.exists():
+                            shutil.rmtree(extracted_dir)
+                        
+                        # Add to downloaded messages
+                        downloaded_messages.append({
+                            "id": message_id,
+                            "timestamp": timestamp,
+                            "size": size_str,
+                            "metadata": metadata,
+                            "operation": "move"
+                        })
+                        
+                        continue  # Skip to next message
                     
                     # Check if this is a deletion message
                     deletion_manifest_file = extracted_dir / "deletion_manifest.json"
