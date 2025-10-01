@@ -372,11 +372,6 @@ class SyftClient:
             # Create the job base directory structure
             job_base_dir = syftbox_dir / "datasites" / self.email / "app_data" / "job"
             job_base_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Create subdirectories
-            subdirs = ["inbox", "approved", "done"]
-            for subdir in subdirs:
-                (job_base_dir / subdir).mkdir(parents=True, exist_ok=True)
                 
         except Exception as e:
             # Print error if directory creation fails
