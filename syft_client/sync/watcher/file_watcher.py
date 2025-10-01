@@ -100,13 +100,16 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         observer.schedule(handler, str(watch_path), recursive=True)
         observer.start()
         
-        # Store observer reference for cleanup
+        # Store observer and handler references for cleanup
         current_module = sys.modules[__name__]
         current_module.observer = observer
+        current_module.handler = handler
         
         # Register cleanup function
         def cleanup_observer():
             current_module = sys.modules[__name__]
+            if hasattr(current_module, 'handler') and current_module.handler:
+                current_module.handler.stop()
             if hasattr(current_module, 'observer') and current_module.observer:
                 print(f"Stopping file watcher for {email}...", flush=True)
                 current_module.observer.stop()

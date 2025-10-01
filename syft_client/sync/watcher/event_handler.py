@@ -7,15 +7,27 @@ import os
 import time
 from pathlib import Path
 from watchdog.events import FileSystemEventHandler
+from ..message_queue import MessageQueue
 
 
 class SyftBoxEventHandler(FileSystemEventHandler):
     """Handles file system events for SyftBox synchronization"""
     
-    def __init__(self, client, sync_history, verbose=True):
+    def __init__(self, client, sync_history, verbose=True, use_queue=True, batch_interval=0.5):
         self.client = client
         self.sync_history = sync_history
         self.verbose = verbose
+        self.use_queue = use_queue
+        
+        # Initialize message queue if enabled
+        if use_queue and hasattr(client, 'sync') and hasattr(client.sync, 'sender'):
+            self.message_queue = MessageQueue(
+                sender=client.sync.sender,
+                batch_interval=batch_interval
+            )
+            self.message_queue.start()
+        else:
+            self.message_queue = None
     
     def on_created(self, event):
         if not event.is_directory:
@@ -107,50 +119,56 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                     except:
                         pass
             
-            # Send move message to all peers
-            results = self.client.send_move_to_peers(event.src_path, event.dest_path)
-            
-            # Record in sync history for echo prevention
-            message_id = f"msg_{int(time.time() * 1000)}"
-            for peer_email, success in results.items():
-                if success:
-                    # Record deletion at source
-                    source_hash = hashlib.sha256(event.src_path.encode('utf-8')).hexdigest()
-                    self.sync_history.record_sync(
-                        event.src_path,
-                        message_id + "_move_del",
-                        peer_email,
-                        "auto",
-                        "outgoing",
-                        0,
-                        file_hash=source_hash,
-                        operation='delete'
-                    )
-                    
-                    # Record creation at destination (if file exists)
-                    if os.path.exists(event.dest_path) and not event.is_directory:
-                        try:
-                            file_size = os.path.getsize(event.dest_path)
-                            self.sync_history.record_sync(
-                                event.dest_path,
-                                message_id + "_move_create",
-                                peer_email,
-                                "auto",
-                                "outgoing",
-                                file_size
-                            )
-                        except:
-                            pass
-            
-            # Report results
-            successful = sum(1 for success in results.values() if success)
-            total = len(results)
-            if successful > 0:
+            # Use queue if available, otherwise send immediately
+            if self.use_queue and self.message_queue:
+                self.message_queue.queue_move(event.src_path, event.dest_path)
                 if self.verbose:
-                    print(f"✓ Move message sent to {successful}/{total} peers", flush=True)
+                    print(f"📋 Move queued for batch sending", flush=True)
             else:
-                if self.verbose:
-                    print(f"Failed to send move to any peers", flush=True)
+                # Send move message to all peers immediately
+                results = self.client.send_move_to_peers(event.src_path, event.dest_path)
+                
+                # Record in sync history for echo prevention
+                message_id = f"msg_{int(time.time() * 1000)}"
+                for peer_email, success in results.items():
+                    if success:
+                        # Record deletion at source
+                        source_hash = hashlib.sha256(event.src_path.encode('utf-8')).hexdigest()
+                        self.sync_history.record_sync(
+                            event.src_path,
+                            message_id + "_move_del",
+                            peer_email,
+                            "auto",
+                            "outgoing",
+                            0,
+                            file_hash=source_hash,
+                            operation='delete'
+                        )
+                        
+                        # Record creation at destination (if file exists)
+                        if os.path.exists(event.dest_path) and not event.is_directory:
+                            try:
+                                file_size = os.path.getsize(event.dest_path)
+                                self.sync_history.record_sync(
+                                    event.dest_path,
+                                    message_id + "_move_create",
+                                    peer_email,
+                                    "auto",
+                                    "outgoing",
+                                    file_size
+                                )
+                            except:
+                                pass
+                
+                # Report results
+                successful = sum(1 for success in results.values() if success)
+                total = len(results)
+                if successful > 0:
+                    if self.verbose:
+                        print(f"✓ Move message sent to {successful}/{total} peers", flush=True)
+                else:
+                    if self.verbose:
+                        print(f"Failed to send move to any peers", flush=True)
                     
         except Exception as e:
             if self.verbose:
@@ -235,37 +253,43 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                         return
                 
                 
-                # Send deletion to all peers
-                results = self.client.send_deletion_to_peers(event.src_path)
-                
-                # Record the deletion in sync history for echo prevention
-                message_id = f"msg_{int(time.time() * 1000)}"
-                for peer_email, success in results.items():
-                    if success:
-                        # For deletions, we need to generate a hash based on the path alone
-                        # since the file doesn't exist anymore
-                        path_hash = hashlib.sha256(event.src_path.encode('utf-8')).hexdigest()
-                        
-                        self.sync_history.record_sync(
-                            event.src_path,
-                            message_id,
-                            peer_email,
-                            "auto",  # Transport will be selected automatically
-                            "outgoing",
-                            0,  # Size is 0 for deletions
-                            file_hash=path_hash,  # Provide hash so it doesn't try to read the file
-                            operation='delete'  # Mark as deletion
-                        )
-                
-                # Report results
-                successful = sum(1 for success in results.values() if success)
-                total = len(results)
-                if successful > 0:
+                # Use queue if available, otherwise send immediately
+                if self.use_queue and self.message_queue:
+                    self.message_queue.queue_deletion(event.src_path)
                     if self.verbose:
-                        print(f"✓ Sent deletion to {successful}/{total} peers", flush=True)
+                        print(f"📋 Deletion queued for batch sending", flush=True)
                 else:
-                    if self.verbose:
-                        print(f"Failed to send deletion to any peers", flush=True)
+                    # Send deletion to all peers immediately
+                    results = self.client.send_deletion_to_peers(event.src_path)
+                    
+                    # Record the deletion in sync history for echo prevention
+                    message_id = f"msg_{int(time.time() * 1000)}"
+                    for peer_email, success in results.items():
+                        if success:
+                            # For deletions, we need to generate a hash based on the path alone
+                            # since the file doesn't exist anymore
+                            path_hash = hashlib.sha256(event.src_path.encode('utf-8')).hexdigest()
+                            
+                            self.sync_history.record_sync(
+                                event.src_path,
+                                message_id,
+                                peer_email,
+                                "auto",  # Transport will be selected automatically
+                                "outgoing",
+                                0,  # Size is 0 for deletions
+                                file_hash=path_hash,  # Provide hash so it doesn't try to read the file
+                                operation='delete'  # Mark as deletion
+                            )
+                    
+                    # Report results
+                    successful = sum(1 for success in results.values() if success)
+                    total = len(results)
+                    if successful > 0:
+                        if self.verbose:
+                            print(f"✓ Sent deletion to {successful}/{total} peers", flush=True)
+                    else:
+                        if self.verbose:
+                            print(f"Failed to send deletion to any peers", flush=True)
             else:
                 # Use the helper method to send file to peers
                 self._send_file_to_peers(event.src_path, event_type)
@@ -281,6 +305,13 @@ class SyftBoxEventHandler(FileSystemEventHandler):
         if self.verbose:
             print(f"Sending {event_type}: {filename}", flush=True)
         
+        # Use queue if available, otherwise send immediately
+        if self.use_queue and self.message_queue:
+            self.message_queue.queue_file(file_path)
+            if self.verbose:
+                print(f"📋 File queued for batch sending", flush=True)
+            return {}
+        
         # Get all peers
         try:
             peers = list(self.client.peers)
@@ -293,7 +324,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
             print("Watcher running in demo mode - file changes detected but not sent", flush=True)
             return
         
-        # Send to each peer
+        # Send to each peer immediately
         results = {}
         for peer in peers:
             try:
@@ -341,3 +372,9 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                 print(f"Failed to send to any peers", flush=True)
         
         return results
+    
+    def stop(self):
+        """Stop the event handler and clean up resources"""
+        if self.message_queue:
+            self.message_queue.stop()
+            self.message_queue = None

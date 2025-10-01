@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 
-def create_receiver_endpoint(email: str, check_interval: int = 1, 
+def create_receiver_endpoint(email: str, check_interval: int = 2, 
                            process_immediately: bool = True,
                            auto_accept: bool = True,
                            verbose: bool = True):
@@ -15,7 +15,7 @@ def create_receiver_endpoint(email: str, check_interval: int = 1,
     
     Args:
         email: Email address for the receiver
-        check_interval: Seconds between inbox checks (default: 30)
+        check_interval: Seconds between inbox checks (default: 2)
         process_immediately: Process existing messages on start (default: True)
         auto_accept: Auto-accept peer requests (default: True)
         verbose: Whether to show status messages (default: True)
@@ -44,6 +44,7 @@ def create_receiver_endpoint(email: str, check_interval: int = 1,
         import sys
         import time
         import json
+        import threading
         from pathlib import Path
         from datetime import datetime
         
@@ -65,133 +66,149 @@ def create_receiver_endpoint(email: str, check_interval: int = 1,
         
         import syft_client as sc
         
+        # Check if receiver thread is already running
+        current_module = sys.modules[__name__]
+        if hasattr(current_module, 'receiver_thread') and current_module.receiver_thread and current_module.receiver_thread.is_alive():
+            # Return current status without starting a new thread
+            if hasattr(current_module, 'receiver_stats'):
+                return current_module.receiver_stats
+            return {"status": "running", "message": "Receiver already running"}
+        
         # Silence output if not verbose
         if not verbose:
             sys.stdout = open(os.devnull, 'w')
             sys.stderr = open(os.devnull, 'w')
         
-        print(f"Starting receiver for {email}...", flush=True)
+        def receiver_loop():
+            """The actual receiver loop that runs in background thread"""
+            print(f"Starting receiver for {email}...", flush=True)
         
-        # Try to login
-    
-        client = sc.login(email, verbose=False, force_relogin=False, skip_server_setup=True)
-        print(f"Login successful!", flush=True)
-    
-        # No need for message processor or inbox monitor - check_inbox handles everything
+            # Try to login
+            client = sc.login(email, verbose=False, force_relogin=False, skip_server_setup=True)
+            print(f"Login successful!", flush=True)
         
-        # Track simple statistics
-        stats = {
-            "start_time": datetime.now().isoformat(),
-            "last_check": None,
-            "checks_performed": 0,
-            "total_messages": 0,
-            "peers_checked": 0,
-            "errors": 0,
-            "last_error": None
-        }
-        
-        # Store for external access
-        current_module = sys.modules[__name__]
-        current_module.receiver_stats = stats
-        current_module.receiver_running = True
-        
-        print(f"Receiver started. Checking every {check_interval} seconds.", flush=True)
-        
-        # Process immediately if requested
-        if process_immediately:
-            print("Processing any existing messages...", flush=True)
-        
-        # Main receiver loop
-        while current_module.receiver_running:
-            try:
-                stats["last_check"] = datetime.now().isoformat()
-                stats["checks_performed"] += 1
-                
-                # Get all peers
-                peer_emails = []
+            # No need for message processor or inbox monitor - check_inbox handles everything
+            
+            # Track simple statistics
+            stats = {
+                "start_time": datetime.now().isoformat(),
+                "last_check": None,
+                "checks_performed": 0,
+                "total_messages": 0,
+                "peers_checked": 0,
+                "errors": 0,
+                "last_error": None
+            }
+            
+            # Store for external access
+            current_module.receiver_stats = stats
+            current_module.receiver_running = True
+            
+            print(f"Receiver started. Checking every {check_interval} seconds.", flush=True)
+            
+            # Process immediately if requested
+            if process_immediately:
+                print("Processing any existing messages...", flush=True)
+            
+            # Main receiver loop
+            while current_module.receiver_running:
                 try:
-                    if hasattr(client, 'peers'):
-                        peer_emails = list(client.peers)
-                except Exception as e:
-                    if verbose:
-                        print(f"Warning: Could not get peers: {e}", flush=True)
-                
-                if not peer_emails and verbose:
-                    print("No peers configured", flush=True)
-                
-                # Check each peer's inbox
-                total_messages = 0
-                for i, peer_email in enumerate(peer_emails):
+                    stats["last_check"] = datetime.now().isoformat()
+                    stats["checks_performed"] += 1
+                    
+                    # Get all peers
+                    peer_emails = []
                     try:
-                        stats["peers_checked"] += 1
-                        
-                        if verbose:
-                            print(f"\nChecking inbox from {peer_email}...", flush=True)
-                        
-                        # Get the actual peer object via indexing
-                        peer = client.peers[i]
-                        
-                        # Check if peer has check_inbox method
-                        if hasattr(peer, 'check_inbox'):
-                            # Simply call check_inbox - let it use default behavior
-                            messages = peer.check_inbox(verbose=verbose)
-                            
-                            if messages:
-                                # Count messages for stats
-                                msg_count = sum(len(msg_list) for msg_list in messages.values())
-                                total_messages += msg_count
-                                stats["total_messages"] += msg_count
-                                
-                                if verbose:
-                                    print(f"  ✓ Found {msg_count} messages")
-                        else:
-                            if verbose:
-                                print(f"  ⚠️  Peer doesn't support check_inbox")
-                        
+                        if hasattr(client, 'peers'):
+                            peer_emails = list(client.peers)
                     except Exception as e:
-                        stats["errors"] += 1
-                        stats["last_error"] = str(e)
                         if verbose:
-                            print(f"  ❌ Error checking {peer_email}: {e}", flush=True)
+                            print(f"Warning: Could not get peers: {e}", flush=True)
+                    
+                    if not peer_emails and verbose:
+                        print("No peers configured", flush=True)
+                    
+                    # Check each peer's inbox
+                    total_messages = 0
+                    for i, peer_email in enumerate(peer_emails):
+                        try:
+                            stats["peers_checked"] += 1
+                            
+                            if verbose:
+                                timestamp = datetime.now().strftime("%H:%M:%S")
+                                print(f"[{timestamp}] Checking {peer_email}...", end=' ', flush=True)
+                            
+                            # Get the actual peer object via indexing
+                            peer = client.peers[i]
+                        
+                            # Check if peer has check_inbox method
+                            if hasattr(peer, 'check_inbox'):
+                                # Simply call check_inbox - let it use default behavior
+                                messages = peer.check_inbox(verbose=verbose)
+                                
+                                if messages:
+                                    # Count messages for stats
+                                    msg_count = sum(len(msg_list) for msg_list in messages.values())
+                                    total_messages += msg_count
+                                    stats["total_messages"] += msg_count
+                                    
+                                    if verbose:
+                                        print(f"  ✓ Found {msg_count} messages")
+                            else:
+                                if verbose:
+                                    print(f"  ⚠️  Peer doesn't support check_inbox")
+                            
+                        except Exception as e:
+                            stats["errors"] += 1
+                            stats["last_error"] = str(e)
+                            if verbose:
+                                print(f"  ❌ Error checking {peer_email}: {e}", flush=True)
                 
-                # Auto-accept peer requests if enabled
-                if auto_accept:
-                    try:
-                        if hasattr(client, 'peers') and hasattr(client.peers, 'requests'):
-                            requests = list(client.peers.requests)
-                            if requests:
-                                print(f"\nAccepting {len(requests)} peer requests...", flush=True)
-                                for req_email in requests:
-                                    try:
-                                        if hasattr(client, 'add_peer'):
-                                            client.add_peer(req_email)
-                                            print(f"  ✓ Accepted {req_email}", flush=True)
-                                    except Exception as e:
-                                        print(f"  ✗ Failed to accept {req_email}: {e}", flush=True)
-                    except:
-                        pass
+                    # Auto-accept peer requests if enabled
+                    if auto_accept:
+                        try:
+                            if hasattr(client, 'peers') and hasattr(client.peers, 'requests'):
+                                requests = list(client.peers.requests)
+                                if requests:
+                                    print(f"\nAccepting {len(requests)} peer requests...", flush=True)
+                                    for req_email in requests:
+                                        try:
+                                            if hasattr(client, 'add_peer'):
+                                                client.add_peer(req_email)
+                                                print(f"  ✓ Accepted {req_email}", flush=True)
+                                        except Exception as e:
+                                            print(f"  ✗ Failed to accept {req_email}: {e}", flush=True)
+                        except:
+                            pass
+                    
+                    # Summary handled by peer check_inbox
                 
-                if verbose and total_messages > 0:
-                    print(f"\n✓ Total messages found this cycle: {total_messages}", flush=True)
-                
-                # Wait for next check
-                time.sleep(check_interval)
-                
-            except KeyboardInterrupt:
-                print("\nReceiver interrupted", flush=True)
-                break
-            except Exception as e:
-                stats["errors"] += 1
-                stats["last_error"] = str(e)
-                if verbose:
-                    print(f"Error in receiver loop: {e}", flush=True)
-                time.sleep(check_interval)
+                    # Wait for next check
+                    time.sleep(check_interval)
+                    
+                except KeyboardInterrupt:
+                    print("\nReceiver interrupted", flush=True)
+                    break
+                except Exception as e:
+                    stats["errors"] += 1
+                    stats["last_error"] = str(e)
+                    if verbose:
+                        print(f"Error in receiver loop: {e}", flush=True)
+                    time.sleep(check_interval)
+            
+            current_module.receiver_running = False
+            return {
+                "status": "stopped",
+                "message": f"Receiver stopped after receiving {stats['total_messages']} messages",
+                "stats": stats
+            }
         
-        return {
-            "status": "stopped",
-            "message": f"Receiver stopped after receiving {stats['total_messages']} messages",
-            "stats": stats
-        }
+        # Start the receiver loop in a background thread
+        current_module.receiver_thread = threading.Thread(target=receiver_loop, daemon=True)
+        current_module.receiver_thread.start()
+        
+        # Return immediately with status
+        return {"status": "started", "message": f"Receiver started for {email}"}
     
     # Get current syft_client path and set it as environment variable
     import syft_client
