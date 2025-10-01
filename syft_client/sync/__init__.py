@@ -64,6 +64,10 @@ class SyncManager:
         """Remove a peer"""
         return self.peers_manager.remove_peer(email)
     
+    def delete_peer(self, email: str) -> bool:
+        """Delete a peer completely, removing all transport objects and local caches"""
+        return self.peers_manager.delete_peer(email)
+    
     # Sending functionality
     def send_to_peers(self, path: str) -> Dict[str, bool]:
         """Send file/folder to all peers"""

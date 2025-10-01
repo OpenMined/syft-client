@@ -674,6 +674,25 @@ class SyftClient:
         """
         return self.sync.add_peer(email)
     
+    def delete_peer(self, email: str) -> bool:
+        """
+        Delete a peer completely, removing all transport objects and local caches
+        
+        This will:
+        1. Delete all Google Drive folders associated with the peer
+        2. Delete all Google Sheets associated with the peer  
+        3. Remove Gmail labels associated with the peer
+        4. Clear local peer cache files
+        5. Invalidate in-memory caches
+        
+        Args:
+            email: Email address of peer to delete
+            
+        Returns:
+            True if peer was successfully deleted
+        """
+        return self.sync.delete_peer(email)
+    
     def check_peer_requests(self) -> Dict[str, List]:
         """
         Check all transports for incoming peer requests

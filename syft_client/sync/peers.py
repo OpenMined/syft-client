@@ -351,6 +351,255 @@ class PeerManager:
         self._peers_cache = None
         self._peers_cache_time = None
     
+    def delete_peer(self, email: str) -> bool:
+        """
+        Delete a peer completely, removing all transport objects and local caches
+        
+        This performs a complete deletion:
+        1. Deletes all Google Drive folders (outbox/inbox and archive)
+        2. Deletes all Google Sheets
+        3. Removes Gmail labels
+        4. Clears local peer cache files
+        5. Clears discovery cache
+        
+        Args:
+            email: Email address of the peer to delete
+            
+        Returns:
+            True if peer was successfully deleted
+        """
+        if not email or '@' not in email:
+            print(f"❌ Invalid email address: {email}")
+            return False
+        
+        # Check if peer exists
+        if email not in self.peers:
+            print(f"❌ {email} is not in your peers list")
+            return False
+        
+        print(f"🗑️  Deleting peer {email} completely...")
+        
+        deletion_results = {
+            'gdrive_folders': [],
+            'gsheets': [],
+            'gmail_labels': [],
+            'local_cache': False,
+            'discovery_cache': False
+        }
+        
+        # Delete from all transports
+        for platform_name, platform in self.client._platforms.items():
+            # Get all transport attributes from the platform
+            for attr_name in dir(platform):
+                if not attr_name.startswith('_'):
+                    transport = getattr(platform, attr_name, None)
+                    
+                    # Handle Google Drive folders
+                    if transport and attr_name == 'gdrive_files' and hasattr(transport, 'drive_service'):
+                        try:
+                            if self.client.verbose:
+                                print(f"\n📁 Deleting Google Drive folders on {platform_name}...")
+                            
+                            # Get the email used in folder names (might be different from peer email)
+                            my_email = self.client.email
+                            
+                            # Delete outbox/inbox folder
+                            folder_name = f"syft_{my_email}_to_{email}_outbox_inbox"
+                            results = self._delete_gdrive_folder(transport, folder_name)
+                            if results:
+                                deletion_results['gdrive_folders'].extend(results)
+                            
+                            # Delete archive folder
+                            archive_name = f"syft_{email}_to_{my_email}_archive"
+                            results = self._delete_gdrive_folder(transport, archive_name)
+                            if results:
+                                deletion_results['gdrive_folders'].extend(results)
+                                
+                        except Exception as e:
+                            if self.client.verbose:
+                                print(f"   ❌ Error deleting Drive folders: {e}")
+                    
+                    # Handle Google Sheets
+                    elif transport and attr_name == 'gsheets' and hasattr(transport, 'drive_service'):
+                        try:
+                            if self.client.verbose:
+                                print(f"\n📊 Deleting Google Sheets on {platform_name}...")
+                            
+                            # Delete peer's sheet
+                            sheet_name = f"syft_permissions_{email.replace('@', '_at_').replace('.', '_')}"
+                            results = self._delete_gsheet(transport, sheet_name)
+                            if results:
+                                deletion_results['gsheets'].extend(results)
+                                
+                        except Exception as e:
+                            if self.client.verbose:
+                                print(f"   ❌ Error deleting Sheets: {e}")
+                    
+                    # Handle Gmail labels
+                    elif transport and attr_name == 'gmail' and hasattr(transport, 'gmail_service'):
+                        try:
+                            if self.client.verbose:
+                                print(f"\n✉️  Removing Gmail labels on {platform_name}...")
+                            
+                            # Remove labels
+                            labels = [
+                                f"SyftBox/From/{email}",
+                                f"SyftBox/To/{email}"
+                            ]
+                            
+                            for label in labels:
+                                if self._delete_gmail_label(transport, label):
+                                    deletion_results['gmail_labels'].append(label)
+                                    
+                        except Exception as e:
+                            if self.client.verbose:
+                                print(f"   ❌ Error removing Gmail labels: {e}")
+        
+        # Delete local peer cache file
+        try:
+            peers_dir = self._get_peers_directory()
+            file_name = f"{email.replace('@', '_at_').replace('.', '_')}.json"
+            file_path = peers_dir / file_name
+            if file_path.exists():
+                file_path.unlink()
+                deletion_results['local_cache'] = True
+                if self.client.verbose:
+                    print(f"\n🗄️  Deleted local peer cache file")
+        except Exception as e:
+            if self.client.verbose:
+                print(f"\n❌ Error deleting peer cache: {e}")
+        
+        # Delete discovery cache
+        try:
+            discovery_cache = self._discovery._get_discovery_cache_dir() / f"{email.replace('@', '_at_').replace('.', '_')}_discovery.json"
+            if discovery_cache.exists():
+                discovery_cache.unlink()
+                deletion_results['discovery_cache'] = True
+                if self.client.verbose:
+                    print(f"🔍 Deleted discovery cache")
+        except Exception as e:
+            if self.client.verbose:
+                print(f"❌ Error deleting discovery cache: {e}")
+        
+        # Invalidate memory cache
+        self._invalidate_peers_cache()
+        
+        # Summary
+        total_deleted = (
+            len(deletion_results['gdrive_folders']) +
+            len(deletion_results['gsheets']) + 
+            len(deletion_results['gmail_labels']) +
+            (1 if deletion_results['local_cache'] else 0) +
+            (1 if deletion_results['discovery_cache'] else 0)
+        )
+        
+        if total_deleted > 0:
+            print(f"\n✅ Successfully deleted peer {email}")
+            if self.client.verbose:
+                print(f"   • Google Drive folders: {len(deletion_results['gdrive_folders'])}")
+                print(f"   • Google Sheets: {len(deletion_results['gsheets'])}")
+                print(f"   • Gmail labels: {len(deletion_results['gmail_labels'])}")
+                print(f"   • Local cache: {'✓' if deletion_results['local_cache'] else '✗'}")
+                print(f"   • Discovery cache: {'✓' if deletion_results['discovery_cache'] else '✗'}")
+            return True
+        else:
+            print(f"⚠️  No resources found to delete for {email}")
+            return False
+    
+    def _delete_gdrive_folder(self, transport, folder_name: str) -> List[str]:
+        """Delete a Google Drive folder by name"""
+        deleted = []
+        try:
+            # Search for the folder
+            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = transport.drive_service.files().list(
+                q=query,
+                fields="files(id, name)"
+            ).execute()
+            
+            folders = results.get('files', [])
+            for folder in folders:
+                try:
+                    # Move to trash (can be recovered)
+                    transport.drive_service.files().update(
+                        fileId=folder['id'],
+                        body={'trashed': True}
+                    ).execute()
+                    deleted.append(folder['name'])
+                    if self.client.verbose:
+                        print(f"   ✓ Deleted folder: {folder['name']}")
+                except Exception as e:
+                    if self.client.verbose:
+                        print(f"   ⚠️  Could not delete {folder['name']}: {e}")
+                        
+        except Exception as e:
+            if self.client.verbose:
+                print(f"   ❌ Error searching for folders: {e}")
+        
+        return deleted
+    
+    def _delete_gsheet(self, transport, sheet_name: str) -> List[str]:
+        """Delete a Google Sheet by name"""
+        deleted = []
+        try:
+            # Search for the sheet
+            query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+            results = transport.drive_service.files().list(
+                q=query,
+                fields="files(id, name)"
+            ).execute()
+            
+            sheets = results.get('files', [])
+            for sheet in sheets:
+                try:
+                    # Move to trash
+                    transport.drive_service.files().update(
+                        fileId=sheet['id'],
+                        body={'trashed': True}
+                    ).execute()
+                    deleted.append(sheet['name'])
+                    if self.client.verbose:
+                        print(f"   ✓ Deleted sheet: {sheet['name']}")
+                except Exception as e:
+                    if self.client.verbose:
+                        print(f"   ⚠️  Could not delete {sheet['name']}: {e}")
+                        
+        except Exception as e:
+            if self.client.verbose:
+                print(f"   ❌ Error searching for sheets: {e}")
+        
+        return deleted
+    
+    def _delete_gmail_label(self, transport, label_name: str) -> bool:
+        """Delete a Gmail label"""
+        try:
+            # Get all labels
+            results = transport.gmail_service.users().labels().list(userId='me').execute()
+            labels = results.get('labels', [])
+            
+            # Find the label
+            for label in labels:
+                if label['name'] == label_name:
+                    try:
+                        # Delete the label
+                        transport.gmail_service.users().labels().delete(
+                            userId='me',
+                            id=label['id']
+                        ).execute()
+                        if self.client.verbose:
+                            print(f"   ✓ Deleted label: {label_name}")
+                        return True
+                    except Exception as e:
+                        if self.client.verbose:
+                            print(f"   ⚠️  Could not delete {label_name}: {e}")
+                        return False
+                        
+        except Exception as e:
+            if self.client.verbose:
+                print(f"   ❌ Error with Gmail labels: {e}")
+        
+        return False
+    
     def clear_all_caches(self, verbose: bool = True) -> None:
         """
         Clear all peer caches from disk and memory, forcing re-detection from online sources
