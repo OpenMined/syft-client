@@ -35,6 +35,7 @@ dependencies = [
     "watchdog>=3.0.0",
     "syft-serve>=0.1.0",
     "requests>=2.32.4",
+    "pandas"
 ]
 
 [project.optional-dependencies]
