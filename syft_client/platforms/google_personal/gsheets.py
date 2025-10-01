@@ -35,8 +35,8 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         self.credentials = None
         self._setup_verified = False
         self._sheet_id_cache = {}  # Cache for sheet name -> ID mapping
-        print(f"\n🔍 GSheetsTransport.__init__ called for {email}", flush=True)
-        print(f"   Instance ID: {id(self)}", flush=True)
+        # Debug logging only in verbose mode
+        self.verbose = False  # Default to non-verbose
         
     @property
     def api_is_active_by_default(self) -> bool:
@@ -138,9 +138,10 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
     
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
         """Setup Sheets transport with OAuth2 credentials or Colab auth"""
-        print(f"\n🔍 GSheetsTransport.setup called", flush=True)
-        print(f"   Instance ID: {id(self)}", flush=True)
-        print(f"   Credentials provided: {credentials is not None}", flush=True)
+        if hasattr(self, 'verbose') and self.verbose:
+            print(f"\n🔍 GSheetsTransport.setup called", flush=True)
+            print(f"   Instance ID: {id(self)}", flush=True)
+            print(f"   Credentials provided: {credentials is not None}", flush=True)
         
         try:
             # Check if we're in Colab and can use automatic auth
@@ -185,7 +186,8 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         """Check if Sheets transport is ready - USES CACHE to avoid rate limits"""
         # First check if services exist
         if not self.sheets_service or not self.drive_service:
-            print(f"   🔍 is_setup: Services not initialized (sheets: {self.sheets_service is not None}, drive: {self.drive_service is not None})")
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   🔍 is_setup: Services not initialized (sheets: {self.sheets_service is not None}, drive: {self.drive_service is not None})")
             return False
         
         # If we've already verified setup, trust it to avoid rate limits
@@ -195,7 +197,8 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         # Only do the API check if we haven't verified yet
         try:
             # Try to get spreadsheet metadata for a non-existent sheet (fast operation)
-            print(f"🔍 Sheets API call: spreadsheets.get (initial setup verification)")
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"🔍 Sheets API call: spreadsheets.get (initial setup verification)")
             self.sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
             # Should never reach here
             self._setup_verified = True
@@ -206,7 +209,8 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                 self._setup_verified = True
                 return True
             else:
-                print(f"   🔍 is_setup failed: {str(e)[:100]}...")
+                if hasattr(self, 'verbose') and self.verbose:
+                    print(f"   🔍 is_setup failed: {str(e)[:100]}...")
                 return False
     
     def send(self, recipient: str, data: Any, subject: str = "Syft Data") -> bool:
@@ -265,7 +269,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             # Write data to sheet
             body = {'values': values}
-            print(f"🔍 Sheets API call: values.update (sheet setup)")
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: values.update (sheet setup)")
             self.sheets_service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
                 range='A1',
@@ -327,7 +331,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                     continue
                 
                 # Get all messages from the sheet
-                print(f"🔍 Sheets API call: values.get (sheet: {sheet_name[:30]}...)")
+                if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: values.get (sheet: {sheet_name[:30]}...)")
                 result = self.sheets_service.spreadsheets().values().get(
                     spreadsheetId=sheet_id,
                     range='messages!A:D'
@@ -434,7 +438,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             if archive_data:
                 # Append to archive
-                print(f"🔍 Sheets API call: values.append (archiving {len(archive_data)} messages)")
+                if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: values.append (archiving {len(archive_data)} messages)")
                 self.sheets_service.spreadsheets().values().append(
                     spreadsheetId=sheet_id,
                     range='archive!A:D',
@@ -479,7 +483,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             # Find sheets shared with me
             query = "mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe=true and trashed=false"
             
-            print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 pageSize=limit,
@@ -600,17 +604,19 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         Returns:
             Spreadsheet ID if successful
         """
-        print(f"\n   🔍 _get_or_create_message_sheet called", flush=True)
-        print(f"   🔍 sheet_name: {sheet_name}", flush=True)
-        print(f"   🔍 recipient_email: {recipient_email}", flush=True)
-        print(f"   🔍 self.email: {self.email}", flush=True)
-        print(f"   🔍 drive_service: {self.drive_service is not None}", flush=True)
-        print(f"   🔍 sheets_service: {self.sheets_service is not None}", flush=True)
+        if hasattr(self, 'verbose') and self.verbose:
+            print(f"\n   🔍 _get_or_create_message_sheet called", flush=True)
+            print(f"   🔍 sheet_name: {sheet_name}", flush=True)
+            print(f"   🔍 recipient_email: {recipient_email}", flush=True)
+            print(f"   🔍 self.email: {self.email}", flush=True)
+            print(f"   🔍 drive_service: {self.drive_service is not None}", flush=True)
+            print(f"   🔍 sheets_service: {self.sheets_service is not None}", flush=True)
         
         try:
             
             if not self.drive_service:
-                print(f"   ❌ drive_service is None!", flush=True)
+                if hasattr(self, 'verbose') and self.verbose:
+                    print(f"   ❌ drive_service is None!", flush=True)
                 return None
                 
             # First check if sheet already exists
@@ -624,7 +630,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             if results.get('files'):
                 # Sheet exists, return its ID
                 sheet_id = results['files'][0]['id']
-                if "rasswanth" in sheet_name:
+                if "rasswanth" in sheet_name and hasattr(self, 'verbose') and self.verbose:
                     print(f"   🔍 Found existing rasswanth sheet: {sheet_id}", flush=True)
                 return sheet_id
             
@@ -986,7 +992,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             # Also search for incoming message sheets shared with me
             query = f"name contains '_to_{my_email}_messages' and mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe and trashed=false"
-            print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 fields="files(name)",
@@ -1014,12 +1020,13 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         
         Stores message as: [timestamp, message_id, size, base64_data]
         """
-        print(f"\n🔍 _send_archive_via_transport called:", flush=True)
-        print(f"   - recipient: {recipient}", flush=True)
-        print(f"   - message_id: {message_id}", flush=True)
-        print(f"   - archive_size: {len(archive_data)} bytes", flush=True)
-        print(f"   - sheets_service exists: {self.sheets_service is not None}", flush=True)
-        print(f"   - drive_service exists: {self.drive_service is not None}", flush=True)
+        if hasattr(self, 'verbose') and self.verbose:
+            print(f"\n🔍 _send_archive_via_transport called:", flush=True)
+            print(f"   - recipient: {recipient}", flush=True)
+            print(f"   - message_id: {message_id}", flush=True)
+            print(f"   - archive_size: {len(archive_data)} bytes", flush=True)
+            print(f"   - sheets_service exists: {self.sheets_service is not None}", flush=True)
+            print(f"   - drive_service exists: {self.drive_service is not None}", flush=True)
         
         try:
             import base64
@@ -1030,7 +1037,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                 return False
                 
             # Extra debug for rasswanth
-            if "rasswanth" in recipient.lower():
+            if "rasswanth" in recipient.lower() and hasattr(self, 'verbose') and self.verbose:
                 print(f"   🔍 DEBUG: Sending to rasswanth", flush=True)
                 print(f"   🔍 Archive size: {len(archive_data)} bytes", flush=True)
                 print(f"   🔍 Self email: {self.email}", flush=True)
@@ -1050,10 +1057,12 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             sheet_name = f"syft_{my_email}_to_{their_email}_messages"
             
             # Get or create the message sheet
-            print(f"   📋 Looking for sheet: {sheet_name}", flush=True)
-            print(f"   📋 Calling _get_or_create_message_sheet for {recipient}", flush=True)
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   📋 Looking for sheet: {sheet_name}", flush=True)
+                print(f"   📋 Calling _get_or_create_message_sheet for {recipient}", flush=True)
             sheet_id = self._get_or_create_message_sheet(sheet_name, recipient_email=recipient)
-            print(f"   📋 _get_or_create_message_sheet returned: {sheet_id}", flush=True)
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   📋 _get_or_create_message_sheet returned: {sheet_id}", flush=True)
             if not sheet_id:
                 print(f"   ❌ Failed to get/create sheet: {sheet_name}", flush=True)
                 print(f"   ❌ sheets_service: {self.sheets_service is not None}", flush=True)

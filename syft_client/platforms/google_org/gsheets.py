@@ -179,7 +179,8 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         """Check if Sheets transport is ready - USES CACHE to avoid rate limits"""
         # First check if services exist
         if not self.sheets_service or not self.drive_service:
-            print(f"   🔍 is_setup: Services not initialized (sheets: {self.sheets_service is not None}, drive: {self.drive_service is not None})")
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   🔍 is_setup: Services not initialized (sheets: {self.sheets_service is not None}, drive: {self.drive_service is not None})")
             return False
         
         # If we've already verified setup, trust it to avoid rate limits
@@ -259,7 +260,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             # Write data to sheet
             body = {'values': values}
-            print(f"🔍 Sheets API call: values.update (sheet setup)")
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: values.update (sheet setup)")
             self.sheets_service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
                 range='A1',
@@ -321,7 +322,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                     continue
                 
                 # Get all messages from the sheet
-                print(f"🔍 Sheets API call: values.get (sheet: {sheet_name[:30]}...)")
+                if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: values.get (sheet: {sheet_name[:30]}...)")
                 result = self.sheets_service.spreadsheets().values().get(
                     spreadsheetId=sheet_id,
                     range='messages!A:D'
@@ -428,7 +429,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             if archive_data:
                 # Append to archive
-                print(f"🔍 Sheets API call: values.append (archiving {len(archive_data)} messages)")
+                if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: values.append (archiving {len(archive_data)} messages)")
                 self.sheets_service.spreadsheets().values().append(
                     spreadsheetId=sheet_id,
                     range='archive!A:D',
@@ -473,7 +474,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             # Find sheets shared with me
             query = "mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe=true and trashed=false"
             
-            print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 pageSize=limit,
@@ -595,7 +596,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         try:
             # First check if sheet already exists
             query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
-            print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 fields="files(id)",
@@ -687,11 +688,11 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         
         try:
             timestamp = datetime.now().strftime("%H:%M:%S")
-            print(f"   [{timestamp}] 📊 SHEETS API: files.list (searching for {sheet_name})")
+            if hasattr(self, "verbose") and self.verbose: print(f"   [{timestamp}] 📊 SHEETS API: files.list (searching for {sheet_name})")
             
             # First check owned sheets
             query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and 'me' in owners and trashed=false"
-            print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 fields="files(id)",
@@ -705,7 +706,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             # Then check shared sheets
             query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe and trashed=false"
-            print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 fields="files(id, owners)",
@@ -941,7 +942,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             # Search for outgoing message sheets I created
             query = f"name contains 'syft_{my_email}_to_' and name contains '_messages' and mimeType='application/vnd.google-apps.spreadsheet' and 'me' in owners and trashed=false"
-            print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 fields="files(name)",
@@ -960,7 +961,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             # Also search for incoming message sheets shared with me
             query = f"name contains '_to_{my_email}_messages' and mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe and trashed=false"
-            print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 fields="files(name)",
@@ -1049,7 +1050,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             # Append to sheet
             timestamp = datetime.now().strftime("%H:%M:%S")
-            print(f"   [{timestamp}] 📊 SHEETS API: values.append (adding message to {sheet_name})")
+            if hasattr(self, "verbose") and self.verbose: print(f"   [{timestamp}] 📊 SHEETS API: values.append (adding message to {sheet_name})")
             self.sheets_service.spreadsheets().values().append(
                 spreadsheetId=sheet_id,
                 range='messages!A:D',
@@ -1229,7 +1230,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                 if verbose:
                     from datetime import datetime
                     timestamp = datetime.now().strftime("%H:%M:%S")
-                    print(f"   [{timestamp}] 📊 SHEETS API: files.list (searching for {sheet_name})")
+                    if hasattr(self, "verbose") and self.verbose: print(f"   [{timestamp}] 📊 SHEETS API: files.list (searching for {sheet_name})")
                 results = self.drive_service.files().list(
                     q=query,
                     fields="files(id, name, webViewLink)",
@@ -1253,7 +1254,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             if verbose:
                 from datetime import datetime
                 timestamp = datetime.now().strftime("%H:%M:%S")
-                print(f"   [{timestamp}] 📊 SHEETS API: values.get (reading messages)")
+                if hasattr(self, "verbose") and self.verbose: print(f"   [{timestamp}] 📊 SHEETS API: values.get (reading messages)")
             result = self.sheets_service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
                 range="messages!A:D"
@@ -1429,7 +1430,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             values = [[timestamp, message_id or filename, str(len(archive_data)), encoded_data]]
             
             timestamp_log = datetime.now().strftime("%H:%M:%S")
-            print(f"   [{timestamp_log}] 📊 SHEETS API: values.append (adding message to {sheet_name})")
+            if hasattr(self, "verbose") and self.verbose: print(f"   [{timestamp_log}] 📊 SHEETS API: values.append (adding message to {sheet_name})")
             
             self.sheets_service.spreadsheets().values().append(
                 spreadsheetId=sheet_id,

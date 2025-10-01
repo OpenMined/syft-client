@@ -51,7 +51,7 @@ class SyncHistory:
     
     
     def is_recent_sync(self, file_path: str, direction: Optional[str] = None, threshold_seconds: int = 60, 
-                       operation: Optional[str] = None) -> bool:
+                       operation: Optional[str] = None, verbose: bool = False) -> bool:
         """Check if a file was recently synced in a specific direction (to prevent echoes)
         
         Args:
@@ -66,12 +66,14 @@ class SyncHistory:
             True if file was recently synced in the specified direction
         """
         try:
-            print(f"   🔍 Checking sync history for: {file_path}, direction={direction}, operation={operation}", flush=True)
+            if verbose:
+                print(f"   🔍 Checking sync history for: {file_path}, direction={direction}, operation={operation}", flush=True)
             
             # For deletion checks, we need to look through ALL metadata files
             # since we can't compute the hash of a non-existent file
             if operation == 'delete' and not os.path.exists(file_path):
-                print(f"      File doesn't exist, checking all metadata for deletion history", flush=True)
+                if verbose:
+                    print(f"      File doesn't exist, checking all metadata for deletion history", flush=True)
                 
                 # Get relative path for comparison
                 try:
@@ -93,7 +95,8 @@ class SyncHistory:
                     
                     # Check if this metadata is for our file
                     if metadata.get("file_path") == file_path or metadata.get("file_path") == relative_path:
-                        print(f"      Found metadata for deleted file", flush=True)
+                        if verbose:
+                            print(f"      Found metadata for deleted file", flush=True)
                         
                         # Check sync history
                         sync_history = metadata.get("sync_history", [])
@@ -107,7 +110,8 @@ class SyncHistory:
                             
                             sync_time = sync.get("timestamp", 0)
                             age = current_time - sync_time
-                            print(f"      Found {direction} delete, age: {age:.1f}s", flush=True)
+                            if verbose:
+                                print(f"      Found {direction} delete, age: {age:.1f}s", flush=True)
                             if age < threshold_seconds:
                                 return True
                         
@@ -115,25 +119,29 @@ class SyncHistory:
                         return False
                 
                 # File not found in any metadata
-                print(f"      No metadata found for deleted file", flush=True)
+                if verbose:
+                    print(f"      No metadata found for deleted file", flush=True)
                 return False
             
             # For non-deletion or existing files, use normal hash lookup
             if not os.path.exists(file_path):
-                print(f"      File doesn't exist and not checking for deletion", flush=True)
+                if verbose:
+                    print(f"      File doesn't exist and not checking for deletion", flush=True)
                 return False
                 
             file_hash = self.compute_file_hash(file_path)
             metadata_path = self.history_dir / file_hash / "metadata.json"
             
             if not metadata_path.exists():
-                print(f"      No metadata found for hash {file_hash}", flush=True)
+                if verbose:
+                    print(f"      No metadata found for hash {file_hash}", flush=True)
                 return False
             
             with open(metadata_path, "r") as f:
                 metadata = json.load(f)
             
-            print(f"      Found metadata with {len(metadata.get('sync_history', []))} sync records", flush=True)
+            if verbose:
+                print(f"      Found metadata with {len(metadata.get('sync_history', []))} sync records", flush=True)
             
             # If no direction specified, check last sync regardless of direction
             if direction is None:
@@ -151,7 +159,8 @@ class SyncHistory:
             
             # Debug: print all directions found
             directions = [s.get("direction", "unknown") for s in sync_history]
-            print(f"      Directions in history: {directions}", flush=True)
+            if verbose:
+                print(f"      Directions in history: {directions}", flush=True)
             
             # Check from most recent to oldest
             for sync in reversed(sync_history):
@@ -167,14 +176,16 @@ class SyncHistory:
                 sync_time = sync.get("timestamp", 0)
                 age = current_time - sync_time
                 sync_op = sync.get("operation", "sync")
-                print(f"      Found {direction} {sync_op}, age: {age:.1f}s (threshold: {threshold_seconds}s)", flush=True)
+                if verbose:
+                    print(f"      Found {direction} {sync_op}, age: {age:.1f}s (threshold: {threshold_seconds}s)", flush=True)
                 if age < threshold_seconds:
                     return True
                 else:
                     # If the most recent sync in this direction is old, no need to check further
                     return False
             
-            print(f"      No {direction} sync found in history", flush=True)
+            if verbose:
+                print(f"      No {direction} sync found in history", flush=True)
             return False
             
         except Exception:
@@ -182,7 +193,7 @@ class SyncHistory:
     
     def record_sync(self, file_path: str, message_id: str, peer_email: str, 
                     transport: str, direction: str, file_size: int, file_hash: Optional[str] = None,
-                    operation: str = 'sync'):
+                    operation: str = 'sync', verbose: bool = True):
         """Record a sync operation in history
         
         Args:
@@ -195,9 +206,10 @@ class SyncHistory:
             file_hash: Optional pre-computed hash (useful when recording before file exists)
             operation: Type of operation ('sync' or 'delete')
         """
-        # Always print for debugging
+        # Print only in verbose mode
         import sys
-        print(f"📝 Recording sync: {file_path} direction={direction} peer={peer_email}", file=sys.stderr, flush=True)
+        if verbose:
+            print(f"📝 Recording sync: {file_path} direction={direction} peer={peer_email}", file=sys.stderr, flush=True)
         
         # Use provided hash or compute it
         if file_hash is None:
@@ -288,7 +300,8 @@ class SyncHistory:
                             "warmup",
                             "local",  # Direction is local
                             file_size,
-                            file_hash=file_hash
+                            file_hash=file_hash,
+                            verbose=verbose
                         )
                         files_added += 1
                 except Exception as e:

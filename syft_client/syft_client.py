@@ -1338,9 +1338,8 @@ class SyftClient:
                 if self.local_syftbox_dir:
                     from .sync.watcher.sync_history import SyncHistory
                     sync_history = SyncHistory(self.local_syftbox_dir)
-                    if verbose:
-                        print(f"\n📂 Warming up sync history...")
-                    sync_history.warm_up_from_directory(verbose=verbose)
+                    # Warmup is internal initialization - keep quiet during login
+                    sync_history.warm_up_from_directory(verbose=False)
                 
                 # Step 9: Start watcher and receiver
                 current_step += 1
