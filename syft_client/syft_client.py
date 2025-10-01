@@ -470,7 +470,7 @@ class SyftClient:
                 endpoints={
                     "/start": start_fn,
                 },
-                dependencies=["syft-job"],
+                dependencies=["syft-job>=0.1.8"],
             )
         except ServerAlreadyExistsError:
             server = ss.servers[f"job_runner_{self._sanitize_email()}"]
@@ -1462,8 +1462,9 @@ class SyftClient:
                     pass
 
             # Setup job directories if syft-job is available
-            self._setup_job_directories()
-            self._setup_job_runner()
+            if not skip_server_setup:
+                self._setup_job_directories()
+                self._setup_job_runner()
             
             # Step 7: Initialize transports
             current_step += 1
