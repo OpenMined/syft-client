@@ -2561,6 +2561,7 @@ dependencies = [
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
     { name = "loguru" },
+    { name = "requests" },
     { name = "rich" },
     { name = "syft-serve" },
     { name = "watchdog" },
@@ -2629,6 +2630,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.0.0" },
     { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.10.0" },
     { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.0.0" },
+    { name = "requests", specifier = ">=2.32.5" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "syft-client", extras = ["test", "dev", "job"], marker = "extra == 'all'" },
     { name = "syft-job", marker = "extra == 'job'", git = "https://github.com/OpenMined/syft-job?branch=main" },
@@ -2641,7 +2643,7 @@ provides-extras = ["job", "test", "dev", "all"]
 [[package]]
 name = "syft-job"
 version = "0.1.3"
-source = { git = "https://github.com/OpenMined/syft-job?branch=main#e2f5f8ed9bb9a99d3d58afd55cfcbcf2fdb3f18d" }
+source = { git = "https://github.com/OpenMined/syft-job?branch=main#6e8964f02b5fccab885220ac380c0ac41d6906b5" }
 dependencies = [
     { name = "ipykernel" },
     { name = "pydantic" },

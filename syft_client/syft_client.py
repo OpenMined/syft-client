@@ -9,11 +9,6 @@ from .platforms.base import BasePlatformClient
 from .platforms.detection import Platform, detect_primary_platform, get_secondary_platforms, PlatformDetector
 from .environment import Environment, detect_environment
 
-import syft_serve as ss
-from syft_serve._exceptions import ServerAlreadyExistsError
-
-import requests
-
 
 def resolve_path(path: Union[str, Path], syftbox_folder: Optional[Union[str, Path]] = None) -> Path:
     """
@@ -453,6 +448,12 @@ class SyftClient:
             import syft_job
         except ImportError:
             return
+        
+        # lazy load
+        import syft_serve as ss
+        from syft_serve._exceptions import ServerAlreadyExistsError
+        import requests
+
     
         
         # Setup Job Directories
