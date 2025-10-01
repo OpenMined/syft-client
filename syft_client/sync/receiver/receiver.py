@@ -110,17 +110,39 @@ def create_receiver_endpoint(email: str, check_interval: int = 2,
             if process_immediately:
                 print("Processing any existing messages...", flush=True)
             
+            # Track last discovery time
+            last_discovery_time = 0
+            discovery_interval = 30  # Hard-coded 30 seconds for peer discovery
+            
             # Main receiver loop
             while current_module.receiver_running:
                 try:
                     stats["last_check"] = datetime.now().isoformat()
                     stats["checks_performed"] += 1
                     
+                    # Check if it's time for peer discovery
+                    current_time = time.time()
+                    if current_time - last_discovery_time > discovery_interval:
+                        if verbose:
+                            print(f"🔍 Running peer discovery...", flush=True)
+                        try:
+                            # Invalidate peer cache to force re-discovery
+                            if hasattr(client, '_peer_manager') and hasattr(client._peer_manager, '_invalidate_peers_cache'):
+                                client._peer_manager._invalidate_peers_cache()
+                                if verbose:
+                                    print(f"   ✓ Peer cache cleared", flush=True)
+                        except Exception as e:
+                            if verbose:
+                                print(f"   ⚠️  Error during peer discovery: {e}", flush=True)
+                        last_discovery_time = current_time
+                    
                     # Get all peers
                     peer_emails = []
                     try:
                         if hasattr(client, 'peers'):
                             peer_emails = list(client.peers)
+                            if verbose and peer_emails:
+                                print(f"📥 Checking messages from {len(peer_emails)} peer(s)", flush=True)
                     except Exception as e:
                         if verbose:
                             print(f"Warning: Could not get peers: {e}", flush=True)

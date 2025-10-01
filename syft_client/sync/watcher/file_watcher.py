@@ -126,14 +126,35 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         
         # Also start inbox polling for bidirectional sync
         def poll_inbox():
+            last_discovery_time = 0
+            discovery_interval = 30  # Hard-coded 30 seconds for peer discovery
+            
             while True:
                 try:
+                    # Check if it's time for peer discovery
+                    current_time = time.time()
+                    if current_time - last_discovery_time > discovery_interval:
+                        if verbose:
+                            print(f"🔍 Running peer discovery...", flush=True)
+                        try:
+                            # Invalidate peer cache to force re-discovery
+                            if hasattr(client, '_peer_manager') and hasattr(client._peer_manager, '_invalidate_peers_cache'):
+                                client._peer_manager._invalidate_peers_cache()
+                                if verbose:
+                                    print(f"   ✓ Peer cache cleared", flush=True)
+                        except Exception as e:
+                            if verbose:
+                                print(f"   ⚠️  Error during peer discovery: {e}", flush=True)
+                        last_discovery_time = current_time
+                    
                     # Check inbox for all peers
                     peers = []
                     try:
                         if hasattr(client, 'peers'):
                             # The client.peers is a property that returns a list-like object
                             peers = list(client.peers)  # Convert to list
+                            if verbose and peers:
+                                print(f"📥 Checking inbox for {len(peers)} peer(s)", flush=True)
                     except:
                         pass
                     
