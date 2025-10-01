@@ -98,6 +98,11 @@ class SyftClient:
         self._sync = None  # Lazy-loaded sync manager
         self.verbose = True  # Default verbose mode
         self._job_client = None # Cache for lazy-loaded job client
+
+    @property
+    def servers(self):
+        import syft_serve as ss
+        return ss.servers
         
     @property
     def platforms(self):
