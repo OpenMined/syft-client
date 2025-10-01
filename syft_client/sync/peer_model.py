@@ -591,11 +591,7 @@ class Peer:
         results = {}
         total_messages = 0
         
-        if verbose:
-            if transport:
-                print(f"📬 Checking {transport} inbox for messages from {self.email}...")
-            else:
-                print(f"📬 Checking inbox for messages from {self.email}...")
+        # Removed the initial message since receiver already logs it
         
         # Determine which transports to check
         if transport:
@@ -613,8 +609,7 @@ class Peer:
         
         # Check each transport
         for transport_name in transports_to_check:
-            if verbose:
-                print(f"\n🔄 Checking {transport_name}...")
+            # Don't print transport checking messages for cleaner logs
             
             try:
                 # Get the transport
@@ -639,11 +634,7 @@ class Peer:
                     if messages:
                         results[transport_name] = messages
                         total_messages += len(messages)
-                        if verbose:
-                            print(f"   ✅ Found {len(messages)} message{'s' if len(messages) != 1 else ''}")
-                    else:
-                        if verbose:
-                            print(f"   📭 No messages")
+                        # Messages found - this will be logged in summary
                 else:
                     if verbose:
                         print(f"   ⚠️  Transport doesn't support inbox checking")
@@ -653,7 +644,10 @@ class Peer:
                     print(f"   ❌ Error checking {transport_name}: {e}")
         
         if verbose:
-            print(f"\n📊 Summary: Found {total_messages} message{'s' if total_messages != 1 else ''} across {len(results)} transport{'s' if len(results) != 1 else ''}")
+            if total_messages > 0:
+                print(f"Found {total_messages} message{'s' if total_messages != 1 else ''}", flush=True)
+            else:
+                print(f"No messages", flush=True)
         
         return results
 

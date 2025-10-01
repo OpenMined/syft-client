@@ -34,6 +34,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         self.drive_service = None
         self.credentials = None
         self._setup_verified = False
+        self._sheet_id_cache = {}  # Cache for sheet name -> ID mapping
         
     @property
     def api_is_active_by_default(self) -> bool:
@@ -175,20 +176,32 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             return False
     
     def is_setup(self) -> bool:
-        """Check if Sheets transport is ready - NO CACHING, makes real API call"""
+        """Check if Sheets transport is ready - USES CACHE to avoid rate limits"""
+        # First check if services exist
         if not self.sheets_service or not self.drive_service:
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   🔍 is_setup: Services not initialized (sheets: {self.sheets_service is not None}, drive: {self.drive_service is not None})")
             return False
+        
+        # If we've already verified setup, trust it to avoid rate limits
+        if hasattr(self, '_setup_verified') and self._setup_verified:
+            return True
             
+        # Only do the API check if we haven't verified yet
         try:
             # Try to get spreadsheet metadata for a non-existent sheet (fast operation)
+            print(f"🔍 Sheets API call: spreadsheets.get (initial setup verification)")
             self.sheets_service.spreadsheets().get(spreadsheetId='test123').execute()
             # Should never reach here
+            self._setup_verified = True
             return True
         except Exception as e:
             # If it's just "not found", that means the API is working
             if "Requested entity was not found" in str(e) or "404" in str(e):
+                self._setup_verified = True
                 return True
             else:
+                print(f"   🔍 is_setup failed: {str(e)[:100]}...")
                 return False
     
     def send(self, recipient: str, data: Any, subject: str = "Syft Data") -> bool:
@@ -247,6 +260,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             # Write data to sheet
             body = {'values': values}
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: values.update (sheet setup)")
             self.sheets_service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
                 range='A1',
@@ -308,6 +322,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                     continue
                 
                 # Get all messages from the sheet
+                if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: values.get (sheet: {sheet_name[:30]}...)")
                 result = self.sheets_service.spreadsheets().values().get(
                     spreadsheetId=sheet_id,
                     range='messages!A:D'
@@ -414,6 +429,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             if archive_data:
                 # Append to archive
+                if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: values.append (archiving {len(archive_data)} messages)")
                 self.sheets_service.spreadsheets().values().append(
                     spreadsheetId=sheet_id,
                     range='archive!A:D',
@@ -458,6 +474,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             # Find sheets shared with me
             query = "mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe=true and trashed=false"
             
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 pageSize=limit,
@@ -579,6 +596,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         try:
             # First check if sheet already exists
             query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 fields="files(id)",
@@ -631,7 +649,14 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             return sheet_id
             
         except Exception as e:
-            print(f"❌ Error creating sheet: {e}")
+            print(f"❌ Error in _get_or_create_message_sheet: {e}")
+            print(f"   Sheet name: {sheet_name}")
+            print(f"   Recipient: {recipient_email}")
+            print(f"   self.email: {self.email}")
+            print(f"   drive_service: {self.drive_service is not None}")
+            print(f"   sheets_service: {self.sheets_service is not None}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def _find_message_sheet(self, sheet_name: str, from_email: Optional[str] = None) -> Optional[str]:
@@ -645,9 +670,29 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         Returns:
             Sheet ID if found, None otherwise
         """
+        # Check cache first
+        cache_key = f"{sheet_name}:{from_email or 'any'}"
+        if cache_key in self._sheet_id_cache:
+            # Verify the cached sheet still exists
+            sheet_id = self._sheet_id_cache[cache_key]
+            try:
+                # Quick check if sheet still exists
+                self.sheets_service.spreadsheets().get(
+                    spreadsheetId=sheet_id,
+                    fields='spreadsheetId'
+                ).execute()
+                return sheet_id
+            except:
+                # Sheet no longer exists, remove from cache
+                del self._sheet_id_cache[cache_key]
+        
         try:
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            if hasattr(self, "verbose") and self.verbose: print(f"   [{timestamp}] 📊 SHEETS API: files.list (searching for {sheet_name})")
+            
             # First check owned sheets
             query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and 'me' in owners and trashed=false"
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 fields="files(id)",
@@ -655,10 +700,13 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             ).execute()
             
             if results.get('files'):
-                return results['files'][0]['id']
+                sheet_id = results['files'][0]['id']
+                self._sheet_id_cache[cache_key] = sheet_id
+                return sheet_id
             
             # Then check shared sheets
             query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe and trashed=false"
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 fields="files(id, owners)",
@@ -671,10 +719,14 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                     owners = file.get('owners', [])
                     for owner in owners:
                         if owner.get('emailAddress', '').lower() == from_email.lower():
-                            return file['id']
+                            sheet_id = file['id']
+                            self._sheet_id_cache[cache_key] = sheet_id
+                            return sheet_id
                 else:
                     # No from_email specified, return first match
-                    return file['id']
+                    sheet_id = file['id']
+                    self._sheet_id_cache[cache_key] = sheet_id
+                    return sheet_id
             
             return None
             
@@ -890,6 +942,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             # Search for outgoing message sheets I created
             query = f"name contains 'syft_{my_email}_to_' and name contains '_messages' and mimeType='application/vnd.google-apps.spreadsheet' and 'me' in owners and trashed=false"
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 fields="files(name)",
@@ -908,6 +961,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             
             # Also search for incoming message sheets shared with me
             query = f"name contains '_to_{my_email}_messages' and mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe and trashed=false"
+            if hasattr(self, "verbose") and self.verbose: print(f"🔍 Sheets API call: files.list (query: {query[:50]}...)")
             results = self.drive_service.files().list(
                 q=query,
                 fields="files(name)",
@@ -928,23 +982,27 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         except Exception:
             return []
     
-    def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
+    def _send_archive_via_transport(self, archive_data: bytes, filename: str, 
+                                   recipient: str, message_id: Optional[str] = None) -> bool:
         """
-        Send a pre-prepared archive via Google Sheets using gdrive_unified.py format.
+        Send archive data via Google Sheets using gdrive_unified.py format.
         
         Stores message as: [timestamp, message_id, size, base64_data]
         """
+        print(f"\n🔍 _send_archive_via_transport called:", flush=True)
+        print(f"   - recipient: {recipient}", flush=True)
+        print(f"   - message_id: {message_id}", flush=True)
+        print(f"   - archive_size: {len(archive_data)} bytes", flush=True)
+        print(f"   - sheets_service exists: {self.sheets_service is not None}", flush=True)
+        print(f"   - drive_service exists: {self.drive_service is not None}", flush=True)
+        
         try:
-            import os
             import base64
             
-            if not os.path.exists(archive_path):
-                print(f"❌ Archive not found: {archive_path}")
+            # Check if sheets service is initialized
+            if not self.sheets_service:
+                print(f"❌ Sheets service not initialized for {recipient}")
                 return False
-            
-            # Read archive file
-            with open(archive_path, 'rb') as f:
-                archive_data = f.read()
             
             # Check size limit (conservative 37.5KB to stay under 50k char limit)
             max_sheets_size = 37_500
@@ -961,9 +1019,23 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             sheet_name = f"syft_{my_email}_to_{their_email}_messages"
             
             # Get or create the message sheet
+            print(f"   📋 Looking for sheet: {sheet_name}", flush=True)
+            print(f"   📋 Calling _get_or_create_message_sheet for {recipient}", flush=True)
             sheet_id = self._get_or_create_message_sheet(sheet_name, recipient_email=recipient)
+            print(f"   📋 _get_or_create_message_sheet returned: {sheet_id}", flush=True)
             if not sheet_id:
+                print(f"   ❌ Failed to get/create sheet: {sheet_name}", flush=True)
+                print(f"   ❌ sheets_service: {self.sheets_service is not None}", flush=True)
+                print(f"   ❌ drive_service: {self.drive_service is not None}", flush=True)
+                print(f"   ❌ recipient_email: {recipient}", flush=True)
+                print(f"   ❌ my_email: {self.email}", flush=True)
+                import traceback
+                print(f"   ❌ Current stack trace:")
+                traceback.print_stack()
+                print(f"   ❌ recipient_email: {recipient}", flush=True)
                 return False
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   ✅ Got sheet ID: {sheet_id}", flush=True)
             
             # Prepare row data following gdrive_unified.py format
             timestamp = datetime.now().isoformat()
@@ -977,6 +1049,8 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             }
             
             # Append to sheet
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            if hasattr(self, "verbose") and self.verbose: print(f"   [{timestamp}] 📊 SHEETS API: values.append (adding message to {sheet_name})")
             self.sheets_service.spreadsheets().values().append(
                 spreadsheetId=sheet_id,
                 range='messages!A:D',
@@ -1129,33 +1203,22 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             # Silently fail - peer request checking is optional
             return []
     
-    def check_inbox(self, sender_email: str, download_dir: Optional[str] = None, verbose: bool = True) -> List[Dict]:
+    def _get_messages_from_transport(self, sender_email: str, verbose: bool = True) -> List[Dict]:
         """
-        Check for incoming messages from a specific sender in Google Sheets
-        
-        Args:
-            sender_email: Email of the sender to check messages from
-            download_dir: Directory to download messages to (defaults to SyftBox directory)
-            verbose: Whether to print progress
-            
-        Returns:
-            List of message info dicts with keys: id, timestamp, size, data, extracted_to
+        Google Sheets specific implementation to retrieve messages
         """
-        if not self.is_setup():
-            return []
-        
-        downloaded_messages = []
+        messages = []
         
         try:
             # Determine the message sheet name pattern
             my_email = self.email
             
-            # Try both naming patterns
+            # Try both naming patterns (both need @ and . replaced)
             sheet_names = [
-                # New pattern with @ and . 
-                f"syft_{sender_email}_to_{my_email}_outbox_inbox",
-                # Legacy pattern with underscores and _messages suffix
-                f"syft_{sender_email.replace('@', '_at_').replace('.', '_')}_to_{my_email.replace('@', '_at_').replace('.', '_')}_messages"
+                # Pattern with _messages suffix (most common)
+                f"syft_{sender_email.replace('@', '_at_').replace('.', '_')}_to_{my_email.replace('@', '_at_').replace('.', '_')}_messages",
+                # Alternative pattern with _outbox_inbox suffix
+                f"syft_{sender_email.replace('@', '_at_').replace('.', '_')}_to_{my_email.replace('@', '_at_').replace('.', '_')}_outbox_inbox"
             ]
             
             sheet = None
@@ -1164,6 +1227,10 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             # Try each pattern
             for sheet_name in sheet_names:
                 query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+                if verbose:
+                    from datetime import datetime
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    if hasattr(self, "verbose") and self.verbose: print(f"   [{timestamp}] 📊 SHEETS API: files.list (searching for {sheet_name})")
                 results = self.drive_service.files().list(
                     q=query,
                     fields="files(id, name, webViewLink)",
@@ -1174,8 +1241,8 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                 if sheets:
                     sheet = sheets[0]
                     sheet_id = sheet['id']
-                    if verbose:
-                        print(f"   Found message sheet: {sheet['name']}")
+                    self._current_sheet_id = sheet_id  # Store for archiving
+                    # Found sheet, no need to log
                     break
             
             if not sheet:
@@ -1184,6 +1251,10 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                 return []
             
             # Read messages from the sheet
+            if verbose:
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                if hasattr(self, "verbose") and self.verbose: print(f"   [{timestamp}] 📊 SHEETS API: values.get (reading messages)")
             result = self.sheets_service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
                 range="messages!A:D"
@@ -1198,24 +1269,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             if values and values[0] == ['timestamp', 'message_id', 'size', 'data']:
                 values = values[1:]
             
-            # Set up download directory
-            if download_dir is None:
-                # Use SyftBox directory
-                if hasattr(self._platform_client, '_client') and self._platform_client._client:
-                    client = self._platform_client._client
-                    if hasattr(client, 'local_syftbox_dir') and client.local_syftbox_dir:
-                        download_dir = str(client.local_syftbox_dir)
-                    else:
-                        download_dir = str(Path.home() / f"SyftBox_{my_email}")
-                else:
-                    download_dir = str(Path.home() / f"SyftBox_{my_email}")
-            
-            download_path = Path(download_dir)
-            download_path.mkdir(parents=True, exist_ok=True)
-            
-            # Process each message
-            messages_to_archive = []
-            
+            # Process each row into message format
             for row in values:
                 if len(row) >= 4:
                     timestamp, message_id, size_str, data = row
@@ -1225,90 +1279,44 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                         import base64
                         message_data = base64.b64decode(data)
                         
-                        # Save to temporary file
-                        temp_file = download_path / f"{message_id}.tar.gz"
-                        with open(temp_file, 'wb') as f:
-                            f.write(message_data)
-                        
-                        # Extract the archive
-                        import tarfile
-                        with tarfile.open(temp_file, 'r:gz') as tar:
-                            # Extract to the download directory
-                            tar.extractall(download_path)
-                        
-                        # Find the extracted message directory
-                        extracted_dir = download_path / message_id
-                        
-                        # Read metadata if available
-                        metadata = {}
-                        metadata_file = extracted_dir / f"{message_id}.json"
-                        if metadata_file.exists():
-                            import json
-                            with open(metadata_file, 'r') as f:
-                                metadata = json.load(f)
-                        
-                        # Process the data files to their final destination
-                        data_dir = extracted_dir / "data"
-                        if data_dir.exists():
-                            # Move files from data dir to their proper location
-                            import shutil
-                            for item in data_dir.iterdir():
-                                # Determine destination based on metadata
-                                if 'original_path' in metadata:
-                                    # Use original path from metadata
-                                    dest = download_path / metadata['original_path'] / item.name
-                                else:
-                                    # Default to root of download dir
-                                    dest = download_path / item.name
-                                
-                                # Create parent directories
-                                dest.parent.mkdir(parents=True, exist_ok=True)
-                                
-                                # Move the file/directory
-                                if item.is_dir():
-                                    if dest.exists():
-                                        shutil.rmtree(dest)
-                                    shutil.move(str(item), str(dest))
-                                else:
-                                    shutil.move(str(item), str(dest))
-                                
-                                if verbose:
-                                    print(f"   📥 Extracted: {dest.name}")
-                        
-                        # Clean up temporary files
-                        temp_file.unlink()
-                        if extracted_dir.exists():
-                            import shutil
-                            shutil.rmtree(extracted_dir)
-                        
-                        # Add to results
-                        downloaded_messages.append({
-                            'id': message_id,
+                        messages.append({
+                            'message_id': message_id,
+                            'data': message_data,
                             'timestamp': timestamp,
-                            'size': int(size_str) if size_str.isdigit() else 0,
-                            'metadata': metadata,
-                            'extracted_to': str(download_path)
+                            'size': size_str,
+                            'row': row  # Store original row for archiving
                         })
-                        
-                        # Mark for archiving
-                        messages_to_archive.append(row)
-                        
                     except Exception as e:
                         if verbose:
-                            print(f"   ❌ Error processing message {message_id}: {e}")
+                            print(f"   ⚠️  Failed to decode message {message_id}: {e}")
             
-            # Archive processed messages
-            if messages_to_archive:
-                self._archive_messages(sheet_id, messages_to_archive, verbose)
-            
-            return downloaded_messages
+            return messages
             
         except Exception as e:
             if verbose:
-                print(f"   ❌ Error checking inbox: {e}")
+                print(f"   ❌ Error retrieving messages from sheets: {e}")
             return []
     
-    def _archive_messages(self, sheet_id: str, messages: List[List[str]], verbose: bool = True):
+    def _archive_messages(self, messages: List[Dict], verbose: bool = True):
+        """
+        Archive processed messages to the archive tab
+        """
+        if not hasattr(self, '_current_sheet_id') or not self._current_sheet_id:
+            return
+        
+        try:
+            # Extract the rows from message info
+            rows_to_archive = [msg['row'] for msg in messages if 'row' in msg]
+            if not rows_to_archive:
+                return
+            
+            # Use the existing archive sheet messages method
+            self._archive_sheet_messages(self._current_sheet_id, rows_to_archive, verbose)
+        except Exception as e:
+            if verbose:
+                print(f"   ⚠️  Error archiving messages: {e}")
+    
+    def _archive_sheet_messages(self, sheet_id: str, messages: List[List[str]], verbose: bool = True):
         """Archive processed messages to the archive sheet"""
         try:
             # Check if archive sheet exists
@@ -1388,3 +1396,56 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         except Exception as e:
             if verbose:
                 print(f"   ⚠️  Error archiving messages: {e}")
+    
+    def _send_archive_via_transport(self, archive_data: bytes, filename: str, 
+                                   recipient: str, message_id: Optional[str] = None) -> bool:
+        """
+        Send archive data to recipient via Google Sheets
+        
+        Args:
+            archive_data: The message archive as bytes
+            filename: Filename for the archive
+            recipient: Email of the recipient
+            message_id: Optional message ID
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Get or create the outgoing message sheet
+            my_email = self.email.replace('@', '_at_').replace('.', '_')
+            their_email = recipient.replace('@', '_at_').replace('.', '_')
+            sheet_name = f"syft_{my_email}_to_{their_email}_messages"
+            
+            sheet_id = self._get_or_create_message_sheet(sheet_name, recipient_email=recipient)
+            if not sheet_id:
+                return False
+            
+            # Prepare message data
+            import base64
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            encoded_data = base64.b64encode(archive_data).decode('utf-8')
+            
+            # Append message to sheet
+            values = [[timestamp, message_id or filename, str(len(archive_data)), encoded_data]]
+            
+            timestamp_log = datetime.now().strftime("%H:%M:%S")
+            if hasattr(self, "verbose") and self.verbose: print(f"   [{timestamp_log}] 📊 SHEETS API: values.append (adding message to {sheet_name})")
+            
+            self.sheets_service.spreadsheets().values().append(
+                spreadsheetId=sheet_id,
+                range='messages!A:D',
+                valueInputOption='RAW',
+                body={'values': values}
+            ).execute()
+            
+            print(f"📊 Sent message via sheets: {message_id or filename}")
+            print(f"   Size: {len(archive_data)} bytes")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to send via Sheets: {e}")
+            return False
+    
+    # Note: _merge_directories is now inherited from BaseTransportLayer

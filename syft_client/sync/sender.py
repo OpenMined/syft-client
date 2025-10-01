@@ -130,62 +130,30 @@ class MessageSender:
             
             message_id, archive_path, archive_size = message_info
             
-            # Determine which transport to use
+            # If user specified a transport, validate and use it
             if transport:
-                # Use the specified transport
-                transport_name = transport
-                
                 # Validate that the transport is available for this peer
-                if transport_name not in peer.available_transports:
-                    print(f"❌ Transport '{transport_name}' is not available for {recipient}")
+                if transport not in peer.available_transports:
+                    print(f"❌ Transport '{transport}' is not available for {recipient}")
                     print(f"   Available transports: {list(peer.available_transports.keys())}")
                     return False
                     
-                if not peer.available_transports[transport_name].verified:
-                    print(f"⚠️  Transport '{transport_name}' is not verified for {recipient}")
-                    
+                if not peer.available_transports[transport].verified:
+                    print(f"⚠️  Transport '{transport}' is not verified for {recipient}")
+                
+                # Get transport instance
+                transport_obj = self._get_transport_instance(transport)
+                if not transport_obj:
+                    print(f"❌ Transport {transport} is not available")
+                    return False
+                
+                # Send directly with specified transport
                 if self.client.verbose:
-                    print(f"📤 Using specified transport: {transport_name}")
+                    print(f"📤 Using specified transport: {transport}")
+                return transport_obj.send_to(archive_path, recipient, message_id)
             else:
-                # Use negotiator to select best transport based on actual archive size
-                transport_name = self.negotiator.select_transport(
-                    peer=peer,
-                    file_size=archive_size,  # Use actual compressed size
-                    requested_latency_ms=requested_latency_ms,
-                    priority=priority
-                )
-            
-                if not transport_name:
-                    print(f"❌ No suitable transport found for sending to {recipient}")
-                    return False
-            
-            # Get transport instance
-            transport = self._get_transport_instance(transport_name)
-            if not transport:
-                print(f"❌ Transport {transport_name} is not available")
-                return False
-            
-            # Send using the selected transport
-            start_time = time.time()
-            try:
-                # Call generic send_to method with prepared archive
-                if hasattr(transport, 'send_to'):
-                    result = transport.send_to(archive_path, recipient, message_id=message_id)
-                else:
-                    print(f"❌ Transport {transport_name} does not implement send_to() method")
-                    return False
-                
-                # Record result
-                elapsed_ms = (time.time() - start_time) * 1000
-                if result:
-                    if self.client.verbose:
-                        print(f"✅ Successfully sent via {transport_name} in {elapsed_ms:.0f}ms")
-                
-                return result
-                
-            except Exception as e:
-                print(f"❌ Error sending via {transport_name}: {e}")
-                return False
+                # Use the generic send method that selects best transport
+                return self._send_prepared_archive(archive_path, recipient, archive_size, message_id)
         finally:
             # Clean up temp directory
             import shutil
@@ -267,6 +235,68 @@ class MessageSender:
             print(f"❌ Error preparing message: {e}")
             return None
     
+    def prepare_deletion_message(self, path: str, recipient: str, temp_dir: str) -> Optional[Tuple[str, str, int]]:
+        """
+        Prepare a SyftMessage archive for deletion
+        
+        Args:
+            path: Path to the deleted file (supports syft:// URLs)
+            recipient: Email address of the recipient
+            temp_dir: Temporary directory to create the message in
+            
+        Returns:
+            Tuple of (message_id, archive_path, archive_size) if successful, None otherwise
+        """
+        # Resolve path
+        resolved_path = self.paths.resolve_syft_path(path)
+        
+        # Get relative path from SyftBox root
+        relative_path = self.paths.get_relative_syftbox_path(resolved_path)
+        if not relative_path:
+            # If file is not in SyftBox, use the full path as relative
+            # This can happen if file was already deleted
+            relative_path = resolved_path
+        
+        try:
+            # Create SyftMessage
+            message = SyftMessage.create(
+                sender_email=self.client.email,
+                recipient_email=recipient,
+                message_root=Path(temp_dir)
+            )
+            
+            # Create deletion manifest
+            deletion_manifest = {
+                "operation": "delete",
+                "items": [{
+                    "path": relative_path,
+                    "timestamp": time.time(),
+                    "deleted_by": self.client.email
+                }]
+            }
+            
+            # Write deletion manifest to message directory
+            manifest_path = Path(temp_dir) / message.message_id / "deletion_manifest.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            import json
+            with open(manifest_path, 'w') as f:
+                json.dump(deletion_manifest, f, indent=2)
+            
+            # Create archive
+            archive_path = message.create_archive()
+            if not archive_path:
+                return None
+            
+            # Get archive size
+            archive_size = message.get_archive_size()
+            
+            return (message.message_id, archive_path, archive_size)
+            
+        except Exception as e:
+            print(f"❌ Error preparing deletion message: {e}")
+            return None
+    
     def send_deletion(self, path: str, recipient: str) -> bool:
         """
         Send a deletion message for a file to a specific recipient
@@ -278,18 +308,184 @@ class MessageSender:
         Returns:
             True if successful, False otherwise
         """
-        # Get platform with sync capability
-        platform = self._get_sync_platform()
-        if not platform:
-            print("❌ No platform available with sync capabilities")
-            return False
+        # Create temporary directory for the deletion message
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Prepare deletion message
+            message_info = self.prepare_deletion_message(path, recipient, temp_dir)
+            if not message_info:
+                return False
+            
+            message_id, archive_path, archive_size = message_info
+            
+            # Send the prepared archive
+            return self._send_prepared_archive(archive_path, recipient, archive_size)
+            
+        finally:
+            # Clean up temp directory
+            import shutil
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+    
+    def prepare_move_message(self, source_path: str, dest_path: str, recipient: str, temp_dir: str) -> Optional[Tuple[str, str, int]]:
+        """
+        Prepare a SyftMessage archive for move operation
         
-        # Use platform-specific method if available
-        if hasattr(platform, 'gdrive_files') and hasattr(platform.gdrive_files, 'send_deletion'):
-            return platform.gdrive_files.send_deletion(path, recipient)
-        else:
-            print("❌ Platform does not support sending deletion messages")
-            return False
+        Args:
+            source_path: Path to the source file/directory (supports syft:// URLs)
+            dest_path: Path to the destination file/directory (supports syft:// URLs)
+            recipient: Email address of the recipient
+            temp_dir: Temporary directory to create the message in
+            
+        Returns:
+            Tuple of (message_id, archive_path, archive_size) if successful, None otherwise
+        """
+        # Resolve paths
+        resolved_source = self.paths.resolve_syft_path(source_path)
+        resolved_dest = self.paths.resolve_syft_path(dest_path)
+        
+        # Get relative paths from SyftBox root
+        relative_source = self.paths.get_relative_syftbox_path(resolved_source)
+        relative_dest = self.paths.get_relative_syftbox_path(resolved_dest)
+        
+        if not relative_source:
+            # If file is not in SyftBox, use the full path as relative
+            relative_source = resolved_source
+            
+        if not relative_dest:
+            relative_dest = resolved_dest
+        
+        try:
+            # Create SyftMessage
+            message = SyftMessage.create(
+                sender_email=self.client.email,
+                recipient_email=recipient,
+                message_root=Path(temp_dir)
+            )
+            
+            # Create move manifest
+            move_manifest = {
+                "operation": "move",
+                "items": [{
+                    "source_path": relative_source,
+                    "dest_path": relative_dest,
+                    "timestamp": time.time(),
+                    "moved_by": self.client.email
+                }]
+            }
+            
+            # Write move manifest to message directory
+            manifest_path = Path(temp_dir) / message.message_id / "move_manifest.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            import json
+            with open(manifest_path, 'w') as f:
+                json.dump(move_manifest, f, indent=2)
+            
+            # Create archive
+            archive_path = message.create_archive()
+            if not archive_path:
+                return None
+            
+            # Get archive size
+            archive_size = message.get_archive_size()
+            
+            return (message.message_id, archive_path, archive_size)
+            
+        except Exception as e:
+            print(f"❌ Error preparing move message: {e}")
+            return None
+    
+    def send_move(self, source_path: str, dest_path: str, recipient: str) -> bool:
+        """
+        Send a move message for a file/directory to a specific recipient
+        
+        Args:
+            source_path: Path to the source file/directory (supports syft:// URLs)
+            dest_path: Path to the destination file/directory (supports syft:// URLs) 
+            recipient: Email address of the recipient
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Create temporary directory for the move message
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Prepare move message
+            message_info = self.prepare_move_message(source_path, dest_path, recipient, temp_dir)
+            if not message_info:
+                return False
+            
+            message_id, archive_path, archive_size = message_info
+            
+            # Send the prepared archive
+            return self._send_prepared_archive(archive_path, recipient, archive_size)
+            
+        finally:
+            # Clean up temp directory
+            import shutil
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+    
+    def send_move_to_peers(self, source_path: str, dest_path: str) -> Dict[str, bool]:
+        """
+        Send move message to all peers
+        
+        Args:
+            source_path: Path to the source file/directory (supports syft:// URLs)
+            dest_path: Path to the destination file/directory (supports syft:// URLs)
+            
+        Returns:
+            Dict mapping peer emails to success status
+        """
+        # Get list of peers
+        peers_list = self.peers.peers
+        if not peers_list:
+            print("❌ No peers to send move to")
+            return {}
+        
+        verbose = getattr(self.client, 'verbose', True)
+        if verbose:
+            # Resolve paths for display
+            resolved_source = self.paths.resolve_syft_path(source_path)
+            resolved_dest = self.paths.resolve_syft_path(dest_path)
+            print(f"🚚 Sending move of {os.path.basename(resolved_source)} → {os.path.basename(resolved_dest)} to {len(peers_list)} peer(s)...")
+        
+        results = {}
+        successful = 0
+        failed = 0
+        
+        for i, peer_email in enumerate(peers_list, 1):
+            if verbose:
+                print(f"\n[{i}/{len(peers_list)}] Sending move to {peer_email}...")
+            
+            try:
+                success = self.send_move(source_path, dest_path, peer_email)
+                results[peer_email] = success
+                
+                if success:
+                    if verbose:
+                        print(f"   ✅ Successfully sent move to {peer_email}")
+                    successful += 1
+                else:
+                    if verbose:
+                        print(f"   ❌ Failed to send move to {peer_email}")
+                    failed += 1
+                    
+            except Exception as e:
+                if verbose:
+                    print(f"   ❌ Error sending move to {peer_email}: {str(e)}")
+                results[peer_email] = False
+                failed += 1
+        
+        # Summary
+        if verbose:
+            print(f"\n📊 Summary:")
+            print(f"   ✅ Successful: {successful}")
+            print(f"   ❌ Failed: {failed}")
+            print(f"   🚚 Total: {len(peers_list)}")
+        
+        return results
     
     def send_deletion_to_peers(self, path: str) -> Dict[str, bool]:
         """
@@ -301,19 +497,53 @@ class MessageSender:
         Returns:
             Dict mapping peer emails to success status
         """
-        # Get platform with sync capability
-        platform = self._get_sync_platform()
-        if not platform:
-            print("❌ No platform available with sync capabilities")
+        # Get list of peers
+        peers_list = self.peers.peers
+        if not peers_list:
+            print("❌ No peers to send deletion to")
             return {}
         
-        # Use platform-specific method if available
-        if hasattr(platform, 'gdrive_files') and hasattr(platform.gdrive_files, 'send_deletion_to_friends'):
-            # Platform still uses 'friends' terminology internally
-            return platform.gdrive_files.send_deletion_to_friends(path)
-        else:
-            print("❌ Platform does not support sending deletion messages")
-            return {}
+        verbose = getattr(self.client, 'verbose', True)
+        if verbose:
+            # Resolve path for display
+            resolved_path = self.paths.resolve_syft_path(path)
+            print(f"🗑️  Sending deletion of {os.path.basename(resolved_path)} to {len(peers_list)} peer(s)...")
+        
+        results = {}
+        successful = 0
+        failed = 0
+        
+        for i, peer_email in enumerate(peers_list, 1):
+            if verbose:
+                print(f"\n[{i}/{len(peers_list)}] Sending deletion to {peer_email}...")
+            
+            try:
+                success = self.send_deletion(path, peer_email)
+                results[peer_email] = success
+                
+                if success:
+                    if verbose:
+                        print(f"   ✅ Successfully sent deletion to {peer_email}")
+                    successful += 1
+                else:
+                    if verbose:
+                        print(f"   ❌ Failed to send deletion to {peer_email}")
+                    failed += 1
+                    
+            except Exception as e:
+                if verbose:
+                    print(f"   ❌ Error sending deletion to {peer_email}: {str(e)}")
+                results[peer_email] = False
+                failed += 1
+        
+        # Summary
+        if verbose:
+            print(f"\n📊 Summary:")
+            print(f"   ✅ Successful: {successful}")
+            print(f"   ❌ Failed: {failed}")
+            print(f"   🗑️  Total: {len(peers_list)}")
+        
+        return results
     
     def _get_sync_platform(self):
         """Get a platform that supports sync functionality"""
@@ -327,6 +557,74 @@ class MessageSender:
                     return platform
         
         return None
+    
+    def _send_prepared_archive(self, archive_path: str, recipient: str, archive_size: int, message_id: Optional[str] = None) -> bool:
+        """
+        Send a pre-prepared archive to a recipient
+        
+        Args:
+            archive_path: Path to the prepared archive
+            recipient: Email address of the recipient
+            archive_size: Size of the archive in bytes
+            message_id: Optional message ID from the archive
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Check if recipient is in contacts list
+        if recipient not in self.peers.peers:
+            print(f"❌ {recipient} is not in your peers. Add them first with add_peer()")
+            return False
+        
+        # Get peer object
+        peer = self.peers.get_peer(recipient)
+        if not peer:
+            print(f"❌ Could not load peer information for {recipient}")
+            return False
+        
+        # Extract message_id from archive filename if not provided
+        if not message_id:
+            archive_name = os.path.basename(archive_path)
+            # Archive name format: msg_YYYYMMDD_HHMMSS_hash.tar.gz
+            if archive_name.startswith('msg_') and '.tar.gz' in archive_name:
+                # Extract everything before .tar.gz
+                message_id = archive_name.split('.tar.gz')[0]
+        
+        # Select transport
+        transport_name = self.negotiator.select_transport(
+            peer=peer,
+            file_size=archive_size,
+            priority="normal"
+        )
+        
+        if not transport_name:
+            print(f"❌ No suitable transport found for sending to {recipient}")
+            return False
+        
+        # Get transport instance
+        transport = self._get_transport_instance(transport_name)
+        if not transport:
+            print(f"❌ Transport {transport_name} is not available")
+            return False
+        
+        if self.client.verbose:
+            print(f"   📍 Using transport from platform: {transport.__class__.__module__}", flush=True)
+        
+        # Send the archive directly via transport
+        if hasattr(transport, 'send_to'):
+            if self.client.verbose:
+                print(f"   📤 Sending via {transport_name}")
+            try:
+                result = transport.send_to(archive_path, recipient, message_id)
+                if not result and self.client.verbose:
+                    print(f"   ⚠️  Transport returned False for {recipient}")
+                return result
+            except Exception as e:
+                print(f"   ❌ Error in transport.send_to: {e}")
+                return False
+        else:
+            print(f"❌ Transport {transport_name} does not implement send_to() method")
+            return False
     
     def _get_transport_instance(self, transport_name: str):
         """Get transport instance by name"""

@@ -3,6 +3,8 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+import hashlib
+import time
 from ..environment import Environment
 
 
@@ -370,3 +372,840 @@ class BaseTransportLayer(ABC):
         
         # Call the static method with project_id
         self.__class__.disable_api_static(transport_name, self.email, project_id)
+    
+    def _create_deletion_marker(self, path: Path) -> Path:
+        """Create marker file before deletion to prevent echo"""
+        marker_path = path.parent / f".syft_deleting_{path.name}"
+        
+        # Write simple metadata
+        import json
+        import os
+        metadata = {
+            "target_path": str(path),
+            "timestamp": time.time(),
+            "pid": os.getpid()
+        }
+        
+        try:
+            with open(marker_path, 'w') as f:
+                json.dump(metadata, f)
+        except Exception:
+            # If we can't create marker, continue anyway
+            pass
+            
+        return marker_path
+    
+    def _cleanup_deletion_marker(self, marker_path: Path, delay: float = 5.0) -> None:
+        """Clean up deletion marker after a delay"""
+        import threading
+        
+        def cleanup():
+            try:
+                if marker_path.exists():
+                    marker_path.unlink()
+            except:
+                pass
+        
+        # Clean up marker after delay
+        threading.Timer(delay, cleanup).start()
+    
+    def _create_move_marker(self, source_path: Path, dest_path: Path) -> tuple[Path, Path]:
+        """Create marker files before move to prevent echo"""
+        source_marker = source_path.parent / f".syft_moving_from_{source_path.name}"
+        dest_marker = dest_path.parent / f".syft_moving_to_{dest_path.name}"
+        
+        # Write metadata to both markers
+        import json
+        import os
+        metadata = {
+            "source_path": str(source_path),
+            "dest_path": str(dest_path),
+            "timestamp": time.time(),
+            "pid": os.getpid()
+        }
+        
+        all_markers = []
+        
+        # Create markers for the main path
+        for marker_path in [source_marker, dest_marker]:
+            try:
+                marker_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(marker_path, 'w') as f:
+                    json.dump(metadata, f)
+                    f.flush()  # Force write to disk
+                    os.fsync(f.fileno())  # Ensure it's on disk
+                all_markers.append(marker_path)
+            except Exception:
+                # If we can't create marker, continue anyway
+                pass
+        
+        # If this is a directory, recursively create markers for all files inside
+        if source_path.is_dir() and source_path.exists():
+            # Also create a deletion marker for the directory itself
+            dir_deletion_marker = source_path.parent / f".syft_deleting_{source_path.name}"
+            try:
+                with open(dir_deletion_marker, 'w') as f:
+                    json.dump(metadata, f)
+                    f.flush()
+                    os.fsync(f.fileno())
+                all_markers.append(dir_deletion_marker)
+            except Exception:
+                pass
+            
+            for root, dirs, files in os.walk(source_path):
+                # Calculate relative path from source
+                rel_path = Path(root).relative_to(source_path)
+                
+                # Create markers for each file
+                for filename in files:
+                    # Skip hidden files
+                    if filename.startswith('.'):
+                        continue
+                        
+                    src_file_path = Path(root) / filename
+                    
+                    # Create ALL markers in the source location
+                    # Move markers
+                    src_file_marker = src_file_path.parent / f".syft_moving_from_{filename}"
+                    dest_file_marker = src_file_path.parent / f".syft_moving_to_{filename}"
+                    # Deletion marker
+                    deletion_marker = src_file_path.parent / f".syft_deleting_{filename}"
+                    
+                    for marker_path in [src_file_marker, dest_file_marker, deletion_marker]:
+                        try:
+                            marker_path.parent.mkdir(parents=True, exist_ok=True)
+                            file_metadata = {
+                                "source_path": str(src_file_path),
+                                "dest_path": str(dest_path / rel_path / filename),
+                                "parent_move": True,
+                                "parent_source": str(source_path),
+                                "parent_dest": str(dest_path),
+                                "timestamp": time.time(),
+                                "pid": os.getpid()
+                            }
+                            with open(marker_path, 'w') as f:
+                                json.dump(file_metadata, f)
+                                f.flush()
+                                os.fsync(f.fileno())
+                            all_markers.append(marker_path)
+                        except Exception:
+                            pass
+                
+                # Also create markers for subdirectories
+                for dirname in dirs:
+                    # Skip hidden directories
+                    if dirname.startswith('.'):
+                        continue
+                        
+                    src_dir_path = Path(root) / dirname
+                    dest_dir_path = dest_path / rel_path / dirname
+                    
+                    # Create markers for this directory
+                    src_dir_marker = src_dir_path.parent / f".syft_moving_from_{dirname}"
+                    dest_dir_marker = dest_dir_path.parent / f".syft_moving_to_{dirname}"
+                    
+                    for marker_path in [src_dir_marker, dest_dir_marker]:
+                        try:
+                            marker_path.parent.mkdir(parents=True, exist_ok=True)
+                            dir_metadata = {
+                                "source_path": str(src_dir_path),
+                                "dest_path": str(dest_dir_path),
+                                "parent_move": True,
+                                "parent_source": str(source_path),
+                                "parent_dest": str(dest_path),
+                                "timestamp": time.time(),
+                                "pid": os.getpid()
+                            }
+                            with open(marker_path, 'w') as f:
+                                json.dump(dir_metadata, f)
+                                f.flush()
+                                os.fsync(f.fileno())
+                            all_markers.append(marker_path)
+                        except Exception:
+                            pass
+        
+        # Small delay to ensure markers are visible to other processes
+        time.sleep(0.1)
+        
+        # Return all markers for cleanup
+        self._all_move_markers = all_markers  # Store for cleanup
+                
+        return source_marker, dest_marker
+    
+    def _cleanup_move_markers(self, source_marker: Path, dest_marker: Path, delay: float = 5.0) -> None:
+        """Clean up move markers after a delay"""
+        import threading
+        
+        # Get all markers that were created (if available)
+        all_markers = getattr(self, '_all_move_markers', [])
+        
+        def cleanup():
+            # If we have the specific list of markers, use that
+            if all_markers:
+                cleanup_count = 0
+                for marker in all_markers:
+                    try:
+                        if marker.exists():
+                            marker.unlink()
+                            cleanup_count += 1
+                    except:
+                        pass
+                
+                # Clear the list
+                if hasattr(self, '_all_move_markers'):
+                    self._all_move_markers = []
+            else:
+                # Fallback: just clean up the main markers
+                for marker in [source_marker, dest_marker]:
+                    try:
+                        if marker.exists():
+                            marker.unlink()
+                    except:
+                        pass
+        
+        # Clean up markers after delay
+        threading.Timer(delay, cleanup).start()
+    
+    def check_inbox(self, sender_email: str, download_dir: Optional[str] = None, verbose: bool = True) -> List[Dict]:
+        """
+        Base implementation for checking inbox. Transport-specific classes should override
+        _get_messages_from_transport() to provide the actual message retrieval logic.
+        
+        Args:
+            sender_email: Email of the sender to check messages from
+            download_dir: Directory to download messages to (defaults to SyftBox directory)
+            verbose: Whether to print progress
+            
+        Returns:
+            List of message info dicts with keys: id, timestamp, size, metadata, extracted_to
+        """
+        if not self.is_setup():
+            return []
+        
+        downloaded_messages = []
+        
+        # Initialize sync history to prevent re-syncing
+        sync_history = None
+        
+        try:
+            # Get messages from transport-specific implementation
+            messages = self._get_messages_from_transport(sender_email, verbose)
+            if not messages:
+                return []
+            
+            # Set up download directory
+            if download_dir is None:
+                download_dir = self._get_default_download_dir()
+            
+            download_path = Path(download_dir)
+            download_path.mkdir(parents=True, exist_ok=True)
+            
+            # Initialize sync history for this SyftBox directory
+            # Use the root SyftBox directory for sync history, not the download path
+            # This ensures consistency with the watcher's sync history
+            from ..sync.watcher.sync_history import SyncHistory
+            # Get the actual SyftBox root - download_path might be the inbox subdirectory
+            if download_path.name == 'inbox' and download_path.parent.exists():
+                # download_path is the inbox dir, so parent is syftbox root
+                syftbox_root = download_path.parent
+            else:
+                # download_path is already the syftbox root
+                syftbox_root = download_path
+            sync_history = SyncHistory(syftbox_root)
+            
+            # Process each message
+            messages_to_archive = []
+            
+            for message_info in messages:
+                try:
+                    # Extract message data
+                    message_id = message_info['message_id']
+                    message_data = message_info['data']  # Should be raw bytes
+                    timestamp = message_info.get('timestamp', '')
+                    size_str = message_info.get('size', '0')
+                    
+                    if verbose:
+                        print(f"   📦 Processing message {message_id} ({len(message_data)} bytes)")
+                    
+                    # Save to temporary file
+                    temp_file = download_path / f"{message_id}.tar.gz"
+                    with open(temp_file, 'wb') as f:
+                        f.write(message_data)
+                    
+                    # Extract the archive
+                    import tarfile
+                    extracted_items = []
+                    try:
+                        with tarfile.open(temp_file, 'r:gz') as tar:
+                            # List contents first
+                            members = tar.getmembers()
+                            if verbose:
+                                print(f"   📦 Archive contains {len(members)} items")
+                            tar.extractall(download_path)
+                            extracted_items = [m.name for m in members]
+                    except tarfile.ReadError as e:
+                        if verbose:
+                            print(f"   ❌ Failed to extract archive: {e}")
+                        # Skip this message
+                        temp_file.unlink()
+                        continue
+                        
+                    if verbose:
+                        # List what was actually extracted
+                        print(f"   📂 Extracted to {download_path}:")
+                        for item in download_path.iterdir():
+                            if item.name.startswith(message_id):
+                                print(f"      - {item.name}")
+                    
+                    # Find the extracted message directory
+                    # Look for any directory starting with 'msg_' that was just extracted
+                    extracted_dir = None
+                    
+                    # First try to find based on extracted items list
+                    for extracted_item in extracted_items:
+                        if extracted_item.startswith('msg_') and '/' not in extracted_item:
+                            # This is a top-level message directory
+                            potential_dir = download_path / extracted_item
+                            if potential_dir.is_dir():
+                                extracted_dir = potential_dir
+                                break
+                    
+                    # Fallback: look for directories starting with message_id 
+                    if not extracted_dir:
+                        for item in download_path.iterdir():
+                            if item.is_dir() and item.name.startswith(message_id):
+                                extracted_dir = item
+                                break
+                    
+                    # Final fallback to exact match
+                    if not extracted_dir:
+                        extracted_dir = download_path / message_id
+                    
+                    if verbose:
+                        print(f"   📁 Looking for extracted dir: {extracted_dir}")
+                        if extracted_dir.exists():
+                            print(f"   ✅ Found extracted directory")
+                            # List contents
+                            for item in extracted_dir.iterdir():
+                                print(f"      - {item.name} {'(dir)' if item.is_dir() else '(file)'}")
+                        else:
+                            print(f"   ❌ Extracted directory not found!")
+                    
+                    # Read metadata if available
+                    metadata = {}
+                    # Look for any .json file in the extracted directory
+                    if extracted_dir.exists():
+                        json_files = list(extracted_dir.glob('*.json'))
+                        if json_files:
+                            # Use the first JSON file found
+                            metadata_file = json_files[0]
+                            import json
+                            with open(metadata_file, 'r') as f:
+                                metadata = json.load(f)
+                    
+                    # Check if this is a move message
+                    move_manifest_file = extracted_dir / "move_manifest.json"
+                    if move_manifest_file.exists():
+                        # Process move
+                        import json
+                        import shutil
+                        with open(move_manifest_file, 'r') as f:
+                            move_manifest = json.load(f)
+                        
+                        if verbose:
+                            print(f"   🚚 Processing move message")
+                        
+                        # Process each move
+                        for item in move_manifest.get('items', []):
+                            source_path = download_path / item['source_path']
+                            dest_path = download_path / item['dest_path']
+                            
+                            # Ensure destination directory exists
+                            dest_path.parent.mkdir(parents=True, exist_ok=True)
+                            
+                            # FIRST: Record in sync history to prevent echo
+                            if sync_history and source_path.exists():
+                                # Record the move as both a deletion at source and creation at dest
+                                try:
+                                    # Record deletion at source
+                                    source_hash = None
+                                    if source_path.is_file():
+                                        source_hash = sync_history.compute_file_hash(str(source_path))
+                                    else:
+                                        # For directories, use path-based hash
+                                        source_hash = hashlib.sha256(str(source_path).encode('utf-8')).hexdigest()
+                                    
+                                    sync_history.record_sync(
+                                        str(source_path),
+                                        message_id + "_move_del",
+                                        sender_email,
+                                        self.transport_name,
+                                        'incoming',
+                                        0,
+                                        file_hash=source_hash,
+                                        operation='delete'
+                                    )
+                                    
+                                    # We'll record the creation after the move succeeds
+                                except Exception as e:
+                                    if verbose:
+                                        print(f"   ⚠️  Could not record move source in history: {e}")
+                            
+                            # THEN: Perform the move
+                            if source_path.exists():
+                                # Create move markers BEFORE moving to prevent echo
+                                source_marker, dest_marker = self._create_move_marker(source_path, dest_path)
+                                
+                                if verbose:
+                                    print(f"   📝 Created move markers:")
+                                    print(f"      Source: {source_marker}")
+                                    print(f"      Dest: {dest_marker}")
+                                    if source_path.is_dir():
+                                        # Count files and directories that will get markers
+                                        file_count = sum(1 for _ in source_path.rglob('*') if _.is_file() and not _.name.startswith('.'))
+                                        dir_count = sum(1 for _ in source_path.rglob('*') if _.is_dir() and not _.name.startswith('.'))
+                                        if file_count > 0 or dir_count > 0:
+                                            print(f"      Plus markers for: {file_count} files, {dir_count} subdirectories")
+                                    print(f"      Waiting before move...")
+                                try:
+                                    # If destination exists, remove it first
+                                    if dest_path.exists():
+                                        if dest_path.is_dir():
+                                            shutil.rmtree(dest_path)
+                                        else:
+                                            dest_path.unlink()
+                                    
+                                    # Move the file/directory
+                                    source_path.rename(dest_path)
+                                    
+                                    if verbose:
+                                        print(f"   🚚 Moved: {source_path.name} → {dest_path}")
+                                    
+                                    # Record creation at destination in sync history
+                                    if sync_history and dest_path.exists():
+                                        try:
+                                            if dest_path.is_file():
+                                                dest_size = dest_path.stat().st_size
+                                                sync_history.record_sync(
+                                                    str(dest_path),
+                                                    message_id + "_move_create",
+                                                    sender_email,
+                                                    self.transport_name,
+                                                    'incoming',
+                                                    dest_size
+                                                )
+                                            else:
+                                                # For directories, record with size 0
+                                                sync_history.record_sync(
+                                                    str(dest_path),
+                                                    message_id + "_move_create",
+                                                    sender_email,
+                                                    self.transport_name,
+                                                    'incoming',
+                                                    0
+                                                )
+                                        except Exception as e:
+                                            if verbose:
+                                                print(f"   ⚠️  Could not record move dest in history: {e}")
+                                        
+                                except Exception as e:
+                                    if verbose:
+                                        print(f"   ❌ Failed to move {source_path.name}: {e}")
+                                finally:
+                                    # Schedule marker cleanup
+                                    self._cleanup_move_markers(source_marker, dest_marker)
+                            else:
+                                if verbose:
+                                    print(f"   ⚠️  Source path not found: {source_path}")
+                        
+                        # Clean up the extracted message
+                        temp_file.unlink()
+                        if extracted_dir.exists():
+                            shutil.rmtree(extracted_dir)
+                        
+                        # Add to downloaded messages
+                        downloaded_messages.append({
+                            "id": message_id,
+                            "timestamp": timestamp,
+                            "size": size_str,
+                            "metadata": metadata,
+                            "operation": "move"
+                        })
+                        
+                        # Mark for archiving (so it gets moved to archive tab in sheets)
+                        messages_to_archive.append(message_info)
+                        
+                        continue  # Skip to next message
+                    
+                    # Check if this is a deletion message
+                    deletion_manifest_file = extracted_dir / "deletion_manifest.json"
+                    if deletion_manifest_file.exists():
+                        # Process deletion
+                        import json
+                        import shutil
+                        with open(deletion_manifest_file, 'r') as f:
+                            deletion_manifest = json.load(f)
+                        
+                        if verbose:
+                            print(f"   🗑️  Processing deletion message")
+                        
+                        # Process each deletion
+                        for item in deletion_manifest.get('items', []):
+                            path_to_delete = download_path / item['path']
+                            
+                            # FIRST: Record in sync history to prevent echo
+                            if sync_history:
+                                # Pre-record deletion with hash if file still exists
+                                file_hash = None
+                                if path_to_delete.exists() and path_to_delete.is_file():
+                                    try:
+                                        file_hash = sync_history.compute_file_hash(str(path_to_delete))
+                                    except:
+                                        pass
+                                
+                                try:
+                                    sync_history.record_sync(
+                                        str(path_to_delete),
+                                        message_id,
+                                        sender_email,
+                                        self.transport_name,
+                                        'incoming',
+                                        0,  # Size is 0 for deletions
+                                        file_hash=file_hash,
+                                        operation='delete'  # Mark this as a deletion
+                                    )
+                                    if verbose:
+                                        print(f"   📝 Recorded incoming deletion for {path_to_delete}")
+                                except Exception as e:
+                                    # This is ok - file may already be gone
+                                    if verbose:
+                                        print(f"   ℹ️  Could not record deletion (file may already be gone): {e}")
+                            
+                            # THEN: Delete the file/directory with marker to prevent echo
+                            if path_to_delete.exists():
+                                # Create deletion marker BEFORE deleting
+                                marker = self._create_deletion_marker(path_to_delete)
+                                
+                                try:
+                                    if path_to_delete.is_dir():
+                                        shutil.rmtree(path_to_delete)
+                                        if verbose:
+                                            print(f"   🗑️  Deleted directory: {path_to_delete.name}")
+                                    else:
+                                        path_to_delete.unlink()
+                                        if verbose:
+                                            print(f"   🗑️  Deleted file: {path_to_delete.name}")
+                                finally:
+                                    # Schedule marker cleanup
+                                    self._cleanup_deletion_marker(marker)
+                            else:
+                                if verbose:
+                                    print(f"   ℹ️  Already deleted: {path_to_delete.name}")
+                        
+                        # Add to results
+                        downloaded_messages.append({
+                            'id': message_id,
+                            'timestamp': deletion_manifest.get('timestamp', ''),
+                            'size': 0,
+                            'metadata': metadata,
+                            'operation': 'delete',
+                            'deleted_items': deletion_manifest.get('items', [])
+                        })
+                        
+                        # Mark for archiving
+                        messages_to_archive.append(message_info)
+                    
+                    # Process the data files to their final destination
+                    elif (data_dir := extracted_dir / "data").exists():
+                        if verbose:
+                            print(f"   📂 Found data directory, processing files...")
+                        # Move files from data dir to their proper location
+                        for item in data_dir.iterdir():
+                            # Determine destination based on item name and structure
+                            # If the item is a 'datasites' directory, it should go to syftbox root
+                            if item.name == 'datasites' and item.is_dir():
+                                # datasites should always go to syftbox root
+                                dest = syftbox_root / item.name
+                            elif 'original_path' in metadata:
+                                # Use original path from metadata
+                                dest = download_path / metadata['original_path'] / item.name
+                            else:
+                                # Default to root of download dir
+                                dest = download_path / item.name
+                            
+                            # Create parent directories
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            
+                            # FIRST: Record sync history BEFORE moving files (to prevent watcher from seeing them)
+                            if sync_history:
+                                # Helper function to record all files that WILL BE in the destination
+                                def record_files_in_source_tree(src_path: Path, dest_path: Path):
+                                    if src_path.is_file():
+                                        try:
+                                            file_size = src_path.stat().st_size
+                                            # Compute hash from source file
+                                            src_hash = sync_history.compute_file_hash(str(src_path))
+                                            if verbose:
+                                                print(f"   📝 Pre-recording incoming sync for {dest_path}")
+                                            sync_history.record_sync(
+                                                str(dest_path),
+                                                message_id,
+                                                sender_email,
+                                                self.transport_name,
+                                                'incoming',
+                                                file_size,
+                                                file_hash=src_hash  # Pass pre-computed hash
+                                            )
+                                            if verbose:
+                                                print(f"   ✅ Pre-recorded incoming sync history")
+                                        except Exception as e:
+                                            if verbose:
+                                                print(f"   ⚠️  Could not pre-record sync history for {dest_path}: {e}")
+                                    elif src_path.is_dir():
+                                        # Recursively record all files in directory
+                                        for child in src_path.iterdir():
+                                            child_dest = dest_path / child.name
+                                            record_files_in_source_tree(child, child_dest)
+                                
+                                # Pre-record files BEFORE moving them
+                                record_files_in_source_tree(item, dest)
+                                
+                                # If we have access to file index, mark files as received
+                                if hasattr(self._platform_client, '_client') and self._platform_client._client:
+                                    client = self._platform_client._client
+                                    if hasattr(client, '_file_index') and client._file_index:
+                                        # Mark this file as received from sender
+                                        client._file_index.mark_as_received(str(dest), sender_email)
+                            
+                            # THEN: Move the file/directory
+                            if item.is_dir():
+                                if dest.exists():
+                                    # Merge directories instead of replacing
+                                    self._merge_directories(str(item), str(dest))
+                                else:
+                                    import shutil
+                                    shutil.move(str(item), str(dest))
+                            else:
+                                # For files, use direct write to prevent deletion events
+                                import shutil
+                                
+                                if dest.exists():
+                                    # Direct write prevents watchdog from seeing deletion events
+                                    with open(item, 'rb') as src:
+                                        content = src.read()
+                                    with open(dest, 'wb') as dst:
+                                        dst.write(content)
+                                else:
+                                    # No existing file, just move normally
+                                    shutil.move(str(item), str(dest))
+                            
+                            if verbose:
+                                print(f"   📥 Extracted: {dest.name}")
+                    
+                        # Add to results
+                        downloaded_messages.append({
+                            'id': message_id,
+                            'timestamp': timestamp,
+                            'size': int(size_str) if str(size_str).isdigit() else 0,
+                            'metadata': metadata,
+                            'extracted_to': str(download_path)
+                        })
+                        
+                        # Mark for archiving
+                        messages_to_archive.append(message_info)
+                    
+                    # Clean up temporary files
+                    temp_file.unlink()
+                    if extracted_dir.exists():
+                        import shutil
+                        shutil.rmtree(extracted_dir)
+                    
+                except Exception as e:
+                    if verbose:
+                        print(f"   ❌ Error processing message {message_info.get('message_id', 'unknown')}: {e}")
+                        import traceback
+                        traceback.print_exc()
+            
+            # Archive processed messages
+            if messages_to_archive:
+                self._archive_messages(messages_to_archive, verbose)
+            
+            return downloaded_messages
+            
+        except Exception as e:
+            if verbose:
+                print(f"   ❌ Error checking inbox: {e}")
+            return []
+    
+    def _get_messages_from_transport(self, sender_email: str, verbose: bool = True) -> List[Dict]:
+        """
+        Transport-specific method to retrieve messages. Must be overridden by subclasses.
+        
+        Should return a list of dicts with:
+        - message_id: Unique identifier for the message
+        - data: Raw bytes of the message (tar.gz archive)
+        - timestamp: When the message was sent
+        - size: Size of the message in bytes
+        - any other transport-specific info needed for archiving
+        """
+        return []
+    
+    def _archive_messages(self, messages: List[Dict], verbose: bool = True):
+        """
+        Transport-specific method to archive processed messages. Override in subclasses.
+        """
+        pass
+    
+    def _get_default_download_dir(self) -> str:
+        """
+        Get the default download directory (SyftBox directory)
+        """
+        if hasattr(self._platform_client, '_client') and self._platform_client._client:
+            client = self._platform_client._client
+            if hasattr(client, 'local_syftbox_dir') and client.local_syftbox_dir:
+                return str(client.local_syftbox_dir)
+        
+        # Fallback to home directory pattern
+        return str(Path.home() / f"SyftBox_{self.email}")
+    
+    @property
+    def transport_name(self) -> str:
+        """
+        Get the name of this transport (e.g., 'gdrive_files', 'gsheets')
+        """
+        # Default implementation based on class name
+        name = self.__class__.__name__.replace('Transport', '').lower()
+        if 'gdrive' in name:
+            return 'gdrive_files'
+        elif 'gsheets' in name:
+            return 'gsheets'
+        elif 'gmail' in name:
+            return 'gmail'
+        elif 'gforms' in name:
+            return 'gforms'
+        return name
+    
+    def _merge_directories(self, src: str, dest: str) -> None:
+        """
+        Recursively merge src directory into dest directory.
+        Only files are moved, directories are created as needed.
+        Files in src will overwrite files in dest with the same name.
+        """
+        import shutil
+        from pathlib import Path
+        
+        src_path = Path(src)
+        dest_path = Path(dest)
+        
+        # Ensure destination directory exists
+        dest_path.mkdir(parents=True, exist_ok=True)
+        
+        for item in src_path.iterdir():
+            s = item
+            d = dest_path / item.name
+            
+            if s.is_dir():
+                # Always recurse into directories, never move them wholesale
+                self._merge_directories(str(s), str(d))
+            else:
+                # For files, use direct write to prevent deletion events
+                if d.exists():
+                    # Direct write prevents watchdog from seeing deletion events
+                    with open(s, 'rb') as src:
+                        content = src.read()
+                    with open(d, 'wb') as dst:
+                        dst.write(content)
+                else:
+                    # No existing file, just move normally
+                    shutil.move(str(s), str(d))
+    
+    def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
+        """
+        Base implementation for sending messages. Transport-specific classes should override
+        _send_archive_via_transport() to provide the actual sending logic.
+        
+        Args:
+            archive_path: Path to the prepared .syftmsg archive
+            recipient: Email address of the recipient
+            message_id: Optional message ID for tracking
+            
+        Returns:
+            True if send was successful, False otherwise
+        """
+        if hasattr(self, 'verbose') and self.verbose:
+            print(f"\n🔍 BaseTransportLayer.send_to called:", flush=True)
+            print(f"   - transport: {self.transport_name}", flush=True)
+            print(f"   - recipient: {recipient}", flush=True)
+        
+        # TEMPORARILY DISABLED: is_setup check causing issues with rate limiting
+        # if not self.is_setup():
+        #     print(f"   ❌ Transport not set up!", flush=True)
+        #     return False
+            
+        try:
+            # Validate archive exists
+            import os
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   🔍 Validating archive: {archive_path}", flush=True)
+            if not os.path.exists(archive_path):
+                print(f"   ❌ Archive not found: {archive_path}")
+                return False
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   ✅ Archive exists", flush=True)
+            
+            # Read archive file
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   🔍 Reading archive file...", flush=True)
+            with open(archive_path, 'rb') as f:
+                archive_data = f.read()
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   ✅ Read {len(archive_data)} bytes", flush=True)
+            
+            # Get filename
+            filename = os.path.basename(archive_path)
+            if message_id and not filename.startswith(message_id):
+                filename = f"{message_id}_{filename}"
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   🔍 Filename: {filename}", flush=True)
+            
+            # Call transport-specific implementation
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   🔍 Calling _send_archive_via_transport...", flush=True)
+                print(f"   🔍 Transport class: {self.__class__.__name__}", flush=True)
+                print(f"   🔍 Transport module: {self.__class__.__module__}", flush=True)
+                print(f"   🔍 Has _send_archive_via_transport: {hasattr(self, '_send_archive_via_transport')}", flush=True)
+            
+            result = self._send_archive_via_transport(
+                archive_data=archive_data,
+                filename=filename,
+                recipient=recipient,
+                message_id=message_id
+            )
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   🔍 _send_archive_via_transport returned: {result}", flush=True)
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error in send_to for {self.transport_name}: {e}")
+            print(f"   Archive path: {archive_path}")
+            print(f"   Recipient: {recipient}")
+            print(f"   Transport class: {self.__class__.__name__}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _send_archive_via_transport(self, archive_data: bytes, filename: str, 
+                                   recipient: str, message_id: Optional[str] = None) -> bool:
+        """
+        Transport-specific method to send the archive data. Must be overridden by subclasses.
+        
+        Args:
+            archive_data: Raw bytes of the archive file
+            filename: Suggested filename for the archive
+            recipient: Email address of the recipient
+            message_id: Optional message ID for tracking
+            
+        Returns:
+            True if send was successful, False otherwise
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} must implement _send_archive_via_transport()")

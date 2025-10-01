@@ -1,7 +1,7 @@
 """
 File watcher server endpoint implementation using syft-serve
 """
-
+import time
 import os
 from pathlib import Path
 
@@ -69,23 +69,13 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         from syft_client.sync.watcher.event_handler import SyftBoxEventHandler
         from syft_client.sync.watcher.sync_history import SyncHistory
         
-        # Silence output if not verbose
-        if not verbose:
-            sys.stdout = open(os.devnull, 'w')
-            sys.stderr = open(os.devnull, 'w')
-        
         # Login to syft client with provided email
         print(f"Starting watcher for {email}...", flush=True)
         
         # Try to login - if no credentials exist, create a minimal client
-        try:
-            client = sc.login(email, verbose=False, force_relogin=False)
-            print(f"Login successful!", flush=True)
-        except Exception as e:
-            print(f"Warning: Could not login ({e}). Creating minimal client...", flush=True)
-            # Create a minimal client for testing
-            client = sc.SyftClient(email)
-            client.email = email
+        client = sc.login(email, verbose=False, force_relogin=False, skip_server_setup=True)
+        print(f"Login successful!", flush=True)
+    
         
         # Get the SyftBox directory to watch
         # Always use client's syftbox directory to ensure consistency
@@ -98,6 +88,10 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         # Initialize sync history
         sync_history = SyncHistory(syftbox_dir)
         
+        # Warm up sync history with existing files
+        print(f"Warming up sync history...", flush=True)
+        sync_history.warm_up_from_directory(verbose=verbose)
+        
         # Create event handler
         handler = SyftBoxEventHandler(client, sync_history, verbose=verbose)
         
@@ -106,13 +100,22 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         observer.schedule(handler, str(watch_path), recursive=True)
         observer.start()
         
-        # Store observer reference for cleanup
+        # Store observer and handler references for cleanup
         current_module = sys.modules[__name__]
         current_module.observer = observer
+        current_module.handler = handler
+        # Also store the message queue to prevent garbage collection
+        if hasattr(handler, 'message_queue') and handler.message_queue:
+            current_module.message_queue = handler.message_queue
+            print(f"✅ Message queue stored in module (thread alive: {handler.message_queue._worker_thread.is_alive() if handler.message_queue._worker_thread else 'None'})", flush=True)
+        else:
+            print(f"⚠️ Handler has no message queue", flush=True)
         
         # Register cleanup function
         def cleanup_observer():
             current_module = sys.modules[__name__]
+            if hasattr(current_module, 'handler') and current_module.handler:
+                current_module.handler.stop()
             if hasattr(current_module, 'observer') and current_module.observer:
                 print(f"Stopping file watcher for {email}...", flush=True)
                 current_module.observer.stop()
@@ -138,20 +141,8 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
                         for peer in peers:
                             try:
                                 if hasattr(peer, 'check_inbox'):
-                                    messages = peer.check_inbox(download_dir=str(watch_path), verbose=False)
-                                    if messages:
-                                        # Record syncs in history
-                                        for transport, msgs in messages.items():
-                                            for msg in msgs:
-                                                if 'file_path' in msg:
-                                                    sync_history.record_sync(
-                                                        msg['file_path'],
-                                                        msg.get('message_id', 'unknown'),
-                                                        peer.email,
-                                                        transport,
-                                                        'received',
-                                                        msg.get('size', 0)
-                                                    )
+                                    # check_inbox now handles recording sync history internally
+                                    messages = peer.check_inbox(download_dir=str(syftbox_dir), verbose=False)
                             except Exception as e:
                                 if verbose:
                                     print(f"Error checking inbox for peer: {e}", flush=True)
@@ -168,6 +159,20 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         import threading
         inbox_thread = threading.Thread(target=poll_inbox, daemon=True)
         inbox_thread.start()
+        
+        # Start queue status monitoring
+        def monitor_queue():
+            while True:
+                time.sleep(10)  # Check every 10 seconds
+                try:
+                    if hasattr(current_module, 'handler') and current_module.handler:
+                        status = current_module.handler.get_queue_status()
+                        print(f"📊 Queue Status: {status}", flush=True)
+                except Exception as e:
+                    print(f"Error getting queue status: {e}", flush=True)
+        
+        status_thread = threading.Thread(target=monitor_queue, daemon=True)
+        status_thread.start()
         
         return {
             "status": "started",
@@ -194,7 +199,8 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
             "google-auth-httplib2",
             "rich",
             "dnspython",
-            "cryptography"
+            "cryptography",
+            "syft-serve"
         ],
         endpoints={"/": watcher_main}
     )
@@ -202,10 +208,11 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
     # Trigger the watcher to start
     response = requests.get(server.url)
     if response.status_code == 200:
-        if verbose:
-            print(f"✓ Watcher started successfully at {server.url}")
+        # if verbose:
+        #     print(f"✓ Watcher started successfully at {server.url}")
+        """continue"""
     else:
-        print(f"Error starting watcher: {response.status_code}")
+        print(f"Error starting watcher: {response}")
     
     return server
 

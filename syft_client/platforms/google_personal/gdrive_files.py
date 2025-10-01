@@ -487,23 +487,11 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         """Get the name of this transport"""
         return "gdrive_files"
     
-    def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
+    def _send_archive_via_transport(self, archive_data: bytes, filename: str, 
+                                   recipient: str, message_id: Optional[str] = None) -> bool:
         """
-        Send a pre-prepared archive to a recipient via Google Drive
-        
-        This uploads the file to the outbox_inbox folder shared with the recipient
-        
-        Args:
-            archive_path: Path to the prepared .syftmsg archive
-            recipient: Email address of the recipient
-            message_id: Optional message ID for tracking
-            
-        Returns:
-            True if send was successful, False otherwise
+        Send archive data via Google Drive by uploading to the outbox_inbox folder
         """
-        if not self.is_setup():
-            return False
-            
         try:
             # Ensure we have SyftBox folder
             self._ensure_syftbox_folder()
@@ -519,15 +507,6 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     print(f"❌ No outbox folder found for {recipient}. Add them as a peer first.")
                 return False
             
-            # Read the archive file
-            with open(archive_path, 'rb') as f:
-                file_data = f.read()
-            
-            # Create filename with message ID if provided
-            filename = os.path.basename(archive_path)
-            if message_id:
-                filename = f"{message_id}_{filename}"
-            
             # Upload file to outbox
             file_metadata = {
                 'name': filename,
@@ -535,7 +514,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             }
             
             media = MediaIoBaseUpload(
-                io.BytesIO(file_data),
+                io.BytesIO(archive_data),
                 mimetype='application/octet-stream',
                 resumable=True
             )
@@ -1222,22 +1201,11 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             # Silently fail - peer request checking is optional
             return []
     
-    def check_inbox(self, sender_email: str, download_dir: Optional[str] = None, verbose: bool = True) -> List[Dict]:
+    def _get_messages_from_transport(self, sender_email: str, verbose: bool = True) -> List[Dict]:
         """
-        Check for incoming messages from a specific sender in Google Drive
-        
-        Args:
-            sender_email: Email of the sender to check messages from
-            download_dir: Directory to download messages to (defaults to SyftBox directory)
-            verbose: Whether to print progress
-            
-        Returns:
-            List of message info dicts with keys: id, name, size, downloaded_to
+        Google Drive specific implementation to retrieve messages
         """
-        if not self.is_setup():
-            return []
-        
-        downloaded_messages = []
+        messages = []
         
         try:
             # Determine the inbox folder name pattern
@@ -1259,6 +1227,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 return []
             
             folder_id = folders[0]['id']
+            self._current_folder_id = folder_id  # Store for archiving
             
             # List files in the folder
             query = f"'{folder_id}' in parents and trashed=false"
@@ -1272,22 +1241,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             if not files:
                 return []
             
-            # Set up download directory
-            if download_dir is None:
-                # Use SyftBox directory
-                if hasattr(self._platform_client, '_client') and self._platform_client._client:
-                    client = self._platform_client._client
-                    if hasattr(client, 'local_syftbox_dir') and client.local_syftbox_dir:
-                        download_dir = str(client.local_syftbox_dir)
-                    else:
-                        download_dir = str(Path.home() / f"SyftBox_{my_email}")
-                else:
-                    download_dir = str(Path.home() / f"SyftBox_{my_email}")
-            
-            download_path = Path(download_dir)
-            download_path.mkdir(parents=True, exist_ok=True)
-            
-            # Download each file
+            # Process each file
             for file in files:
                 try:
                     file_name = file['name']
@@ -1300,107 +1254,55 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     # Download the file
                     if file_name.endswith('.tar.gz'):
                         # This is likely a message archive
-                        temp_file = download_path / file_name
-                        
-                        # Download the file
                         request = self.drive_service.files().get_media(fileId=file_id)
                         import io
                         from googleapiclient.http import MediaIoBaseDownload
                         
-                        fh = io.FileIO(str(temp_file), 'wb')
-                        downloader = MediaIoBaseDownload(fh, request)
+                        # Download to memory
+                        file_buffer = io.BytesIO()
+                        downloader = MediaIoBaseDownload(file_buffer, request)
                         
                         done = False
                         while not done:
                             status, done = downloader.next_chunk()
                         
-                        fh.close()
+                        message_data = file_buffer.getvalue()
                         
-                        # Extract if it's a tar.gz
-                        if file_name.endswith('.tar.gz'):
-                            message_id = file_name.replace('.tar.gz', '')
-                            
-                            # Extract the archive
-                            import tarfile
-                            with tarfile.open(temp_file, 'r:gz') as tar:
-                                tar.extractall(download_path)
-                            
-                            # Find the extracted message directory
-                            extracted_dir = download_path / message_id
-                            
-                            # Read metadata if available
-                            metadata = {}
-                            metadata_file = extracted_dir / f"{message_id}.json"
-                            if metadata_file.exists():
-                                import json
-                                with open(metadata_file, 'r') as f:
-                                    metadata = json.load(f)
-                            
-                            # Process the data files to their final destination
-                            data_dir = extracted_dir / "data"
-                            if data_dir.exists():
-                                import shutil
-                                for item in data_dir.iterdir():
-                                    # Determine destination based on metadata
-                                    if 'original_path' in metadata:
-                                        # Use original path from metadata
-                                        dest = download_path / metadata['original_path'] / item.name
-                                    else:
-                                        # Default to root of download dir
-                                        dest = download_path / item.name
-                                    
-                                    # Create parent directories
-                                    dest.parent.mkdir(parents=True, exist_ok=True)
-                                    
-                                    # Move the file/directory
-                                    if item.is_dir():
-                                        if dest.exists():
-                                            shutil.rmtree(dest)
-                                        shutil.move(str(item), str(dest))
-                                    else:
-                                        shutil.move(str(item), str(dest))
-                                    
-                                    if verbose:
-                                        print(f"   📥 Extracted: {dest.name}")
-                            
-                            # Clean up temporary files
-                            temp_file.unlink()
-                            if extracted_dir.exists():
-                                import shutil
-                                shutil.rmtree(extracted_dir)
-                            
-                            # Archive the message by moving to archive folder
-                            self._archive_message(file_id, folder_id, verbose)
-                            
-                            downloaded_messages.append({
-                                'id': message_id,
-                                'name': file_name,
-                                'size': file.get('size', 0),
-                                'metadata': metadata,
-                                'downloaded_to': str(download_path)
-                            })
-                        else:
-                            # Regular file download
-                            if verbose:
-                                print(f"   📥 Downloaded: {file_name}")
-                            
-                            downloaded_messages.append({
-                                'id': file_id,
-                                'name': file_name,
-                                'size': file.get('size', 0),
-                                'downloaded_to': str(temp_file)
-                            })
+                        # Store message info
+                        message_id = file_name.replace('.tar.gz', '')
+                        messages.append({
+                            'message_id': message_id,
+                            'data': message_data,
+                            'file_id': file_id,
+                            'file_name': file_name,
+                            'size': str(file.get('size', 0))
+                        })
                     
                 except Exception as e:
                     if verbose:
                         print(f"   ❌ Error downloading {file['name']}: {e}")
             
-            return downloaded_messages
+            return messages
             
         except Exception as e:
             if verbose:
-                print(f"   ❌ Error checking inbox: {e}")
+                print(f"   ❌ Error retrieving messages from drive: {e}")
             return []
+    
+    def _archive_messages(self, messages: List[Dict], verbose: bool = True):
+        """
+        Archive processed messages to the archive folder
+        """
+        if not hasattr(self, '_current_folder_id') or not self._current_folder_id:
+            return
+        
+        try:
+            for msg in messages:
+                if 'file_id' in msg:
+                    self._archive_message(msg['file_id'], self._current_folder_id, verbose)
+        except Exception as e:
+            if verbose:
+                print(f"   ⚠️  Error archiving messages: {e}")
     
     def _archive_message(self, file_id: str, inbox_folder_id: str, verbose: bool = True):
         """Move a processed message to the archive folder"""
