@@ -13,21 +13,51 @@ from ..message_queue import MessageQueue
 class SyftBoxEventHandler(FileSystemEventHandler):
     """Handles file system events for SyftBox synchronization"""
     
-    def __init__(self, client, sync_history, verbose=True, use_queue=True, batch_interval=0.5):
+    def __init__(self, client, sync_history, verbose=True, use_queue=True, batch_interval=2.0):
         self.client = client
         self.sync_history = sync_history
         self.verbose = verbose
         self.use_queue = use_queue
         
         # Initialize message queue if enabled
-        if use_queue and hasattr(client, 'sync') and hasattr(client.sync, 'sender'):
-            self.message_queue = MessageQueue(
-                sender=client.sync.sender,
-                batch_interval=batch_interval
-            )
-            self.message_queue.start()
+        if use_queue:
+            try:
+                # Try to get or create the sender
+                if hasattr(client, 'sync') and hasattr(client.sync, 'sender'):
+                    sender = client.sync.sender
+                    if verbose:
+                        print(f"📋 Using existing sender from client.sync.sender", flush=True)
+                else:
+                    # Create a sender instance for the client
+                    try:
+                        from ..sender import MessageSender
+                        sender = MessageSender(client)
+                        if verbose:
+                            print(f"📋 Created new MessageSender instance", flush=True)
+                    except Exception as e:
+                        print(f"❌ Failed to create MessageSender: {e}", flush=True)
+                        raise
+                
+                # Store sender for direct access
+                self.sender = sender
+                
+                self.message_queue = MessageQueue(
+                    sender=sender,
+                    batch_interval=batch_interval
+                )
+                self.message_queue.start()
+                if verbose:
+                    print(f"✅ Message queue started with {batch_interval}s batch interval", flush=True)
+            except Exception as e:
+                if verbose:
+                    print(f"⚠️  Could not initialize message queue: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
+                self.message_queue = None
+                self.sender = None
         else:
             self.message_queue = None
+            self.sender = None
     
     def on_created(self, event):
         if not event.is_directory:
@@ -307,10 +337,22 @@ class SyftBoxEventHandler(FileSystemEventHandler):
         
         # Use queue if available, otherwise send immediately
         if self.use_queue and self.message_queue:
-            self.message_queue.queue_file(file_path)
-            if self.verbose:
-                print(f"📋 File queued for batch sending", flush=True)
-            return {}
+            try:
+                self.message_queue.queue_file(file_path)
+                if self.verbose:
+                    print(f"📋 File queued for batch sending", flush=True)
+                    # Check if worker is actually processing
+                    if hasattr(self.message_queue, '_queue') and self.message_queue._queue.qsize() > 5:
+                        print(f"⚠️  Queue size is {self.message_queue._queue.qsize()}, messages may not be processing", flush=True)
+                        print(f"   Falling back to immediate send", flush=True)
+                        # Fall back to immediate send
+                        raise Exception("Queue too large, falling back to immediate send")
+                return {}
+            except Exception as e:
+                if self.verbose:
+                    print(f"❌ Queue failed: {e}, sending immediately", flush=True)
+                # Fall through to immediate send
+                pass
         
         # Get all peers
         try:
@@ -378,3 +420,21 @@ class SyftBoxEventHandler(FileSystemEventHandler):
         if self.message_queue:
             self.message_queue.stop()
             self.message_queue = None
+            
+    def get_queue_status(self):
+        """Get current status of the message queue"""
+        status = {
+            "queue_enabled": self.use_queue,
+            "queue_exists": self.message_queue is not None,
+        }
+        
+        if self.message_queue:
+            status.update({
+                "queue_size": self.message_queue._queue.qsize() if hasattr(self.message_queue, '_queue') else -1,
+                "worker_running": self.message_queue._is_running if hasattr(self.message_queue, '_is_running') else False,
+                "worker_alive": (self.message_queue._worker_thread.is_alive() 
+                               if hasattr(self.message_queue, '_worker_thread') and self.message_queue._worker_thread 
+                               else False),
+            })
+        
+        return status

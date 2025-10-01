@@ -964,6 +964,11 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         try:
             import base64
             
+            # Check if sheets service is initialized
+            if not self.sheets_service:
+                print(f"❌ Sheets service not initialized for {recipient}")
+                return False
+            
             # Check size limit (conservative 37.5KB to stay under 50k char limit)
             max_sheets_size = 37_500
             if len(archive_data) > max_sheets_size:
@@ -979,9 +984,14 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             sheet_name = f"syft_{my_email}_to_{their_email}_messages"
             
             # Get or create the message sheet
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   📋 Looking for sheet: {sheet_name}", flush=True)
             sheet_id = self._get_or_create_message_sheet(sheet_name, recipient_email=recipient)
             if not sheet_id:
+                print(f"   ❌ Failed to get/create sheet: {sheet_name}", flush=True)
                 return False
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"   ✅ Got sheet ID: {sheet_id}", flush=True)
             
             # Prepare row data following gdrive_unified.py format
             timestamp = datetime.now().isoformat()

@@ -104,6 +104,12 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         current_module = sys.modules[__name__]
         current_module.observer = observer
         current_module.handler = handler
+        # Also store the message queue to prevent garbage collection
+        if hasattr(handler, 'message_queue') and handler.message_queue:
+            current_module.message_queue = handler.message_queue
+            print(f"✅ Message queue stored in module (thread alive: {handler.message_queue._worker_thread.is_alive() if handler.message_queue._worker_thread else 'None'})", flush=True)
+        else:
+            print(f"⚠️ Handler has no message queue", flush=True)
         
         # Register cleanup function
         def cleanup_observer():
@@ -153,6 +159,20 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         import threading
         inbox_thread = threading.Thread(target=poll_inbox, daemon=True)
         inbox_thread.start()
+        
+        # Start queue status monitoring
+        def monitor_queue():
+            while True:
+                time.sleep(10)  # Check every 10 seconds
+                try:
+                    if hasattr(current_module, 'handler') and current_module.handler:
+                        status = current_module.handler.get_queue_status()
+                        print(f"📊 Queue Status: {status}", flush=True)
+                except Exception as e:
+                    print(f"Error getting queue status: {e}", flush=True)
+        
+        status_thread = threading.Thread(target=monitor_queue, daemon=True)
+        status_thread.start()
         
         return {
             "status": "started",

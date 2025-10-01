@@ -607,11 +607,21 @@ class MessageSender:
             print(f"❌ Transport {transport_name} is not available")
             return False
         
+        if self.client.verbose:
+            print(f"   📍 Using transport from platform: {transport.__class__.__module__}", flush=True)
+        
         # Send the archive directly via transport
         if hasattr(transport, 'send_to'):
             if self.client.verbose:
                 print(f"   📤 Sending via {transport_name}")
-            return transport.send_to(archive_path, recipient, message_id)
+            try:
+                result = transport.send_to(archive_path, recipient, message_id)
+                if not result and self.client.verbose:
+                    print(f"   ⚠️  Transport returned False for {recipient}")
+                return result
+            except Exception as e:
+                print(f"   ❌ Error in transport.send_to: {e}")
+                return False
         else:
             print(f"❌ Transport {transport_name} does not implement send_to() method")
             return False
