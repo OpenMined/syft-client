@@ -409,35 +409,26 @@ class PeerManager:
                             # Get the email used in folder names (might be different from peer email)
                             my_email = self.client.email
                             
-                            # Delete outbox/inbox folder (where I send to them)
-                            folder_name = f"syft_{my_email}_to_{email}_outbox_inbox"
-                            results = self._delete_gdrive_folder(transport, folder_name)
-                            if results:
-                                deletion_results['gdrive_folders'].extend(results)
+                            # Delete all possible folder patterns with @ and with underscores
+                            folder_patterns = [
+                                # Patterns with @ in emails
+                                f"syft_{my_email}_to_{email}_outbox_inbox",
+                                f"syft_{email}_to_{my_email}_outbox_inbox",
+                                f"syft_{email}_to_{my_email}_archive",
+                                f"syft_{my_email}_to_{email}_archive",
+                                f"syft_{my_email}_to_{email}_pending",
+                                # Patterns with underscores replacing @ and .
+                                f"syft_{my_email.replace('@', '_at_').replace('.', '_')}_to_{email.replace('@', '_at_').replace('.', '_')}_outbox_inbox",
+                                f"syft_{email.replace('@', '_at_').replace('.', '_')}_to_{my_email.replace('@', '_at_').replace('.', '_')}_outbox_inbox",
+                                f"syft_{email.replace('@', '_at_').replace('.', '_')}_to_{my_email.replace('@', '_at_').replace('.', '_')}_archive",
+                                f"syft_{my_email.replace('@', '_at_').replace('.', '_')}_to_{email.replace('@', '_at_').replace('.', '_')}_archive",
+                                f"syft_{my_email.replace('@', '_at_').replace('.', '_')}_to_{email.replace('@', '_at_').replace('.', '_')}_pending",
+                            ]
                             
-                            # Delete their outbox/inbox folder (where they send to me)
-                            their_folder_name = f"syft_{email}_to_{my_email}_outbox_inbox"
-                            results = self._delete_gdrive_folder(transport, their_folder_name)
-                            if results:
-                                deletion_results['gdrive_folders'].extend(results)
-                            
-                            # Delete archive folder (where I receive from them)
-                            archive_name = f"syft_{email}_to_{my_email}_archive"
-                            results = self._delete_gdrive_folder(transport, archive_name)
-                            if results:
-                                deletion_results['gdrive_folders'].extend(results)
-                            
-                            # Delete their archive folder (where they receive from me)
-                            their_archive_name = f"syft_{my_email}_to_{email}_archive"
-                            results = self._delete_gdrive_folder(transport, their_archive_name)
-                            if results:
-                                deletion_results['gdrive_folders'].extend(results)
-                            
-                            # Delete any pending folders
-                            pending_name = f"syft_{my_email}_to_{email}_pending"
-                            results = self._delete_gdrive_folder(transport, pending_name)
-                            if results:
-                                deletion_results['gdrive_folders'].extend(results)
+                            for folder_name in folder_patterns:
+                                results = self._delete_gdrive_folder(transport, folder_name)
+                                if results:
+                                    deletion_results['gdrive_folders'].extend(results)
                                 
                         except Exception as e:
                             if self.client.verbose:
@@ -457,9 +448,21 @@ class PeerManager:
                             if results:
                                 deletion_results['gsheets'].extend(results)
                             
+                            # Also try with underscores in email addresses
+                            sheet_name_underscore = f"syft_{my_email.replace('@', '_at_').replace('.', '_')}_to_{email.replace('@', '_at_').replace('.', '_')}_messages"
+                            results = self._delete_gsheet(transport, sheet_name_underscore)
+                            if results:
+                                deletion_results['gsheets'].extend(results)
+                            
                             # Delete incoming messages sheet (where they send to me)
                             incoming_sheet_name = f"syft_{email}_to_{my_email}_messages"
                             results = self._delete_gsheet(transport, incoming_sheet_name)
+                            if results:
+                                deletion_results['gsheets'].extend(results)
+                                
+                            # Also try with underscores in email addresses
+                            incoming_sheet_name_underscore = f"syft_{email.replace('@', '_at_').replace('.', '_')}_to_{my_email.replace('@', '_at_').replace('.', '_')}_messages"
+                            results = self._delete_gsheet(transport, incoming_sheet_name_underscore)
                             if results:
                                 deletion_results['gsheets'].extend(results)
                                 
