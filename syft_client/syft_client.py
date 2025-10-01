@@ -470,7 +470,7 @@ class SyftClient:
                 endpoints={
                     "/start": start_fn,
                 },
-                dependencies=["syft-job>=0.1.9"],
+                dependencies=["syft-job>=0.1.10"],
             )
         except ServerAlreadyExistsError:
             server = ss.servers[f"job_runner_{self._sanitize_email()}"]
