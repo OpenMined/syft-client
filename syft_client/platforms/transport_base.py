@@ -560,27 +560,42 @@ class BaseTransportLayer(ABC):
         # Get all markers that were created (if available)
         all_markers = getattr(self, '_all_move_markers', [])
         
+        print(f"   ⏰ Scheduling move marker cleanup in {delay} seconds", flush=True)
+        print(f"      - Total markers to clean: {len(all_markers)}", flush=True)
+        
         def cleanup():
+            print(f"   🧹 Starting move marker cleanup", flush=True)
             # If we have the specific list of markers, use that
             if all_markers:
                 cleanup_count = 0
+                failed_count = 0
                 for marker in all_markers:
                     try:
                         if marker.exists():
                             marker.unlink()
                             cleanup_count += 1
-                    except:
+                            print(f"   ✅ Cleaned up marker: {marker.name}", flush=True)
+                        else:
+                            print(f"   ⚠️  Marker already gone: {marker.name} at {marker}", flush=True)
+                    except Exception as e:
+                        failed_count += 1
+                        print(f"   ❌ Failed to cleanup marker {marker.name}: {e}", flush=True)
+                        print(f"      - Full path: {marker}", flush=True)
                         pass
+                
+                print(f"   📊 Cleanup complete: {cleanup_count} removed, {failed_count} failed", flush=True)
                 
                 # Clear the list
                 if hasattr(self, '_all_move_markers'):
                     self._all_move_markers = []
             else:
                 # Fallback: just clean up the main markers
+                print(f"   ⚠️  No marker list found, using fallback cleanup", flush=True)
                 for marker in [source_marker, dest_marker]:
                     try:
                         if marker.exists():
                             marker.unlink()
+                            print(f"   ✅ Cleaned up fallback marker: {marker.name}", flush=True)
                     except:
                         pass
         
@@ -801,6 +816,24 @@ class BaseTransportLayer(ABC):
                                     
                                     if verbose:
                                         print(f"   🚚 Moved: {source_path.name} → {dest_path}")
+                                    
+                                    # Update marker paths after successful move
+                                    if hasattr(self, '_all_move_markers') and self._all_move_markers:
+                                        updated_markers = []
+                                        for marker in self._all_move_markers:
+                                            # If the marker was inside the moved directory, update its path
+                                            try:
+                                                if str(source_path) in str(marker):
+                                                    # Replace the source path with dest path in the marker path
+                                                    new_marker_path = Path(str(marker).replace(str(source_path), str(dest_path)))
+                                                    updated_markers.append(new_marker_path)
+                                                    if verbose:
+                                                        print(f"   🔄 Updated marker path: {marker} → {new_marker_path}", flush=True)
+                                                else:
+                                                    updated_markers.append(marker)
+                                            except:
+                                                updated_markers.append(marker)
+                                        self._all_move_markers = updated_markers
                                     
                                     # Record creation at destination in sync history
                                     if sync_history and dest_path.exists():
