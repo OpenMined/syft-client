@@ -254,9 +254,19 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                 
                 # Check for deletion marker first (fastest check)
                 marker_path = Path(event.src_path).parent / f".syft_deleting_{filename}"
+                print(f"   🔍 Checking for deletion marker: {marker_path.name}", flush=True)
+                print(f"      - Marker exists: {marker_path.exists()}", flush=True)
                 if marker_path.exists():
-                    if self.verbose:
-                        print(f"✋ Skipping deletion: {filename} (has deletion marker)", flush=True)
+                    print(f"   ✋ Skipping deletion: {filename} (has deletion marker)", flush=True)
+                    # Read marker metadata for debugging
+                    try:
+                        import json
+                        with open(marker_path, 'r') as f:
+                            metadata = json.load(f)
+                        print(f"      - Marker created at: {metadata.get('timestamp', 'unknown')}", flush=True)
+                        print(f"      - By PID: {metadata.get('pid', 'unknown')}", flush=True)
+                    except Exception as e:
+                        print(f"      - Could not read marker metadata: {e}", flush=True)
                     return
                 
                 # Check if this deletion was recently synced from a peer (don't echo back)

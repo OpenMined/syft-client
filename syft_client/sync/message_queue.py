@@ -276,7 +276,14 @@ class MessageQueue:
             for peer_email in peers_list:
                 if peer_email not in messages_by_recipient:
                     messages_by_recipient[peer_email] = []
-                messages_by_recipient[peer_email].append(msg)
+                # Create a copy of the message for each recipient
+                # This ensures each recipient gets their own temp directory and archive
+                msg_copy = QueuedMessage(
+                    source_path=msg.source_path,
+                    message_type=msg.message_type,
+                    dest_path=msg.dest_path
+                )
+                messages_by_recipient[peer_email].append(msg_copy)
         
         # Prepare all messages first
         with self._lock:
@@ -289,6 +296,10 @@ class MessageQueue:
                         # Create temp directory for this message
                         temp_dir = tempfile.mkdtemp()
                         msg.temp_dir = temp_dir
+                        
+                        # Debug: Log temp directory creation
+                        if self.sender.client.verbose:
+                            print(f"   📁 Created temp dir for {recipient}: {temp_dir}", flush=True)
                         
                         # Prepare the message based on type
                         if msg.message_type == 'file':

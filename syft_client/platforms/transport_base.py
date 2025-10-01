@@ -377,6 +377,10 @@ class BaseTransportLayer(ABC):
         """Create marker file before deletion to prevent echo"""
         marker_path = path.parent / f".syft_deleting_{path.name}"
         
+        print(f"   🏷️  Creating deletion marker: {marker_path}", flush=True)
+        print(f"      - For path: {path}", flush=True)
+        print(f"      - Is directory: {path.is_dir() if path.exists() else 'N/A (path doesn\'t exist)'}", flush=True)
+        
         # Write simple metadata
         import json
         import os
@@ -389,8 +393,10 @@ class BaseTransportLayer(ABC):
         try:
             with open(marker_path, 'w') as f:
                 json.dump(metadata, f)
-        except Exception:
+            print(f"   ✅ Deletion marker created successfully", flush=True)
+        except Exception as e:
             # If we can't create marker, continue anyway
+            print(f"   ❌ Failed to create deletion marker: {e}", flush=True)
             pass
             
         return marker_path
@@ -399,15 +405,30 @@ class BaseTransportLayer(ABC):
         """Clean up deletion marker after a delay"""
         import threading
         
+        print(f"   ⏱️  Scheduling deletion marker cleanup in {delay} seconds: {marker_path.name}", flush=True)
+        
         def cleanup():
+            print(f"   🧹 Starting deletion marker cleanup: {marker_path.name}", flush=True)
             try:
                 if marker_path.exists():
                     marker_path.unlink()
-            except:
+                    print(f"   ✅ Successfully removed deletion marker: {marker_path.name}", flush=True)
+                else:
+                    print(f"   ⚠️  Deletion marker already gone: {marker_path.name}", flush=True)
+            except Exception as e:
+                print(f"   ❌ Failed to cleanup deletion marker {marker_path.name}: {e}", flush=True)
+                print(f"      - Full path: {marker_path}", flush=True)
+                print(f"      - Exists: {marker_path.exists()}", flush=True)
+                if marker_path.exists():
+                    print(f"      - Is file: {marker_path.is_file()}", flush=True)
+                    print(f"      - Parent exists: {marker_path.parent.exists()}", flush=True)
                 pass
         
         # Clean up marker after delay
-        threading.Timer(delay, cleanup).start()
+        timer = threading.Timer(delay, cleanup)
+        timer.daemon = True
+        timer.start()
+        print(f"   ✅ Cleanup timer started (daemon={timer.daemon})", flush=True)
     
     def _create_move_marker(self, source_path: Path, dest_path: Path) -> tuple[Path, Path]:
         """Create marker files before move to prevent echo"""
