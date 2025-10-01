@@ -2552,7 +2552,7 @@ wheels = [
 
 [[package]]
 name = "syft-client"
-version = "0.1.35"
+version = "0.1.38"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
