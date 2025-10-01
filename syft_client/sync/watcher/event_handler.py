@@ -60,6 +60,20 @@ class SyftBoxEventHandler(FileSystemEventHandler):
             print(f"\n🚚 Move detected ({type_str}): {src_filename} → {dest_filename}", flush=True)
         
         try:
+            # Check for move markers first (fastest check)
+            source_marker = Path(event.src_path).parent / f".syft_moving_from_{src_filename}"
+            dest_marker = Path(event.dest_path).parent / f".syft_moving_to_{dest_filename}"
+            
+            if self.verbose:
+                print(f"\n🔍 Checking for move markers:", flush=True)
+                print(f"   Source marker: {source_marker} - {'EXISTS' if source_marker.exists() else 'NOT FOUND'}", flush=True)
+                print(f"   Dest marker: {dest_marker} - {'EXISTS' if dest_marker.exists() else 'NOT FOUND'}", flush=True)
+            
+            if source_marker.exists() or dest_marker.exists():
+                if self.verbose:
+                    print(f"✋ Skipping move: {src_filename} → {dest_filename} (has move markers)", flush=True)
+                return
+            
             # Check echo prevention - was this move recently synced from a peer?
             threshold = int(os.environ.get('SYFT_SYNC_ECHO_THRESHOLD', '60'))
             if threshold > 0:

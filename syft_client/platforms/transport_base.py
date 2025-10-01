@@ -409,6 +409,163 @@ class BaseTransportLayer(ABC):
         # Clean up marker after delay
         threading.Timer(delay, cleanup).start()
     
+    def _create_move_marker(self, source_path: Path, dest_path: Path) -> tuple[Path, Path]:
+        """Create marker files before move to prevent echo"""
+        source_marker = source_path.parent / f".syft_moving_from_{source_path.name}"
+        dest_marker = dest_path.parent / f".syft_moving_to_{dest_path.name}"
+        
+        # Write metadata to both markers
+        import json
+        import os
+        metadata = {
+            "source_path": str(source_path),
+            "dest_path": str(dest_path),
+            "timestamp": time.time(),
+            "pid": os.getpid()
+        }
+        
+        all_markers = []
+        
+        # Create markers for the main path
+        for marker_path in [source_marker, dest_marker]:
+            try:
+                marker_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(marker_path, 'w') as f:
+                    json.dump(metadata, f)
+                    f.flush()  # Force write to disk
+                    os.fsync(f.fileno())  # Ensure it's on disk
+                all_markers.append(marker_path)
+            except Exception:
+                # If we can't create marker, continue anyway
+                pass
+        
+        # If this is a directory, recursively create markers for all files inside
+        if source_path.is_dir() and source_path.exists():
+            # Also create a deletion marker for the directory itself
+            dir_deletion_marker = source_path.parent / f".syft_deleting_{source_path.name}"
+            try:
+                with open(dir_deletion_marker, 'w') as f:
+                    json.dump(metadata, f)
+                    f.flush()
+                    os.fsync(f.fileno())
+                all_markers.append(dir_deletion_marker)
+            except Exception:
+                pass
+            
+            for root, dirs, files in os.walk(source_path):
+                # Calculate relative path from source
+                rel_path = Path(root).relative_to(source_path)
+                
+                # Create markers for each file
+                for filename in files:
+                    # Skip hidden files
+                    if filename.startswith('.'):
+                        continue
+                        
+                    src_file_path = Path(root) / filename
+                    
+                    # Create ALL markers in the source location
+                    # Move markers
+                    src_file_marker = src_file_path.parent / f".syft_moving_from_{filename}"
+                    dest_file_marker = src_file_path.parent / f".syft_moving_to_{filename}"
+                    # Deletion marker
+                    deletion_marker = src_file_path.parent / f".syft_deleting_{filename}"
+                    
+                    for marker_path in [src_file_marker, dest_file_marker, deletion_marker]:
+                        try:
+                            marker_path.parent.mkdir(parents=True, exist_ok=True)
+                            file_metadata = {
+                                "source_path": str(src_file_path),
+                                "dest_path": str(dest_path / rel_path / filename),
+                                "parent_move": True,
+                                "parent_source": str(source_path),
+                                "parent_dest": str(dest_path),
+                                "timestamp": time.time(),
+                                "pid": os.getpid()
+                            }
+                            with open(marker_path, 'w') as f:
+                                json.dump(file_metadata, f)
+                                f.flush()
+                                os.fsync(f.fileno())
+                            all_markers.append(marker_path)
+                        except Exception:
+                            pass
+                
+                # Also create markers for subdirectories
+                for dirname in dirs:
+                    # Skip hidden directories
+                    if dirname.startswith('.'):
+                        continue
+                        
+                    src_dir_path = Path(root) / dirname
+                    dest_dir_path = dest_path / rel_path / dirname
+                    
+                    # Create markers for this directory
+                    src_dir_marker = src_dir_path.parent / f".syft_moving_from_{dirname}"
+                    dest_dir_marker = dest_dir_path.parent / f".syft_moving_to_{dirname}"
+                    
+                    for marker_path in [src_dir_marker, dest_dir_marker]:
+                        try:
+                            marker_path.parent.mkdir(parents=True, exist_ok=True)
+                            dir_metadata = {
+                                "source_path": str(src_dir_path),
+                                "dest_path": str(dest_dir_path),
+                                "parent_move": True,
+                                "parent_source": str(source_path),
+                                "parent_dest": str(dest_path),
+                                "timestamp": time.time(),
+                                "pid": os.getpid()
+                            }
+                            with open(marker_path, 'w') as f:
+                                json.dump(dir_metadata, f)
+                                f.flush()
+                                os.fsync(f.fileno())
+                            all_markers.append(marker_path)
+                        except Exception:
+                            pass
+        
+        # Small delay to ensure markers are visible to other processes
+        time.sleep(0.1)
+        
+        # Return all markers for cleanup
+        self._all_move_markers = all_markers  # Store for cleanup
+                
+        return source_marker, dest_marker
+    
+    def _cleanup_move_markers(self, source_marker: Path, dest_marker: Path, delay: float = 5.0) -> None:
+        """Clean up move markers after a delay"""
+        import threading
+        
+        # Get all markers that were created (if available)
+        all_markers = getattr(self, '_all_move_markers', [])
+        
+        def cleanup():
+            # If we have the specific list of markers, use that
+            if all_markers:
+                cleanup_count = 0
+                for marker in all_markers:
+                    try:
+                        if marker.exists():
+                            marker.unlink()
+                            cleanup_count += 1
+                    except:
+                        pass
+                
+                # Clear the list
+                if hasattr(self, '_all_move_markers'):
+                    self._all_move_markers = []
+            else:
+                # Fallback: just clean up the main markers
+                for marker in [source_marker, dest_marker]:
+                    try:
+                        if marker.exists():
+                            marker.unlink()
+                    except:
+                        pass
+        
+        # Clean up markers after delay
+        threading.Timer(delay, cleanup).start()
+    
     def check_inbox(self, sender_email: str, download_dir: Optional[str] = None, verbose: bool = True) -> List[Dict]:
         """
         Base implementation for checking inbox. Transport-specific classes should override
@@ -596,6 +753,20 @@ class BaseTransportLayer(ABC):
                             
                             # THEN: Perform the move
                             if source_path.exists():
+                                # Create move markers BEFORE moving to prevent echo
+                                source_marker, dest_marker = self._create_move_marker(source_path, dest_path)
+                                
+                                if verbose:
+                                    print(f"   📝 Created move markers:")
+                                    print(f"      Source: {source_marker}")
+                                    print(f"      Dest: {dest_marker}")
+                                    if source_path.is_dir():
+                                        # Count files and directories that will get markers
+                                        file_count = sum(1 for _ in source_path.rglob('*') if _.is_file() and not _.name.startswith('.'))
+                                        dir_count = sum(1 for _ in source_path.rglob('*') if _.is_dir() and not _.name.startswith('.'))
+                                        if file_count > 0 or dir_count > 0:
+                                            print(f"      Plus markers for: {file_count} files, {dir_count} subdirectories")
+                                    print(f"      Waiting before move...")
                                 try:
                                     # If destination exists, remove it first
                                     if dest_path.exists():
@@ -640,6 +811,9 @@ class BaseTransportLayer(ABC):
                                 except Exception as e:
                                     if verbose:
                                         print(f"   ❌ Failed to move {source_path.name}: {e}")
+                                finally:
+                                    # Schedule marker cleanup
+                                    self._cleanup_move_markers(source_marker, dest_marker)
                             else:
                                 if verbose:
                                     print(f"   ⚠️  Source path not found: {source_path}")
@@ -657,6 +831,9 @@ class BaseTransportLayer(ABC):
                             "metadata": metadata,
                             "operation": "move"
                         })
+                        
+                        # Mark for archiving (so it gets moved to archive tab in sheets)
+                        messages_to_archive.append(message_info)
                         
                         continue  # Skip to next message
                     
