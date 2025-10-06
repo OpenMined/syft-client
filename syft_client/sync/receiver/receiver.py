@@ -252,7 +252,9 @@ def create_receiver_endpoint(email: str, check_interval: int = 2,
             "syft-serve"
         ],
         endpoints={"/": receiver_main},
-        force=True
+        force=True,
+        verify_startup=True,
+        startup_timeout=20.0,  # Give more time for multiple dependencies
     )
     
     # Give the server time to initialize

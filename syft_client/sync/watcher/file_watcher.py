@@ -223,7 +223,9 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
             "cryptography",
             "syft-serve"
         ],
-        endpoints={"/": watcher_main}
+        endpoints={"/": watcher_main},
+        verify_startup=True,
+        startup_timeout=20.0,  # Give more time for multiple dependencies
     )
     
     # Trigger the watcher to start

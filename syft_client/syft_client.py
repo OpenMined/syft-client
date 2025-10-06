@@ -478,6 +478,8 @@ class SyftClient:
                     "/start": start_fn,
                 },
                 dependencies=["syft-job>=0.1.10"],
+                verify_startup=True,
+                startup_timeout=15.0,  # Give more time for dependency installation
             )
         except ServerAlreadyExistsError:
             server = ss.servers[f"job_runner_{self._sanitize_email()}"]
