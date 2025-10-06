@@ -1385,19 +1385,32 @@ class SyftClient:
         current_step = 0
         
         def print_progress(step: int, message: str, is_final: bool = False):
-            """Print progress with carriage return"""
+            """Print progress with environment-aware output"""
             if verbose:
-                if is_final:
-                    # Clear the line first, then print final message
-                    sys.stdout.write(f"\r{' ' * 80}\r")
-                    sys.stdout.flush()
-                    print(f"✅ {message}")
+                if environment == Environment.COLAB:
+                    # In Colab, use clear_output for updating progress
+                    from IPython.display import clear_output
+                    clear_output(wait=True)
+                    if is_final:
+                        print(f"✅ {message}")
+                    else:
+                        print(f"[{step}/{total_steps}] {message}...")
                 else:
-                    # Progress message with carriage return
-                    sys.stdout.write(f"\r[{step}/{total_steps}] {message}...{' ' * 40}\r")
-                    sys.stdout.flush()
-                    # Small delay to make progress visible
-                    time.sleep(0.1)
+                    # In terminal/Jupyter, use carriage returns for clean progress
+                    if is_final:
+                        # Clear the line first, then print final message
+                        sys.stdout.write(f"\r{' ' * 80}\r")
+                        sys.stdout.flush()
+                        print(f"✅ {message}")
+                    else:
+                        # Progress message with carriage return
+                        sys.stdout.write(f"\r[{step}/{total_steps}] {message}...{' ' * 40}\r")
+                        sys.stdout.flush()
+                        # Small delay to make progress visible
+                        time.sleep(0.1)
+        
+        # Environment detection first (before any progress printing)
+        environment = detect_environment()
         
         # Step 1: Starting login
         current_step += 1
@@ -1411,7 +1424,6 @@ class SyftClient:
         # Step 3: Environment detection
         current_step += 1
         print_progress(current_step, "Detecting environment")
-        environment = detect_environment()
         
         # Step 4: Create platform client
         from .platforms import get_platform_client
