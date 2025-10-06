@@ -330,9 +330,16 @@ class SyftClient:
         if not self.email:
             return
             
-        # Create ~/SyftBox_{email} directory
-        home_dir = Path.home()
-        syftbox_dir = home_dir / f"SyftBox_{self.email}"
+        # Check if we're in Colab
+        environment = detect_environment()
+        if environment == Environment.COLAB:
+            # In Colab, use /content directory
+            base_dir = Path("/content")
+        else:
+            # Otherwise use home directory
+            base_dir = Path.home()
+            
+        syftbox_dir = base_dir / f"SyftBox_{self.email}"
         
         if not syftbox_dir.exists():
             try:
@@ -485,7 +492,15 @@ class SyftClient:
             return self.local_syftbox_dir
         elif self.email:
             # Calculate the path even if not created yet
-            return Path.home() / f"SyftBox_{self.email}"
+            # Check if we're in Colab
+            environment = detect_environment()
+            if environment == Environment.COLAB:
+                # In Colab, use /content directory
+                base_dir = Path("/content")
+            else:
+                # Otherwise use home directory
+                base_dir = Path.home()
+            return base_dir / f"SyftBox_{self.email}"
         return None
     
     @property
