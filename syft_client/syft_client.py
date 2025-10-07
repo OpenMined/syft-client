@@ -1576,6 +1576,7 @@ class SyftClient:
             except Exception:
                 # If there's any error checking peer requests, just continue
                 pass
+            current_step += 1
             print_progress(current_step, "Cleaning up existing servers if kill_servers=True...")
             # Kill existing servers if requested (do this even if skip_server_setup)
             verbose = True
@@ -1606,7 +1607,7 @@ class SyftClient:
                     
                     # Only show message if we actually killed servers
                     # if killed_count > 0 and verbose:
-                        
+                    current_step += 1
                     print_progress(current_step, f"✓ Cleaned up {killed_count} existing server(s)")
                 except Exception as e:
                     
