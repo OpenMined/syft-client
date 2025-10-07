@@ -28,15 +28,7 @@ def create_receiver_endpoint(email: str, check_interval: int = 2,
     import requests
     
     # Create unique server name based on email
-    server_name = f"receiver_{email.replace('@', '_').replace('.', '_')}"
-    
-    # Check if endpoint already exists
-    existing_servers = list(ss.servers)
-    for server in existing_servers:
-        if server.name == server_name:
-            if verbose:
-                print(f"Receiver endpoint already exists for {email}")
-            return server
+    server_name = f"receiver_{email.replace('@', '_at_').replace('.', '_')}"
     
     def receiver_main():
         """Main receiver function that runs in the server"""
@@ -252,9 +244,7 @@ def create_receiver_endpoint(email: str, check_interval: int = 2,
             "syft-serve"
         ],
         endpoints={"/": receiver_main},
-        force=True,
-        verify_startup=True,
-        startup_timeout=20.0,  # Give more time for multiple dependencies
+        force=True
     )
     
     # Give the server time to initialize
@@ -293,7 +283,7 @@ def destroy_receiver_endpoint(email: str, verbose: bool = True):
         raise ImportError("syft-serve is required. Install with: pip install syft-serve")
     
     # Create server name to look for
-    server_name = f"receiver_{email.replace('@', '_').replace('.', '_')}"
+    server_name = f"receiver_{email.replace('@', '_at_').replace('.', '_')}"
     
     # Find and terminate the specific server
     existing_servers = list(ss.servers)

@@ -15,16 +15,21 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
     
     import requests
     
-    # Create unique server name based on email
-    server_name = f"watcher_sender_{email.replace('@', '_').replace('.', '_')}"
+    # Check if we're in a Jupyter environment
+    def is_jupyter_environment():
+        try:
+            # Check for IPython kernel
+            from IPython import get_ipython
+            return get_ipython() is not None and get_ipython().__class__.__name__ == 'ZMQInteractiveShell'
+        except ImportError:
+            return False
     
-    # Check if endpoint already exists
-    existing_servers = list(ss.servers)
-    for server in existing_servers:
-        if server.name == server_name:
-            if verbose:
-                print(f"Watcher endpoint already exists for {email}")
-            return server
+    # Add retry logic for Jupyter environments where subprocess can fail intermittently
+    max_retries = 3 if is_jupyter_environment() else 1
+    last_error = None
+    
+    # Create unique server name based on email
+    server_name = f"watcher_sender_{email.replace('@', '_at_').replace('.', '_')}"
     
     def watcher_main():
         """Main watcher function that runs in the server"""
@@ -208,25 +213,37 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
     syft_client_path = os.path.dirname(os.path.dirname(os.path.abspath(syft_client.__file__)))
     os.environ['SYFT_CLIENT_PATH'] = syft_client_path
     
-    # Create the server without local path in dependencies
-    # The watcher_main function will add it to sys.path
-    server = ss.create(
-        server_name,
-        dependencies=[
-            "watchdog",
-            "google-api-python-client",
-            "google-auth",
-            "google-auth-oauthlib",
-            "google-auth-httplib2",
-            "rich",
-            "dnspython",
-            "cryptography",
-            "syft-serve"
-        ],
-        endpoints={"/": watcher_main},
-        verify_startup=True,
-        startup_timeout=20.0,  # Give more time for multiple dependencies
-    )
+    # Retry server creation with backoff for Jupyter environments
+    for attempt in range(max_retries):
+        try:
+            # Create the server without local path in dependencies
+            # The watcher_main function will add it to sys.path
+            server = ss.create(
+                server_name,
+                dependencies=[
+                    "watchdog",
+                    "google-api-python-client",
+                    "google-auth",
+                    "google-auth-oauthlib",
+                    "google-auth-httplib2",
+                    "rich",
+                    "dnspython",
+                    "cryptography",
+                    "syft-serve"
+                ],
+                endpoints={"/": watcher_main}
+            )
+            break  # Success, exit retry loop
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                if verbose:
+                    print(f"⚠️ Watcher creation attempt {attempt + 1} failed: {e}")
+                    print(f"🔄 Retrying in {attempt + 1} seconds...")
+                time.sleep(attempt + 1)  # Exponential backoff
+            else:
+                # Final attempt failed, re-raise the error
+                raise last_error
     
     # Trigger the watcher to start
     response = requests.get(server.url)
@@ -248,7 +265,7 @@ def destroy_watcher_endpoint(email: str, verbose: bool = True):
         raise ImportError("syft-serve is required. Install with: pip install syft-serve")
     
     # Create server name to look for
-    server_name = f"watcher_sender_{email.replace('@', '_').replace('.', '_')}"
+    server_name = f"watcher_sender_{email.replace('@', '_at_').replace('.', '_')}"
     
     # Find and terminate the specific server
     existing_servers = list(ss.servers)

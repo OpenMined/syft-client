@@ -13,7 +13,7 @@ class WatcherManager:
     def __init__(self, client):
         self.client = client
         self._server = None
-        self._server_name = f"watcher_sender_{client.email.replace('@', '_').replace('.', '_')}"
+        self._server_name = f"watcher_sender_{client.email.replace('@', '_at_').replace('.', '_')}"
     
     def start(self, paths: Optional[List[str]] = None, 
               exclude_patterns: Optional[List[str]] = None,

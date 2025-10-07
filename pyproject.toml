@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "syft-client"
-version = "0.1.54"
+version = "0.1.63"
 description = "A simple client library for setting up secure communication channels using Google Drive"
 readme = "README.md"
 authors = [
@@ -33,7 +33,7 @@ dependencies = [
     "cryptography>=41.0.0",
     "rich>=13.0.0",
     "watchdog>=3.0.0",
-    "syft-serve>=0.3.0",
+    "syft-serve>=0.3.3",
     "requests>=2.32.4",
     "pandas"
 ]

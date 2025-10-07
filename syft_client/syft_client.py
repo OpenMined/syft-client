@@ -453,7 +453,11 @@ class SyftClient:
         # Check if syft-job is available (silently skip if not)
         try:
             import syft_job
+            # if self.verbose:
+            #     print("✓ syft-job module found, setting up job runner...")
         except ImportError:
+            if self.verbose:
+                print("⚠️  syft-job not found, skipping job runner setup")
             return
         
         # lazy load
@@ -472,21 +476,31 @@ class SyftClient:
 
         # Step 2: Create syft-serve server
         try: 
+            # if self.verbose:
+            #     print(f"🚀 Starting job runner server for {self._sanitize_email()}...")
             server = ss.create(
                 name=f"job_runner_{self._sanitize_email()}",
                 endpoints={
                     "/start": start_fn,
                 },
-                dependencies=["syft-job>=0.1.10"],
-                verify_startup=True,
-                startup_timeout=15.0,  # Give more time for dependency installation
+                dependencies=["syft-job>=0.1.6"],
             )
+            # if self.verbose:
+            #     print(f"✓ Job runner started on port {server.port}")
         except ServerAlreadyExistsError:
+            # if self.verbose:
+            #     print(f"ℹ️  Job runner already exists for {self._sanitize_email()}")
             server = ss.servers[f"job_runner_{self._sanitize_email()}"]
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Failed to create job runner: {e}")
+            raise
         
 
         res = requests.get(f"{server.url}/start")
         res.raise_for_status()
+        # if self.verbose:
+        #     print("✓ Job runner started successfully")
     
     def get_syftbox_directory(self) -> Optional[Path]:
         """Get the local SyftBox directory path"""
@@ -1382,7 +1396,7 @@ class SyftClient:
             print(f"\n✗ Error deleting wallet: {e}")
             return False
     
-    def _login(self, provider: Optional[str] = None, verbose: bool = False, init_transport: bool = True, wizard: Optional[bool] = None, accept_requests: bool = True, skip_server_setup: bool = False) -> None:
+    def _login(self, provider: Optional[str] = None, verbose: bool = False, init_transport: bool = True, wizard: Optional[bool] = None, accept_requests: bool = True, skip_server_setup: bool = False, kill_servers: bool = False) -> None:
         """
         Instance method that handles the actual login process
         
@@ -1398,7 +1412,7 @@ class SyftClient:
         # Progress tracking
         import sys
         import time
-        total_steps = 12  # Added steps for peer requests, cache warming, and job runner
+        total_steps = 14  # Added steps for peer requests, cache warming, and job runner
         current_step = 0
         
         def print_progress(step: int, message: str, is_final: bool = False):
@@ -1509,10 +1523,7 @@ class SyftClient:
                 except:
                     pass
 
-            # Setup job directories if syft-job is available
-            if not skip_server_setup:
-                self._setup_job_directories()
-                self._setup_job_runner()
+            # Job runner will be setup later with progress tracking
             
             # Step 7: Initialize transports
             current_step += 1
@@ -1565,7 +1576,42 @@ class SyftClient:
             except Exception:
                 # If there's any error checking peer requests, just continue
                 pass
-            
+            print_progress(current_step, "Cleaning up existing servers if kill_servers=True...")
+            # Kill existing servers if requested (do this even if skip_server_setup)
+            verbose = True
+            if kill_servers:
+                
+                try:
+                    import syft_serve as ss
+                    
+                    # Kill only servers for this specific email
+                    sanitized_email = self.email.replace("@", "_at_").replace(".", "_")
+                    
+                    server_names = [
+                        f"watcher_sender_{sanitized_email}",
+                        f"receiver_{sanitized_email}", 
+                        f"job_runner_{sanitized_email}"
+                    ]
+                    
+                    killed_count = 0
+                    
+                    for server_name in server_names:
+                        try:
+                            if server_name in ss.servers:
+                                ss.servers[server_name].force_terminate()
+                                killed_count += 1
+                        except Exception as e:
+                            if verbose:
+                                print(f"\r⚠️  Failed to kill {server_name}: {e}", flush=True)
+                    
+                    # Only show message if we actually killed servers
+                    # if killed_count > 0 and verbose:
+                        
+                    print_progress(current_step, f"✓ Cleaned up {killed_count} existing server(s)")
+                except Exception as e:
+                    
+                    if verbose:
+                        print(f"⚠️  Error killing existing servers: {e}")
 
             if not skip_server_setup:
                 # Warm up sync history before starting watcher
@@ -1579,6 +1625,14 @@ class SyftClient:
                 current_step += 1
                 print_progress(current_step, "Starting watcher")
                 # Start watcher and receiver
+                # If we killed servers, reset the manager state
+                if kill_servers:
+                    # Force managers to think servers are not running
+                    if hasattr(self, '_watcher'):
+                        self._watcher._server = None
+                    if hasattr(self, '_receiver'):
+                        self._receiver._server = None
+                
                 self.start_watcher()
 
                 current_step += 1
@@ -1587,7 +1641,13 @@ class SyftClient:
 
                 current_step += 1
                 print_progress(current_step, "Starting job runner")
-                self._setup_job_runner()
+                try:
+                    self._setup_job_runner()
+                except Exception as e:
+                    if verbose:
+                        print(f"\n⚠️  Failed to setup job runner: {e}")
+                    # Don't fail login if job runner fails
+                    pass
 
             # Step 9: Warm the cache
             current_step += 1
@@ -1647,7 +1707,8 @@ class SyftClient:
     @staticmethod
     def login(email: Optional[str] = None, provider: Optional[str] = None, 
               quickstart: bool = True, verbose: bool = True, init_transport: bool = True, 
-              wizard: Optional[bool] = None, accept_requests: bool = True, skip_server_setup: bool = False, **kwargs) -> 'SyftClient':
+              wizard: Optional[bool] = None, accept_requests: bool = True, skip_server_setup: bool = False,
+              kill_servers: bool = False, **kwargs) -> 'SyftClient':
         """
         Simple login function for syft_client
         
@@ -1659,6 +1720,8 @@ class SyftClient:
             init_transport: If True (default), initialize transport layers during login. If False, skip transport initialization.
             wizard: If True, run interactive setup wizard for credentials. If None, auto-detect based on missing credentials.
             accept_requests: If True (default), automatically accept all pending peer requests. Set to False to skip.
+            skip_server_setup: If True, skip starting watcher/receiver/job runner servers.
+            kill_servers: If True, kill all existing servers for this user before starting new ones.
             **kwargs: Additional arguments for authentication
             
         Returns:
@@ -1747,5 +1810,5 @@ class SyftClient:
         
         # Create SyftClient and login
         client = SyftClient(email)
-        client._login(provider=provider, verbose=verbose, init_transport=init_transport, wizard=wizard, accept_requests=accept_requests, skip_server_setup=skip_server_setup)
+        client._login(provider=provider, verbose=verbose, init_transport=init_transport, wizard=wizard, accept_requests=accept_requests, skip_server_setup=skip_server_setup, kill_servers=kill_servers)
         return client

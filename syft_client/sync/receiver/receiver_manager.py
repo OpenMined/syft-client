@@ -13,7 +13,7 @@ class ReceiverManager:
     def __init__(self, client):
         self.client = client
         self._server = None
-        self._server_name = f"receiver_{client.email.replace('@', '_').replace('.', '_')}"
+        self._server_name = f"receiver_{client.email.replace('@', '_at_').replace('.', '_')}"
     
     def start(self, check_interval: int = 2,
               process_immediately: bool = True,
