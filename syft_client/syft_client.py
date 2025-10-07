@@ -595,20 +595,268 @@ class SyftClient:
         return self._sync
     
     @property
+    def _watcher_manager(self):
+        """Internal watcher manager access"""
+        if not hasattr(self, '__watcher_manager'):
+            from .sync.watcher import WatcherManager
+            self.__watcher_manager = WatcherManager(self)
+        return self.__watcher_manager
+    
+    @property
+    def _receiver_manager(self):
+        """Internal receiver manager access"""
+        if not hasattr(self, '__receiver_manager'):
+            from .sync.receiver import ReceiverManager
+            self.__receiver_manager = ReceiverManager(self)
+        return self.__receiver_manager
+    
+    @property
     def watcher(self):
-        """Access to file watcher functionality"""
-        from .sync.watcher import WatcherManager
-        if not hasattr(self, '_watcher'):
-            self._watcher = WatcherManager(self)
-        return self._watcher
+        """Get the watcher syft-serve Server object for viewing logs"""
+        try:
+            import syft_serve as ss
+            server_name = f"watcher_sender_{self.email.replace('@', '_at_').replace('.', '_')}"
+            
+            # Try to get the server
+            servers = ss.servers
+            for server in servers:
+                if server.name == server_name:
+                    return server
+            
+            # Server not found
+            return None
+        except ImportError:
+            # syft-serve not installed
+            return None
     
     @property
     def receiver(self):
-        """Access to inbox receiver functionality"""
-        from .sync.receiver import ReceiverManager
-        if not hasattr(self, '_receiver'):
-            self._receiver = ReceiverManager(self)
-        return self._receiver
+        """Get the receiver syft-serve Server object for viewing logs"""
+        try:
+            import syft_serve as ss
+            server_name = f"receiver_{self.email.replace('@', '_at_').replace('.', '_')}"
+            
+            # Try to get the server
+            servers = ss.servers
+            for server in servers:
+                if server.name == server_name:
+                    return server
+            
+            # Server not found
+            return None
+        except ImportError:
+            # syft-serve not installed
+            return None
+    
+    @property
+    def job_runner(self):
+        """Get the job runner syft-serve Server object for viewing logs"""
+        try:
+            import syft_serve as ss
+            server_name = f"job_runner_{self.email.replace('@', '_at_').replace('.', '_')}"
+            
+            # Try to get the server
+            servers = ss.servers
+            for server in servers:
+                if server.name == server_name:
+                    return server
+            
+            # Server not found
+            return None
+        except ImportError:
+            # syft-serve not installed
+            return None
+    
+    @property
+    def logs(self):
+        """Combined live logs view for all servers"""
+        class LogsView:
+            def __init__(self, client):
+                self.client = client
+                
+            def _repr_html_(self):
+                """Generate HTML for combined live logs display"""
+                # Get all three servers
+                servers = []
+                if self.client.watcher:
+                    servers.append(("Watcher", self.client.watcher))
+                if self.client.receiver:
+                    servers.append(("Receiver", self.client.receiver))
+                if self.client.job_runner:
+                    servers.append(("Job Runner", self.client.job_runner))
+                
+                if not servers:
+                    return "<div style='padding: 20px; color: #666;'>No servers running</div>"
+                
+                # Detect dark mode
+                try:
+                    from jupyter_dark_detect import is_dark
+                    is_dark_mode = is_dark()
+                except:
+                    is_dark_mode = False
+                
+                # Theme colors
+                if is_dark_mode:
+                    bg_color = "#1e1e1e"
+                    border_color = "#3e3e3e"
+                    text_color = "#e0e0e0"
+                    label_color = "#a0a0a0"
+                    log_bg = "#1a1a1a"
+                    error_bg = "#1a1a1a"
+                    log_text_color = "#9ca3af"
+                    error_text_color = "#ff6b6b"
+                else:
+                    bg_color = "#ffffff"
+                    border_color = "#ddd"
+                    text_color = "#333"
+                    label_color = "#666"
+                    log_bg = "#f8f9fa"
+                    error_bg = "#fef2f2"
+                    log_text_color = "#374151"
+                    error_text_color = "#d73a49"
+                
+                # Generate unique ID for this instance
+                import uuid
+                instance_id = str(uuid.uuid4())[:8]
+                
+                # Build HTML
+                html_parts = [f"""
+                <div style="background: {bg_color}; border: 1px solid {border_color}; border-radius: 5px; padding: 15px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    <h3 style="margin: 0 0 15px 0; color: {text_color};">📊 Live Server Logs - {self.client.email}</h3>
+                """]
+                
+                # Create a section for each server
+                for server_name, server in servers:
+                    server_id = f"{server_name.lower().replace(' ', '_')}_{instance_id}"
+                    html_parts.append(f"""
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: {text_color}; margin: 0 0 10px 0;">
+                            {'🚀' if server_name == 'Watcher' else '📥' if server_name == 'Receiver' else '🏃'} {server_name} 
+                            <span style="color: {label_color}; font-size: 0.9em;">(port {server.port})</span>
+                        </h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div style="padding: 8px; background: {log_bg}; border-radius: 3px; border: 1px solid {border_color};">
+                                <div style="color: {label_color}; font-size: 11px; margin-bottom: 5px;">stdout:</div>
+                                <div id="stdout-{server_id}" style="font-size: 11px; color: {log_text_color}; height: 120px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; word-wrap: break-word;">
+                                    <em style="color: #888;">Loading...</em>
+                                </div>
+                            </div>
+                            <div style="padding: 8px; background: {error_bg}; border-radius: 3px; border: 1px solid {border_color};">
+                                <div style="color: {label_color}; font-size: 11px; margin-bottom: 5px;">stderr:</div>
+                                <div id="stderr-{server_id}" style="font-size: 11px; color: {error_text_color}; height: 120px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; word-wrap: break-word;">
+                                    <em style="color: #888;">Loading...</em>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    """)
+                
+                # Add JavaScript for all servers
+                html_parts.append("""
+                    <script>
+                    (function() {
+                """)
+                
+                # Create update functions for each server
+                for server_name, server in servers:
+                    server_id = f"{server_name.lower().replace(' ', '_')}_{instance_id}"
+                    html_parts.append(f"""
+                        // {server_name} update function
+                        const update_{server_id} = async function() {{
+                            const port = {server.port};
+                            const stdoutDiv = document.getElementById('stdout-{server_id}');
+                            const stderrDiv = document.getElementById('stderr-{server_id}');
+                            
+                            if (!stdoutDiv || !stderrDiv) return;
+                            
+                            let baseUrl = 'http://localhost:' + port;
+                            if (window.location.hostname.includes('googleusercontent.com')) {{
+                                baseUrl = window.location.origin + '/proxy/' + port;
+                            }}
+                            
+                            try {{
+                                // Fetch stdout
+                                const stdoutResponse = await fetch(baseUrl + '/logs/stdout?lines=30');
+                                if (stdoutResponse.ok) {{
+                                    const stdoutData = await stdoutResponse.json();
+                                    if (stdoutData.lines && stdoutData.lines.length > 0) {{
+                                        stdoutDiv.innerHTML = stdoutData.lines
+                                            .map(line => line.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+                                            .join('');
+                                        stdoutDiv.scrollTop = stdoutDiv.scrollHeight;
+                                    }} else {{
+                                        stdoutDiv.innerHTML = '<em style="color: #888;">No output</em>';
+                                    }}
+                                }}
+                                
+                                // Fetch stderr  
+                                const stderrResponse = await fetch(baseUrl + '/logs/stderr?lines=30');
+                                if (stderrResponse.ok) {{
+                                    const stderrData = await stderrResponse.json();
+                                    if (stderrData.lines && stderrData.lines.length > 0) {{
+                                        stderrDiv.innerHTML = stderrData.lines
+                                            .map(line => line.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+                                            .join('');
+                                        stderrDiv.scrollTop = stderrDiv.scrollHeight;
+                                    }} else {{
+                                        stderrDiv.innerHTML = '<em style="color: #888;">No errors</em>';
+                                    }}
+                                }}
+                            }} catch (error) {{
+                                // Server might be down
+                            }}
+                        }};
+                    """)
+                
+                # Initial update and set intervals
+                html_parts.append("""
+                        // Clean up any existing intervals
+                        const intervalKey = 'syftLogsInterval_' + '""" + instance_id + """';
+                        if (window[intervalKey]) {
+                            clearInterval(window[intervalKey]);
+                        }
+                        
+                        // Initial update for all servers
+                """)
+                
+                for server_name, server in servers:
+                    server_id = f"{server_name.lower().replace(' ', '_')}_{instance_id}"
+                    html_parts.append(f"        update_{server_id}();\n")
+                
+                html_parts.append("""
+                        // Set up polling
+                        window[intervalKey] = setInterval(function() {
+                """)
+                
+                for server_name, server in servers:
+                    server_id = f"{server_name.lower().replace(' ', '_')}_{instance_id}"
+                    html_parts.append(f"            update_{server_id}();\n")
+                
+                html_parts.append("""
+                        }, 1000);
+                    })();
+                    </script>
+                </div>
+                """)
+                
+                return ''.join(html_parts)
+            
+            def __repr__(self):
+                """Text representation for non-notebook environments"""
+                servers_status = []
+                if self.client.watcher:
+                    servers_status.append(f"Watcher: port {self.client.watcher.port}")
+                if self.client.receiver:
+                    servers_status.append(f"Receiver: port {self.client.receiver.port}")
+                if self.client.job_runner:
+                    servers_status.append(f"Job Runner: port {self.client.job_runner.port}")
+                
+                if servers_status:
+                    return f"LogsView({', '.join(servers_status)})"
+                else:
+                    return "LogsView(No servers running)"
+        
+        return LogsView(self)
     
     # High-level sync API methods
     def send_to_peers(self, path: str) -> Dict[str, bool]:
@@ -747,7 +995,7 @@ class SyftClient:
         Returns:
             Status dictionary with watcher information
         """
-        return self.watcher.start(**kwargs)
+        return self._watcher_manager.start(**kwargs)
     
     def start_receiver(self, **kwargs):
         """
@@ -763,7 +1011,7 @@ class SyftClient:
         Returns:
             Status dictionary with receiver information
         """
-        return self.receiver.start(**kwargs)
+        return self._receiver_manager.start(**kwargs)
     
     @property
     def peers(self):
@@ -1629,10 +1877,10 @@ class SyftClient:
                 # If we killed servers, reset the manager state
                 if kill_servers:
                     # Force managers to think servers are not running
-                    if hasattr(self, '_watcher'):
-                        self._watcher._server = None
-                    if hasattr(self, '_receiver'):
-                        self._receiver._server = None
+                    if hasattr(self, '_SyftClient__watcher_manager'):
+                        self._watcher_manager._server = None
+                    if hasattr(self, '_SyftClient__receiver_manager'):
+                        self._receiver_manager._server = None
                 
                 self.start_watcher()
 

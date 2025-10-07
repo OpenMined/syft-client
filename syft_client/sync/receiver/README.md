@@ -23,10 +23,10 @@ client = sc.login("your_email@gmail.com")
 client.start_receiver()
 
 # Check status
-client.receiver.status()
+client._receiver_manager.status()
 
 # Stop the receiver
-client.receiver.stop()
+client._receiver_manager.stop()
 ```
 
 ## How It Works

@@ -270,7 +270,7 @@ def create_receiver_endpoint(email: str, check_interval: int = 2,
                 # if verbose:
                 #     print(f"⚠️  Receiver server created but may still be initializing")
                 #     print(f"    Server URL: {server.url}")
-                #     print(f"    You can check status with: client.receiver.status()")
+                #     print(f"    You can check status with: client._receiver_manager.status()")
     
     return server
 

@@ -9,7 +9,7 @@ The receiver provides automatic inbox monitoring and message processing for syft
 - **Syft-serve based**: Uses syft-serve to create persistent server endpoints
 - **Process isolation**: Runs as separate server process that outlasts the Python session
 - **Lifecycle**: Independent of client instance - persists until explicitly stopped
-- **API**: Exposed through `client.receiver` property and related methods
+- **API**: Exposed through `client._receiver_manager` property and related methods
 - **Server naming**: `receiver_{email}` format for unique identification
 
 ### 2. Component Structure
@@ -132,7 +132,7 @@ receiver = client.start_receiver(
 )
 
 # Check if receiver already running
-if client.receiver.is_running():
+if client._receiver_manager.is_running():
     print("Receiver already active from previous session")
 ```
 
@@ -140,7 +140,7 @@ if client.receiver.is_running():
 
 ```python
 # Status
-status = client.receiver.status()
+status = client._receiver_manager.status()
 # Returns: {
 #   "running": True,
 #   "server_url": "http://localhost:8002",
@@ -152,13 +152,13 @@ status = client.receiver.status()
 # }
 
 # Stop the receiver
-client.receiver.stop()
+client._receiver_manager.stop()
 
 # Get detailed statistics
-stats = client.receiver.get_stats()
+stats = client._receiver_manager.get_stats()
 
 # Force immediate check (useful for testing)
-client.receiver.check_now()
+client._receiver_manager.check_now()
 ```
 
 ### Event Callbacks

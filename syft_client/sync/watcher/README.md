@@ -22,10 +22,10 @@ client = sc.login("your_email@gmail.com")
 client.start_watcher()
 
 # Check status
-client.watcher.status()
+client._watcher_manager.status()
 
 # Stop the watcher
-client.watcher.stop()
+client._watcher_manager.stop()
 ```
 
 ## How It Works

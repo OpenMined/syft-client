@@ -9,7 +9,7 @@ The file watcher will provide automatic synchronization of files between peers, 
 - **Syft-serve based**: Watcher will use syft-serve to create persistent server endpoints
 - **Process isolation**: Runs as separate server process that outlasts the Python session
 - **Lifecycle**: Independent of client instance - persists until explicitly stopped
-- **API**: Exposed through `client.watcher` property and related methods
+- **API**: Exposed through `client._watcher_manager` property and related methods
 - **Server naming**: `watcher_sender_{email}` format for unique identification
 - **HTTP endpoints**: Status, control, and monitoring via HTTP API
 
@@ -166,7 +166,7 @@ watcher = client.start_watcher(
 )
 
 # Check if watcher already running (survives Python restarts)
-if client.watcher.is_running():
+if client._watcher_manager.is_running():
     print("Watcher already active from previous session")
 ```
 
@@ -174,7 +174,7 @@ if client.watcher.is_running():
 
 ```python
 # Status - queries the syft-serve endpoint
-status = client.watcher.status()
+status = client._watcher_manager.status()
 # Returns: {
 #   "running": True,
 #   "server_url": "http://localhost:8080",
@@ -187,13 +187,13 @@ status = client.watcher.status()
 # }
 
 # Stop the persistent watcher
-client.watcher.stop()
+client._watcher_manager.stop()
 
 # List all active watchers (across all emails)
-active_watchers = client.watcher.list_all()
+active_watchers = client._watcher_manager.list_all()
 
 # Get history
-history = client.watcher.get_history(
+history = client._watcher_manager.get_history(
     file_path="data.csv",
     limit=10
 )
