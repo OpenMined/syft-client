@@ -1398,7 +1398,7 @@ class SyftClient:
         # Progress tracking
         import sys
         import time
-        total_steps = 11  # Added steps for peer requests and cache warming
+        total_steps = 12  # Added steps for peer requests, cache warming, and job runner
         current_step = 0
         
         def print_progress(step: int, message: str, is_final: bool = False):
@@ -1584,6 +1584,10 @@ class SyftClient:
                 current_step += 1
                 print_progress(current_step, "Starting receiver")
                 self.start_receiver()
+
+                current_step += 1
+                print_progress(current_step, "Starting job runner")
+                self.start_runner()
 
             # Step 9: Warm the cache
             current_step += 1
