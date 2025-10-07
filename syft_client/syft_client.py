@@ -1587,7 +1587,7 @@ class SyftClient:
 
                 current_step += 1
                 print_progress(current_step, "Starting job runner")
-                self.start_runner()
+                self._setup_job_runner()
 
             # Step 9: Warm the cache
             current_step += 1
