@@ -379,8 +379,7 @@ class BaseTransportLayer(ABC):
         
         print(f"   🏷️  Creating deletion marker: {marker_path}", flush=True)
         print(f"      - For path: {path}", flush=True)
-        is_dir_status = path.is_dir() if path.exists() else "N/A (path doesn't exist)"
-        print(f"      - Is directory: {is_dir_status}", flush=True)
+        print(f"      - Is directory: {path.is_dir() if path.exists() else 'N/A (path doesn\'t exist)'}", flush=True)
         
         # Write simple metadata
         import json
