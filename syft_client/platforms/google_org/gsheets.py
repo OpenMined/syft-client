@@ -146,7 +146,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                     self.sheets_service = build('sheets', 'v4')
                     self.drive_service = build('drive', 'v3')
                     self.credentials = None  # No explicit credentials in Colab
-                except ImportError:
+                except (ImportError, AttributeError):
                     # Fallback to regular credentials if Colab auth not available
                     if credentials is None:
                         return False

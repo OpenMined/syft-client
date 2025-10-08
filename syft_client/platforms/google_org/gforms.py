@@ -144,7 +144,7 @@ class GFormsTransport(BaseTransportLayer):
                     self.forms_service = build('forms', 'v1')
                     self.drive_service = build('drive', 'v3')
                     self.credentials = None  # No explicit credentials in Colab
-                except ImportError:
+                except (ImportError, AttributeError):
                     # Fallback to regular credentials if Colab auth not available
                     if credentials is None:
                         return False
@@ -184,7 +184,7 @@ class GFormsTransport(BaseTransportLayer):
             try:
                 from google.colab import auth as colab_auth
                 return True  # Can authenticate on demand
-            except ImportError:
+            except (ImportError, AttributeError):
                 pass
             
         # Otherwise check normal setup
