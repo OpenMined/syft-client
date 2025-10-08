@@ -14,6 +14,17 @@ from ..base import BasePlatformClient
 from ...auth.wallets import get_wallet_class, LocalFileWallet
 from ...environment import Environment
 
+# Try importing Colab auth
+try:
+    from google.colab import auth as colab_auth
+    COLAB_AVAILABLE = True
+except ImportError:
+    colab_auth = None
+    COLAB_AVAILABLE = False
+except AttributeError:
+    colab_auth = None
+    COLAB_AVAILABLE = False
+
 class GooglePersonalClient(BasePlatformClient):
     """Client for personal Google accounts using OAuth2"""
     
