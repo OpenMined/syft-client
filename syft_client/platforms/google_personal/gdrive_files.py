@@ -151,7 +151,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     # Build service without explicit credentials in Colab
                     self.drive_service = build('drive', 'v3')
                     self.credentials = None  # No explicit credentials in Colab
-                except (ImportError, AttributeError):
+                except ImportError:
                     # Fallback to regular credentials if Colab auth not available
                     if credentials is None:
                         return False
@@ -192,7 +192,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             try:
                 from google.colab import auth as colab_auth
                 return True  # Can authenticate on demand
-            except (ImportError, AttributeError):
+            except ImportError:
                 pass
             
         # Otherwise check normal setup

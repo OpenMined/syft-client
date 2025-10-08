@@ -130,7 +130,7 @@ class GFormsTransport(BaseTransportLayer):
                     self.forms_service = build('forms', 'v1')
                     self.drive_service = build('drive', 'v3')
                     self.credentials = None  # No explicit credentials in Colab
-                except (ImportError, AttributeError):
+                except ImportError:
                     # Fallback to regular credentials if Colab auth not available
                     if credentials is None:
                         return False
