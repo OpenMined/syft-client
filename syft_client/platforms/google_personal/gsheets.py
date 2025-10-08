@@ -37,7 +37,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         self._sheet_id_cache = {}  # Cache for sheet name -> ID mapping
         # Debug logging only in verbose mode
         self.verbose = False  # Default to non-verbose
-        
+    
     @property
     def api_is_active_by_default(self) -> bool:
         """Sheets API requires manual activation"""
@@ -613,12 +613,11 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             print(f"   🔍 sheets_service: {self.sheets_service is not None}", flush=True)
         
         try:
-            
             if not self.drive_service:
                 if hasattr(self, 'verbose') and self.verbose:
                     print(f"   ❌ drive_service is None!", flush=True)
                 return None
-                
+            
             # First check if sheet already exists
             query = f"name='{sheet_name}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
             results = self.drive_service.files().list(
@@ -633,7 +632,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                 if "rasswanth" in sheet_name and hasattr(self, 'verbose') and self.verbose:
                     print(f"   🔍 Found existing rasswanth sheet: {sheet_id}", flush=True)
                 return sheet_id
-            
+        
             # Create new sheet with structure from gdrive_unified.py
             spreadsheet = {
                 'properties': {
@@ -649,7 +648,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                     }
                 }]
             }
-            
+        
             # Create the spreadsheet
             timestamp = datetime.now().strftime("%H:%M:%S")
             print(f"   [{timestamp}] 📊 SHEETS API: spreadsheets.create (creating {sheet_name})")
@@ -658,7 +657,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                 fields='spreadsheetId'
             ).execute()
             sheet_id = sheet['spreadsheetId']
-            
+        
             # Grant recipient write access if specified
             if recipient_email and self.drive_service:
                 try:
@@ -676,7 +675,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                     ).execute()
                 except Exception as e:
                     print(f"   ⚠️  Could not grant access to {recipient_email}: {e}")
-            
+        
             return sheet_id
             
         except Exception as e:
