@@ -14,11 +14,12 @@ from ..base import BasePlatformClient
 from ...auth.wallets import get_wallet_class, LocalFileWallet
 from ...environment import Environment
 
-# Try importing Colab auth
+# Try importing Colab auth - catch both ImportError and AttributeError
+# AttributeError occurs when google.colab exists but fails to initialize outside IPython kernel
 try:
     from google.colab import auth as colab_auth
     COLAB_AVAILABLE = True
-except ImportError:
+except (ImportError, AttributeError):
     colab_auth = None
     COLAB_AVAILABLE = False
 
