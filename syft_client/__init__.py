@@ -13,7 +13,7 @@ reset_wallet = SyftClient.reset_wallet_static
 # Resolve Syft Paths
 from .syft_client import resolve_path
 
-__version__ = "0.1.67"
+__version__ = "0.1.68"
 
 __all__ = [
     "login",
