@@ -78,14 +78,15 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         print(f"Starting watcher for {email}...", flush=True)
         
         # Try to login - if no credentials exist, create a minimal client
+        # Note: login() internally creates SyftBox directory and Colab symlink if needed
         client = sc.login(email, verbose=False, force_relogin=False, skip_server_setup=True)
         print(f"Login successful!", flush=True)
-    
-        
+
+
         # Get the SyftBox directory to watch
         # Always use client's syftbox directory to ensure consistency
         syftbox_dir = client.get_syftbox_directory()
-        
+
         # Watch the entire datasites folder instead of just the user's own folder
         watch_path = syftbox_dir / "datasites"
         watch_path.mkdir(parents=True, exist_ok=True)

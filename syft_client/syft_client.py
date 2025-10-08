@@ -329,35 +329,32 @@ class SyftClient:
         """Create the local SyftBox directory structure"""
         if not self.email:
             return
-            
-        # Check if we're in Colab
-        environment = detect_environment()
-        if environment == Environment.COLAB:
-            # In Colab, use /content directory
-            base_dir = Path("/content")
-        else:
-            # Otherwise use home directory
-            base_dir = Path.home()
-            
-        syftbox_dir = base_dir / f"SyftBox_{self.email}"
-        
+
+        # Always use home directory as the primary location
+        # For Colab, we'll create a convenience symlink in /content
+        syftbox_dir = Path.home() / f"SyftBox_{self.email}"
+
         if not syftbox_dir.exists():
             try:
                 syftbox_dir.mkdir(exist_ok=True)
                 print(f"📁 Created local SyftBox directory: {syftbox_dir}")
-                
+
                 # Create subdirectories
                 subdirs = ["datasites", "apps"]
                 for subdir in subdirs:
                     (syftbox_dir / subdir).mkdir(exist_ok=True)
-                    
+
             except Exception as e:
                 print(f"⚠️  Could not create SyftBox directory: {e}")
         else:
             print(f"📁 Using existing SyftBox directory: {syftbox_dir}")
-                
+
         # Store the path for later use
         self.local_syftbox_dir = syftbox_dir
+
+        # Create Colab convenience symlink if in Colab environment
+        from .core.colab_utils import setup_colab_symlink
+        setup_colab_symlink(syftbox_dir, verbose=self.verbose)
     
     def _sanitize_email(self) -> str:
         """Sanitize email for use in file paths"""
