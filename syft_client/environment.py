@@ -21,31 +21,15 @@ class EnvironmentDetector:
     def detect() -> Environment:
         """
         Detect which Python environment we're running in
-
+        
         Returns:
             Environment enum value
         """
         # Check for Google Colab first (most specific)
-        # Use module finder instead of import to avoid triggering google.colab initialization
-        # which fails in subprocesses outside the IPython kernel
         try:
-            import sys
-            import importlib.util
-
-            # Check if google.colab is already loaded (we're in IPython kernel)
-            if 'google.colab' in sys.modules:
-                return Environment.COLAB
-
-            # Check if we can find the module without importing it
-            spec = importlib.util.find_spec('google.colab')
-            if spec is not None:
-                # Also check for Colab-specific environment indicators
-                import os
-                # Colab sets specific environment variables and paths
-                if (os.path.exists('/content') and
-                    os.path.exists('/usr/local/lib/python3.12/dist-packages/google/colab')):
-                    return Environment.COLAB
-        except (ImportError, AttributeError):
+            import google.colab
+            return Environment.COLAB
+        except ImportError:
             pass
         
         # Check for Jupyter/IPython with multiple indicators
