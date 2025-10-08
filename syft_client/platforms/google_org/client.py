@@ -664,16 +664,16 @@ class GoogleOrgClient(BasePlatformClient):
             if self.verbose:
                 print("🔐 Authenticating with Google Colab...")
             
-        # Try importing Colab auth
-        try:
-            from google.colab import auth as colab_auth
-            COLAB_AVAILABLE = True
-        except ImportError:
-            colab_auth = None
-            COLAB_AVAILABLE = False
-        except AttributeError:
-            colab_auth = None
-            COLAB_AVAILABLE = False
+            # Try importing Colab auth
+            try:
+                from google.colab import auth as colab_auth
+                COLAB_AVAILABLE = True
+            except ImportError:
+                colab_auth = None
+                COLAB_AVAILABLE = False
+            except AttributeError:
+                colab_auth = None
+                COLAB_AVAILABLE = False
 
             # Authenticate the Colab user
             colab_auth.authenticate_user()
