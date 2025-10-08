@@ -50,47 +50,14 @@ def _get_platform_client_class(platform: Platform):
 # Platform client registry - uses lazy loading
 class _PlatformClientRegistry(dict):
     """Registry that lazily loads platform client classes"""
-
-    # List of all supported platforms
-    _SUPPORTED_PLATFORMS = [
-        Platform.GOOGLE_PERSONAL,
-        Platform.GOOGLE_ORG,
-        Platform.MICROSOFT,
-        Platform.YAHOO,
-        Platform.APPLE,
-        Platform.ZOHO,
-        Platform.PROTON,
-        Platform.GMX,
-        Platform.FASTMAIL,
-        Platform.MAILCOM,
-        Platform.DROPBOX,
-        Platform.SMTP,
-    ]
-
     def __getitem__(self, platform):
         return _get_platform_client_class(platform)
-
-    def __contains__(self, platform):
-        """Check if platform is supported"""
-        return platform in self._SUPPORTED_PLATFORMS
 
     def get(self, platform, default=None):
         try:
             return _get_platform_client_class(platform)
         except ValueError:
             return default
-
-    def keys(self):
-        """Return all supported platform keys"""
-        return self._SUPPORTED_PLATFORMS
-
-    def values(self):
-        """Return all platform client classes (lazy loaded)"""
-        return [_get_platform_client_class(p) for p in self._SUPPORTED_PLATFORMS]
-
-    def items(self):
-        """Return all (platform, client_class) pairs (lazy loaded)"""
-        return [(p, _get_platform_client_class(p)) for p in self._SUPPORTED_PLATFORMS]
 
 PLATFORM_CLIENTS = _PlatformClientRegistry()
 
