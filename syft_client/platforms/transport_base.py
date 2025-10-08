@@ -1032,29 +1032,56 @@ class BaseTransportLayer(ABC):
                                         client._file_index.mark_as_received(str(dest), sender_email)
                             
                             # THEN: Move the file/directory
-                            if item.is_dir():
-                                if dest.exists():
-                                    # Merge directories instead of replacing
-                                    self._merge_directories(str(item), str(dest))
+                            try:
+                                if verbose:
+                                    print(f"   🔧 Moving: {item} → {dest}", flush=True)
+                                    print(f"      - Item is dir: {item.is_dir()}", flush=True)
+                                    print(f"      - Dest exists: {dest.exists()}", flush=True)
+
+                                if item.is_dir():
+                                    if dest.exists():
+                                        # Merge directories instead of replacing
+                                        if verbose:
+                                            print(f"      - Merging directories...", flush=True)
+                                        self._merge_directories(str(item), str(dest))
+                                        if verbose:
+                                            print(f"      - ✅ Merge complete", flush=True)
+                                    else:
+                                        import shutil
+                                        if verbose:
+                                            print(f"      - Moving directory...", flush=True)
+                                        shutil.move(str(item), str(dest))
+                                        if verbose:
+                                            print(f"      - ✅ Move complete", flush=True)
                                 else:
+                                    # For files, use direct write to prevent deletion events
                                     import shutil
-                                    shutil.move(str(item), str(dest))
-                            else:
-                                # For files, use direct write to prevent deletion events
-                                import shutil
-                                
-                                if dest.exists():
-                                    # Direct write prevents watchdog from seeing deletion events
-                                    with open(item, 'rb') as src:
-                                        content = src.read()
-                                    with open(dest, 'wb') as dst:
-                                        dst.write(content)
-                                else:
-                                    # No existing file, just move normally
-                                    shutil.move(str(item), str(dest))
-                            
-                            if verbose:
-                                print(f"   📥 Extracted: {dest.name}")
+
+                                    if dest.exists():
+                                        # Direct write prevents watchdog from seeing deletion events
+                                        if verbose:
+                                            print(f"      - Overwriting existing file...", flush=True)
+                                        with open(item, 'rb') as src:
+                                            content = src.read()
+                                        with open(dest, 'wb') as dst:
+                                            dst.write(content)
+                                        if verbose:
+                                            print(f"      - ✅ Overwrite complete ({len(content)} bytes)", flush=True)
+                                    else:
+                                        # No existing file, just move normally
+                                        if verbose:
+                                            print(f"      - Moving file...", flush=True)
+                                        shutil.move(str(item), str(dest))
+                                        if verbose:
+                                            print(f"      - ✅ Move complete", flush=True)
+
+                                if verbose:
+                                    print(f"   📥 Extracted: {dest}", flush=True)
+                            except Exception as e:
+                                print(f"   ❌ Failed to move {item} to {dest}: {e}", flush=True)
+                                import traceback
+                                traceback.print_exc()
+                                raise  # Re-raise to be caught by outer exception handler
                     
                         # Add to results
                         downloaded_messages.append({
@@ -1139,7 +1166,7 @@ class BaseTransportLayer(ABC):
             return 'gforms'
         return name
     
-    def _merge_directories(self, src: str, dest: str) -> None:
+    def _merge_directories(self, src: str, dest: str, verbose: bool = True) -> None:
         """
         Recursively merge src directory into dest directory.
         Only files are moved, directories are created as needed.
@@ -1147,31 +1174,50 @@ class BaseTransportLayer(ABC):
         """
         import shutil
         from pathlib import Path
-        
+
         src_path = Path(src)
         dest_path = Path(dest)
-        
+
+        if verbose:
+            print(f"      🔀 Merging: {src_path} → {dest_path}", flush=True)
+
         # Ensure destination directory exists
         dest_path.mkdir(parents=True, exist_ok=True)
-        
+
         for item in src_path.iterdir():
             s = item
             d = dest_path / item.name
-            
+
             if s.is_dir():
                 # Always recurse into directories, never move them wholesale
-                self._merge_directories(str(s), str(d))
+                if verbose:
+                    print(f"         📁 Recursing into: {s.name}", flush=True)
+                self._merge_directories(str(s), str(d), verbose=verbose)
             else:
                 # For files, use direct write to prevent deletion events
-                if d.exists():
-                    # Direct write prevents watchdog from seeing deletion events
-                    with open(s, 'rb') as src:
-                        content = src.read()
-                    with open(d, 'wb') as dst:
-                        dst.write(content)
-                else:
-                    # No existing file, just move normally
-                    shutil.move(str(s), str(d))
+                try:
+                    if d.exists():
+                        # Direct write prevents watchdog from seeing deletion events
+                        if verbose:
+                            print(f"         📝 Overwriting: {d}", flush=True)
+                        with open(s, 'rb') as src_file:
+                            content = src_file.read()
+                        with open(d, 'wb') as dst_file:
+                            dst_file.write(content)
+                        if verbose:
+                            print(f"         ✅ Wrote {len(content)} bytes", flush=True)
+                    else:
+                        # No existing file, just move normally
+                        if verbose:
+                            print(f"         📄 Moving: {s.name} → {d}", flush=True)
+                        shutil.move(str(s), str(d))
+                        if verbose:
+                            print(f"         ✅ Moved", flush=True)
+                except Exception as e:
+                    print(f"         ❌ Error merging {s} to {d}: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
+                    raise
     
     def send_to(self, archive_path: str, recipient: str, message_id: Optional[str] = None) -> bool:
         """
