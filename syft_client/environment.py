@@ -31,6 +31,8 @@ class EnvironmentDetector:
             return Environment.COLAB
         except ImportError:
             pass
+        except AttributeError: # sometimes we're seeing an error in "import google.colab" when called from background
+            return Environment.COLAB
         
         # Check for Jupyter/IPython with multiple indicators
         try:
