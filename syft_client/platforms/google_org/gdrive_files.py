@@ -194,7 +194,8 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 return True  # Can authenticate on demand
             except ImportError:
                 pass
-            
+            except AttributeError:
+                return True
         # Otherwise check normal setup
         return self.drive_service is not None
     

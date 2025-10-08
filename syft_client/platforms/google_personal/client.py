@@ -14,15 +14,6 @@ from ..base import BasePlatformClient
 from ...auth.wallets import get_wallet_class, LocalFileWallet
 from ...environment import Environment
 
-# Try importing Colab auth
-try:
-    from google.colab import auth as colab_auth
-    COLAB_AVAILABLE = True
-except ImportError:
-    colab_auth = None
-    COLAB_AVAILABLE = False
-
-
 class GooglePersonalClient(BasePlatformClient):
     """Client for personal Google accounts using OAuth2"""
     
@@ -714,6 +705,21 @@ class GooglePersonalClient(BasePlatformClient):
         Returns:
             bool: True if successful, False otherwise
         """
+
+        # Try importing Colab auth
+        try:
+            from google.colab import auth as colab_auth
+            COLAB_AVAILABLE = True
+        except ImportError:
+            colab_auth = None
+            COLAB_AVAILABLE = False
+        except AttributeError:
+            colab_auth = None # this will fail if we get the attribute error... 
+            # but i think that only comes up as a background atsk
+            # and background tasks shoudl only start after colab has logged in
+            # and in that case there should be a cached key instead of colab authentication
+            COLAB_AVAILABLE = False
+            
         if not COLAB_AVAILABLE or self.current_environment != Environment.COLAB:
             return False
         
