@@ -667,23 +667,25 @@ class GoogleOrgClient(BasePlatformClient):
         Returns:
             bool: True if successful, False otherwise
         """
+
+        # Try importing Colab auth
+        COLAB_AVAILABLE = False
+        try:
+            from google.colab import auth as colab_auth
+            COLAB_AVAILABLE = True
+        except ImportError:
+            colab_auth = None
+            COLAB_AVAILABLE = False
+        except AttributeError:
+            colab_auth = None
+            COLAB_AVAILABLE = True
+
         if not COLAB_AVAILABLE or self.current_environment != Environment.COLAB:
             return False
         
         try:
             if self.verbose:
                 print("🔐 Authenticating with Google Colab...")
-            
-            # Try importing Colab auth
-            try:
-                from google.colab import auth as colab_auth
-                COLAB_AVAILABLE = True
-            except ImportError:
-                colab_auth = None
-                COLAB_AVAILABLE = False
-            except AttributeError:
-                colab_auth = None
-                COLAB_AVAILABLE = False
 
             # Authenticate the Colab user
             colab_auth.authenticate_user()
