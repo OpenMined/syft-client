@@ -2,4 +2,4 @@
 
 from .client import GMXClient
 
-__all__ = ['GMXClient']
+__all__ = ["GMXClient"]

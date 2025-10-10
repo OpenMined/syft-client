@@ -2,4 +2,4 @@
 
 from .client import MailcomClient
 
-__all__ = ['MailcomClient']
+__all__ = ["MailcomClient"]

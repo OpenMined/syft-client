@@ -63,13 +63,13 @@ def setup_colab_symlink(syftbox_dir: Path, verbose: bool = True) -> Optional[Pat
         return None
 
     # Verify /content directory exists
-    if not os.path.exists('/content'):
+    if not os.path.exists("/content"):
         if verbose:
             print("⚠️  /content directory not found, skipping Colab symlink creation")
         return None
 
     # Create symlink path with same name as the actual directory
-    symlink_path = Path('/content') / syftbox_dir.name
+    symlink_path = Path("/content") / syftbox_dir.name
 
     try:
         # Case 1: Symlink already exists
@@ -81,20 +81,26 @@ def setup_colab_symlink(syftbox_dir: Path, verbose: bool = True) -> Optional[Pat
             if current_target == expected_target:
                 # Symlink is correct, nothing to do
                 if verbose:
-                    print(f"📎 Colab symlink already exists: {symlink_path} → {syftbox_dir}")
+                    print(
+                        f"📎 Colab symlink already exists: {symlink_path} → {syftbox_dir}"
+                    )
                 return symlink_path
             else:
                 # Symlink points to wrong location, recreate it
                 if verbose:
-                    print(f"🔧 Removing incorrect symlink: {symlink_path} (pointed to {current_target})")
+                    print(
+                        f"🔧 Removing incorrect symlink: {symlink_path} (pointed to {current_target})"
+                    )
                 symlink_path.unlink()
                 # Fall through to create new symlink
 
         # Case 2: Path exists as a regular file or directory (not a symlink)
         elif symlink_path.exists():
-            path_type = 'directory' if symlink_path.is_dir() else 'file'
+            path_type = "directory" if symlink_path.is_dir() else "file"
             if verbose:
-                print(f"⚠️  Cannot create symlink at {symlink_path}: path already exists as {path_type}")
+                print(
+                    f"⚠️  Cannot create symlink at {symlink_path}: path already exists as {path_type}"
+                )
             return None
 
         # Case 3: Path doesn't exist or was just removed - create new symlink
@@ -117,7 +123,9 @@ def setup_colab_symlink(syftbox_dir: Path, verbose: bool = True) -> Optional[Pat
         # Catch-all for any unexpected errors
         # We never want symlink creation to crash the program
         if verbose:
-            print(f"⚠️  Unexpected error creating Colab symlink: {type(e).__name__}: {e}")
+            print(
+                f"⚠️  Unexpected error creating Colab symlink: {type(e).__name__}: {e}"
+            )
         return None
 
 
@@ -143,20 +151,20 @@ def _is_colab_environment() -> bool:
         - Filesystem checks are more reliable across contexts
     """
     # Method 1: Check for Colab-specific environment variable
-    if 'COLAB_GPU' in os.environ or 'COLAB_TPU_ADDR' in os.environ:
+    if "COLAB_GPU" in os.environ or "COLAB_TPU_ADDR" in os.environ:
         return True
 
     # Method 2: Check for /content directory existence
     # This is less reliable but works in subprocess contexts
     # We also check that we're not in a standard home directory setup
-    if os.path.exists('/content'):
+    if os.path.exists("/content"):
         # Additional check: in Colab, /root is typically the home directory
         # and /content is a separate mount point
         try:
             home_dir = Path.home()
             # In Colab: home is /root, and /content exists separately
             # Not in Colab: home might be /home/username or similar
-            if home_dir == Path('/root'):
+            if home_dir == Path("/root"):
                 return True
         except:
             pass
@@ -164,6 +172,7 @@ def _is_colab_environment() -> bool:
     # Method 3: Try importing google.colab (may fail in subprocesses)
     try:
         import google.colab
+
         return True
     except (ImportError, AttributeError):
         # ImportError: module not found (not in Colab)
@@ -191,7 +200,7 @@ def cleanup_colab_symlink(syftbox_dir: Path, verbose: bool = True) -> bool:
     if not _is_colab_environment():
         return False
 
-    symlink_path = Path('/content') / syftbox_dir.name
+    symlink_path = Path("/content") / syftbox_dir.name
 
     try:
         if symlink_path.is_symlink():
@@ -206,4 +215,4 @@ def cleanup_colab_symlink(syftbox_dir: Path, verbose: bool = True) -> bool:
         return False
 
 
-__all__ = ['setup_colab_symlink', 'cleanup_colab_symlink']
+__all__ = ["setup_colab_symlink", "cleanup_colab_symlink"]
