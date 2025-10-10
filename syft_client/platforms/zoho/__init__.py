@@ -2,4 +2,4 @@
 
 from .client import ZohoClient
 
-__all__ = ['ZohoClient']
+__all__ = ["ZohoClient"]

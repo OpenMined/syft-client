@@ -1,22 +1,28 @@
 """Platform implementations for syft_client"""
 
+from .apple import AppleClient
 from .base import BasePlatformClient
-from .transport_base import BaseTransportLayer
-from .detection import Platform, detect_primary_platform, get_secondary_platforms, detect_platform_full, PlatformDetector
+from .detection import (
+    Platform,
+    PlatformDetector,
+    detect_platform_full,
+    detect_primary_platform,
+    get_secondary_platforms,
+)
+from .dropbox import DropboxClient
+from .fastmail import FastmailClient
+from .gmx import GMXClient
+from .google_org import GoogleOrgClient
 
 # Import all platform clients
 from .google_personal import GooglePersonalClient
-from .google_org import GoogleOrgClient
-from .microsoft import MicrosoftClient
-from .yahoo import YahooClient
-from .apple import AppleClient
-from .zoho import ZohoClient
-from .proton import ProtonClient
-from .gmx import GMXClient
-from .fastmail import FastmailClient
 from .mailcom import MailcomClient
-from .dropbox import DropboxClient
+from .microsoft import MicrosoftClient
+from .proton import ProtonClient
 from .smtp import SMTPClient
+from .transport_base import BaseTransportLayer
+from .yahoo import YahooClient
+from .zoho import ZohoClient
 
 # Platform client registry
 PLATFORM_CLIENTS = {
@@ -34,46 +40,48 @@ PLATFORM_CLIENTS = {
     Platform.SMTP: SMTPClient,
 }
 
+
 def get_platform_client(platform: Platform, email: str, **kwargs) -> BasePlatformClient:
     """
     Get the appropriate platform client for the given platform.
-    
+
     Args:
         platform: The platform enum
         email: User's email address
         **kwargs: Additional arguments to pass to the platform client
-        
+
     Returns:
         Platform client instance
-        
+
     Raises:
         ValueError: If platform is not supported
     """
     if platform not in PLATFORM_CLIENTS:
         raise ValueError(f"Platform {platform.value} is not supported")
-    
+
     client_class = PLATFORM_CLIENTS[platform]
     return client_class(email, **kwargs)
 
+
 __all__ = [
-    'BasePlatformClient',
-    'BaseTransportLayer',
-    'Platform',
-    'detect_primary_platform',
-    'get_secondary_platforms',
-    'detect_platform_full',
-    'PlatformDetector',
-    'get_platform_client',
-    'GooglePersonalClient',
-    'GoogleOrgClient',
-    'MicrosoftClient',
-    'YahooClient',
-    'AppleClient',
-    'ZohoClient',
-    'ProtonClient',
-    'GMXClient',
-    'FastmailClient',
-    'MailcomClient',
-    'DropboxClient',
-    'SMTPClient',
+    "BasePlatformClient",
+    "BaseTransportLayer",
+    "Platform",
+    "detect_primary_platform",
+    "get_secondary_platforms",
+    "detect_platform_full",
+    "PlatformDetector",
+    "get_platform_client",
+    "GooglePersonalClient",
+    "GoogleOrgClient",
+    "MicrosoftClient",
+    "YahooClient",
+    "AppleClient",
+    "ZohoClient",
+    "ProtonClient",
+    "GMXClient",
+    "FastmailClient",
+    "MailcomClient",
+    "DropboxClient",
+    "SMTPClient",
 ]

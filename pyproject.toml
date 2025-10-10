@@ -188,3 +188,10 @@ module = [
     "syft_widget.*"
 ]
 ignore_missing_imports = true
+
+[tool.bandit]
+exclude_dirs = ["tests", "build", "dist", ".venv", "venv"]
+skips = ["B101"]  # Skip assert_used (needed in tests)
+
+[tool.bandit.assert_used]
+skips = ["*/test_*.py", "*/tests/*"]

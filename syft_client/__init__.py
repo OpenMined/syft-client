@@ -15,9 +15,4 @@ from .syft_client import resolve_path
 
 __version__ = "0.1.84"
 
-__all__ = [
-    "login",
-    "reset_wallet",
-    "SyftClient",
-    "resolve_path"
-]
+__all__ = ["login", "reset_wallet", "SyftClient", "resolve_path"]

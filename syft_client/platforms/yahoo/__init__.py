@@ -2,4 +2,4 @@
 
 from .client import YahooClient
 
-__all__ = ['YahooClient']
+__all__ = ["YahooClient"]
