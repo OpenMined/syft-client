@@ -2,4 +2,4 @@
 
 from .client import AppleClient
 
-__all__ = ['AppleClient']
+__all__ = ["AppleClient"]

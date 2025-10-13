@@ -3,7 +3,4 @@
 from .client import SMTPClient
 from .email import SMTPEmailTransport
 
-__all__ = [
-    'SMTPClient',
-    'SMTPEmailTransport'
-]
+__all__ = ["SMTPClient", "SMTPEmailTransport"]

@@ -3,6 +3,7 @@ import random
 import string
 from pathlib import Path
 
+
 def generate_crop_data(num_rows: int, output_path: str):
     """
     Generates a CSV file with mock organic crop stock data.
@@ -14,21 +15,34 @@ def generate_crop_data(num_rows: int, output_path: str):
         output_path (str): Path to save the CSV file.
     """
     crops = [
-        "Carrots", "Spinach", "Kale", "Tomatoes", "Zucchini",
-        "Potatoes", "Onions", "Beets", "Radishes", "Garlic",
-        "Ginger", "Cabbage", "Cauliflower", "Broccoli", "Peas"
+        "Carrots",
+        "Spinach",
+        "Kale",
+        "Tomatoes",
+        "Zucchini",
+        "Potatoes",
+        "Onions",
+        "Beets",
+        "Radishes",
+        "Garlic",
+        "Ginger",
+        "Cabbage",
+        "Cauliflower",
+        "Broccoli",
+        "Peas",
     ]
-    
+
     # Limit rows to number of available crops
     if num_rows > len(crops):
-        raise ValueError(f"Can only generate up to {len(crops)} unique crops, got {num_rows}.")
+        raise ValueError(
+            f"Can only generate up to {len(crops)} unique crops, got {num_rows}."
+        )
 
     unit = "kgs"
 
     # Assign fixed unique IDs to each crop
     crop_id_map = {
-        crop: 'U' + ''.join(random.choices(string.digits, k=4))
-        for crop in crops
+        crop: "U" + "".join(random.choices(string.digits, k=4)) for crop in crops
     }
 
     # Select a non-repeating subset of crops
@@ -37,7 +51,7 @@ def generate_crop_data(num_rows: int, output_path: str):
     # Ensure output directory exists
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path, mode='w', newline='') as file:
+    with open(output_path, mode="w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(["ID", "Product name", "Quantity", "Price ($)", "Unit"])
 
