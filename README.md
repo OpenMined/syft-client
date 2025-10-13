@@ -14,5 +14,7 @@ Syft client is a high level client object bundling modular components which enab
 - **Client-first-work:** When something goes wrong... we build tools which first-and-foremost enable teh client to be the one doing the work to come up with a souliton (as opposed toa l the world's data owners needing to collaborate together... such as to normalize their data together).
 - **Peer-first:** Discoverability on the syft network is assumed to happen somewhere else (e.g. companion websites like SyftHub). The syft protocol is like Signal in this way... if they're not a contact in the network you ahve explicitly authorized... you don't know they exist and nobody else outside your contact list knows you exist on the network.
 - **Modular-first:** When in doubt, we separate into optional modules such that upgrades to one doesn't require upgrades to the rest of the system.
+- **MapReduce-first:** All interactions between data scientist and data owner personas are first-and-foremost viewed through the lense of a MapReduce system.
+- **Unopinionated-first — Convenient-second:** Unless we need to express an opinion on how the users should do things, we seek for teh core layers to be completely onopinoinated (e.g. a glorified email inbox for bash scripts and supporting files), but then upon that highly unopinonated core, we add optional convenience layers to make certain actions easier for teh end user. 
 
 
