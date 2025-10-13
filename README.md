@@ -16,5 +16,7 @@ Syft client is a high level client object bundling modular components which enab
 - **Modular-first:** When in doubt, we separate into optional modules such that upgrades to one doesn't require upgrades to the rest of the system.
 - **MapReduce-first:** All interactions between data scientist and data owner personas are first-and-foremost viewed through the lense of a MapReduce system.
 - **Unopinionated-first — Convenient-second:** Unless we need to express an opinion on how the users should do things, we seek for teh core layers to be completely onopinoinated (e.g. a glorified email inbox for bash scripts and supporting files), but then upon that highly unopinonated core, we add optional convenience layers to make certain actions easier for teh end user. 
-
+- **Transport-agnostic:** nothing about the syft protocol requires the user of any particular transport layer. And any means of getting strings from one (uniquely addressed) user to another (uniquely addressed) user are viable transport layers for the syft network.
+- **Mock-always:** every piece of state in the syft ecosystem (By default) comes with a mock enabling others to leverage that state in a job.
+- **Automock-first:** mock generation should be automatic as the primary way of doing things, with fallbacks to user-generated/helped mocks when privacy norms are unclear, and with no mocks in some specific instances (but this should be rare).
 
