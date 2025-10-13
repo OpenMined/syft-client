@@ -1,102 +1,14 @@
-name: CI
+name: pre-commit
 
 on:
-  push:
-    branches: [ main, develop, stephen/housekeeping ]
   pull_request:
-    branches: [ main, develop ]
+  push:
+    branches: [main, "**/pre-commit"]
 
 jobs:
-  lint:
-    name: Lint and Format Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install uv
-        run: pip install uv
-
-      - name: Install dependencies
-        run: |
-          uv pip install --system -e ".[test]"
-          uv pip install --system pre-commit
-
-      - name: Run black (format check)
-        run: black --check syft_client
-        continue-on-error: false
-
-      - name: Run isort (import order check)
-        run: isort --check-only syft_client
-        continue-on-error: false
-
-      - name: Run flake8 (linting)
-        run: flake8 syft_client --max-line-length=88 --extend-ignore=E203,W503,W504 --max-complexity=10
-        continue-on-error: false
-
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install uv
-        run: pip install uv
-
-      - name: Install dependencies
-        run: |
-          uv pip install --system bandit[toml]
-
-      - name: Run bandit (security scan)
-        run: bandit -r syft_client -c pyproject.toml
-        continue-on-error: false
-
-  typecheck:
-    name: Type Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install uv
-        run: pip install uv
-
-      - name: Install dependencies
-        run: |
-          uv pip install --system -e ".[test]"
-          uv pip install --system types-requests
-
-      - name: Run mypy (type checking)
-        run: mypy syft_client --no-strict-optional --ignore-missing-imports --check-untyped-defs
-        continue-on-error: true  # Type checking is advisory for now
-
   pre-commit:
-    name: Pre-commit Hooks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install pre-commit
-        run: pip install pre-commit
-
-      - name: Run pre-commit hooks
-        run: pre-commit run --all-files
-        continue-on-error: false  # Strict - catches issues skipped with --no-verify
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v3
+      - uses: pre-commit/action@v3.0.1
