@@ -1,4 +1,5 @@
 version = 1
+revision = 1
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -384,7 +385,7 @@ name = "click"
 version = "8.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "platform_system == 'Windows'" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/46/61/de6cd827efad202d7057d93e0fed9294b96952e188f7384832791c7b2254/click-8.3.0.tar.gz", hash = "sha256:e7b8232224eba16f4ebe410c25ced9f7875cb5f3263ffc93cc3e8da705e229c4", size = 276943 }
 wheels = [
@@ -902,7 +903,7 @@ name = "ipykernel"
 version = "6.30.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "appnope", marker = "platform_system == 'Darwin'" },
+    { name = "appnope", marker = "sys_platform == 'darwin'" },
     { name = "comm" },
     { name = "debugpy" },
     { name = "ipython", version = "8.37.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
@@ -2762,7 +2763,7 @@ wheels = [
 
 [[package]]
 name = "syft-client"
-version = "0.1.57"
+version = "0.1.84"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -2844,10 +2845,11 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0.0" },
     { name = "syft-client", extras = ["test", "dev", "job"], marker = "extra == 'all'" },
     { name = "syft-job", marker = "extra == 'job'", git = "https://github.com/OpenMined/syft-job?branch=main" },
-    { name = "syft-serve", specifier = ">=0.3.0" },
+    { name = "syft-serve", specifier = ">=0.3.11" },
     { name = "tqdm", marker = "extra == 'dev'", specifier = ">=4.64.0" },
     { name = "watchdog", specifier = ">=3.0.0" },
 ]
+provides-extras = ["job", "test", "dev", "all"]
 
 [[package]]
 name = "syft-job"
@@ -2861,7 +2863,7 @@ dependencies = [
 
 [[package]]
 name = "syft-serve"
-version = "0.3.1"
+version = "0.3.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi" },
@@ -2875,9 +2877,9 @@ dependencies = [
     { name = "urllib3" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/68/ea/f12897c8a606f39654c73810d31d7e54e8cbd3475417ce2e4d99aa4edd94/syft_serve-0.3.1.tar.gz", hash = "sha256:292b08c5c660069e18d1e2f5354c6a33b3ef24e782a9b94c1174c15474360d10", size = 35424 }
+sdist = { url = "https://files.pythonhosted.org/packages/42/54/f9bd75aec8382a2ce4c0c5c3a0a0dbb2a20efc3027e40ec3457e295aa5ff/syft_serve-0.3.11.tar.gz", hash = "sha256:0102d404a78b36a41ba017f86ca187dd02374e87e517644ae36c1cd739c48222", size = 37060 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6a/3b/a4be477553a7535b575d0db15f0c4a6ab8987c1e0f16e04bb0d3a17e288d/syft_serve-0.3.1-py3-none-any.whl", hash = "sha256:75132279c3456a10622aa0978aba7a2102d71982d9ad681e5cfeb6b0c43a0396", size = 41435 },
+    { url = "https://files.pythonhosted.org/packages/45/38/0f50a68878c3cc836d4cb2061aea06a2038efe6ab0272fc2e91576386d0d/syft_serve-0.3.11-py3-none-any.whl", hash = "sha256:89ee16c79b1c4da909bef6c8489f2f9b3b0e5c4078fbd02fbf7c37ca1de19527", size = 43080 },
 ]
 
 [[package]]
@@ -2978,7 +2980,7 @@ name = "tqdm"
 version = "4.67.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "platform_system == 'Windows'" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a8/4b/29b4ef32e036bb34e4ab51796dd745cdba7ed47ad142a9f4a1eb8e0c744d/tqdm-4.67.1.tar.gz", hash = "sha256:f8aef9c52c08c13a65f30ea34f4e5aac3fd1a34959879d7e59e63027286627f2", size = 169737 }
 wheels = [
