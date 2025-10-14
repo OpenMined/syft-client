@@ -2,4 +2,4 @@
 
 from .client import FastmailClient
 
-__all__ = ['FastmailClient']
+__all__ = ["FastmailClient"]
