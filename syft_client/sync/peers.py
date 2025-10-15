@@ -297,6 +297,9 @@ class PeerManager:
 
             self._save_peer(peer)
 
+            # Show prominent restart kernel instructions
+            self._show_restart_kernel_instructions()
+
             return True
         else:
             print(f"❌ Failed to add peer {email} on any transport")
@@ -970,6 +973,39 @@ class PeerManager:
             )
 
         return all_requests
+
+    def _show_restart_kernel_instructions(self):
+        """Show prominent restart kernel instructions"""
+        # Detect environment to show appropriate instructions
+        try:
+            from ..environment import detect_environment, Environment
+            environment = detect_environment()
+        except:
+            environment = None
+
+        # Create a bold, attention-grabbing message
+        print("\n" + "=" * 80)
+        print("🔄 IMPORTANT: RESTART YOUR JUPYTER KERNEL/RUNTIME")
+        print("=" * 80)
+        print("\nFor the peer connection to work properly, please restart your kernel/runtime:\n")
+        
+        if environment == Environment.COLAB:
+            print("📱 Google Colab:")
+            print("   1. Go to 'Runtime' menu → 'Restart runtime'")
+            print("   2. Or use keyboard shortcut: Ctrl+M . (Ctrl+M then dot)")
+            print("   3. Re-run your imports after restart")
+        else:
+            print("💻 Jupyter Lab:")
+            print("   1. Go to 'Kernel' menu → 'Restart Kernel'")
+            print("   2. Or use keyboard shortcut: Ctrl+Shift+R")
+            print("   3. Re-run your imports after restart")
+            print("\n💻 Jupyter Notebook:")
+            print("   1. Go to 'Kernel' menu → 'Restart'")
+            print("   2. Or use keyboard shortcut: Ctrl+M . (Ctrl+M then dot)")
+            print("   3. Re-run your imports after restart")
+            
+        print("\n⚠️  Without restarting, the peer connection may not function correctly!")
+        print("=" * 80)
 
 
 __all__ = ["PeerManager"]
