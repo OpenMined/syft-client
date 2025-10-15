@@ -1518,6 +1518,207 @@ class GoogleOrgClient(BasePlatformClient):
     # ===== Configuration Methods =====
     # Config methods are now inherited from BasePlatformClient
 
+    # ===== Google Drive Folder Operations =====
+
+    def download_gdrive_folder(self, folder_name: str, local_path: str, recursive: bool = True) -> bool:
+        """
+        Download entire folder from Google Drive to local system
+        
+        Args:
+            folder_name: Name of the folder on Google Drive to download
+            local_path: Local directory path where the folder should be downloaded
+            recursive: Whether to download subfolders recursively (default: True)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.gdrive_files or not self.gdrive_files.is_setup():
+            if self.verbose:
+                print("❌ Google Drive transport is not set up")
+            return False
+            
+        try:
+            import os
+            from pathlib import Path
+            
+            # Validate local path
+            local_path = Path(local_path).resolve()
+            if not local_path.exists():
+                if self.verbose:
+                    print(f"❌ Local path does not exist: {local_path}")
+                return False
+                
+            if not local_path.is_dir():
+                if self.verbose:
+                    print(f"❌ Local path is not a directory: {local_path}")
+                return False
+            
+            # Find the folder on Google Drive
+            folder_id = self._find_gdrive_folder_by_name(folder_name)
+            if not folder_id:
+                if self.verbose:
+                    print(f"❌ Folder '{folder_name}' not found on Google Drive")
+                return False
+            
+            # Create local folder
+            local_folder_path = local_path / folder_name
+            local_folder_path.mkdir(exist_ok=True)
+            
+            if self.verbose:
+                print(f"📁 Downloading folder '{folder_name}' to {local_folder_path}")
+            
+            # Download folder contents and track downloaded files
+            downloaded_files = []
+            success = self._download_folder_contents(folder_id, local_folder_path, recursive, downloaded_files)
+            
+            if success:
+                print(f"✅ Successfully downloaded folder '{folder_name}'")
+                if downloaded_files:
+                    print(f"\n📋 Downloaded files ({len(downloaded_files)} total):")
+                    for file_path in downloaded_files:
+                        print(f"   • {file_path}")
+                else:
+                    print("   📂 Folder was empty or contained only Google Workspace files")
+            elif not success:
+                print(f"❌ Failed to download folder '{folder_name}'")
+                
+            return success
+            
+        except Exception as e:    
+            print(f"❌ Error downloading folder: {e}")
+            return False
+    
+    def _find_gdrive_folder_by_name(self, folder_name: str) -> Optional[str]:
+        """Find a folder by name on Google Drive and return its ID"""
+        try:
+            # Search for folder by name
+            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = (
+                self.gdrive_files.drive_service.files()
+                .list(q=query, fields="files(id, name)", pageSize=10)
+                .execute()
+            )
+            
+            files = results.get("files", [])
+            if not files:
+                return None
+                
+            if len(files) > 1:
+                raise ValueError(
+                    f"Multiple folders named '{folder_name}' found on Google Drive. "
+                    f"Handling duplicate folder names is not implemented yet. "
+                    f"Please ensure folder names are unique or specify the folder by ID."
+                )
+                
+            return files[0]["id"]
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error searching for folder: {e}")
+            return None
+    
+    def _download_folder_contents(self, folder_id: str, local_folder_path: Path, recursive: bool = True, downloaded_files: List[str] = None) -> bool:
+        """Download all contents of a Google Drive folder to local path"""
+        if downloaded_files is None:
+            downloaded_files = []
+            
+        try:
+            # List all items in the folder
+            query = f"'{folder_id}' in parents and trashed=false"
+            results = (
+                self.gdrive_files.drive_service.files()
+                .list(
+                    q=query,
+                    fields="files(id, name, mimeType, size)",
+                    pageSize=1000
+                )
+                .execute()
+            )
+            
+            files = results.get("files", [])
+            if not files:
+                if self.verbose:
+                    print(f"   📂 Empty folder")
+                return True
+            
+            download_count = 0
+            error_count = 0
+            
+            for file in files:
+                file_id = file["id"]
+                file_name = file["name"]
+                mime_type = file["mimeType"]
+                
+                if mime_type == "application/vnd.google-apps.folder":
+                    # Handle subfolder
+                    if recursive:
+                        subfolder_path = local_folder_path / file_name
+                        subfolder_path.mkdir(exist_ok=True)
+                        
+                        if self.verbose:
+                            print(f"   📁 Downloading subfolder: {file_name}")
+                        
+                        if self._download_folder_contents(file_id, subfolder_path, recursive, downloaded_files):
+                            download_count += 1
+                        else:
+                            error_count += 1
+                    else:
+                        if self.verbose:
+                            print(f"   ⏭️  Skipping subfolder (recursive=False): {file_name}")
+                else:
+                    # Handle regular file
+                    local_file_path = local_folder_path / file_name
+                    
+                    if self._download_gdrive_file(file_id, file_name, local_file_path, mime_type):
+                        download_count += 1
+                        # Track downloaded file with relative path from the root download folder
+                        relative_path = local_file_path.relative_to(local_folder_path.parent)
+                        downloaded_files.append(str(relative_path))
+                        if self.verbose:
+                            print(f"   ✅ Downloaded: {file_name}")
+                    else:
+                        error_count += 1
+                        if self.verbose:
+                            print(f"   ❌ Failed to download: {file_name}")
+            
+            if self.verbose:
+                print(f"   📊 Downloaded {download_count} items, {error_count} errors")
+            
+            return error_count == 0
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error downloading folder contents: {e}")
+            return False
+    
+    def _download_gdrive_file(self, file_id: str, file_name: str, local_path: Path, mime_type: str) -> bool:
+        """Download a single file from Google Drive to local path"""
+        try:
+            from googleapiclient.http import MediaIoBaseDownload
+            
+            # Skip Google Workspace files for now (Docs, Sheets, etc.)
+            if mime_type.startswith("application/vnd.google-apps."):
+                if self.verbose:
+                    print(f"   ⏭️  Skipping Google Workspace file: {file_name}")
+                return True
+            
+            # Download regular files only
+            request = self.gdrive_files.drive_service.files().get_media(fileId=file_id)
+            
+            # Download to local file
+            with open(local_path, 'wb') as local_file:
+                downloader = MediaIoBaseDownload(local_file, request)
+                done = False
+                while not done:
+                    status, done = downloader.next_chunk()
+            
+            return True
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"   ❌ Error downloading file {file_name}: {e}")
+            return False
+
     # ===== Legacy/Existing Methods (To be refactored) =====
 
     def get_transport_layers(self) -> List[str]:

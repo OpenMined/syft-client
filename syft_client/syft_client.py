@@ -558,6 +558,42 @@ class SyftClient:
             return base_dir / f"SyftBox_{self.email}"
         return None
 
+    def download_gdrive_folder(self, folder_name: str, local_path: str, recursive: bool = True) -> bool:
+        """
+        Download entire folder from Google Drive to local system (convenience method)
+        
+        This is a shorthand for client.platforms.google_org.download_gdrive_folder()
+        
+        Args:
+            folder_name: Name of the folder on Google Drive to download
+            local_path: Local directory path where the folder should be downloaded
+            recursive: Whether to download subfolders recursively (default: True)
+            
+        Returns:
+            bool: True if successful, False otherwise
+            
+        Raises:
+            ValueError: If Google Org platform is not available or set up
+        """
+        # Check if Google Org platform is available
+        if "google_org" not in self._platforms:
+            raise ValueError(
+                "Google Org platform not available. Please set up Google Workspace authentication first.\n"
+                "Try: client.platforms.google_org.authenticate()"
+            )
+        
+        google_org_client = self._platforms["google_org"]
+        
+        # Check if the platform is authenticated and set up
+        if not hasattr(google_org_client, 'gdrive_files') or not google_org_client.gdrive_files.is_setup():
+            raise ValueError(
+                "Google Drive is not set up. Please authenticate and set up Google Drive first.\n"
+                "Try: client.platforms.google_org.authenticate()"
+            )
+        
+        # Delegate to the Google Org platform
+        return google_org_client.download_gdrive_folder(folder_name, local_path, recursive)
+
     @property
     def folder(self) -> Optional[str]:
         """Get the local SyftBox directory path as a string"""
