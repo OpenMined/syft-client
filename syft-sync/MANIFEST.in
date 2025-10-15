@@ -1,0 +1,8 @@
+include README.md
+include LICENSE
+include requirements.txt
+include pyproject.toml
+recursive-include syft_sync *.py
+recursive-include tests *.py
+global-exclude *.pyc
+global-exclude __pycache__
