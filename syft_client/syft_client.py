@@ -558,7 +558,7 @@ class SyftClient:
             return base_dir / f"SyftBox_{self.email}"
         return None
 
-    def download_gdrive_folder(self, folder_name: str, local_path: str, recursive: bool = True) -> bool:
+    def download_gdrive_folder(self, folder_name: str, local_path: str, recursive: bool = True) -> List[str]:
         """
         Download entire folder from Google Drive to local system (convenience method)
         
@@ -570,7 +570,7 @@ class SyftClient:
             recursive: Whether to download subfolders recursively (default: True)
             
         Returns:
-            bool: True if successful, False otherwise
+            List[str]: List of absolute paths of successfully downloaded files
             
         Raises:
             ValueError: If Google Org platform is not available or set up

@@ -1520,7 +1520,7 @@ class GoogleOrgClient(BasePlatformClient):
 
     # ===== Google Drive Folder Operations =====
 
-    def download_gdrive_folder(self, folder_name: str, local_path: str, recursive: bool = True) -> bool:
+    def download_gdrive_folder(self, folder_name: str, local_path: str, recursive: bool = True) -> List[str]:
         """
         Download entire folder from Google Drive to local system
         
@@ -1530,12 +1530,12 @@ class GoogleOrgClient(BasePlatformClient):
             recursive: Whether to download subfolders recursively (default: True)
             
         Returns:
-            bool: True if successful, False otherwise
+            List[str]: List of absolute paths of successfully downloaded files
         """
         if not self.gdrive_files or not self.gdrive_files.is_setup():
             if self.verbose:
                 print("❌ Google Drive transport is not set up")
-            return False
+            return []
             
         try:
             import os
@@ -1546,19 +1546,19 @@ class GoogleOrgClient(BasePlatformClient):
             if not local_path.exists():
                 if self.verbose:
                     print(f"❌ Local path does not exist: {local_path}")
-                return False
+                return []
                 
             if not local_path.is_dir():
                 if self.verbose:
                     print(f"❌ Local path is not a directory: {local_path}")
-                return False
+                return []
             
             # Find the folder on Google Drive
             folder_id = self._find_gdrive_folder_by_name(folder_name)
             if not folder_id:
                 if self.verbose:
                     print(f"❌ Folder '{folder_name}' not found on Google Drive")
-                return False
+                return []
             
             # Create local folder
             local_folder_path = local_path / folder_name
@@ -1567,26 +1567,26 @@ class GoogleOrgClient(BasePlatformClient):
             if self.verbose:
                 print(f"📁 Downloading folder '{folder_name}' to {local_folder_path}")
             
-            # Download folder contents and track downloaded files
-            downloaded_files = []
-            success = self._download_folder_contents(folder_id, local_folder_path, recursive, downloaded_files)
+            # Download folder contents and track downloaded files (absolute paths)
+            downloaded_files_absolute = []
+            success = self._download_folder_contents(folder_id, local_folder_path, recursive, downloaded_files_absolute)
             
             if success:
                 print(f"✅ Successfully downloaded folder '{folder_name}'")
-                if downloaded_files:
-                    print(f"\n📋 Downloaded files ({len(downloaded_files)} total):")
-                    for file_path in downloaded_files:
+                if downloaded_files_absolute:
+                    print(f"\n📋 Downloaded files ({len(downloaded_files_absolute)} total):")
+                    for file_path in downloaded_files_absolute:
                         print(f"   • {file_path}")
                 else:
                     print("   📂 Folder was empty or contained only Google Workspace files")
-            elif not success:
+            else:
                 print(f"❌ Failed to download folder '{folder_name}'")
                 
-            return success
+            return downloaded_files_absolute
             
         except Exception as e:    
             print(f"❌ Error downloading folder: {e}")
-            return False
+            return []
     
     def _find_gdrive_folder_by_name(self, folder_name: str) -> Optional[str]:
         """Find a folder by name on Google Drive and return its ID"""
@@ -1671,9 +1671,8 @@ class GoogleOrgClient(BasePlatformClient):
                     
                     if self._download_gdrive_file(file_id, file_name, local_file_path, mime_type):
                         download_count += 1
-                        # Track downloaded file with relative path from the root download folder
-                        relative_path = local_file_path.relative_to(local_folder_path.parent)
-                        downloaded_files.append(str(relative_path))
+                        # Track downloaded file with absolute path
+                        downloaded_files.append(str(local_file_path.resolve()))
                         if self.verbose:
                             print(f"   ✅ Downloaded: {file_name}")
                     else:
