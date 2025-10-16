@@ -37,24 +37,28 @@ jobs:
       - name: Setup test1 credentials
         env:
           TEST_USER1_CREDS: ${{ secrets.TEST_USER1_GOOGLE_CREDENTIALS }}
+          TEST_USER1_CONFIG: ${{ secrets.TEST_USER1_CONFIG }}
           TEST_USER1_EMAIL: ${{ secrets.TEST_USER1_EMAIL }}
         run: |
           mkdir -p ~/.syft/test1_at_openmined_org/tokens
           mkdir -p ~/SyftBox_$TEST_USER1_EMAIL
           echo "$TEST_USER1_CREDS" > ~/.syft/test1_at_openmined_org/tokens/google_org.json
+          echo "$TEST_USER1_CONFIG" > ~/.syft/test1_at_openmined_org/config.json
           echo "✅ test1 credentials configured for $TEST_USER1_EMAIL"
-          ls -la ~/.syft/test1_at_openmined_org/tokens/
+          ls -la ~/.syft/test1_at_openmined_org/
 
       - name: Setup test2 credentials
         env:
           TEST_USER2_CREDS: ${{ secrets.TEST_USER2_GOOGLE_CREDENTIALS }}
+          TEST_USER2_CONFIG: ${{ secrets.TEST_USER2_CONFIG }}
           TEST_USER2_EMAIL: ${{ secrets.TEST_USER2_EMAIL }}
         run: |
           mkdir -p ~/.syft/test2_at_openmined_org/tokens
           mkdir -p ~/SyftBox_$TEST_USER2_EMAIL
           echo "$TEST_USER2_CREDS" > ~/.syft/test2_at_openmined_org/tokens/google_org.json
+          echo "$TEST_USER2_CONFIG" > ~/.syft/test2_at_openmined_org/config.json
           echo "✅ test2 credentials configured for $TEST_USER2_EMAIL"
-          ls -la ~/.syft/test2_at_openmined_org/tokens/
+          ls -la ~/.syft/test2_at_openmined_org/
 
       - name: Verify authentication
         run: |
