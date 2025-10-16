@@ -66,7 +66,7 @@ jobs:
           python -c "
           import syft_client as sc
           try:
-              client = sc.login('test1@openmined.org')
+              client = sc.login('test1@openmined.org', skip_server_setup=True)
               print(f'✅ test1 authenticated: {client.email}')
           except Exception as e:
               print(f'❌ test1 failed: {e}')
@@ -77,7 +77,7 @@ jobs:
           python -c "
           import syft_client as sc
           try:
-              client = sc.login('test2@openmined.org')
+              client = sc.login('test2@openmined.org', skip_server_setup=True)
               print(f'✅ test2 authenticated: {client.email}')
           except Exception as e:
               print(f'❌ test2 failed: {e}')
