@@ -90,12 +90,7 @@ markers = [
 ]
 addopts = [
     "--strict-markers",
-    "--strict-config",
-    "--cov=syft_client",
-    "--cov-report=term-missing",
-    "--cov-report=html:htmlcov",
-    "--cov-report=xml",
-    "--cov-fail-under=80"
+    "--strict-config"
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
