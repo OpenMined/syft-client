@@ -86,6 +86,16 @@ class SmartNotebookRunner:
                             input_counter += 1
                         else:
                             break
+
+                    # Add skip_server_setup=True to sc.login() calls for CI
+                    if "sc.login(" in source and "skip_server_setup" not in source:
+                        # Match sc.login(email) and add skip_server_setup parameter
+                        source = re.sub(
+                            r"(sc\.login\([^)]*)\)",
+                            r"\1, skip_server_setup=True)",
+                            source,
+                        )
+
                     cell.source = source
 
             # Execute the modified notebook
