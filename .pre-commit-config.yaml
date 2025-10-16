@@ -30,8 +30,10 @@ repos:
       - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix, --show-fixes]
         types_or: [python, pyi] # TODO enable for jupyter
+        exclude: ^ci/
       - id: ruff-format
         types_or: [python, pyi] # TODO enable for jupyter
+        exclude: ^ci/
 
   - repo: https://github.com/kynan/nbstripout
     rev: 0.7.1

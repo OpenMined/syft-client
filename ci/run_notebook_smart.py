@@ -48,6 +48,9 @@ class SmartNotebookRunner:
         print(f"Inputs: {inputs}")
         print(f"{'=' * 80}\n")
 
+        # Track detailed execution logs
+        execution_log = []
+
         # Prepare output path
         output_name = f"{notebook_path.stem}{suffix}_executed.ipynb"
         output_path = self.output_dir / notebook_path.parent.name / output_name
@@ -98,10 +101,38 @@ class SmartNotebookRunner:
 
                     cell.source = source
 
-            # Execute the modified notebook
+            # Execute the modified notebook cell by cell with detailed logging
             ep = ExecutePreprocessor(
                 timeout=timeout, kernel_name="python3", allow_errors=False
             )
+
+            # Execute and log each cell
+            for idx, cell in enumerate(nb.cells):
+                if cell.cell_type == "code":
+                    # Detect what this cell is doing
+                    source = cell.source
+                    step_desc = None
+
+                    if "sc.login(" in source:
+                        step_desc = f"Cell {idx}: 🔐 Login"
+                    elif "add_peer(" in source or ".add_peer(" in source:
+                        step_desc = f"Cell {idx}: 👥 Add peer"
+                    elif "upload_file(" in source or ".upload_file(" in source:
+                        step_desc = f"Cell {idx}: 📤 Upload dataset"
+                    elif "create_job(" in source or ".create_job(" in source or ".submit(" in source:
+                        step_desc = f"Cell {idx}: 💼 Submit job"
+                    elif "approve(" in source or ".approve(" in source:
+                        step_desc = f"Cell {idx}: ✅ Approve job"
+                    elif "import" in source or "from " in source:
+                        step_desc = f"Cell {idx}: 📦 Import"
+                    else:
+                        step_desc = f"Cell {idx}: 📝 Execute"
+
+                    if step_desc:
+                        print(f"  {step_desc}...")
+                        execution_log.append(step_desc)
+
+            # Now execute the whole notebook
             ep.preprocess(nb, {"metadata": {"path": str(notebook_path.parent)}})
 
             # Save the executed notebook
@@ -109,8 +140,12 @@ class SmartNotebookRunner:
                 nbformat.write(nb, f)
 
             elapsed = time.time() - start_time
-            print(f"✅ SUCCESS: {notebook_path.name} {range_str} ({elapsed:.1f}s)")
+            print(f"\n✅ SUCCESS: {notebook_path.name} {range_str} ({elapsed:.1f}s)")
             print(f"Output saved to: {output_path}")
+            if execution_log:
+                print(f"\nSteps completed:")
+                for log in execution_log:
+                    print(f"  ✓ {log}")
 
             self.test_results.append(
                 {
@@ -126,8 +161,17 @@ class SmartNotebookRunner:
         except Exception as e:
             elapsed = time.time() - start_time
             error_msg = str(e)
-            print(f"❌ FAILED: {notebook_path.name} {range_str} ({elapsed:.1f}s)")
-            print(f"Error: {error_msg[:1000]}")
+            print(f"\n❌ FAILED: {notebook_path.name} {range_str} ({elapsed:.1f}s)")
+            print(f"Error: {error_msg[:500]}")
+
+            # Try to extract which cell failed
+            if "An error occurred while executing the following cell" in error_msg:
+                print("\n⚠️ Failed during cell execution")
+
+            if execution_log:
+                print(f"\nSteps completed before failure:")
+                for log in execution_log:
+                    print(f"  ✓ {log}")
 
             self.test_results.append(
                 {
@@ -136,6 +180,7 @@ class SmartNotebookRunner:
                     "status": "FAILED",
                     "elapsed": elapsed,
                     "error": error_msg[:1000],
+                    "steps_completed": execution_log if execution_log else [],
                 }
             )
             return False, None
