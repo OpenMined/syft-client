@@ -1,7 +1,6 @@
 """Environment detection and configuration module"""
 
 from enum import Enum
-from typing import Optional
 
 
 class Environment(Enum):
@@ -29,14 +28,13 @@ class EnvironmentDetector:
         """
         # Check for Google Colab first (most specific)
         try:
-            import google.colab
+            import importlib.util
 
-            return Environment.COLAB
+            if importlib.util.find_spec("google.colab") is not None:
+                return Environment.COLAB
         except ImportError:
             pass
-        except (
-            AttributeError
-        ):  # sometimes we're seeing an error in "import google.colab" when called from background
+        except AttributeError:  # sometimes we're seeing an error in "import google.colab" when called from background
             return Environment.COLAB
 
         # Check for Jupyter/IPython with multiple indicators
@@ -72,7 +70,7 @@ class EnvironmentDetector:
             ):
                 return Environment.JUPYTER
 
-        except:
+        except Exception:
             pass
 
         # Default to REPL for standard Python interpreter
@@ -113,7 +111,7 @@ class EnvironmentDetector:
             import os
 
             return os.path.exists("/content/drive")
-        except:
+        except Exception:
             return False
 
     @staticmethod
@@ -123,7 +121,7 @@ class EnvironmentDetector:
             import torch
 
             return torch.cuda.is_available()
-        except:
+        except Exception:
             return False
 
     @staticmethod
@@ -160,7 +158,7 @@ class EnvironmentDetector:
             if "notebook" in sys.modules:
                 info["is_classic"] = True
 
-        except:
+        except Exception:
             pass
 
         return info

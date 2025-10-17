@@ -73,12 +73,14 @@ client.start_receiver(
 ```
 
 Environment variables:
+
 - `SYFT_RECEIVER_INTERVAL`: Default check interval (seconds)
 - `SYFT_RECEIVER_AUTO_ACCEPT`: Auto-accept peer requests
 
 ## State Management
 
 The receiver maintains state in `~/.syft/receiver/state/`:
+
 - `peer_states.json`: Last check times and content hashes
 - `processed_messages.json`: Already processed message IDs
 
@@ -91,21 +93,23 @@ The receiver maintains state in `~/.syft/receiver/state/`:
 
 ## Comparison with Watcher
 
-| Feature | Watcher | Receiver |
-|---------|---------|----------|
-| Direction | Outbound (send) | Inbound (receive) |
-| Monitors | File system | Peer inboxes |
-| Trigger | File changes | New messages |
-| Action | Send to peers | Download & extract |
+| Feature   | Watcher         | Receiver           |
+| --------- | --------------- | ------------------ |
+| Direction | Outbound (send) | Inbound (receive)  |
+| Monitors  | File system     | Peer inboxes       |
+| Trigger   | File changes    | New messages       |
+| Action    | Send to peers   | Download & extract |
 
 ## Troubleshooting
 
 1. **Receiver not detecting messages**:
+
    - Check if peers are configured: `list(client.peers)`
    - Verify peer has sent messages
    - Check logs in `~/.syft_logs/server_envs/receiver_*/`
 
 2. **Messages not processing**:
+
    - Check inbox directory permissions
    - Verify sufficient disk space
    - Look for errors in receiver status

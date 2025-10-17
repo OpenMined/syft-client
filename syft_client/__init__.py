@@ -2,16 +2,13 @@
 syft_client - A unified client for secure file syncing
 """
 
-from .syft_client import SyftClient
+from .syft_client import SyftClient, resolve_path
 
 # Make login available at package level for convenience
 login = SyftClient.login
 
 # Wallet management
 reset_wallet = SyftClient.reset_wallet_static
-
-# Resolve Syft Paths
-from .syft_client import resolve_path
 
 __version__ = "0.1.87"
 

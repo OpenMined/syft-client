@@ -1,9 +1,7 @@
 """Google Sheets transport layer implementation"""
 
-import json
 import pickle
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from googleapiclient.discovery import build
@@ -134,35 +132,35 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
     @staticmethod
     def enable_api_static(transport_name: str, email: str) -> None:
         """Show instructions for enabling Google Sheets API"""
-        print(f"\n🔧 To enable the Google Sheets API:")
-        print(f"\n1. Open this URL in your browser:")
+        print("\n🔧 To enable the Google Sheets API:")
+        print("\n1. Open this URL in your browser:")
         print(
             f"   https://console.cloud.google.com/marketplace/product/google/sheets.googleapis.com?authuser={email}"
         )
-        print(f"\n2. Click the 'Enable' button")
-        print(f"\n3. Wait for the API to be enabled (may take 5-10 seconds)")
+        print("\n2. Click the 'Enable' button")
+        print("\n3. Wait for the API to be enabled (may take 5-10 seconds)")
         print(
-            f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
+            "\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
         )
 
     @staticmethod
     def disable_api_static(transport_name: str, email: str) -> None:
         """Show instructions for disabling Google Sheets API"""
-        print(f"\n🔧 To disable the Google Sheets API:")
-        print(f"\n1. Open this URL in your browser:")
+        print("\n🔧 To disable the Google Sheets API:")
+        print("\n1. Open this URL in your browser:")
         print(
             f"   https://console.cloud.google.com/apis/api/sheets.googleapis.com/overview?authuser={email}"
         )
-        print(f"\n2. Click 'Manage' or 'Disable API'")
-        print(f"\n3. Confirm by clicking 'Disable'")
+        print("\n2. Click 'Manage' or 'Disable API'")
+        print("\n3. Confirm by clicking 'Disable'")
         print(
-            f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
+            "\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
         )
 
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
         """Setup Sheets transport with OAuth2 credentials or Colab auth"""
         if self.verbose:
-            print(f"\n🔍 GSheetsTransport.setup called", flush=True)
+            print("\n🔍 GSheetsTransport.setup called", flush=True)
             print(f"   Instance ID: {id(self)}", flush=True)
             print(f"   Credentials provided: {credentials is not None}", flush=True)
 
@@ -232,7 +230,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             # Try to get spreadsheet metadata for a non-existent sheet (fast operation)
             if self.verbose:
                 print(
-                    f"🔍 Sheets API call: spreadsheets.get (initial setup verification)"
+                    "🔍 Sheets API call: spreadsheets.get (initial setup verification)"
                 )
             self.sheets_service.spreadsheets().get(spreadsheetId="test123").execute()
             # Should never reach here
@@ -306,7 +304,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             # Write data to sheet
             body = {"values": values}
             if self.verbose:
-                print(f"🔍 Sheets API call: values.update (sheet setup)")
+                print("🔍 Sheets API call: values.update (sheet setup)")
             self.sheets_service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
                 range="A1",
@@ -606,7 +604,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                             else:
                                 # Raw values
                                 message["data"] = values
-                    except:
+                    except Exception:
                         pass
 
                 messages.append(message)
@@ -654,7 +652,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
 
             return spreadsheet.get("spreadsheetUrl")
 
-        except:
+        except Exception:
             return None
 
     def _get_or_create_message_sheet(
@@ -671,7 +669,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             Spreadsheet ID if successful
         """
         if self.verbose:
-            print(f"\n   🔍 _get_or_create_message_sheet called", flush=True)
+            print("\n   🔍 _get_or_create_message_sheet called", flush=True)
             print(f"   🔍 sheet_name: {sheet_name}", flush=True)
             print(f"   🔍 recipient_email: {recipient_email}", flush=True)
             print(f"   🔍 self.email: {self.email}", flush=True)
@@ -683,7 +681,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         try:
             if not self.drive_service:
                 if self.verbose:
-                    print(f"   ❌ drive_service is None!", flush=True)
+                    print("   ❌ drive_service is None!", flush=True)
                 return None
 
             # First check if sheet already exists
@@ -954,7 +952,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
 
             # Return the spreadsheet URL
             print(
-                f"✅ Google Sheets test successful! Spreadsheet created with test data"
+                "✅ Google Sheets test successful! Spreadsheet created with test data"
             )
             if cleanup:
                 print("   Spreadsheet has been deleted as requested")
@@ -1123,7 +1121,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
         Stores message as: [timestamp, message_id, size, base64_data]
         """
         if self.verbose:
-            print(f"\n🔍 _send_archive_via_transport called:", flush=True)
+            print("\n🔍 _send_archive_via_transport called:", flush=True)
             print(f"   - recipient: {recipient}", flush=True)
             print(f"   - message_id: {message_id}", flush=True)
             print(f"   - archive_size: {len(archive_data)} bytes", flush=True)
@@ -1188,7 +1186,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
                 print(f"   ❌ my_email: {self.email}", flush=True)
                 import traceback
 
-                print(f"   ❌ Current stack trace:")
+                print("   ❌ Current stack trace:")
                 traceback.print_stack()
                 return False
             if self.verbose:
@@ -1339,7 +1337,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
             existing_contacts = set(self.list_peers())
 
             # Search for shared message sheets
-            query = f"sharedWithMe=true and name contains 'syft_' and name contains '_messages' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+            query = "sharedWithMe=true and name contains 'syft_' and name contains '_messages' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
 
             results = (
                 self.drive_service.files()
@@ -1378,7 +1376,7 @@ class GSheetsTransport(BaseTransportLayer, BaseTransport):
 
             return sorted(list(pending_requests))
 
-        except Exception as e:
+        except Exception:
             # Silently fail - peer request checking is optional
             return []
 

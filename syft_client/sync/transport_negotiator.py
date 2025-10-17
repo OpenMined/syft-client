@@ -4,11 +4,10 @@ Transport negotiation system that selects the best transport based on multiple f
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from .peer_model import Peer
 from .transport_capabilities import (
-    TRANSPORT_CAPABILITIES,
     TransportCapabilities,
     TransportRequirements,
     get_transport_capabilities,
@@ -80,7 +79,7 @@ class TransportNegotiator:
 
         if not scores:
             if self.client.verbose:
-                print(f"⚠️  No suitable transports found for requirements")
+                print("⚠️  No suitable transports found for requirements")
             return None
 
         # Sort by score (highest first)
@@ -93,7 +92,7 @@ class TransportNegotiator:
             if requested_latency_ms:
                 print(f"   Requested latency: {requested_latency_ms}ms")
             print(f"   Priority: {priority}")
-            print(f"\n   Scores:")
+            print("\n   Scores:")
             for score in scores[:3]:  # Show top 3
                 print(
                     f"   - {score.transport_name}: {score.score:.2f} (est. {score.estimated_latency_ms:.0f}ms)"

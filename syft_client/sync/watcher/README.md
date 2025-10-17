@@ -55,12 +55,14 @@ SyftBox/
 ## Configuration
 
 Environment variables:
+
 - `SYFT_SYNC_ECHO_THRESHOLD`: Seconds to wait before considering a file as new (default: 60)
 - `SYFT_INBOX_POLL_INTERVAL`: Seconds between inbox checks (default: 30)
 
 ## Implementation Details
 
 The watcher is implemented using:
+
 - **syft-serve**: Creates persistent server endpoints
 - **watchdog**: Monitors file system events
 - **Threading**: Inbox polling runs in a separate thread

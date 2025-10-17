@@ -1,6 +1,6 @@
 """ProtonMail platform client implementation"""
 
-from typing import Any, Dict, List
+from typing import List
 
 from ..base import BasePlatformClient
 

@@ -110,29 +110,29 @@ class GmailTransportBase(BaseTransportLayer, BaseTransport):
     @staticmethod
     def enable_api_static(transport_name: str, email: str) -> None:
         """Show instructions for enabling Gmail API"""
-        print(f"\n🔧 To enable the Gmail API:")
-        print(f"\n1. Open this URL in your browser:")
+        print("\n🔧 To enable the Gmail API:")
+        print("\n1. Open this URL in your browser:")
         print(
             f"   https://console.cloud.google.com/marketplace/product/google/gmail.googleapis.com?authuser={email}"
         )
-        print(f"\n2. Click the 'Enable' button")
-        print(f"\n3. Wait for the API to be enabled (may take 5-10 seconds)")
+        print("\n2. Click the 'Enable' button")
+        print("\n3. Wait for the API to be enabled (may take 5-10 seconds)")
         print(
-            f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
+            "\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
         )
 
     @staticmethod
     def disable_api_static(transport_name: str, email: str) -> None:
         """Show instructions for disabling Gmail API"""
-        print(f"\n🔧 To disable the Gmail API:")
-        print(f"\n1. Open this URL in your browser:")
+        print("\n🔧 To disable the Gmail API:")
+        print("\n1. Open this URL in your browser:")
         print(
             f"   https://console.cloud.google.com/apis/api/gmail.googleapis.com/overview?authuser={email}"
         )
-        print(f"\n2. Click 'Manage' or 'Disable API'")
-        print(f"\n3. Confirm by clicking 'Disable'")
+        print("\n2. Click 'Manage' or 'Disable API'")
+        print("\n3. Confirm by clicking 'Disable'")
         print(
-            f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
+            "\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
         )
 
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
@@ -201,7 +201,7 @@ class GmailTransportBase(BaseTransportLayer, BaseTransport):
             )
 
             self._labels[self.BACKEND_LABEL] = created_label["id"]
-        except:
+        except Exception:
             pass
 
     def _ensure_backend_filter(self) -> None:
@@ -232,7 +232,7 @@ class GmailTransportBase(BaseTransportLayer, BaseTransport):
             self.gmail_service.users().settings().filters().create(
                 userId="me", body=filter_object
             ).execute()
-        except:
+        except Exception:
             pass
 
     def _test_email_to_self(self) -> bool:
@@ -339,7 +339,6 @@ class GmailTransportBase(BaseTransportLayer, BaseTransport):
 
         except Exception as e:
             # Only print error if not in a repr/display context
-            import sys
             import traceback
 
             # Check if we're being called from __repr__ by looking at the call stack
@@ -351,7 +350,7 @@ class GmailTransportBase(BaseTransportLayer, BaseTransport):
                 e
             ) and "before or it is disabled" in str(e):
                 if not in_repr:
-                    print(f"\n⚠️  Gmail API is not enabled for your project!")
+                    print("\n⚠️  Gmail API is not enabled for your project!")
                     print("To fix this:")
                     # Extract the URL from the error message
                     import re
@@ -431,7 +430,7 @@ class GmailTransportBase(BaseTransportLayer, BaseTransport):
                     }
 
                     messages.append(message_data)
-                except:
+                except Exception:
                     continue
 
         except Exception as e:
@@ -489,7 +488,7 @@ class GmailTransportBase(BaseTransportLayer, BaseTransport):
                         if filename.endswith(".pkl"):
                             try:
                                 unpickled_data = pickle.loads(data)
-                            except:
+                            except Exception:
                                 pass
 
                         attachments.append(
@@ -500,7 +499,7 @@ class GmailTransportBase(BaseTransportLayer, BaseTransport):
                                 "unpickled_data": unpickled_data,
                             }
                         )
-                    except:
+                    except Exception:
                         pass
                 elif "parts" in part:
                     process_parts(part["parts"])

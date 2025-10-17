@@ -1,6 +1,6 @@
 """Apple platform client implementation"""
 
-from typing import Any, Dict, List
+from typing import Any, List
 
 from ..base import BasePlatformClient
 

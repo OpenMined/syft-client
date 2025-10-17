@@ -9,8 +9,7 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -61,7 +60,7 @@ class MessageQueue:
             print("📋 Message queue already running", flush=True)
             return
 
-        print(f"📋 Starting message queue worker thread...", flush=True)
+        print("📋 Starting message queue worker thread...", flush=True)
         self._is_running = True
         self._stop_event.clear()
         self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
@@ -84,7 +83,7 @@ class MessageQueue:
 
     def flush_queue(self):
         """Manually flush all queued messages immediately"""
-        print(f"🚀 Manually flushing message queue...", flush=True)
+        print("🚀 Manually flushing message queue...", flush=True)
 
         # Collect all messages currently in queue
         messages_to_process = []
@@ -102,7 +101,7 @@ class MessageQueue:
             )
             self._process_batch(messages_to_process)
         else:
-            print(f"📭 No messages in queue to flush", flush=True)
+            print("📭 No messages in queue to flush", flush=True)
 
     def queue_file(self, file_path: str):
         """Queue a file to be sent to all peers"""
@@ -121,11 +120,11 @@ class MessageQueue:
             )
             # Check if worker is alive
             if self._worker_thread and self._worker_thread.is_alive():
-                print(f"   ✅ Worker thread is running", flush=True)
+                print("   ✅ Worker thread is running", flush=True)
             else:
-                print(f"   ❌ Worker thread is NOT running!", flush=True)
+                print("   ❌ Worker thread is NOT running!", flush=True)
                 # Try to restart it
-                print(f"   🔄 Attempting to restart worker thread...", flush=True)
+                print("   🔄 Attempting to restart worker thread...", flush=True)
                 self.start()
 
             # Disabled force flush to avoid overwhelming the API
@@ -157,7 +156,7 @@ class MessageQueue:
 
     def _worker_loop(self):
         """Main worker loop that processes the queue"""
-        print(f"📋 Entering worker loop method", flush=True)
+        print("📋 Entering worker loop method", flush=True)
 
         # Write to debug log file
         try:
@@ -169,7 +168,7 @@ class MessageQueue:
                     f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Worker loop started\n"
                 )
                 f.flush()
-        except:
+        except Exception:
             pass
 
         try:
@@ -181,7 +180,7 @@ class MessageQueue:
         last_batch_time = time.time()
 
         if verbose:
-            print(f"📋 Message queue worker started", flush=True)
+            print("📋 Message queue worker started", flush=True)
             print(f"   Batch interval: {self.batch_interval}s", flush=True)
             print(f"   Max batch size: {self.max_batch_size}", flush=True)
 
@@ -214,13 +213,13 @@ class MessageQueue:
                                 f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Heartbeat #{heartbeat_count} - Queue: {queue_size}, Processed: {messages_processed_total}\n"
                             )
                             f.flush()
-                    except:
+                    except Exception:
                         pass
 
                     # If we have messages but haven't processed any, force flush
                     if queue_size > 0 and messages_processed_total == 0:
                         print(
-                            f"⚠️  Queue has messages but none processed, forcing flush",
+                            "⚠️  Queue has messages but none processed, forcing flush",
                             flush=True,
                         )
                         self.flush_queue()
@@ -289,7 +288,7 @@ class MessageQueue:
         # Get list of peers
         try:
             if self.sender.client.verbose:
-                print(f"📋 Getting peers list...", flush=True)
+                print("📋 Getting peers list...", flush=True)
                 print(f"   sender type: {type(self.sender)}", flush=True)
                 print(f"   sender.peers type: {type(self.sender.peers)}", flush=True)
 
@@ -382,7 +381,7 @@ class MessageQueue:
         # Get verbose flag once
         try:
             verbose = getattr(self.sender.client, "verbose", True)
-        except:
+        except Exception:
             verbose = True
 
         with self._lock:
@@ -432,7 +431,7 @@ class MessageQueue:
                                     break
                                 elif verbose and attempt < max_retries - 1:
                                     print(
-                                        f"   ⚠️  Send failed, will retry...", flush=True
+                                        "   ⚠️  Send failed, will retry...", flush=True
                                     )
 
                             if verbose:
@@ -514,7 +513,7 @@ class MessageQueue:
                 if results_summary["successful"] > 0:
                     try:
                         num_peers = len(self.sender.peers.peers)
-                    except:
+                    except Exception:
                         num_peers = "?"
                     unique_recipients = len(self._prepared_messages)
                     print(
@@ -524,7 +523,7 @@ class MessageQueue:
                         f"   Total attempts: {results_summary['total']}, Failed: {results_summary['failed']}"
                     )
                 else:
-                    print(f"Failed to send to any peers")
+                    print("Failed to send to any peers")
 
     def _cleanup_prepared_messages(self):
         """Clean up any remaining prepared messages"""
@@ -534,7 +533,7 @@ class MessageQueue:
                     if msg.temp_dir and os.path.exists(msg.temp_dir):
                         try:
                             shutil.rmtree(msg.temp_dir)
-                        except:
+                        except Exception:
                             pass
             self._prepared_messages.clear()
 
