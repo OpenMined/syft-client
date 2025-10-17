@@ -7,7 +7,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Dict, Optional, Set
+from typing import Dict, Optional
 
 
 class FileIndex:
@@ -150,7 +150,7 @@ class FileIndex:
                                 file_path,
                                 source=self.index[relative_path].get("source", "local"),
                             )
-                    except:
+                    except Exception:
                         pass
                 else:
                     # New file, add to index

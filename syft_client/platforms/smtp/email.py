@@ -4,12 +4,10 @@ import email
 import imaplib
 import smtplib
 import ssl
-from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
-from ...environment import Environment
 from ..transport_base import BaseTransportLayer
 
 

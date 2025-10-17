@@ -5,9 +5,9 @@ Transport capability discovery for contacts
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from .peer_model import Peer, TransportEndpoint
+from .peer_model import Peer
 
 if TYPE_CHECKING:
     from ..syft_client import SyftClient
@@ -158,7 +158,7 @@ class PeerDiscovery:
                     if "gsheets" not in peer.available_transports:
                         peer.add_transport("gsheets")
                         discovered = True
-        except:
+        except Exception:
             pass
 
         return discovered
@@ -218,7 +218,7 @@ class PeerDiscovery:
             try:
                 with open(cache_file, "r") as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
 
         return None

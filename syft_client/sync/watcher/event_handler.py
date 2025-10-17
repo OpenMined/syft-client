@@ -31,7 +31,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                     sender = client.sync.sender
                     if verbose:
                         print(
-                            f"📋 Using existing sender from client.sync.sender",
+                            "📋 Using existing sender from client.sync.sender",
                             flush=True,
                         )
                 else:
@@ -41,7 +41,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
 
                         sender = MessageSender(client)
                         if verbose:
-                            print(f"📋 Created new MessageSender instance", flush=True)
+                            print("📋 Created new MessageSender instance", flush=True)
                     except Exception as e:
                         print(f"❌ Failed to create MessageSender: {e}", flush=True)
                         raise
@@ -126,7 +126,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
             )
 
             if self.verbose:
-                print(f"\n🔍 Checking for move markers:", flush=True)
+                print("\n🔍 Checking for move markers:", flush=True)
                 print(
                     f"   Source marker: {source_marker} - {'EXISTS' if source_marker.exists() else 'NOT FOUND'}",
                     flush=True,
@@ -158,11 +158,11 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                     if is_recent_deletion:
                         if self.verbose:
                             print(
-                                f"✋ Skipping move echo: source was recently deleted by peer",
+                                "✋ Skipping move echo: source was recently deleted by peer",
                                 flush=True,
                             )
                         return
-                except:
+                except Exception:
                     pass
 
                 # Check if destination was recently created by incoming sync
@@ -176,18 +176,18 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                         if is_recent_creation:
                             if self.verbose:
                                 print(
-                                    f"✋ Skipping move echo: destination was recently created by peer",
+                                    "✋ Skipping move echo: destination was recently created by peer",
                                     flush=True,
                                 )
                             return
-                    except:
+                    except Exception:
                         pass
 
             # Use queue if available, otherwise send immediately
             if self.use_queue and self.message_queue:
                 self.message_queue.queue_move(event.src_path, event.dest_path)
                 if self.verbose:
-                    print(f"📋 Move queued for batch sending", flush=True)
+                    print("📋 Move queued for batch sending", flush=True)
             else:
                 # Send move message to all peers immediately
                 results = self.client.send_move_to_peers(
@@ -225,7 +225,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                                     "outgoing",
                                     file_size,
                                 )
-                            except:
+                            except Exception:
                                 pass
 
                 # Report results
@@ -239,7 +239,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                         )
                 else:
                     if self.verbose:
-                        print(f"Failed to send move to any peers", flush=True)
+                        print("Failed to send move to any peers", flush=True)
 
         except Exception as e:
             if self.verbose:
@@ -344,7 +344,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                             threshold_seconds=threshold,
                             operation="delete",
                         )
-                    except:
+                    except Exception:
                         pass
 
                     if is_recent_deletion:
@@ -359,7 +359,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                 if self.use_queue and self.message_queue:
                     self.message_queue.queue_deletion(event.src_path)
                     if self.verbose:
-                        print(f"📋 Deletion queued for batch sending", flush=True)
+                        print("📋 Deletion queued for batch sending", flush=True)
                 else:
                     # Send deletion to all peers immediately
                     results = self.client.send_deletion_to_peers(event.src_path)
@@ -396,7 +396,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                             )
                     else:
                         if self.verbose:
-                            print(f"Failed to send deletion to any peers", flush=True)
+                            print("Failed to send deletion to any peers", flush=True)
             else:
                 # Use the helper method to send file to peers
                 self._send_file_to_peers(event.src_path, event_type)
@@ -417,7 +417,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
             try:
                 self.message_queue.queue_file(file_path)
                 if self.verbose:
-                    print(f"📋 File queued for batch sending", flush=True)
+                    print("📋 File queued for batch sending", flush=True)
                     # Check if worker is actually processing
                     if (
                         hasattr(self.message_queue, "_queue")
@@ -427,7 +427,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                             f"⚠️  Queue size is {self.message_queue._queue.qsize()}, messages may not be processing",
                             flush=True,
                         )
-                        print(f"   Falling back to immediate send", flush=True)
+                        print("   Falling back to immediate send", flush=True)
                         # Fall back to immediate send
                         raise Exception(
                             "Queue too large, falling back to immediate send"
@@ -504,7 +504,7 @@ class SyftBoxEventHandler(FileSystemEventHandler):
                 print(f"✓ Sent to {successful}/{total} peers", flush=True)
         else:
             if self.verbose:
-                print(f"Failed to send to any peers", flush=True)
+                print("Failed to send to any peers", flush=True)
 
         return results
 

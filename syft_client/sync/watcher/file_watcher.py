@@ -4,7 +4,6 @@ File watcher server endpoint implementation using syft-serve
 
 import os
 import time
-from pathlib import Path
 
 
 def create_watcher_endpoint(email: str, verbose: bool = True):
@@ -44,7 +43,6 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         import os
         import sys
         import time
-        from pathlib import Path
 
         # Add the local syft_client to Python path dynamically
         # Look for syft_client in common locations
@@ -94,7 +92,7 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         client = sc.login(
             email, verbose=False, force_relogin=False, skip_server_setup=True
         )
-        print(f"Login successful!", flush=True)
+        print("Login successful!", flush=True)
 
         # Get the SyftBox directory to watch
         # Always use client's syftbox directory to ensure consistency
@@ -108,7 +106,7 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
         sync_history = SyncHistory(syftbox_dir)
 
         # Warm up sync history with existing files
-        print(f"Warming up sync history...", flush=True)
+        print("Warming up sync history...", flush=True)
         sync_history.warm_up_from_directory(verbose=verbose)
 
         # Create event handler
@@ -131,7 +129,7 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
                 flush=True,
             )
         else:
-            print(f"⚠️ Handler has no message queue", flush=True)
+            print("⚠️ Handler has no message queue", flush=True)
 
         # Register cleanup function
         def cleanup_observer():
@@ -142,7 +140,7 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
                 print(f"Stopping file watcher for {email}...", flush=True)
                 current_module.observer.stop()
                 current_module.observer.join()
-                print(f"File watcher stopped.", flush=True)
+                print("File watcher stopped.", flush=True)
 
         atexit.register(cleanup_observer)
 
@@ -157,7 +155,7 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
                     current_time = time.time()
                     if current_time - last_discovery_time > discovery_interval:
                         if verbose:
-                            print(f"🔍 Running peer discovery...", flush=True)
+                            print("🔍 Running peer discovery...", flush=True)
                         try:
                             # Invalidate peer cache to force re-discovery
                             if hasattr(client, "_peer_manager") and hasattr(
@@ -165,7 +163,7 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
                             ):
                                 client._peer_manager._invalidate_peers_cache()
                                 if verbose:
-                                    print(f"   ✓ Peer cache cleared", flush=True)
+                                    print("   ✓ Peer cache cleared", flush=True)
                         except Exception as e:
                             if verbose:
                                 print(
@@ -185,7 +183,7 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
                                     f"📥 Checking inbox for {len(peers)} peer(s)",
                                     flush=True,
                                 )
-                    except:
+                    except Exception:
                         pass
 
                     if peers:
@@ -193,7 +191,7 @@ def create_watcher_endpoint(email: str, verbose: bool = True):
                             try:
                                 if hasattr(peer, "check_inbox"):
                                     # check_inbox now handles recording sync history internally
-                                    messages = peer.check_inbox(
+                                    peer.check_inbox(
                                         download_dir=str(syftbox_dir), verbose=False
                                     )
                             except Exception as e:

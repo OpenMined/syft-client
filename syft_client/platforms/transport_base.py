@@ -113,7 +113,7 @@ class BaseTransportLayer(ABC):
         """
         # Default implementation - subclasses should override
         print(f"\n🔧 To enable the API for {transport_name}:")
-        print(f"   Please check the platform-specific instructions.")
+        print("   Please check the platform-specific instructions.")
 
     @staticmethod
     def disable_api_static(transport_name: str, email: str) -> None:
@@ -126,7 +126,7 @@ class BaseTransportLayer(ABC):
         """
         # Default implementation - subclasses should override
         print(f"\n🔧 To disable the API for {transport_name}:")
-        print(f"   Please check the platform-specific instructions.")
+        print("   Please check the platform-specific instructions.")
 
     def setup(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
         """
@@ -279,7 +279,7 @@ class BaseTransportLayer(ABC):
                     api_status = "[green]✓ Enabled[/green]"
                 else:
                     api_status = "[red]✗ Disabled[/red]"
-            except:
+            except Exception:
                 # If check fails, keep as Unknown
                 pass
         main_table.add_row(".api_enabled", api_status)
@@ -407,7 +407,7 @@ class BaseTransportLayer(ABC):
         try:
             with open(marker_path, "w") as f:
                 json.dump(metadata, f)
-            print(f"   ✅ Deletion marker created successfully", flush=True)
+            print("   ✅ Deletion marker created successfully", flush=True)
         except Exception as e:
             # If we can't create marker, continue anyway
             print(f"   ❌ Failed to create deletion marker: {e}", flush=True)
@@ -617,7 +617,7 @@ class BaseTransportLayer(ABC):
         print(f"      - Total markers to clean: {len(all_markers)}", flush=True)
 
         def cleanup():
-            print(f"   🧹 Starting move marker cleanup", flush=True)
+            print("   🧹 Starting move marker cleanup", flush=True)
             # If we have the specific list of markers, use that
             if all_markers:
                 cleanup_count = 0
@@ -652,7 +652,7 @@ class BaseTransportLayer(ABC):
                     self._all_move_markers = []
             else:
                 # Fallback: just clean up the main markers
-                print(f"   ⚠️  No marker list found, using fallback cleanup", flush=True)
+                print("   ⚠️  No marker list found, using fallback cleanup", flush=True)
                 for marker in [source_marker, dest_marker]:
                     try:
                         if marker.exists():
@@ -661,7 +661,7 @@ class BaseTransportLayer(ABC):
                                 f"   ✅ Cleaned up fallback marker: {marker.name}",
                                 flush=True,
                             )
-                    except:
+                    except Exception:
                         pass
 
         # Clean up markers after delay
@@ -797,14 +797,14 @@ class BaseTransportLayer(ABC):
                     if verbose:
                         print(f"   📁 Looking for extracted dir: {extracted_dir}")
                         if extracted_dir.exists():
-                            print(f"   ✅ Found extracted directory")
+                            print("   ✅ Found extracted directory")
                             # List contents
                             for item in extracted_dir.iterdir():
                                 print(
                                     f"      - {item.name} {'(dir)' if item.is_dir() else '(file)'}"
                                 )
                         else:
-                            print(f"   ❌ Extracted directory not found!")
+                            print("   ❌ Extracted directory not found!")
 
                     # Read metadata if available
                     metadata = {}
@@ -830,7 +830,7 @@ class BaseTransportLayer(ABC):
                             move_manifest = json.load(f)
 
                         if verbose:
-                            print(f"   🚚 Processing move message")
+                            print("   🚚 Processing move message")
 
                         # Process each move
                         for item in move_manifest.get("items", []):
@@ -882,7 +882,7 @@ class BaseTransportLayer(ABC):
                                 )
 
                                 if verbose:
-                                    print(f"   📝 Created move markers:")
+                                    print("   📝 Created move markers:")
                                     print(f"      Source: {source_marker}")
                                     print(f"      Dest: {dest_marker}")
                                     if source_path.is_dir():
@@ -902,7 +902,7 @@ class BaseTransportLayer(ABC):
                                             print(
                                                 f"      Plus markers for: {file_count} files, {dir_count} subdirectories"
                                             )
-                                    print(f"      Waiting before move...")
+                                    print("      Waiting before move...")
                                 try:
                                     # If destination exists, remove it first
                                     if dest_path.exists():
@@ -946,7 +946,7 @@ class BaseTransportLayer(ABC):
                                                         )
                                                 else:
                                                     updated_markers.append(marker)
-                                            except:
+                                            except Exception:
                                                 updated_markers.append(marker)
                                         self._all_move_markers = updated_markers
 
@@ -1025,7 +1025,7 @@ class BaseTransportLayer(ABC):
                             deletion_manifest = json.load(f)
 
                         if verbose:
-                            print(f"   🗑️  Processing deletion message")
+                            print("   🗑️  Processing deletion message")
 
                         # Process each deletion
                         for item in deletion_manifest.get("items", []):
@@ -1040,7 +1040,7 @@ class BaseTransportLayer(ABC):
                                         file_hash = sync_history.compute_file_hash(
                                             str(path_to_delete)
                                         )
-                                    except:
+                                    except Exception:
                                         pass
 
                                 try:
@@ -1110,7 +1110,7 @@ class BaseTransportLayer(ABC):
                     # Process the data files to their final destination
                     elif (data_dir := extracted_dir / "data").exists():
                         if verbose:
-                            print(f"   📂 Found data directory, processing files...")
+                            print("   📂 Found data directory, processing files...")
                         # Move files from data dir to their proper location
                         for item in data_dir.iterdir():
                             # Determine destination based on item name and structure
@@ -1160,7 +1160,7 @@ class BaseTransportLayer(ABC):
                                             )
                                             if verbose:
                                                 print(
-                                                    f"   ✅ Pre-recorded incoming sync history"
+                                                    "   ✅ Pre-recorded incoming sync history"
                                                 )
                                         except Exception as e:
                                             if verbose:
@@ -1211,26 +1211,26 @@ class BaseTransportLayer(ABC):
                                         # Merge directories instead of replacing
                                         if verbose:
                                             print(
-                                                f"      - Merging directories...",
+                                                "      - Merging directories...",
                                                 flush=True,
                                             )
                                         self._merge_directories(str(item), str(dest))
                                         if verbose:
                                             print(
-                                                f"      - ✅ Merge complete", flush=True
+                                                "      - ✅ Merge complete", flush=True
                                             )
                                     else:
                                         import shutil
 
                                         if verbose:
                                             print(
-                                                f"      - Moving directory...",
+                                                "      - Moving directory...",
                                                 flush=True,
                                             )
                                         shutil.move(str(item), str(dest))
                                         if verbose:
                                             print(
-                                                f"      - ✅ Move complete", flush=True
+                                                "      - ✅ Move complete", flush=True
                                             )
                                 else:
                                     # For files, use direct write to prevent deletion events
@@ -1240,7 +1240,7 @@ class BaseTransportLayer(ABC):
                                         # Direct write prevents watchdog from seeing deletion events
                                         if verbose:
                                             print(
-                                                f"      - Overwriting existing file...",
+                                                "      - Overwriting existing file...",
                                                 flush=True,
                                             )
                                         with open(item, "rb") as src:
@@ -1255,11 +1255,11 @@ class BaseTransportLayer(ABC):
                                     else:
                                         # No existing file, just move normally
                                         if verbose:
-                                            print(f"      - Moving file...", flush=True)
+                                            print("      - Moving file...", flush=True)
                                         shutil.move(str(item), str(dest))
                                         if verbose:
                                             print(
-                                                f"      - ✅ Move complete", flush=True
+                                                "      - ✅ Move complete", flush=True
                                             )
 
                                 if verbose:
@@ -1411,7 +1411,7 @@ class BaseTransportLayer(ABC):
                             print(f"         📄 Moving: {s.name} → {d}", flush=True)
                         shutil.move(str(s), str(d))
                         if verbose:
-                            print(f"         ✅ Moved", flush=True)
+                            print("         ✅ Moved", flush=True)
                 except Exception as e:
                     print(f"         ❌ Error merging {s} to {d}: {e}", flush=True)
                     import traceback
@@ -1435,7 +1435,7 @@ class BaseTransportLayer(ABC):
             True if send was successful, False otherwise
         """
         if hasattr(self, "verbose") and self.verbose:
-            print(f"\n🔍 BaseTransportLayer.send_to called:", flush=True)
+            print("\n🔍 BaseTransportLayer.send_to called:", flush=True)
             print(f"   - transport: {self.transport_name}", flush=True)
             print(f"   - recipient: {recipient}", flush=True)
 
@@ -1454,11 +1454,11 @@ class BaseTransportLayer(ABC):
                 print(f"   ❌ Archive not found: {archive_path}")
                 return False
             if hasattr(self, "verbose") and self.verbose:
-                print(f"   ✅ Archive exists", flush=True)
+                print("   ✅ Archive exists", flush=True)
 
             # Read archive file
             if hasattr(self, "verbose") and self.verbose:
-                print(f"   🔍 Reading archive file...", flush=True)
+                print("   🔍 Reading archive file...", flush=True)
             with open(archive_path, "rb") as f:
                 archive_data = f.read()
             if hasattr(self, "verbose") and self.verbose:
@@ -1473,7 +1473,7 @@ class BaseTransportLayer(ABC):
 
             # Call transport-specific implementation
             if hasattr(self, "verbose") and self.verbose:
-                print(f"   🔍 Calling _send_archive_via_transport...", flush=True)
+                print("   🔍 Calling _send_archive_via_transport...", flush=True)
                 print(f"   🔍 Transport class: {self.__class__.__name__}", flush=True)
                 print(
                     f"   🔍 Transport module: {self.__class__.__module__}", flush=True

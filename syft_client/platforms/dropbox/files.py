@@ -2,7 +2,6 @@
 
 from typing import Any, Dict, List
 
-from ...environment import Environment
 from ..transport_base import BaseTransportLayer
 
 

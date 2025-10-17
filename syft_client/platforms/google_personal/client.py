@@ -1,7 +1,6 @@
 """Google Personal platform client implementation using OAuth2"""
 
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -343,7 +342,7 @@ class GooglePersonalClient(BasePlatformClient):
                         module = __import__(module_path, fromlist=[class_name])
                         transport_class = getattr(module, class_name)
                         return transport_class.check_api_enabled(platform_client)
-                    except:
+                    except Exception:
                         pass
                 return False
 
@@ -401,7 +400,7 @@ class GooglePersonalClient(BasePlatformClient):
                             api_status = "[green]✓ Enabled[/green]"
                         else:
                             api_status = "[red]✗ Disabled[/red]"
-                except:
+                except Exception:
                     pass
                 main_table.add_row(".api_enabled", api_status)
 
@@ -526,7 +525,7 @@ class GooglePersonalClient(BasePlatformClient):
                 """Test transport - requires initialization first"""
                 if not self._setup_called or not self._real_transport:
                     print(f"❌ Transport '{self._transport_name}' is not initialized")
-                    print(f"   Please call .init() first to initialize the transport")
+                    print("   Please call .init() first to initialize the transport")
                     return {"success": False, "error": "Transport not initialized"}
 
                 # Delegate to real transport
@@ -821,7 +820,7 @@ class GooglePersonalClient(BasePlatformClient):
                 raise ValueError("Failed to setup any transport layers")
 
             if self.verbose:
-                print(f"\n✅ Authentication complete!")
+                print("\n✅ Authentication complete!")
                 print(f"Active transports: {', '.join(successful_transports)}")
 
             return {
@@ -1370,7 +1369,7 @@ class GooglePersonalClient(BasePlatformClient):
                     transports_to_setup = [
                         available[i]["id"] for i in indices if 0 <= i < len(available)
                     ]
-                except:
+                except Exception:
                     print("Invalid selection, using default (Gmail only)")
                     transports_to_setup = ["gmail"]
         else:
@@ -1388,7 +1387,7 @@ class GooglePersonalClient(BasePlatformClient):
                 failed.append(transport_id)
 
         # Summary
-        print(f"\n✅ Setup complete!")
+        print("\n✅ Setup complete!")
         if configured:
             print(f"Configured: {', '.join(configured)}")
         if failed:
@@ -1566,7 +1565,7 @@ class GooglePersonalClient(BasePlatformClient):
         print("=" * 50)
 
         # Check current status
-        status = self.check_transport_status()
+        self.check_transport_status()
         available = self.show_available_transports()
 
         configured = [t for t in available if t["configured"]]

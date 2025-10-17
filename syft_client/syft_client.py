@@ -9,8 +9,6 @@ from typing import Any, Dict, List, Optional, Union
 from .environment import Environment, detect_environment
 from .platforms.base import BasePlatformClient
 from .platforms.detection import (
-    Platform,
-    PlatformDetector,
     detect_primary_platform,
     get_secondary_platforms,
 )
@@ -205,7 +203,7 @@ class SyftClient:
                                             )
                                             if project_id:
                                                 project_info = f" [dim](project: {project_id})[/dim]"
-                            except:
+                            except Exception:
                                 pass
 
                     main_table.add_row(platform_header + project_info)
@@ -242,7 +240,7 @@ class SyftClient:
                                     if transport.is_setup():
                                         transport_initialized = True
                                         auth_status = "[green]✓[/green]"
-                                except:
+                                except Exception:
                                     pass
 
                         # Use static method to check API status
@@ -337,7 +335,7 @@ class SyftClient:
             try:
                 platform_client = get_platform_client(platform, self.email)
                 self._add_platform_transports(platform.value, platform_client)
-            except:
+            except Exception:
                 pass  # Skip if platform client can't be created
 
     def _add_platform_transports(
@@ -413,7 +411,10 @@ class SyftClient:
         """
         # Check if syft-job is available (silently skip if not)
         try:
-            import syft_job
+            import importlib.util
+
+            if importlib.util.find_spec("syft_job") is None:
+                return
         except ImportError:
             return
 
@@ -472,7 +473,6 @@ class SyftClient:
                         return {"status": "error", "message": "Failed to acquire lock"}
 
             def _main_job_runner():
-
                 from syft_job.job_runner import create_runner
 
                 runner = create_runner(str(syftbox_folder), poll_interval)
@@ -493,7 +493,12 @@ class SyftClient:
 
         # Check if syft-job is available (silently skip if not)
         try:
-            import syft_job
+            import importlib.util
+
+            if importlib.util.find_spec("syft_job") is None:
+                if self.verbose:
+                    print("⚠️  syft-job not found, skipping job runner setup")
+                return
 
             # if self.verbose:
             #     print("✓ syft-job module found, setting up job runner...")
@@ -558,20 +563,22 @@ class SyftClient:
             return base_dir / f"SyftBox_{self.email}"
         return None
 
-    def download_gdrive_folder(self, folder_name: str, local_path: str, recursive: bool = True) -> List[str]:
+    def download_gdrive_folder(
+        self, folder_name: str, local_path: str, recursive: bool = True
+    ) -> List[str]:
         """
         Download entire folder from Google Drive to local system (convenience method)
-        
+
         This is a shorthand for client.platforms.google_org.download_gdrive_folder()
-        
+
         Args:
             folder_name: Name of the folder on Google Drive to download
             local_path: Local directory path where the folder should be downloaded
             recursive: Whether to download subfolders recursively (default: True)
-            
+
         Returns:
             List[str]: List of absolute paths of successfully downloaded files
-            
+
         Raises:
             ValueError: If Google Org platform is not available or set up
         """
@@ -581,18 +588,23 @@ class SyftClient:
                 "Google Org platform not available. Please set up Google Workspace authentication first.\n"
                 "Try: client.platforms.google_org.authenticate()"
             )
-        
+
         google_org_client = self._platforms["google_org"]
-        
+
         # Check if the platform is authenticated and set up
-        if not hasattr(google_org_client, 'gdrive_files') or not google_org_client.gdrive_files.is_setup():
+        if (
+            not hasattr(google_org_client, "gdrive_files")
+            or not google_org_client.gdrive_files.is_setup()
+        ):
             raise ValueError(
                 "Google Drive is not set up. Please authenticate and set up Google Drive first.\n"
                 "Try: client.platforms.google_org.authenticate()"
             )
-        
+
         # Delegate to the Google Org platform
-        return google_org_client.download_gdrive_folder(folder_name, local_path, recursive)
+        return google_org_client.download_gdrive_folder(
+            folder_name, local_path, recursive
+        )
 
     @property
     def folder(self) -> Optional[str]:
@@ -782,7 +794,7 @@ class SyftClient:
                     from jupyter_dark_detect import is_dark
 
                     is_dark_mode = is_dark()
-                except:
+                except Exception:
                     is_dark_mode = False
 
                 # Theme colors
@@ -825,7 +837,7 @@ class SyftClient:
                         f"""
                     <div style="margin-bottom: 20px;">
                         <h4 style="color: {text_color}; margin: 0 0 10px 0;">
-                            {'🚀' if server_name == 'Watcher' else '📥' if server_name == 'Receiver' else '🏃'} {server_name}
+                            {"🚀" if server_name == "Watcher" else "📥" if server_name == "Receiver" else "🏃"} {server_name}
                             <span style="color: {label_color}; font-size: 0.9em;">(port {server.port})</span>
                         </h4>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
@@ -1234,7 +1246,7 @@ class SyftClient:
                                             req.platform
                                         )
                                 self._requests_cache = by_email
-                            except:
+                            except Exception:
                                 self._requests_cache = {}
                         return self._requests_cache
 
@@ -1325,7 +1337,7 @@ class SyftClient:
                         for request in requests:
                             peer_requests.add(request.email)
                     peer_requests = sorted(list(peer_requests))
-                except:
+                except Exception:
                     peer_requests = []
 
                 # Build content lines
@@ -1335,7 +1347,7 @@ class SyftClient:
                 if peers_list:
                     lines.append(
                         Text("client.peers", style="bold green")
-                        + Text(f"  [0] or ['email']", style="dim")
+                        + Text("  [0] or ['email']", style="dim")
                     )
                     for i, email in enumerate(peers_list):
                         peer = self._sync.peers_manager.get_peer(email)
@@ -1365,7 +1377,7 @@ class SyftClient:
                 if peer_requests:
                     lines.append(
                         Text("client.peers.requests", style="bold yellow")
-                        + Text(f"  [0] or ['email']", style="dim")
+                        + Text("  [0] or ['email']", style="dim")
                     )
                     for i, email in enumerate(peer_requests):
                         # Find which transports the request came from
@@ -1538,7 +1550,7 @@ class SyftClient:
                             if key not in transport_peer_counts:
                                 transport_peer_counts[key] = 0
                             transport_peer_counts[key] += 1
-        except:
+        except Exception:
             pass
 
         # Add each platform with its transports
@@ -1585,7 +1597,7 @@ class SyftClient:
                                         project_info = (
                                             f" [dim](project: {project_id})[/dim]"
                                         )
-                    except:
+                    except Exception:
                         pass
 
             main_table.add_row(platform_header + project_info)
@@ -1619,7 +1631,7 @@ class SyftClient:
                             if transport.is_setup():
                                 transport_initialized = True
                                 auth_status = "[green]✓[/green]"
-                        except:
+                        except Exception:
                             pass
 
                 # Use static method to check API status
@@ -1724,7 +1736,7 @@ class SyftClient:
                         for req in reqs:
                             unique_emails.add(req.email)
                     request_count = len(unique_emails)
-                except:
+                except Exception:
                     pass
 
                 # Add separator
@@ -1761,7 +1773,7 @@ class SyftClient:
                     main_table.add_row(
                         "  [dim]Add peers with: client.add_peer('email')[/dim]"
                     )
-        except:
+        except Exception:
             # If there's any error accessing contacts, just skip this section
             pass
 
@@ -1812,7 +1824,7 @@ class SyftClient:
                         for req in reqs:
                             unique_emails.add(req.email)
                     request_count = len(unique_emails)
-                except:
+                except Exception:
                     pass
 
                 # Add peers line
@@ -1822,7 +1834,7 @@ class SyftClient:
                     )
                 else:
                     lines.append("  • peers: none")
-        except:
+        except Exception:
             pass
 
         return "\n".join(lines)
@@ -1849,7 +1861,7 @@ class SyftClient:
 
         if confirm:
             # Show what will be deleted
-            print(f"\n⚠️  WARNING: This will delete all stored credentials!")
+            print("\n⚠️  WARNING: This will delete all stored credentials!")
             print(f"\nWallet directory: {wallet_dir}")
 
             # Count files that will be deleted
@@ -2019,12 +2031,12 @@ class SyftClient:
                 with contextlib.redirect_stdout(f):
                     try:
                         self.sync.peers_manager.clear_all_caches(verbose=True)
-                    except:
+                    except Exception:
                         pass
             else:
                 try:
                     self.sync.peers_manager.clear_all_caches(verbose=False)
-                except:
+                except Exception:
                     pass
 
             # Job runner will be setup later with progress tracking
@@ -2036,7 +2048,7 @@ class SyftClient:
                 self._initialize_all_transports()
 
             # Check for secondary platforms (don't count as step)
-            secondary_platforms = get_secondary_platforms()
+            get_secondary_platforms()
 
             # Step 8: Check for peer requests
             current_step += 1
@@ -2065,7 +2077,7 @@ class SyftClient:
                                 success = self.add_peer(peer_email)
                                 if success:
                                     accepted_peers.append(peer_email)
-                            except:
+                            except Exception:
                                 # Continue even if one fails
                                 pass
 
@@ -2128,7 +2140,6 @@ class SyftClient:
                         current_step, f"✓ Cleaned up {killed_count} existing server(s)"
                     )
                 except Exception as e:
-
                     if verbose:
                         print(f"⚠️  Error killing existing servers: {e}")
 
@@ -2178,7 +2189,7 @@ class SyftClient:
             try:
                 if hasattr(self, "sync") and hasattr(self.sync, "peers"):
                     peer_count = len(self.sync.peers)
-            except:
+            except Exception:
                 pass
 
             # Get list of active transports
@@ -2332,11 +2343,11 @@ class SyftClient:
                         # Multiple emails found, ask user to choose
                         print("\n📧 Multiple email accounts found in ~/.syft:")
                         for i, (_, email_addr) in enumerate(email_dirs):
-                            print(f"  {i+1}. {email_addr}")
-                        print(f"  {len(email_dirs)+1}. Enter a different email")
+                            print(f"  {i + 1}. {email_addr}")
+                        print(f"  {len(email_dirs) + 1}. Enter a different email")
 
                         choice = input(
-                            f"\nSelect an option (1-{len(email_dirs)+1}): "
+                            f"\nSelect an option (1-{len(email_dirs) + 1}): "
                         ).strip()
 
                         try:

@@ -88,7 +88,7 @@ class MessageSender:
 
         # Summary
         if verbose:
-            print(f"\n📊 Summary:")
+            print("\n📊 Summary:")
             print(f"   ✅ Successful: {successful}")
             print(f"   ❌ Failed: {failed}")
             print(f"   📨 Total: {len(peers_list)}")
@@ -207,13 +207,13 @@ class MessageSender:
             resolved_path
         ):
             syftbox_dir = self.paths.get_syftbox_directory()
-            print(f"❌ Error: Files must be within YOUR SyftBox folder to be sent")
+            print("❌ Error: Files must be within YOUR SyftBox folder to be sent")
             print(f"   Your SyftBox: {syftbox_dir}")
             print(f"   File path: {resolved_path}")
             print(
                 f"   Tip: Move your file to {syftbox_dir}/datasites/ or use syft:// URLs"
             )
-            print(f"   Example: syft://filename.txt")
+            print("   Example: syft://filename.txt")
             return None
 
         try:
@@ -239,7 +239,7 @@ class MessageSender:
             else:
                 relative_path = self.paths.get_relative_syftbox_path(resolved_path)
                 if not relative_path:
-                    print(f"❌ Could not determine relative path within SyftBox")
+                    print("❌ Could not determine relative path within SyftBox")
                     return None
 
             # Add file/folder to message
@@ -523,7 +523,7 @@ class MessageSender:
 
         # Summary
         if verbose:
-            print(f"\n📊 Summary:")
+            print("\n📊 Summary:")
             print(f"   ✅ Successful: {successful}")
             print(f"   ❌ Failed: {failed}")
             print(f"   🚚 Total: {len(peers_list)}")
@@ -583,7 +583,7 @@ class MessageSender:
 
         # Summary
         if verbose:
-            print(f"\n📊 Summary:")
+            print("\n📊 Summary:")
             print(f"   ✅ Successful: {successful}")
             print(f"   ❌ Failed: {failed}")
             print(f"   🗑️  Total: {len(peers_list)}")

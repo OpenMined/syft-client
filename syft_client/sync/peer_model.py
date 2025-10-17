@@ -362,7 +362,7 @@ class Peer:
                                 # Check if it has transport-like methods
                                 if hasattr(obj, "is_setup") and hasattr(obj, "setup"):
                                     transports.append(attr)
-                            except:
+                            except Exception:
                                 pass
 
                         return sorted(transports)
@@ -496,7 +496,7 @@ class Peer:
                 # Show available platforms
                 for platform_name in sorted(self._client._platforms.keys()):
                     # Count resources available
-                    platform = self._client._platforms[platform_name]
+                    self._client._platforms[platform_name]
                     resource_count = 0
 
                     # Check all transports dynamically
@@ -510,7 +510,7 @@ class Peer:
                                 and resource.get("available", True)
                             ):
                                 resource_count += 1
-                        except:
+                        except Exception:
                             pass
 
                     if resource_count > 0:
@@ -592,7 +592,7 @@ class Peer:
                         # Check if it has transport-like methods
                         if hasattr(obj, "is_setup") and hasattr(obj, "setup"):
                             all_transports.append(attr_name)
-                    except:
+                    except Exception:
                         pass
 
             # Show each transport with appropriate status
@@ -628,11 +628,11 @@ class Peer:
                             datetime.now() - endpoint.last_verified
                         ).total_seconds()
                         if time_ago < 3600:
-                            time_str = f"{int(time_ago/60)} minutes ago"
+                            time_str = f"{int(time_ago / 60)} minutes ago"
                         elif time_ago < 86400:
-                            time_str = f"{int(time_ago/3600)} hours ago"
+                            time_str = f"{int(time_ago / 3600)} hours ago"
                         else:
-                            time_str = f"{int(time_ago/86400)} days ago"
+                            time_str = f"{int(time_ago / 86400)} days ago"
                         main_table.add_row(f"       [dim]verified {time_str}[/dim]")
                 else:
                     # Transport not in available_transports - show as inactive
@@ -670,11 +670,11 @@ class Peer:
                             datetime.now() - endpoint.last_verified
                         ).total_seconds()
                         if time_ago < 3600:
-                            time_str = f"{int(time_ago/60)} minutes ago"
+                            time_str = f"{int(time_ago / 60)} minutes ago"
                         elif time_ago < 86400:
-                            time_str = f"{int(time_ago/3600)} hours ago"
+                            time_str = f"{int(time_ago / 3600)} hours ago"
                         else:
-                            time_str = f"{int(time_ago/86400)} days ago"
+                            time_str = f"{int(time_ago / 86400)} days ago"
                         main_table.add_row(f"       [dim]verified {time_str}[/dim]")
 
         if not self.available_transports:
@@ -769,7 +769,7 @@ class Peer:
                         # Messages found - this will be logged in summary
                 else:
                     if verbose:
-                        print(f"   ⚠️  Transport doesn't support inbox checking")
+                        print("   ⚠️  Transport doesn't support inbox checking")
 
             except Exception as e:
                 if verbose:
@@ -782,7 +782,7 @@ class Peer:
                     flush=True,
                 )
             else:
-                print(f"No messages", flush=True)
+                print("No messages", flush=True)
 
         return results
 

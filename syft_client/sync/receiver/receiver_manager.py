@@ -83,7 +83,7 @@ class ReceiverManager:
                     try:
                         response = requests.get(f"{server.url}/health", timeout=2)
                         return response.status_code == 200
-                    except:
+                    except Exception:
                         # Server exists but not responding
                         return False
             return False
@@ -111,7 +111,7 @@ class ReceiverManager:
                         "message": f"Receiver active for {self.client.email}",
                         **stats,  # Include stats if available
                     }
-        except:
+        except Exception:
             pass
 
         return {"running": False, "message": "Unable to get receiver status"}
@@ -142,7 +142,7 @@ class ReceiverManager:
                             else 0
                         ),
                     }
-        except:
+        except Exception:
             pass
 
         return {}

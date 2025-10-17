@@ -191,7 +191,7 @@ class BasePlatformClient(ABC):
                 transport_instance = self._create_transport_instance(transport_name)
                 if transport_instance:
                     self._transport_instances[transport_name] = transport_instance
-            except:
+            except Exception:
                 pass  # Skip if transport can't be created
 
     def _create_transport_instance(self, transport_name: str) -> Optional[Any]:
@@ -281,7 +281,7 @@ class BasePlatformClient(ABC):
                                     project_info = (
                                         f" [dim](project: {project_id})[/dim]"
                                     )
-                except:
+                except Exception:
                     pass
 
         # Don't show platform header - it's redundant when viewing the platform directly
@@ -319,7 +319,7 @@ class BasePlatformClient(ABC):
                             if transport_obj.is_setup():
                                 transport_initialized = True
                                 auth_status = "[green]✓[/green]"
-                        except:
+                        except Exception:
                             pass
 
                 # Use static method to check API status
