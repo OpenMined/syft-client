@@ -1,8 +1,8 @@
 import os
-import signal
 import subprocess
-import time
 from pathlib import Path
+
+import psutil
 
 from syft_process_manager.runners.base import ProcessRunner
 
@@ -25,48 +25,64 @@ class SubprocessRunner(ProcessRunner):
         if copy_env:
             env = {**os.environ, **env}
 
-        with (
-            open(stdout_path, "w") as stdout_file,
-            open(stderr_path, "w") as stderr_file,
-        ):
-            process = subprocess.Popen(
-                cmd,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                start_new_session=True,  # Detach from parent
-                env=env,
-            )
+        stdout_stream = open(stdout_path, "a")
+        stderr_stream = open(stderr_path, "a")
+        process = subprocess.Popen(
+            cmd,
+            stdout=stdout_stream,
+            stderr=stderr_stream,
+            start_new_session=True,  # Detach from parent
+            env=env,
+        )
+        stdout_stream.close()
+        stderr_stream.close()
         return process.pid
 
     def is_running(self, pid: int) -> bool:
         """Check if PID is alive"""
-        if pid <= 0:  # Invalid PID
+        if pid <= 0:
             return False
         try:
-            os.kill(pid, 0)
-            return True
-        except (OSError, ProcessLookupError):
+            proc = psutil.Process(pid)
+            return proc.is_running()
+        except psutil.NoSuchProcess:
             return False
 
     def terminate(self, pid: int, wait_time: float = 5.0) -> None:
-        """Terminate process (SIGTERM then SIGKILL if needed)"""
-        if not self.is_running(pid):
+        """Terminate process and its children"""
+        if pid is None:
             return
-
         try:
-            # Get process group ID for cleanup
-            pgid = os.getpgid(pid)
+            proc = psutil.Process(pid)
+            if proc.status == psutil.STATUS_ZOMBIE:
+                # Already terminated, waiting to be reaped
+                try:
+                    proc.wait(timeout=wait_time)
+                except psutil.TimeoutExpired:
+                    pass
+                return
 
-            # Try SIGTERM first
-            os.killpg(pgid, signal.SIGTERM)
+            # Terminate process tree (children first)
+            children = proc.children(recursive=True)
+            for child in children:
+                try:
+                    child.terminate()
+                except psutil.NoSuchProcess:
+                    pass
+
+            proc.terminate()
 
             # Wait for graceful shutdown
-            for _ in range(wait_time * 10):
-                time.sleep(0.1)
-                if not self.is_running(pid):
-                    return
+            try:
+                proc.wait(timeout=wait_time)
+            except psutil.TimeoutExpired:
+                # Force kill if still alive
+                for child in children:
+                    try:
+                        child.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                proc.kill()
 
-            # Force kill if still alive
-            os.killpg(pgid, signal.SIGKILL)
-        except (OSError, ProcessLookupError):
+        except psutil.NoSuchProcess:
             pass

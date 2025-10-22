@@ -8,20 +8,20 @@ from typing import Any, Callable
 
 import cloudpickle
 
-from syft_process_manager.config import ProcessManagerConfig
 from syft_process_manager.handle import ProcessHandle
-from syft_process_manager.managed_process.env import create_env_dict
 from syft_process_manager.process_manager import ProcessManager
 
 
-def launch_function(
+def create_handle_for_function(
     func: Callable,
     *args: Any,
     name: str | None = None,
-    ttl: float | None = None,
-    health_check: bool = True,
+    env: dict[str, str] | None = None,
+    ttl_seconds: int | None = None,
+    runner_type: str = "subprocess",
     log_level: str = "INFO",
-    config: ProcessManagerConfig | None = None,
+    process_manager: ProcessManager | None = None,
+    overwrite: bool = False,
     **kwargs: Any,
 ) -> ProcessHandle:
     """
@@ -40,12 +40,9 @@ def launch_function(
     Returns:
         ProcessHandle for the launched process
     """
-    # Use default config if not provided
-    if config is None:
-        config = ProcessManagerConfig()
 
     # Create process manager
-    manager = ProcessManager.from_config(config)
+    process_manager = process_manager or ProcessManager()
 
     # Generate name if not provided
     if name is None:
@@ -55,28 +52,49 @@ def launch_function(
     cmd = [sys.executable, "-m", "syft_process_manager.managed_process._main"]
 
     # Create handle using manager (sets up all paths)
-    handle = manager.init_handle(name=name, cmd=cmd)
-
-    # Serialize function to pickle file in process_dir
-    handle.info.process_dir.mkdir(parents=True, exist_ok=True)
-    pickle_path = handle.info.process_dir / "function.pkl"
-    pickle_path.write_bytes(cloudpickle.dumps((func, args, kwargs)))
-
-    # Setup health check path if enabled
-    health_path = handle.info.health_path if health_check else None
-
-    # Calculate stop_at from ttl
-    stop_at = time.time() + ttl if ttl else None
-
-    # Create environment variables for the subprocess
-    env = create_env_dict(
-        pickle_path=pickle_path,
-        health_path=health_path,
-        stop_at=stop_at,
+    handle = process_manager.create_handle(
+        name=name,
+        cmd=cmd,
+        env=env,
+        ttl_seconds=ttl_seconds,
         log_level=log_level,
+        runner_type=runner_type,
+        overwrite=overwrite,
     )
 
-    # Start the process with custom environment
-    handle.start(env=env)
+    # Serialize function to pickle file in process_dir
+    handle.config.process_dir.mkdir(parents=True, exist_ok=True)
+    pickle_path = handle.config.process_dir / "function.pkl"
+    with open(pickle_path, "wb") as f:
+        cloudpickle.dump((func, args, kwargs), f)
 
+    return handle
+
+
+def launch(
+    func: Callable,
+    *args: Any,
+    name: str | None = None,
+    env: dict[str, str] | None = None,
+    ttl_seconds: int | None = None,
+    runner_type: str = "subprocess",
+    log_level: str = "INFO",
+    process_manager: ProcessManager | None = None,
+    overwrite: bool = False,
+    **kwargs: Any,
+) -> ProcessHandle:
+    # Start the process with custom environment
+    handle = create_handle_for_function(
+        func,
+        *args,
+        name=name,
+        env=env,
+        ttl_seconds=ttl_seconds,
+        runner_type=runner_type,
+        log_level=log_level,
+        process_manager=process_manager,
+        overwrite=overwrite,
+        **kwargs,
+    )
+    handle.start()
     return handle

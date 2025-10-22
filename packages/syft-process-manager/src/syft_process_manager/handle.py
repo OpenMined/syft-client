@@ -1,107 +1,145 @@
-import json
+from pathlib import Path
 from typing import Self
 
 import psutil
 
 from syft_process_manager.log_stream import LogStream
-from syft_process_manager.models import ProcessInfo
+from syft_process_manager.models import (
+    ProcessConfig,
+    ProcessHealth,
+    ProcessState,
+)
 from syft_process_manager.runners import ProcessRunner, get_runner
-from syft_process_manager.utils import _utcnow
 
 
 class ProcessHandle:
+    """
+    Layout:
+    {process_dir}/
+        config.json # static config (name, cmd, env, runner_type, ...)
+        process_state.json # runtime state of current process (pid, created_at, ...), managed by syft-process-manager
+        health.json # optional health check info, managed by the process itself
+        stdout.log
+        stderr.log
+    """
+
     def __init__(
         self,
-        info: ProcessInfo,
+        config: ProcessConfig,
         runner: ProcessRunner,
     ):
-        self.info = info
+        # Config holds static config, re-used across restarts
+        # process_state holds process-specific state (pid, created_at, ...)
+        self.config = config
         self._runner = runner
 
     @classmethod
-    def from_info(
+    def from_config(
         cls,
-        info: ProcessInfo,
+        config: ProcessConfig,
     ) -> Self:
-        runner = get_runner(info.runner_type)
-        return cls(info=info, runner=runner)
+        runner = get_runner(config.runner_type)
+        return cls(config=config, runner=runner)
+
+    @classmethod
+    def from_dir(
+        cls,
+        process_dir: Path,
+    ) -> Self:
+        config = ProcessConfig.load(process_dir)
+        return ProcessHandle.from_config(config=config)
 
     @property
     def name(self) -> str:
-        return self.info.name
+        return self.config.name
 
-    def start(self, env: dict[str, str] | None = None) -> None:
-        if self._runner.is_running(self.info.pid):
-            raise RuntimeError(
-                f"Process {self.info.name} (pid={self.info.pid}) is already running."
-            )
+    @property
+    def process_state(self) -> ProcessState | None:
+        if not self.config.process_state_path.exists():
+            return None
+        return ProcessState.load(self.config.process_state_path)
 
-        new_pid = self._runner.start(
-            cmd=self.info.cmd,
-            stdout_path=self.info.stdout_path,
-            stderr_path=self.info.stderr_path,
-            env=env,
-        )
-        self.info.pid = new_pid
-        self.info.created_at = _utcnow()
-        self.info.save()
+    def _save_process_state(self, pid: int) -> None:
+        state = ProcessState(pid=pid)
+        self.config.process_state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config.process_state_path.write_text(state.model_dump_json(indent=2))
 
-    def terminate(self) -> None:
-        self._runner.terminate(self.info.pid)
-        self.info.pid = -1
+    def _remove_process_state(self) -> None:
+        if self.config.process_state_path.exists():
+            self.config.process_state_path.unlink()
 
-    def refresh(self) -> None:
-        if not self.is_running_and_valid():
-            self.info.pid = -1
-            self.info.info_path.unlink(missing_ok=True)
+    @property
+    def pid(self) -> int | None:
+        state = self.process_state
+        if state is None:
+            return None
+        return state.pid
 
     def is_running(self) -> bool:
-        """Check if process is alive (doesn't verify it's the right process)"""
-        return self._runner.is_running(self.info.pid)
-
-    def is_running_and_valid(self) -> bool:
-        """Check if process is alive AND hasn't been replaced (PID reuse check)"""
-        if not self.is_running():
+        """Check if process is alive AND valid (PID reuse check via env var)"""
+        pid = self.pid
+        if pid is None:
             return False
 
-        # Verify cmdline matches (detect PID reuse)
         try:
-            cmdline = self._read_cmdline()
-            return self._cmdline_matches(cmdline, self.info.cmd)
-        except Exception:
-            return False
-
-    def _read_cmdline(self) -> list[str]:
-        """Read process cmdline using psutil (cross-platform)"""
-        try:
-            process = psutil.Process(self.info.pid)
-            return process.cmdline()
+            process = psutil.Process(pid)
+            # Check if process is running
+            if not process.is_running():
+                return False
+            # Verify env var matches (detect PID reuse)
+            env = process.environ()
+            return env.get("SYFTPM_PROCESS_NAME") == self.config.name
         except (psutil.NoSuchProcess, psutil.AccessDenied):
-            return []
+            return False
         except Exception:
-            return []
+            return False
 
-    def _cmdline_matches(self, actual: list[str], expected: list[str]) -> bool:
-        """Compare cmdlines - check if expected command matches actual"""
-        if not actual or not expected:
-            return False
-        # Simple approach: check if expected is prefix of actual or exact match
-        # Handle cases where actual may have additional args
-        if len(expected) > len(actual):
-            return False
-        return actual[: len(expected)] == expected
+    def _get_default_env(self) -> dict[str, str]:
+        return {
+            "SYFTPM_PROCESS_NAME": self.config.name,
+            "SYFTPM_PROCESS_DIR": str(self.config.process_dir),
+        }
+
+    def start(self) -> None:
+        self.refresh()
+        if self.pid is not None:
+            raise RuntimeError(
+                f"Process {self.name} is already running with PID {self.pid}"
+            )
+
+        env = self._get_default_env()
+        if self.config.env:
+            env = {**env, **self.config.env}
+        new_pid = self._runner.start(
+            cmd=self.config.cmd,
+            stdout_path=self.config.stdout_path,
+            stderr_path=self.config.stderr_path,
+            env=env,
+        )
+
+        self._save_process_state(new_pid)
+
+    def terminate(self) -> None:
+        if self.pid is None:
+            return
+        self._runner.terminate(self.pid)
+        self._remove_process_state()
+
+    def refresh(self) -> None:
+        if not self.is_running():
+            self._remove_process_state()
 
     @property
     def stdout(self) -> LogStream:
-        return LogStream(self.info.stdout_path)
+        return LogStream(self.config.stdout_path)
 
     @property
     def stderr(self) -> LogStream:
-        return LogStream(self.info.stderr_path)
+        return LogStream(self.config.stderr_path)
 
-    @oroperty
-    def health(self) -> dict | None:
-        if not self.info.health_path.exists():
+    @property
+    def health(self) -> ProcessHealth | None:
+        if not self.config.health_path.exists():
             return None
-        content = self.info.health_path.read_text()
-        return json.loads(content)
+        content = self.config.health_path.read_text()
+        return ProcessHealth.model_validate_json(content)
