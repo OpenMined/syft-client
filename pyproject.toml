@@ -178,3 +178,6 @@ skips = ["B101"]                                           # Skip assert_used (n
 
 [tool.bandit.assert_used]
 skips = ["*/test_*.py", "*/tests/*"]
+
+[dependency-groups]
+dev = ["pre-commit>=4.3.0"]

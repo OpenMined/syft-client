@@ -40,12 +40,36 @@ class SubprocessRunner(ProcessRunner):
 
     def is_running(self, pid: int) -> bool:
         """Check if PID is alive"""
-        if pid <= 0:
+        if pid is None or pid <= 0:
             return False
         try:
             proc = psutil.Process(pid)
-            return proc.is_running()
+            # Ignore zombie processes, they are reaped later
+            return proc.is_running() and proc.status != psutil.STATUS_ZOMBIE
         except psutil.NoSuchProcess:
+            return False
+
+    def is_running_matching_create_time(
+        self,
+        pid: int,
+        process_create_time: float,
+        ignore_zombie: bool = True,
+    ) -> bool:
+        """Check if process is running AND matches the expected creation time (PID reuse detection)"""
+        if pid is None or pid <= 0:
+            return False
+
+        try:
+            proc = psutil.Process(pid)
+            if not proc.is_running() or proc.status == psutil.STATUS_ZOMBIE:
+                return False
+
+            # Verify creation time matches (detect PID reuse)
+            # Use small tolerance for potential JSON serialization precision loss
+            return abs(proc.create_time() - process_create_time) < 0.01
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return False
+        except Exception:
             return False
 
     def terminate(self, pid: int, wait_time: float = 5.0) -> None:

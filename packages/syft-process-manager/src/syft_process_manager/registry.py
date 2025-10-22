@@ -62,7 +62,12 @@ class ProcessRegistry:
         return ProcessConfig.load(path)
 
     def remove(self, name: str, remove_dir: bool = True) -> None:
-        """Remove ProcessConfig from registry."""
+        """
+        Remove ProcessConfig from registry.
+
+        This method will not stop the process; it only removes the config files.
+        Removing without stopping the process first may lead to orphaned processes.
+        """
         if remove_dir:
             dir = self.get_process_dir(name)
             shutil.rmtree(dir, ignore_errors=True)

@@ -19,5 +19,12 @@ class ProcessRunner(ABC):
         pass
 
     @abstractmethod
+    def is_running_matching_create_time(
+        self, pid: int, process_create_time: float
+    ) -> bool:
+        """Check if process is running AND matches the expected creation time (PID reuse detection)"""
+        pass
+
+    @abstractmethod
     def terminate(self, pid: int) -> None:
         pass

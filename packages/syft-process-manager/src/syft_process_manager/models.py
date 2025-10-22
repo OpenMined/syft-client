@@ -58,6 +58,7 @@ class ProcessConfig(BaseModel):
 class ProcessState(BaseModel):
     pid: int
     created_at: datetime = Field(default_factory=_utcnow)
+    process_create_time: float  # Unix timestamp from psutil
 
     @classmethod
     def load(cls: type[Self], path: Path) -> Self:
