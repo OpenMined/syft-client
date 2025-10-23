@@ -192,23 +192,12 @@ class ProcessHandle:
 
         return "\n".join(lines)
 
-    def _repr_html_(self) -> str:
-        """Jupyter notebook representation"""
-        from syft_process_manager.display.backend_app import ensure_app_is_running
-        from syft_process_manager.display.widget import render_process_widget
+    def _repr_mimebundle_(self, **kwargs):
+        """Jupyter mimebundle representation"""
+        try:
+            from syft_process_manager.display.anywidget_widget import ProcessWidget
 
-        # Ensure backend is running and get port
-        port = ensure_app_is_running()
-        backend_url = f"http://localhost:{port}"
-
-        info = self.info()
-
-        return render_process_widget(
-            name=info["name"],
-            status=info["status"],
-            pid=info["pid"],
-            uptime=info["uptime"],
-            backend_url=backend_url,
-            stdout_path=str(self.config.stdout_path),
-            stderr_path=str(self.config.stderr_path),
-        )
+            widget: ProcessWidget = ProcessWidget(process_handle=self)
+            return widget._repr_mimebundle_(**kwargs)
+        except ImportError:
+            return repr(self)
