@@ -60,7 +60,7 @@ class ProcessManager:
         handle.start()
         return handle
 
-    def get_all(self) -> list[ProcessHandle]:
+    def list(self) -> list[ProcessHandle]:
         handles = []
         for process_config in self.registry.list(ignore_validation_errors=True):
             handle = ProcessHandle.from_config(process_config)
@@ -87,7 +87,7 @@ class ProcessManager:
 
     def refresh_all(self) -> None:
         """Refresh registry state to reflect state of running processes"""
-        for handle in self.get_all():
+        for handle in self.list():
             handle.refresh()
 
     def _terminate_and_remove(self, process: str | ProcessHandle) -> None:
@@ -103,10 +103,10 @@ class ProcessManager:
 
     def terminate_all(self) -> None:
         """Terminate all managed processes"""
-        for handle in self.get_all():
+        for handle in self.list():
             handle.terminate()
 
     def remove_all(self) -> None:
         """Remove all managed processes from registry (after terminating them)"""
-        for handle in self.get_all():
+        for handle in self.list():
             self._terminate_and_remove(handle)

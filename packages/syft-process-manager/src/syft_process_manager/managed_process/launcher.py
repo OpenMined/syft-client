@@ -71,7 +71,7 @@ def create_handle_for_function(
     return handle
 
 
-def launch(
+def run_function(
     func: Callable,
     *args: Any,
     name: str | None = None,

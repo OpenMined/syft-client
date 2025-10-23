@@ -2,6 +2,7 @@ import threading
 import time
 from pathlib import Path
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -69,9 +70,7 @@ def _wait_for_startup(port: int, timeout: float = 5.0) -> None:
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            import requests
-
-            response = requests.get(f"http://localhost:{port}/health")
+            response = httpx.get(f"http://localhost:{port}/health")
             if response.status_code == 200:
                 return
         except Exception:

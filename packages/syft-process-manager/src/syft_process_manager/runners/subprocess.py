@@ -45,7 +45,7 @@ class SubprocessRunner(ProcessRunner):
         try:
             proc = psutil.Process(pid)
             # Ignore zombie processes, they are reaped later
-            return proc.is_running() and proc.status != psutil.STATUS_ZOMBIE
+            return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
         except psutil.NoSuchProcess:
             return False
 
@@ -61,7 +61,7 @@ class SubprocessRunner(ProcessRunner):
 
         try:
             proc = psutil.Process(pid)
-            if not proc.is_running() or proc.status == psutil.STATUS_ZOMBIE:
+            if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
                 return False
 
             # Verify creation time matches (detect PID reuse)
@@ -80,10 +80,6 @@ class SubprocessRunner(ProcessRunner):
             proc = psutil.Process(pid)
             if proc.status == psutil.STATUS_ZOMBIE:
                 # Already terminated, waiting to be reaped
-                try:
-                    proc.wait(timeout=wait_time)
-                except psutil.TimeoutExpired:
-                    pass
                 return
 
             # Terminate process tree (children first)

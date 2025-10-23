@@ -39,7 +39,7 @@ def setup_logging(log_level: str):
     )
 
 
-def get_process_config() -> ProcessConfig:
+def load_process_config() -> ProcessConfig:
     process_dir = os.environ.get("SYFTPM_PROCESS_DIR", None)
     if process_dir is None:
         raise ValueError("SYFTPM_PROCESS_DIR environment variable not set")
@@ -79,14 +79,15 @@ def run_user_function(
     except Exception as e:
         result_container["exception"] = e
         logger.error(f"Function failed: {e}", exc_info=True)
+    finally:
+        logger.debug("Function execution thread exiting")
 
 
 def main():
     """Run the wrapped function with health checks and TTL"""
     start_time = time.time()
-    # Read configuration from environment
     try:
-        process_config = get_process_config()
+        process_config = load_process_config()
     except Exception as e:
         logger.error(f"Failed to read process config: {e}", exc_info=True)
         sys.exit(1)
@@ -94,15 +95,14 @@ def main():
     setup_logging(process_config.log_level)
     set_process_title(f"syftpm - {process_config.name}")
 
-    # Load function
+    # Load and start user function
     logger.info("Initializing managed process")
     try:
         func, args, kwargs = load_user_function(process_config)
     except Exception as e:
         logger.error(f"Failed to load function: {e}", exc_info=True)
         sys.exit(1)
-
-    # Start function in worker thread
+    # result is a container to communicate the user function result between threads
     result = {"exception": None, "completed": False}
     func_thread = threading.Thread(
         target=run_user_function,
