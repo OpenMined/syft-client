@@ -2677,14 +2677,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anywidget" },
+    { name = "anywidget", specifier = ">=0.9" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
     { name = "fastapi", specifier = ">=0.118.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "importlib", specifier = ">=1.0.4" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "psutil", specifier = ">=5.9.5" },
-    { name = "pydantic", specifier = ">=2.12.3" },
+    { name = "pydantic", specifier = ">=2.11" },
     { name = "setproctitle", specifier = ">=1.3.7" },
     { name = "uvicorn", specifier = ">=0.37.0" },
 ]

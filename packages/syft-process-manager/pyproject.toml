@@ -6,14 +6,14 @@ readme = "README.md"
 authors = [{ name = "eelcovdw", email = "eelcovdw@gmail.com" }]
 requires-python = ">=3.12"
 dependencies = [
-    "anywidget",
+    "anywidget>=0.9",
     "cloudpickle>=3.1.1",
     "fastapi>=0.118.0",
     "httpx>=0.28.1",
     "importlib>=1.0.4",
     "jinja2>=3.1.6",
     "psutil>=5.9.5",       # Match Colab psutil version
-    "pydantic>=2.12.3",
+    "pydantic>=2.11",      # Match Colab pydantic
     "setproctitle>=1.3.7",
     "uvicorn>=0.37.0",
 ]
