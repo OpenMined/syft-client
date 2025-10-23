@@ -28,8 +28,8 @@ def detect_dark_mode() -> str:
 class ProcessWidget(anywidget.AnyWidget):
     """Widget for displaying process status with live updates"""
 
-    _esm = load_resource("anywidget_render.js")
-    _css = load_resource("anywidget_styles.css")
+    _esm = load_resource("process_widget.js")
+    _css = load_resource("process_widget.css")
 
     config = traitlets.Dict(default_value={}).tag(sync=True)
     process_state = traitlets.Dict(allow_none=True, default_value=None).tag(sync=True)

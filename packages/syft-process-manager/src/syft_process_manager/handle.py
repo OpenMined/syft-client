@@ -192,12 +192,12 @@ class ProcessHandle:
 
         return "\n".join(lines)
 
-    def _repr_mimebundle_(self, **kwargs):
+    def _repr_mimebundle_(self, **kwargs) -> tuple[dict, dict] | None:
         """Jupyter mimebundle representation"""
         try:
-            from syft_process_manager.display.anywidget_widget import ProcessWidget
+            from syft_process_manager.display.widget import ProcessWidget
 
             widget: ProcessWidget = ProcessWidget(process_handle=self)
             return widget._repr_mimebundle_(**kwargs)
         except ImportError:
-            return repr(self)
+            return None
