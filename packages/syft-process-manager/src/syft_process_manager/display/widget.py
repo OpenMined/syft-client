@@ -1,14 +1,12 @@
 """Prototype anywidget implementation for ProcessHandle"""
 
 import json
-import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anywidget
 import traitlets
-from anywidget._util import in_colab
-from syft_process_manager.display.resources import load_resource
+from syft_process_manager.display.resources import ASSETS_DIR
 from syft_process_manager.runners import ProcessRunner, get_runner
 from traitlets import observe
 
@@ -29,8 +27,8 @@ def detect_dark_mode() -> str:
 class ProcessWidget(anywidget.AnyWidget):
     """Widget for displaying process status with live updates"""
 
-    _esm = load_resource("process_widget.js")
-    _css = load_resource("process_widget.css")
+    _esm = ASSETS_DIR / "process_widget.js"
+    _css = ASSETS_DIR / "process_widget.css"
 
     config = traitlets.Dict(default_value={}).tag(sync=True)
     process_state = traitlets.Dict(allow_none=True, default_value=None).tag(sync=True)
@@ -47,7 +45,6 @@ class ProcessWidget(anywidget.AnyWidget):
     _poll_trigger = traitlets.Int(0).tag(sync=True)  # Incremented by JS to trigger poll
 
     def __init__(self, process_handle: "ProcessHandle", **kwargs):
-        # Extract only the paths we need to avoid holding a reference to mutable ProcessHandle
         super().__init__(**kwargs)
 
         self._process_state_path: Path = process_handle.config.process_state_path
@@ -55,107 +52,44 @@ class ProcessWidget(anywidget.AnyWidget):
         self._stdout_path: Path = process_handle.config.stdout_path
         self._stderr_path: Path = process_handle.config.stderr_path
         self._runner: ProcessRunner = get_runner(process_handle.config.runner_type)
-        self._polling_thread = None
-        self._stop_polling = threading.Event()
-
-        self._is_colab = in_colab()
 
         self.config = process_handle.config.model_dump(mode="json")
         self.theme = detect_dark_mode()
 
-        print(
-            f"ProcessWidget: initialized. theme={self.theme}, is_colab={self._is_colab}"
-        )
+        # Initial update to populate widget with current state
+        self._update_from_files()
 
-        # Disabled Python polling thread - using JavaScript polling instead
-        # JavaScript will increment _poll_trigger to request updates
-        # self._start_polling()
+        # NOTE on polling:
+        # - Polling from Python background threads works in Jupyter Notebook/Lab
+        # - Polling from Python does NOT work in Google Colab (threads pause when main thread is idle)
+        # - Solution: JavaScript interval polling initiates updates by incrementing _poll_trigger trait
 
     @observe("_poll_trigger")
     def _on_poll_trigger(self, change):
         """Triggered by JavaScript when it wants to poll for updates"""
-        print(f"ProcessWidget: _poll_trigger changed to {change['new']}")
         try:
             self._update_from_files()
-        except Exception as e:
-            print(f"ProcessWidget: Error handling poll: {e}")
-
-    @observe("polling_active")
-    def _on_polling_active_changed(self, change):
-        """Restart polling thread when polling_active changes to True"""
-        if change["new"] and not change["old"]:
-            print("ProcessWidget: polling_active changed to True, starting polling")
-            self._start_polling()
-
-    def _start_polling(self):
-        """Start background polling thread"""
-        if self._polling_thread and self._polling_thread.is_alive():
-            print("ProcessWidget: polling thread already running")
-            return
-
-        print("ProcessWidget: starting polling thread")
-        self._stop_polling.clear()
-        self._polling_thread = threading.Thread(
-            target=self._poll_loop,
-            daemon=True,
-            name=f"ProcessWidget-{self.config.get('name', 'unknown')}",
-        )
-        self._polling_thread.start()
-
-    def _stop_polling_thread(self):
-        """Stop background polling thread"""
-        if self._polling_thread and self._polling_thread.is_alive():
-            print("ProcessWidget: stopping polling thread")
-            self._stop_polling.set()
-            self._polling_thread.join(timeout=2.0)
-
-    def _poll_loop(self):
-        """Background polling loop that updates widget state"""
-        print(f"ProcessWidget: poll loop started, polling_active={self.polling_active}")
-        iteration = 0
-        while not self._stop_polling.is_set() and self.polling_active:
-            iteration += 1
-            print(
-                f"ProcessWidget: poll iteration {iteration}, polling_active={self.polling_active}"
-            )
-            try:
-                self._update_from_files()
-            except Exception as e:
-                print(f"ProcessWidget: Error polling process: {e}")
-                import traceback
-
-                traceback.print_exc()
-
-            self._stop_polling.wait(self.polling_interval)
-        print(
-            f"ProcessWidget: poll loop exited, stop_event={self._stop_polling.is_set()}, polling_active={self.polling_active}"
-        )
+        except Exception:
+            pass
 
     def _update_from_files(self):
-        """Update widget state by reading from files directly"""
+        # hold_sync to batch trait updates into a single message
         with self.hold_sync():
-            items_to_sync = []
             state = self._read_process_state()
             if self.process_state != state:
-                items_to_sync.append("process_state")
                 self.process_state = state
 
             health = self._read_json(self._health_path)
             if self.health != health:
-                items_to_sync.append("health")
                 self.health = health
 
             stdout_lines = self._read_lines(self._stdout_path)
             if self.stdout_lines != stdout_lines:
-                items_to_sync.append("stdout_lines")
                 self.stdout_lines = stdout_lines
 
             stderr_lines = self._read_lines(self._stderr_path)
             if self.stderr_lines != stderr_lines:
-                items_to_sync.append("stderr_lines")
                 self.stderr_lines = stderr_lines
-
-            print(f"ProcessWidget: syncing items: {items_to_sync}")
 
     def _read_process_state(self) -> dict | None:
         """Read process state file, return None if not running"""
@@ -185,8 +119,6 @@ class ProcessWidget(anywidget.AnyWidget):
             return []
 
     def close(self):
-        """Close the widget and stop polling thread"""
-        print("ProcessWidget: closing widget and stopping polling")
+        """Close the widget and stop JavaScript polling"""
         self.polling_active = False
-        self._stop_polling_thread()
         super().close()
