@@ -31,7 +31,8 @@ def generate_message_filename() -> str:
 
 
 class ProposedFileChangesMessage(BaseModel):
-    filename: str = Field(default_factory=generate_message_filename)
+    id: UUID = Field(default_factory=lambda: uuid4())
+    message_filename: str = Field(default_factory=generate_message_filename)
     proposed_file_changes: List[ProposedFileChange]
 
     @classmethod

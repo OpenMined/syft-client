@@ -81,3 +81,14 @@ def test_valid_and_invalid_proposed_filechange_event():
     assert content == "Content 2"
 
     # print(do_manager.proposed_file_change_handler.connection_router.get_all_events())
+
+
+def test_sync_back_to_ds_cache():
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+    ds_manager.send_file_change("test.job", "Hello, world!")
+
+    ds_manager.datasite_outbox_puller.datasite_watcher_cache.sync_down()
+    assert (
+        len(ds_manager.datasite_outbox_puller.datasite_watcher_cache.get_all_events())
+        == 1
+    )

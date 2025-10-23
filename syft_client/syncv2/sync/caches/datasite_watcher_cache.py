@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
 from syft_client.syncv2.events.file_change_event import FileChangeEvent
@@ -45,6 +45,9 @@ class DataSiteWatcherCache(BaseModel):
         self.file_hashes[event.path] = event.new_hash
 
         self.events_connection.write_file(event.eventfile_filepath(), event)
+
+    def get_all_events(self) -> List[FileChangeEvent]:
+        return self.events_connection.get_all()
 
     def sync_down_if_needed(self):
         if self.last_sync is None:

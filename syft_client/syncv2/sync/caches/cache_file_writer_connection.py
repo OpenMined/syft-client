@@ -1,4 +1,4 @@
-from typing import Generic, TypeVar
+from typing import Generic, List, TypeVar
 from pydantic import BaseModel, Field
 
 T = TypeVar("T")
@@ -39,3 +39,6 @@ class InMemoryCacheFileConnection(CacheFileConnection[T]):
 
     def get_latest(self) -> T:
         return list(self.sorted_files.values())[-1]
+
+    def get_all(self) -> List[T]:
+        return list(self.sorted_files.values())

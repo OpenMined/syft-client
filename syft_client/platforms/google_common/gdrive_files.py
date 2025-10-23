@@ -636,7 +636,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         data = message.model_dump_json(indent=2).encode("utf-8")
         data_compressed = compress_data(data)
         self._koen_send_archive_via_transport(
-            data_compressed, message.filename, recipient
+            data_compressed, message.message_filename, recipient
         )
 
     def _koen_send_archive_via_transport(

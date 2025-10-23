@@ -404,7 +404,9 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         message = ProposedFileChangesMessage(proposed_file_changes=messages)
         data = message.model_dump_json(indent=2).encode("utf-8")
         data_compressed = compress_data(data)
-        self.send_archive_via_transport(data_compressed, message.filename, recipient)
+        self.send_archive_via_transport(
+            data_compressed, message.message_filename, recipient
+        )
 
     def _find_folder_by_name(
         self, folder_name: str, parent_id: str = None
