@@ -98,21 +98,29 @@ class ProcessWidget(anywidget.AnyWidget):
 
     def _update_from_files(self):
         """Update widget state by reading from files directly"""
-        state = self._read_process_state()
-        if self.process_state != state:
-            self.process_state = state
+        with self.hold_sync():
+            items_to_sync = []
+            state = self._read_process_state()
+            if self.process_state != state:
+                items_to_sync.append("process_state")
+                self.process_state = state
 
-        health = self._read_json(self._health_path)
-        if self.health != health:
-            self.health = health
+            health = self._read_json(self._health_path)
+            if self.health != health:
+                items_to_sync.append("health")
+                self.health = health
 
-        stdout_lines = self._read_lines(self._stdout_path)
-        if self.stdout_lines != stdout_lines:
-            self.stdout_lines = stdout_lines
+            stdout_lines = self._read_lines(self._stdout_path)
+            if self.stdout_lines != stdout_lines:
+                items_to_sync.append("stdout_lines")
+                self.stdout_lines = stdout_lines
 
-        stderr_lines = self._read_lines(self._stderr_path)
-        if self.stderr_lines != stderr_lines:
-            self.stderr_lines = stderr_lines
+            stderr_lines = self._read_lines(self._stderr_path)
+            if self.stderr_lines != stderr_lines:
+                items_to_sync.append("stderr_lines")
+                self.stderr_lines = stderr_lines
+
+            print(f"ProcessWidget: syncing items: {items_to_sync}")
 
     def _read_process_state(self) -> dict | None:
         """Read process state file, return None if not running"""
