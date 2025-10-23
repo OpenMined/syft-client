@@ -10,11 +10,18 @@ from syft_client.syncv2.syftbox_utils import create_event_timestamp
 
 class ProposedFileChange(BaseModel):
     id: UUID = Field(default_factory=lambda: uuid4())
-    parent_id: UUID
+    old_hash: int | None = None
+    new_hash: int
     # Use UNIX timestamp (seconds since epoch)
-    timestamp: float = Field(default_factory=lambda: create_event_timestamp())
+    submitted_timestamp: float = Field(default_factory=lambda: create_event_timestamp())
     path: str
     content: str
+
+    @model_validator(mode="before")
+    def pre_init(cls, data):
+        if "new_hash" not in data:
+            data["new_hash"] = hash(data.get("content"))
+        return data
 
 
 def generate_message_filename() -> str:

@@ -18,10 +18,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     connection_router: ConnectionRouter
 
     def init_new_store(self):
-        assert len(self.event_cache.id2node) == 1
-        event = next(iter(self.event_cache.heads)).event
-        self.write_event_to_backing_platform(event)
-        print("EVENTS IN INIT_NEW_STORE", self.connection_router.get_all_events())
+        pass
 
     def check_permissions(self, path: str):
         pass
@@ -29,14 +26,8 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     def handle_proposed_filechange_event(self, event: ProposedFileChange):
         self.check_permissions(event.path)
 
-        # we may also get merge events
-        event, merge_events = self.event_cache.process_proposed_event(event)
-        all_resulting_events = [event] + merge_events
-        for event in all_resulting_events:
-            self.write_event_local(event)
-
-        for event in all_resulting_events:
-            self.write_event_to_backing_platform(event)
+        event = self.event_cache.process_proposed_event(event)
+        self.write_event_to_backing_platform(event)
 
     def write_event_to_backing_platform(self, event: FileChangeEvent):
         self.connection_router.write_event_to_backing_platform(event)
@@ -44,9 +35,3 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     def write_file_filesystem(self, path: str, content: str):
         if self.write_files:
             raise NotImplementedError("Writing files to filesystem is not implemented")
-
-    def write_event_local(self, event: ProposedFileChange):
-        self.write_file_filesystem(event.path, event.content)
-
-        for callback in self.callbacks.get("on_event_local_write", []):
-            callback(event.path, event.content)

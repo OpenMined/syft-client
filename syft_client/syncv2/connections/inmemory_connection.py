@@ -43,9 +43,16 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
     def write_event_to_backing_platform(self, event: FileChangeEvent):
         self.backing_store.events.append(event)
 
-    def get_events_for_datasite_watcher(self) -> List[FileChangeEvent]:
+    def get_events_for_datasite_watcher(
+        self, since_timestamp: float | None = None
+    ) -> List[FileChangeEvent]:
         # TODO: implement permissions
-        return self.backing_store.events
+        if since_timestamp is not None:
+            return self.backing_store.events
+        else:
+            return [
+                e for e in self.backing_store.events if e.timestamp > since_timestamp
+            ]
 
     def get_all_events(self) -> List[FileChangeEvent]:
         return self.backing_store.events

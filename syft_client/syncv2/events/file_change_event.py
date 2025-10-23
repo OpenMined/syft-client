@@ -7,26 +7,32 @@ from syft_client.syncv2.syftbox_utils import create_event_timestamp
 
 
 class FileChangeEvent(BaseModel):
-    # can be None for no-op events
-    path: str | None = None
-    # can be None for no-op events
-    content: str | None = None
     id: UUID
-    parent_ids: List[UUID]
+    path: str
+    content: str
+    old_hash: int | None = None
+    new_hash: int
+    submitted_timestamp: float
     timestamp: float
 
+    def to_json(self) -> str:
+        return self.model_dump_json()
+
+    def eventfile_filepath(self) -> str:
+        f"{self.timestamp}__syftfile__{self.path}.{self.id}.json"
+
     @classmethod
-    def for_now(
+    def from_proposed_filechange(
         cls,
-        path: str | None = None,
-        content: str | None = None,
-        parent_ids: List[UUID] = [],
+        proposed_filechange: ProposedFileChange,
     ) -> "FileChangeEvent":
         return cls(
-            path=path,
-            content=content,
-            id=uuid4(),
-            parent_ids=parent_ids,
+            path=proposed_filechange.path,
+            content=proposed_filechange.content,
+            id=proposed_filechange.id,
+            old_hash=proposed_filechange.old_hash,
+            new_hash=proposed_filechange.new_hash,
+            submitted_timestamp=proposed_filechange.submitted_timestamp,
             timestamp=create_event_timestamp(),
         )
 
@@ -37,67 +43,3 @@ class FileChangeEvent(BaseModel):
         if not isinstance(other, FileChangeEvent):
             return False
         return self.id == other.id
-
-
-class FileChangeEventNode(BaseModel):
-    event: FileChangeEvent
-    parents: List["FileChangeEventNode"]
-    is_root: bool = False
-
-    def __eq__(self, other: "FileChangeEventNode") -> bool:
-        if not isinstance(other, FileChangeEventNode):
-            return False
-        return self.id == other.id
-
-    def __hash__(self) -> int:
-        return hash(self.id)
-
-    @classmethod
-    def noop_event(
-        cls, is_root=False, parents: List["FileChangeEventNode"] = []
-    ) -> "FileChangeEventNode":
-        parent_ids = [parent.id for parent in parents]
-        return cls(
-            event=FileChangeEvent.for_now(
-                path=None, content=None, parent_ids=parent_ids
-            ),
-            parents=parents,
-            is_root=is_root,
-        )
-
-    @classmethod
-    def from_proposed_filechange(
-        cls, proposed_event: ProposedFileChange, parents: List["FileChangeEventNode"]
-    ) -> "FileChangeEventNode":
-        event = FileChangeEvent(
-            path=proposed_event.path,
-            content=proposed_event.content,
-            id=proposed_event.id,
-            parent_ids=[proposed_event.parent_id],
-            timestamp=proposed_event.timestamp,
-        )
-        return cls(event=event, parents=parents, is_root=False)
-
-    @property
-    def id(self) -> UUID:
-        return self.event.id
-
-    @property
-    def parent_ids(self) -> List[UUID]:
-        return self.event.parent_ids
-
-    @property
-    def path(self) -> str:
-        return self.event.path
-
-    @property
-    def content(self) -> str:
-        return self.event.content
-
-    def __eq__(self, other: "FileChangeEventNode") -> bool:
-        if not isinstance(other, FileChangeEventNode):
-            return False
-        return self.id == other.id
-
-    def __hash__(self) -> int:
-        return hash(self.id)

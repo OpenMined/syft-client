@@ -12,24 +12,6 @@ from syft_client.syncv2.messages.proposed_filechange import (
 from syft_client.syncv2.sync.caches.datasite_watcher_cache import DataSiteWatcherCache
 
 
-class PusherManager(BaseModel):
-    def __init__(self, in_process):
-        self.logs_subfolder = logs_subfolder
-        self.folder_to_watch = folder_to_watch
-        if in_process:
-            pusher = ProposedFileChangePusher(
-                base_path=base_path,
-                connection_router=connection_router,
-            )
-
-            self.pid = launch(pusher, logs_subfolder, folder_to_watch)
-        elif in_memory:
-            self.pusher = ProposedFileChangePusher(
-                base_path=base_path,
-                connection_router=connection_router,
-            )
-
-
 class ProposedFileChangePusher(BaseModelCallbackMixin):
     base_path: Path
     connection_router: ConnectionRouter
@@ -43,9 +25,11 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
             )
         return self
 
-    def get_event_parent_id(self) -> UUID:
-        parent_event = self.datasite_watcher_cache.head_for_new_event()
-        return parent_event.id
+    def get_proposed_file_change_object(
+        self, path: str, content: str
+    ) -> ProposedFileChange:
+        old_hash = self.datasite_watcher_cache.current_hash_for_file(path)
+        return ProposedFileChange(path=path, content=content, old_hash=old_hash)
 
     def on_file_change(self, path: str, content: str | None = None):
         # for in memory connection we pass content directly
@@ -53,8 +37,6 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
             with open(self.base_path / path, "r") as f:
                 content = f.read()
 
-        file_change = ProposedFileChange(
-            path=path, content=content, parent_id=self.get_event_parent_id()
-        )
+        file_change = self.get_proposed_file_change_object(path, content)
         message = ProposedFileChangesMessage(proposed_file_changes=[file_change])
         self.connection_router.send_proposed_filechange_message(message)

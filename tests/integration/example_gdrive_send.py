@@ -21,7 +21,7 @@ success = transport.setup({"credentials": creds})
 msgs = ProposedFileChangesMessage(
     proposed_file_changes=[
         ProposedFileChange(
-            timestamp=1718544000,
+            submitted_timestamp=1718544000,
             path="my_file.job",
             content="Hello, world!",
         )

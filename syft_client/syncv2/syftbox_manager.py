@@ -154,7 +154,7 @@ class SyftboxManager(BaseModel):
         # this make sure that when the receiver writes a file to disk,
         # the file watcher picks it up
         # we use the underscored method to allow for monkey patching
-        receiver_manager.proposed_file_change_puller.handler.add_callback(
+        receiver_manager.proposed_file_change_handler.event_cache.add_callback(
             "on_event_local_write",
             receiver_manager.job_file_change_handler._handle_file_change,
         )
@@ -221,7 +221,7 @@ class SyftboxManager(BaseModel):
         # this make sure that when the receiver writes a file to disk,
         # the file watcher picks it up
         # we use the underscored method to allow for monkey patching
-        receiver_manager.proposed_file_change_handler.add_callback(
+        receiver_manager.proposed_file_change_handler.event_cache.add_callback(
             "on_event_local_write",
             receiver_manager.job_file_change_handler._handle_file_change,
         )

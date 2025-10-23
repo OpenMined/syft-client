@@ -32,6 +32,10 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_backing_platform()
         return connection.get_all_events()
 
-    def get_events_for_datasite_watcher(self) -> List[FileChangeEvent]:
+    def get_events_for_datasite_watcher(
+        self, since_timestamp: float | None
+    ) -> List[FileChangeEvent]:
         connection = self.connection_for_datasite_watcher()
-        return connection.get_events_for_datasite_watcher()
+        return connection.get_events_for_datasite_watcher(
+            since_timestamp=since_timestamp
+        )
