@@ -2677,7 +2677,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anywidget", specifier = ">=0.9.18" },
+    { name = "anywidget" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
     { name = "fastapi", specifier = ">=0.118.0" },
     { name = "httpx", specifier = ">=0.28.1" },
@@ -2691,7 +2691,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "anywidget", extras = ["dev"], specifier = ">=0.9.18" },
+    { name = "anywidget", extras = ["dev"], specifier = ">=0.8.0" },
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "playwright", specifier = ">=1.55.0" },
     { name = "pre-commit", specifier = ">=4.3.0" },
