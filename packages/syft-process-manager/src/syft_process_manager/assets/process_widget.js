@@ -40,7 +40,7 @@ function render({ model, el }) {
           <tr>
             <td>Process Dir:</td>
             <td>
-              <a href="file://${processDir}" style="text-decoration: underline; font-size: 11px;">
+              <a href="file://${processDir}" class="process-dir-link">
                 ${processDir}
               </a>
             </td>
@@ -79,11 +79,9 @@ function render({ model, el }) {
     const health = model.get("health");
 
     const pid = processState?.pid || null;
-    const uptime = calculateUptime(processState?.created_at);
+    const uptime = formatTimeSince(processState?.created_at);
     const status = deriveStatus(processState, health);
-    const lastHealthCheck = health?.timestamp
-      ? timeAgo(health.timestamp)
-      : "never";
+    const lastHealthCheckTime = formatTimeSince(health?.timestamp);
 
     const statusIcons = {
       running: "✅",
@@ -107,7 +105,10 @@ function render({ model, el }) {
     if (uptimeEl) uptimeEl.textContent = uptime || "-";
 
     const healthEl = container.querySelector('[data-field="health"]');
-    if (healthEl) healthEl.textContent = lastHealthCheck;
+    if (healthEl)
+      healthEl.textContent = lastHealthCheckTime
+        ? `${lastHealthCheckTime} ago`
+        : "never";
   }
 
   function updateStdoutLogs() {
@@ -119,7 +120,7 @@ function render({ model, el }) {
           ? stdoutLines
               .map((line) => `<span>${escapeHtml(line)}</span>`)
               .join("<br>")
-          : '<em style="color: #888;">No recent output</em>';
+          : '<em class="empty-log-message">No recent output</em>';
       stdoutContainer.scrollTop = stdoutContainer.scrollHeight;
     }
   }
@@ -133,7 +134,7 @@ function render({ model, el }) {
           ? stderrLines
               .map((line) => `<span>${escapeHtml(line)}</span>`)
               .join("<br>")
-          : '<em style="color: #888;">No recent errors</em>';
+          : '<em class="empty-log-message">No recent errors</em>';
       stderrContainer.scrollTop = stderrContainer.scrollHeight;
     }
   }
@@ -158,35 +159,21 @@ function render({ model, el }) {
     return "running";
   }
 
-  function calculateUptime(createdAt) {
-    if (!createdAt) return null;
-    const created = new Date(createdAt);
-    const now = new Date();
-    const diffSeconds = Math.floor((now - created) / 1000);
+  function formatTimeSince(timestamp) {
+    if (!timestamp) return null;
 
-    if (diffSeconds < 60) return "< 1m";
-    const diffMinutes = Math.floor(diffSeconds / 60);
-    if (diffMinutes < 60) return `${diffMinutes}m`;
-    const diffHours = Math.floor(diffMinutes / 60);
-    if (diffHours < 24) return `${diffHours}h ${diffMinutes % 60}m`;
-    const diffDays = Math.floor(diffHours / 24);
-    return `${diffDays}d ${diffHours % 24}h`;
-  }
-
-  function timeAgo(timestamp) {
-    if (!timestamp) return "never";
     const then = new Date(timestamp);
     const now = new Date();
     const diffSeconds = Math.floor((now - then) / 1000);
 
-    if (diffSeconds < 5) return "just now";
-    if (diffSeconds < 60) return `${diffSeconds}s ago`;
+    if (diffSeconds < 5) return "< 5s";
+    if (diffSeconds < 60) return "< 1m";
     const diffMinutes = Math.floor(diffSeconds / 60);
-    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    if (diffMinutes < 60) return `${diffMinutes}m`;
     const diffHours = Math.floor(diffMinutes / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffHours < 24) return `${diffHours}h`;
     const diffDays = Math.floor(diffHours / 24);
-    return `${diffDays}d ago`;
+    return `${diffDays}d`;
   }
 
   function escapeHtml(text) {
@@ -201,12 +188,6 @@ function render({ model, el }) {
   updateStdoutLogs();
   updateStderrLogs();
   updatePollingButton();
-
-  // Listen for specific trait changes
-  model.on("change:process_state change:health", updateProcessInfo);
-  model.on("change:stdout_lines", updateStdoutLogs);
-  model.on("change:stderr_lines", updateStderrLogs);
-  model.on("change:polling_active", updatePollingButton);
 
   // JavaScript-side polling for Colab compatibility
   // In Colab, Python background threads pause when idle, so we poll from JS
@@ -236,15 +217,22 @@ function render({ model, el }) {
     }
   }
 
-  // Start polling when polling_active is true
-  model.on("change:polling_active", () => {
+  function handlePollingActiveChange() {
+    updatePollingButton();
+    // Start/stop polling based on polling_active state
     const isActive = model.get("polling_active");
     if (isActive) {
       startPolling();
     } else {
       stopPolling();
     }
-  });
+  }
+
+  // Listen for specific trait changes
+  model.on("change:process_state change:health", updateProcessInfo);
+  model.on("change:stdout_lines", updateStdoutLogs);
+  model.on("change:stderr_lines", updateStderrLogs);
+  model.on("change:polling_active", handlePollingActiveChange);
 
   // Start polling immediately if active
   if (model.get("polling_active")) {

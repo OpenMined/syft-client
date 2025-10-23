@@ -7,6 +7,7 @@
   --log-bg: #f8f9fa;
   --log-text: #374151;
   --error-text: #d73a49;
+  --empty-log-color: #888;
 
   --status-running: #27ae60;
   --status-unhealthy: #f39c12;
@@ -23,6 +24,7 @@
   --log-bg: #1a1a1a;
   --log-text: #9ca3af;
   --error-text: #ff6b6b;
+  --empty-log-color: #666;
 
   --status-running: #27ae60;
   --status-unhealthy: #f39c12;
@@ -81,6 +83,12 @@
   color: var(--label-color);
 }
 
+.process-dir-link {
+  text-decoration: underline;
+  font-size: 11px;
+  color: inherit;
+}
+
 .process-widget-status {
   font-weight: bold;
 }
@@ -131,4 +139,9 @@
 
 .process-widget-log-content.stderr {
   color: var(--error-text);
+}
+
+.empty-log-message {
+  color: var(--empty-log-color);
+  font-style: italic;
 }
