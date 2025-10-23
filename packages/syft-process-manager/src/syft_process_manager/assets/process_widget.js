@@ -184,6 +184,61 @@ function render({ model, el }) {
 
   // Listen for changes to any trait
   model.on("change", updateView);
+
+  // JavaScript-side polling for Colab compatibility
+  // In Colab, Python background threads pause when idle, so we poll from JS
+  let pollInterval = null;
+
+  function startPolling() {
+    if (pollInterval) return;
+
+    const interval = model.get("polling_interval") * 1000 || 1000;
+    console.log(
+      `ProcessWidget: Starting JS polling with interval ${interval}ms`,
+    );
+    pollInterval = setInterval(() => {
+      const isActive = model.get("polling_active");
+      console.log(`ProcessWidget JS: polling tick, active=${isActive}`);
+      if (isActive) {
+        // Increment poll trigger to notify Python
+        const currentTrigger = model.get("_poll_trigger") || 0;
+        console.log(
+          `ProcessWidget JS: incrementing _poll_trigger from ${currentTrigger}`,
+        );
+        model.set("_poll_trigger", currentTrigger + 1);
+        model.save_changes();
+      } else {
+        stopPolling();
+      }
+    }, interval);
+  }
+
+  function stopPolling() {
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+  }
+
+  // Start polling when polling_active is true
+  model.on("change:polling_active", () => {
+    const isActive = model.get("polling_active");
+    if (isActive) {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  });
+
+  // Start polling immediately if active
+  if (model.get("polling_active")) {
+    startPolling();
+  }
+
+  // Cleanup on widget removal
+  return () => {
+    stopPolling();
+  };
 }
 
 export default { render };

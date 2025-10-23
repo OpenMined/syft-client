@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import anywidget
 import traitlets
+from anywidget._util import in_colab
 from syft_process_manager.display.resources import load_resource
 from syft_process_manager.runners import ProcessRunner, get_runner
 from traitlets import observe
@@ -43,6 +44,7 @@ class ProcessWidget(anywidget.AnyWidget):
     theme = traitlets.Unicode("light").tag(sync=True)
     polling_active = traitlets.Bool(True).tag(sync=True)
     polling_interval = traitlets.Float(1.0).tag(sync=True)
+    _poll_trigger = traitlets.Int(0).tag(sync=True)  # Incremented by JS to trigger poll
 
     def __init__(self, process_handle: "ProcessHandle", **kwargs):
         # Extract only the paths we need to avoid holding a reference to mutable ProcessHandle
@@ -56,10 +58,27 @@ class ProcessWidget(anywidget.AnyWidget):
         self._polling_thread = None
         self._stop_polling = threading.Event()
 
-        self.config = process_handle.config.model_dump(mode="json")
+        self._is_colab = in_colab()
 
+        self.config = process_handle.config.model_dump(mode="json")
         self.theme = detect_dark_mode()
-        self._start_polling()
+
+        print(
+            f"ProcessWidget: initialized. theme={self.theme}, is_colab={self._is_colab}"
+        )
+
+        # Disabled Python polling thread - using JavaScript polling instead
+        # JavaScript will increment _poll_trigger to request updates
+        # self._start_polling()
+
+    @observe("_poll_trigger")
+    def _on_poll_trigger(self, change):
+        """Triggered by JavaScript when it wants to poll for updates"""
+        print(f"ProcessWidget: _poll_trigger changed to {change['new']}")
+        try:
+            self._update_from_files()
+        except Exception as e:
+            print(f"ProcessWidget: Error handling poll: {e}")
 
     @observe("polling_active")
     def _on_polling_active_changed(self, change):
