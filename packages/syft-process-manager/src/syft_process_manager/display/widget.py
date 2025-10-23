@@ -65,13 +65,16 @@ class ProcessWidget(anywidget.AnyWidget):
     def _on_polling_active_changed(self, change):
         """Restart polling thread when polling_active changes to True"""
         if change["new"] and not change["old"]:
+            print("ProcessWidget: polling_active changed to True, starting polling")
             self._start_polling()
 
     def _start_polling(self):
         """Start background polling thread"""
         if self._polling_thread and self._polling_thread.is_alive():
+            print("ProcessWidget: polling thread already running")
             return
 
+        print("ProcessWidget: starting polling thread")
         self._stop_polling.clear()
         self._polling_thread = threading.Thread(
             target=self._poll_loop,
@@ -83,18 +86,31 @@ class ProcessWidget(anywidget.AnyWidget):
     def _stop_polling_thread(self):
         """Stop background polling thread"""
         if self._polling_thread and self._polling_thread.is_alive():
+            print("ProcessWidget: stopping polling thread")
             self._stop_polling.set()
             self._polling_thread.join(timeout=2.0)
 
     def _poll_loop(self):
         """Background polling loop that updates widget state"""
+        print(f"ProcessWidget: poll loop started, polling_active={self.polling_active}")
+        iteration = 0
         while not self._stop_polling.is_set() and self.polling_active:
+            iteration += 1
+            print(
+                f"ProcessWidget: poll iteration {iteration}, polling_active={self.polling_active}"
+            )
             try:
                 self._update_from_files()
             except Exception as e:
-                print(f"Error polling process: {e}")
+                print(f"ProcessWidget: Error polling process: {e}")
+                import traceback
+
+                traceback.print_exc()
 
             self._stop_polling.wait(self.polling_interval)
+        print(
+            f"ProcessWidget: poll loop exited, stop_event={self._stop_polling.is_set()}, polling_active={self.polling_active}"
+        )
 
     def _update_from_files(self):
         """Update widget state by reading from files directly"""
@@ -151,6 +167,7 @@ class ProcessWidget(anywidget.AnyWidget):
 
     def close(self):
         """Close the widget and stop polling thread"""
+        print("ProcessWidget: closing widget and stopping polling")
         self.polling_active = False
         self._stop_polling_thread()
         super().close()
