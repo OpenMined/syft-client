@@ -53,7 +53,6 @@ class SubprocessRunner(ProcessRunner):
         self,
         pid: int,
         process_create_time: float,
-        ignore_zombie: bool = True,
     ) -> bool:
         """Check if process is running AND matches the expected creation time (PID reuse detection)"""
         if pid is None or pid <= 0:
