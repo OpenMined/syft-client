@@ -1,9 +1,11 @@
 from pydantic import BaseModel, ConfigDict
+from syft_client.syncv2.callback_mixin import BaseModelCallbackMixin
 
 
-class SyftboxFileChangeHandler(BaseModel):
+class JobFileChangeHandler(BaseModelCallbackMixin):
     """Responsible for writing files and checking permissions"""
 
+    # allows overwriting methods (handler for testing)
     model_config = ConfigDict(extra="allow")
 
     def _handle_file_change(self, path: str, content: str):

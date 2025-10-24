@@ -1,0 +1,57 @@
+from pydantic import ConfigDict, Field
+from syft_client.syncv2.events.file_change_event import FileChangeEvent
+from syft_client.syncv2.connections.connection_router import ConnectionRouter
+from syft_client.syncv2.messages.proposed_filechange import ProposedFileChange
+from syft_client.syncv2.sync.caches.datasite_owner_cache import DataSiteOwnerEventCache
+from syft_client.syncv2.callback_mixin import BaseModelCallbackMixin
+from syft_client.syncv2.messages.proposed_filechange import ProposedFileChangesMessage
+
+
+class ProposedFileChangeHandler(BaseModelCallbackMixin):
+    """Responsible for downloading files and checking permissions"""
+
+    model_config = ConfigDict(extra="allow")
+    event_cache: DataSiteOwnerEventCache = Field(
+        default_factory=lambda: DataSiteOwnerEventCache(is_new_cache=True)
+    )
+    write_files: bool = True
+    connection_router: ConnectionRouter
+
+    def pull_and_process_next_proposed_filechange(self, raise_on_none=True):
+        # raise on none is useful for testing, shouldnt be used in production
+        message = self.connection_router.get_next_proposed_filechange_message()
+        if message is not None:
+            for proposed_file_change in message.proposed_file_changes:
+                self.handle_proposed_filechange_event(proposed_file_change)
+
+            # delete the message once we are done
+            self.connection_router.remove_proposed_filechange_from_inbox(message.id)
+        elif raise_on_none:
+            raise ValueError("No proposed file change to process")
+
+    # def on_proposed_filechange_receive(
+    #     self, proposed_file_change_message: ProposedFileChangesMessage
+    # ):
+    #     for proposed_file_change in proposed_file_change_message.proposed_file_changes:
+    #         for callback in self.callbacks.get("on_proposed_filechange_receive", []):
+    #             callback(proposed_file_change)
+
+    def init_new_store(self):
+        pass
+
+    def check_permissions(self, path: str):
+        pass
+
+    def handle_proposed_filechange_event(self, accepted_event: ProposedFileChange):
+        self.check_permissions(accepted_event.path)
+
+        accepted_event = self.event_cache.process_proposed_event(accepted_event)
+        self.write_event_to_backing_platform(accepted_event)
+
+    def write_event_to_backing_platform(self, event: FileChangeEvent):
+        self.connection_router.write_event_to_backing_platform(event)
+        self.connection_router.write_event_to_outbox(event)
+
+    def write_file_filesystem(self, path: str, content: str):
+        if self.write_files:
+            raise NotImplementedError("Writing files to filesystem is not implemented")
