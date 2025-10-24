@@ -3,14 +3,12 @@
 import io
 import json
 import logging
-import os
 import pickle
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload, MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 from ...environment import Environment
 from ...transports.base import BaseTransport
@@ -108,8 +106,8 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         transport_name: str, email: str, project_id: Optional[str] = None
     ) -> None:
         """Show instructions for enabling Google Drive API"""
-        print(f"\n🔧 To enable the Google Drive API:")
-        print(f"\n1. Open this URL in your browser:")
+        print("\n🔧 To enable the Google Drive API:")
+        print("\n1. Open this URL in your browser:")
         if project_id:
             print(
                 f"   https://console.cloud.google.com/marketplace/product/google/drive.googleapis.com?authuser={email}&project={project_id}"
@@ -118,10 +116,10 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             print(
                 f"   https://console.cloud.google.com/marketplace/product/google/drive.googleapis.com?authuser={email}"
             )
-        print(f"\n2. Click the 'Enable' button")
-        print(f"\n3. Wait for the API to be enabled (may take 5-10 seconds)")
+        print("\n2. Click the 'Enable' button")
+        print("\n3. Wait for the API to be enabled (may take 5-10 seconds)")
         print(
-            f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
+            "\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
         )
 
     @staticmethod
@@ -129,8 +127,8 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         transport_name: str, email: str, project_id: Optional[str] = None
     ) -> None:
         """Show instructions for disabling Google Drive API"""
-        print(f"\n🔧 To disable the Google Drive API:")
-        print(f"\n1. Open this URL in your browser:")
+        print("\n🔧 To disable the Google Drive API:")
+        print("\n1. Open this URL in your browser:")
         if project_id:
             print(
                 f"   https://console.cloud.google.com/apis/api/drive.googleapis.com/overview?authuser={email}&project={project_id}"
@@ -139,10 +137,10 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             print(
                 f"   https://console.cloud.google.com/apis/api/drive.googleapis.com/overview?authuser={email}"
             )
-        print(f"\n2. Click 'Manage' or 'Disable API'")
-        print(f"\n3. Confirm by clicking 'Disable'")
+        print("\n2. Click 'Manage' or 'Disable API'")
+        print("\n3. Confirm by clicking 'Disable'")
         print(
-            f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
+            "\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
         )
 
     @property
@@ -221,9 +219,10 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         # In Colab, we can always set up on demand
         if self.environment == Environment.COLAB:
             try:
-                from google.colab import auth as colab_auth
+                import importlib.util
 
-                return True  # Can authenticate on demand
+                if importlib.util.find_spec("google.colab") is not None:
+                    return True  # Can authenticate on demand
             except ImportError:
                 pass
             except AttributeError:
@@ -257,7 +256,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     .execute()
                 )
                 self._folder_id = folder.get("id")
-        except:
+        except Exception:
             pass
 
     def send(self, recipient: str, data: Any, subject: str = "Syft Data") -> bool:
@@ -368,7 +367,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                         message["data"] = self._download_file(
                             file["id"], file["mimeType"]
                         )
-                    except:
+                    except Exception:
                         pass
 
                 messages.append(message)
@@ -402,7 +401,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             else:
                 return data
 
-        except:
+        except Exception:
             return None
 
     def create_public_folder(self, folder_name: str) -> Optional[str]:
@@ -435,7 +434,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
 
             return folder.get("webViewLink")
 
-        except:
+        except Exception:
             return None
 
     def test(self, test_data: str = "test123", cleanup: bool = True) -> Dict[str, Any]:
@@ -568,7 +567,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 resumable=True,
             )
 
-            file = (
+            (
                 self.drive_service.files()
                 .create(body=file_metadata, media_body=media, fields="id")
                 .execute()
@@ -630,8 +629,8 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
 
             if verbose:
                 print(f"✅ Added {email} as a peer!")
-                print(f"   📤 Your outgoing channel is ready")
-                print(f"   📥 Your incoming archive is ready")
+                print("   📤 Your outgoing channel is ready")
+                print("   📥 Your incoming archive is ready")
                 print(f"\n💡 Ask {email} to run: client.add_peer('{self.email}')")
 
             return True
@@ -896,7 +895,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     .execute()
                 )
                 self._syftbox_folder_id = folder.get("id")
-        except:
+        except Exception:
             pass
 
     def _setup_communication_channel(
@@ -945,7 +944,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     folder_ids["pending"] = pending_id
                     if verbose:
                         print(f"📁 Created pending folder: {pending_name}")
-                        print(f"   ⏳ For preparing messages (private)")
+                        print("   ⏳ For preparing messages (private)")
 
             # Create/check outbox_inbox folder (shared with receiver)
             outbox_id = self._find_folder_by_name(
@@ -964,7 +963,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     folder_ids["outbox_inbox"] = outbox_id
                     if verbose:
                         print(f"📁 Created outbox/inbox folder: {outbox_inbox_name}")
-                        print(f"   📬 For active communication (shared)")
+                        print("   📬 For active communication (shared)")
 
             # Grant receiver write access to outbox_inbox
             if outbox_id:
@@ -1078,7 +1077,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                             print(f"   ⚠️  Could not set permissions: {e}")
                 else:
                     if verbose:
-                        print(f"❌ Failed to create archive folder")
+                        print("❌ Failed to create archive folder")
                     return None
 
             return archive_id
@@ -1106,7 +1105,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
 
             items = results.get("files", [])
             return items[0]["id"] if items else None
-        except:
+        except Exception:
             return None
 
     def _find_folder_details(
@@ -1139,7 +1138,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 )
                 return folder
             return None
-        except:
+        except Exception:
             return None
 
     def _create_folder(self, folder_name: str, parent_id: str = None) -> Optional[str]:
@@ -1160,7 +1159,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             )
 
             return folder.get("id")
-        except:
+        except Exception:
             return None
 
     def _ensure_peers_folder(self) -> Optional[Dict[str, Any]]:
@@ -1193,7 +1192,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     .execute()
                 )
                 return folder
-        except:
+        except Exception:
             return None
 
     def _find_peers_folder(self) -> Optional[Dict[str, Any]]:
@@ -1213,7 +1212,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             )
             items = results.get("files", [])
             return items[0] if items else None
-        except:
+        except Exception:
             return None
 
     def _find_peer_folder(self, peer_identifier: str) -> Optional[Dict[str, Any]]:
@@ -1284,7 +1283,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             existing_contacts = set(self.list_peers())
 
             # Search for syft folders shared with us
-            query = f"sharedWithMe=true and name contains 'syft_' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            query = "sharedWithMe=true and name contains 'syft_' and mimeType='application/vnd.google-apps.folder' and trashed=false"
 
             results = (
                 self.drive_service.files()
@@ -1329,7 +1328,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
 
             return sorted(list(pending_requests))
 
-        except Exception as e:
+        except Exception:
             # Silently fail - peer request checking is optional
             return []
 
@@ -1522,7 +1521,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 ).execute()
 
                 if verbose:
-                    print(f"   📦 Archived message")
+                    print("   📦 Archived message")
 
         except Exception as e:
             if verbose:

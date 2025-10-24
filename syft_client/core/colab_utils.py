@@ -166,14 +166,15 @@ def _is_colab_environment() -> bool:
             # Not in Colab: home might be /home/username or similar
             if home_dir == Path("/root"):
                 return True
-        except:
+        except Exception:
             pass
 
     # Method 3: Try importing google.colab (may fail in subprocesses)
     try:
-        import google.colab
+        import importlib.util
 
-        return True
+        if importlib.util.find_spec("google.colab") is not None:
+            return True
     except (ImportError, AttributeError):
         # ImportError: module not found (not in Colab)
         # AttributeError: sometimes happens in background processes

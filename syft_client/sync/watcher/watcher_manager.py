@@ -65,7 +65,7 @@ class WatcherManager:
                     try:
                         response = requests.get(f"{server.url}/health", timeout=2)
                         return response.status_code == 200
-                    except:
+                    except Exception:
                         # Server exists but not responding
                         return False
             return False
@@ -89,7 +89,7 @@ class WatcherManager:
                         "email": self.client.email,
                         "message": f"Watcher active for {self.client.email}",
                     }
-        except:
+        except Exception:
             pass
 
         return {"running": False, "message": "Unable to get watcher status"}

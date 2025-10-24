@@ -4,7 +4,6 @@ Inbox monitoring and change detection for the receiver
 
 import hashlib
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -36,7 +35,7 @@ class InboxMonitor:
             try:
                 with open(state_file, "r") as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {}
 
@@ -53,7 +52,7 @@ class InboxMonitor:
             try:
                 with open(msg_file, "r") as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {}
 

@@ -1,6 +1,5 @@
 """Google Forms transport layer implementation"""
 
-import json
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -57,7 +56,6 @@ class GFormsTransport(BaseTransportLayer):
                 return False
 
         try:
-
             # Regular OAuth credential check
             if (
                 not hasattr(platform_client, "credentials")
@@ -103,8 +101,8 @@ class GFormsTransport(BaseTransportLayer):
         transport_name: str, email: str, project_id: Optional[str] = None
     ) -> None:
         """Show instructions for enabling Google Forms API"""
-        print(f"\n🔧 To enable the Google Forms API:")
-        print(f"\n1. Open this URL in your browser:")
+        print("\n🔧 To enable the Google Forms API:")
+        print("\n1. Open this URL in your browser:")
         if project_id:
             print(
                 f"   https://console.cloud.google.com/marketplace/product/google/forms.googleapis.com?authuser={email}&project={project_id}"
@@ -113,10 +111,10 @@ class GFormsTransport(BaseTransportLayer):
             print(
                 f"   https://console.cloud.google.com/marketplace/product/google/forms.googleapis.com?authuser={email}"
             )
-        print(f"\n2. Click the 'Enable' button")
-        print(f"\n3. Wait for the API to be enabled (may take 5-10 seconds)")
+        print("\n2. Click the 'Enable' button")
+        print("\n3. Wait for the API to be enabled (may take 5-10 seconds)")
         print(
-            f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
+            "\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
         )
 
     @staticmethod
@@ -124,8 +122,8 @@ class GFormsTransport(BaseTransportLayer):
         transport_name: str, email: str, project_id: Optional[str] = None
     ) -> None:
         """Show instructions for disabling Google Forms API"""
-        print(f"\n🔧 To disable the Google Forms API:")
-        print(f"\n1. Open this URL in your browser:")
+        print("\n🔧 To disable the Google Forms API:")
+        print("\n1. Open this URL in your browser:")
         if project_id:
             print(
                 f"   https://console.cloud.google.com/apis/api/forms.googleapis.com/overview?authuser={email}&project={project_id}"
@@ -134,10 +132,10 @@ class GFormsTransport(BaseTransportLayer):
             print(
                 f"   https://console.cloud.google.com/apis/api/forms.googleapis.com/overview?authuser={email}"
             )
-        print(f"\n2. Click 'Manage' or 'Disable API'")
-        print(f"\n3. Confirm by clicking 'Disable'")
+        print("\n2. Click 'Manage' or 'Disable API'")
+        print("\n3. Confirm by clicking 'Disable'")
         print(
-            f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
+            "\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
         )
 
     @property
@@ -214,9 +212,10 @@ class GFormsTransport(BaseTransportLayer):
         # In Colab, we can always set up on demand
         if self.environment == Environment.COLAB:
             try:
-                from google.colab import auth as colab_auth
+                import importlib.util
 
-                return True  # Can authenticate on demand
+                if importlib.util.find_spec("google.colab") is not None:
+                    return True  # Can authenticate on demand
             except ImportError:
                 pass
 
@@ -407,7 +406,7 @@ class GFormsTransport(BaseTransportLayer):
             # The form is accessible to anyone with the link by default
             return f"https://docs.google.com/forms/d/{form_id}/viewform"
 
-        except:
+        except Exception:
             return None
 
     def test(self, test_data: str = "test123", cleanup: bool = True) -> Dict[str, Any]:
@@ -544,9 +543,7 @@ class GFormsTransport(BaseTransportLayer):
                     pass
 
             # Return the form URL
-            print(
-                f"✅ Google Forms test successful! Form created with 3 test questions"
-            )
+            print("✅ Google Forms test successful! Form created with 3 test questions")
             if cleanup:
                 print("   Form has been deleted as requested")
 
