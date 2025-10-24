@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 import uuid
 from pydantic import Field, model_validator
 from pydantic.main import BaseModel
-from syft_client.syncv2.syftbox_utils import uncompress_data
+from syft_client.syncv2.syftbox_utils import compress_data, uncompress_data
 from syft_client.syncv2.syftbox_utils import create_event_timestamp
 
 
@@ -39,3 +39,7 @@ class ProposedFileChangesMessage(BaseModel):
     def from_compressed_data(cls, data: bytes) -> "ProposedFileChangesMessage":
         uncompressed_data = uncompress_data(data)
         return cls.model_validate_json(uncompressed_data)
+
+    def as_compressed_data(self) -> bytes:
+        data = self.model_dump_json(indent=2).encode("utf-8")
+        return compress_data(data)
