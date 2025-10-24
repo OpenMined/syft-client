@@ -8,6 +8,7 @@
   --log-text: #374151;
   --error-text: #d73a49;
   --empty-log-color: #888;
+  --table-stripe-color: #f8f9fa;
 
   --status-running: #27ae60;
   --status-unhealthy: #f39c12;
@@ -25,6 +26,7 @@
   --log-text: #9ca3af;
   --error-text: #ff6b6b;
   --empty-log-color: #666;
+  --table-stripe-color: #2a2a2a;
 
   --status-running: #27ae60;
   --status-unhealthy: #f39c12;
@@ -71,6 +73,10 @@
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 10px;
+}
+
+.process-widget-table tr:nth-child(even) {
+  background-color: var(--table-stripe-color);
 }
 
 .process-widget-table td {

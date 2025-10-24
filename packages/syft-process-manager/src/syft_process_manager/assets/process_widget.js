@@ -1,10 +1,8 @@
 function render({ model, el }) {
-  // Create container
   const container = document.createElement("div");
   container.className = "process-widget";
   el.appendChild(container);
 
-  // Build initial HTML structure
   function buildInitialHTML() {
     const config = model.get("config");
     const name = config?.name || "Unknown";
@@ -97,7 +95,6 @@ function render({ model, el }) {
       statusEl.className = `process-widget-status ${status}`;
       statusEl.textContent = `${statusIcon} ${status}`;
     }
-
     const pidEl = container.querySelector('[data-field="pid"]');
     if (pidEl) pidEl.textContent = pid !== null ? pid : "-";
 
@@ -189,10 +186,9 @@ function render({ model, el }) {
   updateStderrLogs();
   updatePollingButton();
 
-  // JavaScript-side polling for Colab compatibility
-  // In Colab, Python background threads pause when idle, so we poll from JS
+  // Polling in javascript for google colab compatibility
+  // In colab, python background threads pause when idle
   let pollInterval = null;
-
   function startPolling() {
     if (pollInterval) return;
 
@@ -219,7 +215,6 @@ function render({ model, el }) {
 
   function handlePollingActiveChange() {
     updatePollingButton();
-    // Start/stop polling based on polling_active state
     const isActive = model.get("polling_active");
     if (isActive) {
       startPolling();
@@ -234,14 +229,18 @@ function render({ model, el }) {
   model.on("change:stderr_lines", updateStderrLogs);
   model.on("change:polling_active", handlePollingActiveChange);
 
-  // Start polling immediately if active
+  // Update process info periodically to refresh uptime, last health check
+  const timeUpdateInterval = setInterval(() => {
+    updateProcessInfo();
+  }, 5000);
+
   if (model.get("polling_active")) {
     startPolling();
   }
 
-  // Cleanup on widget removal
   return () => {
     stopPolling();
+    clearInterval(timeUpdateInterval);
   };
 }
 
