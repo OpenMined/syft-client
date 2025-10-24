@@ -7,15 +7,18 @@ function render({ model, el }) {
     const config = model.get("config");
     const name = config?.name || "Unknown";
     const processDir = config?.process_dir || "-";
-    const ttl = config?.ttl_seconds ? `${config.ttl_seconds}s` : "-";
+    const ttl = config?.ttl_seconds ? formatDuration(config.ttl_seconds) : "-";
     const theme = model.get("theme");
     const themeClass = theme === "dark" ? "theme-dark" : "theme-light";
 
     container.innerHTML = `
       <div class="process-widget-container ${themeClass}">
         <div class="process-widget-header">
-          <h3 class="process-widget-title">⚙️ ${name}</h3>
-          <button class="process-widget-polling-btn" data-action="toggle-polling"></button>
+          <h3 class="process-widget-title">⚙️ Process: ${name}</h3>
+          <div class="process-widget-controls">
+            <button class="process-widget-theme-btn" data-action="toggle-theme"></button>
+            <button class="process-widget-polling-btn" data-action="toggle-polling"></button>
+          </div>
         </div>
 
         <table class="process-widget-table">
@@ -62,6 +65,15 @@ function render({ model, el }) {
         </div>
       </div>
     `;
+
+    // theme toggle button
+    const themeBtn = container.querySelector(".process-widget-theme-btn");
+    themeBtn.onclick = () => {
+      const currentTheme = model.get("theme");
+      const newTheme = currentTheme === "dark" ? "light" : "dark";
+      model.set("theme", newTheme);
+      model.save_changes();
+    };
 
     // polling toggle button
     const pollingBtn = container.querySelector(".process-widget-polling-btn");
@@ -146,6 +158,30 @@ function render({ model, el }) {
     }
   }
 
+  function updateThemeButton() {
+    const theme = model.get("theme");
+    const themeBtn = container.querySelector(".process-widget-theme-btn");
+    if (themeBtn) {
+      themeBtn.textContent = "💡";
+      themeBtn.title =
+        theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+    }
+  }
+
+  function updateTheme() {
+    const theme = model.get("theme");
+    const widgetContainer = container.querySelector(
+      ".process-widget-container",
+    );
+    if (widgetContainer) {
+      widgetContainer.className =
+        theme === "dark"
+          ? "process-widget-container theme-dark"
+          : "process-widget-container theme-light";
+    }
+    updateThemeButton();
+  }
+
   function deriveStatus(processState, health) {
     if (!processState || !processState.pid) {
       return "stopped";
@@ -173,6 +209,18 @@ function render({ model, el }) {
     return `${diffDays}d`;
   }
 
+  function formatDuration(seconds) {
+    if (!seconds) return "-";
+
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    return `${days}d`;
+  }
+
   function escapeHtml(text) {
     const div = document.createElement("div");
     div.textContent = text;
@@ -185,6 +233,7 @@ function render({ model, el }) {
   updateStdoutLogs();
   updateStderrLogs();
   updatePollingButton();
+  updateThemeButton();
 
   // Polling in javascript for google colab compatibility
   // In colab, python background threads pause when idle
@@ -228,6 +277,7 @@ function render({ model, el }) {
   model.on("change:stdout_lines", updateStdoutLogs);
   model.on("change:stderr_lines", updateStderrLogs);
   model.on("change:polling_active", handlePollingActiveChange);
+  model.on("change:theme", updateTheme);
 
   // Update process info periodically to refresh uptime, last health check
   const timeUpdateInterval = setInterval(() => {

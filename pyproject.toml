@@ -180,4 +180,9 @@ skips = ["B101"]                                           # Skip assert_used (n
 skips = ["*/test_*.py", "*/tests/*"]
 
 [dependency-groups]
-dev = ["pre-commit>=4.3.0"]
+dev = [
+    "jupyter>=1.1.1",
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
+    "pytest-xdist>=3.8.0",
+]

@@ -2535,7 +2535,10 @@ test = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "jupyter" },
     { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-xdist" },
 ]
 
 [package.metadata]
@@ -2572,7 +2575,12 @@ requires-dist = [
 provides-extras = ["job", "test", "dev", "all"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pre-commit", specifier = ">=4.3.0" }]
+dev = [
+    { name = "jupyter", specifier = ">=1.1.1" },
+    { name = "pre-commit", specifier = ">=4.3.0" },
+    { name = "pytest", specifier = ">=8.4.2" },
+    { name = "pytest-xdist", specifier = ">=3.8.0" },
+]
 
 [[package]]
 name = "syft-job"

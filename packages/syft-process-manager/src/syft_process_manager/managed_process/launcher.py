@@ -48,8 +48,8 @@ def create_handle_for_function(
     if name is None:
         name = f"{func.__name__}_{int(time.time())}"
 
-    # Command to run the wrapper
-    cmd = [sys.executable, "-m", "syft_process_manager.managed_process._main"]
+    # -u for unbuffered output
+    cmd = [sys.executable, "-u", "-m", "syft_process_manager.managed_process._main"]
 
     # Create handle using manager (sets up all paths)
     handle = process_manager.create_handle(

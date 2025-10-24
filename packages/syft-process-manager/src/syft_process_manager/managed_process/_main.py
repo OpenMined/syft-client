@@ -5,6 +5,7 @@ Launched as subprocess with environment variables for configuration.
 
 import logging
 import os
+import signal
 import sys
 import threading
 import time
@@ -16,6 +17,9 @@ import cloudpickle
 from syft_process_manager.models import ProcessConfig, ProcessHealth
 
 logger = logging.getLogger(__name__)
+
+# Global flag for shutdown
+_shutdown_requested = threading.Event()
 
 
 def set_process_title(title: str):
@@ -83,6 +87,47 @@ def run_user_function(
         logger.debug("Function execution thread exiting")
 
 
+def handle_shutdown_signal(signum, frame):
+    """Handle SIGTERM/SIGINT for shutdown"""
+    sig_name = signal.Signals(signum).name
+    logger.info(f"Received {sig_name}, initiating shutdown...")
+    _shutdown_requested.set()
+
+
+def start_user_function(process_config: ProcessConfig) -> tuple[threading.Thread, dict]:
+    """Load and start the user function in a separate thread"""
+    logger.info("Initializing managed process")
+    func, args, kwargs = load_user_function(process_config)
+
+    result = {"exception": None, "completed": False}
+    func_thread = threading.Thread(
+        target=run_user_function,
+        args=(func, args, kwargs, result),
+        daemon=True,
+    )
+    func_thread.start()
+    return func_thread, result
+
+
+def handle_exit(func_thread: threading.Thread, result: dict):
+    """Handle different exit scenarios"""
+    if _shutdown_requested.is_set():
+        func_thread.join(timeout=2.0)
+        if func_thread.is_alive():
+            logger.warning("Worker thread still running after 2s, forcing exit")
+        else:
+            logger.debug("Worker thread finished cleanly")
+        logger.info("Shutdown completed")
+        sys.exit(0)
+
+    if result["exception"]:
+        logger.error(f"Function raised an exception: {result['exception']}")
+        sys.exit(1)
+
+    logger.info("Managed process exiting successfully - function completed")
+    sys.exit(0)
+
+
 def main():
     """Run the wrapped function with health checks and TTL"""
     start_time = time.time()
@@ -94,28 +139,14 @@ def main():
 
     setup_logging(process_config.log_level)
     set_process_title(f"syftpm - {process_config.name}")
+    signal.signal(signal.SIGTERM, handle_shutdown_signal)
+    signal.signal(signal.SIGINT, handle_shutdown_signal)
 
-    # Load and start user function
-    logger.info("Initializing managed process")
-    try:
-        func, args, kwargs = load_user_function(process_config)
-    except Exception as e:
-        logger.error(f"Failed to load function: {e}", exc_info=True)
-        sys.exit(1)
-    # result is a container to communicate the user function result between threads
-    result = {"exception": None, "completed": False}
-    func_thread = threading.Thread(
-        target=run_user_function,
-        args=(func, args, kwargs, result),
-        daemon=True,
-    )
-    func_thread.start()
+    func_thread, result = start_user_function(process_config)
 
-    # Main thread: monitor TTL + write health checks
+    # Monitor TTL and write health checks
     last_health_write = 0
-
-    while func_thread.is_alive():
-        # Check TTL
+    while func_thread.is_alive() and not _shutdown_requested.is_set():
         if process_config.ttl_seconds:
             now = time.time()
             stop_at = start_time + process_config.ttl_seconds
@@ -129,12 +160,7 @@ def main():
 
         time.sleep(1)
 
-    if result["exception"]:
-        logger.error(f"Function raised an exception: {result['exception']}")
-        sys.exit(1)
-
-    logger.info("Managed process exiting successfully")
-    sys.exit(0)
+    handle_exit(func_thread, result)
 
 
 if __name__ == "__main__":

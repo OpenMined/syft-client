@@ -1,26 +1,24 @@
-from pydantic import BaseModel, model_validator
+import time
 from typing import List
-from syft_client.syncv2.sync.datasite_outbox_puller import DatasiteOutboxPuller
-from syft_client.syncv2.sync.caches.datasite_watcher_cache import DataSiteWatcherCache
+
+from pydantic import BaseModel, model_validator
+
 from syft_client.syncv2.connections.base_connection import (
     ConnectionConfig,
     SyftboxPlatformConnection,
 )
-from syft_client.syncv2.events.file_change_event import FileChangeEvent
-from syft_client.syncv2.syftbox_utils import random_email, random_base_path
-from syft_client.syncv2.file_writer import FileWriter
-
-from syft_client.syncv2.sync.proposed_file_change_pusher import ProposedFileChangePusher
-from syft_client.syncv2.job_file_change_handler import JobFileChangeHandler
 from syft_client.syncv2.connections.connection_router import ConnectionRouter
 from syft_client.syncv2.connections.gdrive_transport_v2 import GDriveFilesTransport
-from syft_client.syncv2.connections.base_connection import (
-    ConnectionConfig,
-)
 from syft_client.syncv2.connections.inmemory_connection import (
     InMemoryPlatformConnection,
-    InMemoryPlatformConnectionConfig,
 )
+from syft_client.syncv2.events.file_change_event import FileChangeEvent
+from syft_client.syncv2.file_writer import FileWriter
+from syft_client.syncv2.job_file_change_handler import JobFileChangeHandler
+from syft_client.syncv2.syftbox_utils import random_base_path, random_email
+from syft_client.syncv2.sync.caches.datasite_watcher_cache import DataSiteWatcherCache
+from syft_client.syncv2.sync.datasite_outbox_puller import DatasiteOutboxPuller
+from syft_client.syncv2.sync.proposed_file_change_pusher import ProposedFileChangePusher
 from syft_client.syncv2.sync.proposed_filechange_handler import (
     ProposedFileChangeHandler,
 )
@@ -31,6 +29,7 @@ class SyftboxManagerConfig(BaseModel):
     base_path: str
     write_files: bool = True
     connection_configs: List[ConnectionConfig] = []
+    dev_mode: bool = False
 
     @classmethod
     def base_config_for_in_memory_connection(
@@ -83,6 +82,7 @@ class SyftboxManager(BaseModel):
             email=config.email,
             connection_configs=config.connection_configs,
             write_files=config.write_files,
+            dev_mode=config.dev_mode,
         )
 
         return manager_res
@@ -245,3 +245,9 @@ class SyftboxManager(BaseModel):
 
     def get_all_events(self) -> List[FileChangeEvent]:
         return self.proposed_file_change_handler.connection_router.get_all_events()
+
+    def run_forever(self):
+        print("SyftboxManager started")
+        while True:
+            time.sleep(2)
+            print("SyftboxManager running...")
