@@ -1,3 +1,4 @@
+from pathlib import Path
 from pydantic import BaseModel, model_validator
 from typing import List
 from syft_client.syncv2.sync.datasite_outbox_puller import DatasiteOutboxPuller
@@ -13,13 +14,15 @@ from syft_client.syncv2.file_writer import FileWriter
 from syft_client.syncv2.sync.proposed_file_change_pusher import ProposedFileChangePusher
 from syft_client.syncv2.job_file_change_handler import JobFileChangeHandler
 from syft_client.syncv2.connections.connection_router import ConnectionRouter
-from syft_client.syncv2.connections.gdrive_transport_v2 import GDriveFilesTransport
+from syft_client.syncv2.connections.drive.gdrive_transport import (
+    GDriveConnection,
+    GdriveConnectionConfig,
+)
 from syft_client.syncv2.connections.base_connection import (
     ConnectionConfig,
 )
 from syft_client.syncv2.connections.inmemory_connection import (
     InMemoryPlatformConnection,
-    InMemoryPlatformConnectionConfig,
 )
 from syft_client.syncv2.sync.proposed_filechange_handler import (
     ProposedFileChangeHandler,
@@ -51,12 +54,15 @@ class SyftboxManagerConfig(BaseModel):
     def for_google_drive_testing_connection(
         cls,
         email: str,
+        token_path: Path,
         base_path: str | None = None,
         write_files: bool = False,
     ):
         base_path = base_path or random_base_path()
         email = email or random_email()
-        connection_configs = [ConnectionConfig(connection_type=GDriveFilesTransport)]
+        connection_configs = [
+            GdriveConnectionConfig(email=email, token_path=token_path)
+        ]
         return cls(
             email=email,
             base_path=base_path,
@@ -108,13 +114,14 @@ class SyftboxManager(BaseModel):
             write_files=write_files, connection_router=connection_router
         )
 
-        data["proposed_file_change_pusher"] = ProposedFileChangePusher(
-            base_path=data["base_path"],
+        datasite_watcher_cache = DataSiteWatcherCache(
             connection_router=connection_router,
         )
 
-        datasite_watcher_cache = DataSiteWatcherCache(
+        data["proposed_file_change_pusher"] = ProposedFileChangePusher(
+            base_path=data["base_path"],
             connection_router=connection_router,
+            datasite_watcher_cache=datasite_watcher_cache,
         )
 
         data["datasite_outbox_puller"] = DatasiteOutboxPuller(
@@ -130,12 +137,15 @@ class SyftboxManager(BaseModel):
         cls,
         email1: str,
         email2: str,
+        token_path1: Path,
+        token_path2: Path,
         base_path1: str | None = None,
         base_path2: str | None = None,
     ):
         receiver_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=email1,
             base_path=base_path1,
+            token_path=token_path1,
         )
 
         receiver_manager = cls.from_config(receiver_config)
@@ -143,6 +153,7 @@ class SyftboxManager(BaseModel):
         sender_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=email2,
             base_path=base_path2,
+            token_path=token_path2,
         )
         sender_manager = cls.from_config(sender_config)
 
@@ -165,9 +176,6 @@ class SyftboxManager(BaseModel):
             receiver_manager.job_file_change_handler._handle_file_change,
         )
         return sender_manager, receiver_manager
-
-    def init_dataowner_store(self):
-        self.proposed_file_change_handler.init_new_store()
 
     @classmethod
     def pair_with_in_memory_connection(
@@ -226,9 +234,6 @@ class SyftboxManager(BaseModel):
             "on_event_local_write",
             receiver_manager.job_file_change_handler._handle_file_change,
         )
-
-        # init receiver store so we have a head
-        receiver_manager.init_dataowner_store()
 
         return sender_manager, receiver_manager
 

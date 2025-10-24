@@ -44,11 +44,12 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             backing_store=backing_store or InMemoryBackingPlatform(),
         )
 
-    def send_propose_file_change_message(
-        self, proposed_file_change_message: ProposedFileChangesMessage
+    def send_proposed_file_changes_message(
+        self, recipient: str, proposed_file_changes_message: ProposedFileChangesMessage
     ):
-        self.backing_store.proposed_events_inbox.append(proposed_file_change_message)
-        self.receiver_function(proposed_file_change_message)
+        # TODO: do something with the recipient
+        self.backing_store.proposed_events_inbox.append(proposed_file_changes_message)
+        self.receiver_function(proposed_file_changes_message)
 
     def get_next_proposed_filechange_message(self) -> ProposedFileChangesMessage | None:
         if len(self.backing_store.proposed_events_inbox) == 0:

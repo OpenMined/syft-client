@@ -25,12 +25,14 @@ class ConnectionRouter(BaseModel):
     def connection_for_outbox(self) -> SyftboxPlatformConnection:
         return self.connections[0]
 
-    def send_proposed_filechange_message(
-        self, proposed_file_change_message: ProposedFileChangesMessage
+    def send_proposed_file_changes_message(
+        self, recipient: str, proposed_file_changes_message: ProposedFileChangesMessage
     ):
         # TODO: Implement connection routing logic
         connection = self.connection_for_send_message()
-        connection.send_propose_file_change_message(proposed_file_change_message)
+        connection.send_proposed_file_changes_message(
+            recipient, proposed_file_changes_message
+        )
 
     def write_event_to_backing_platform(self, event: FileChangeEvent):
         connection = self.connection_for_eventlog()

@@ -2,8 +2,9 @@
 
 import io
 import json
+from pathlib import Path
 import pickle
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel
 from googleapiclient.discovery import build
@@ -12,7 +13,14 @@ from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2.credentials import Credentials as GoogleCredentials
 
 from syft_client.syncv2.connections.drive.gdrive_utils import listify
+from syft_client.syncv2.connections.base_connection import (
+    ConnectionConfig,
+    SyftboxPlatformConnection,
+)
+from syft_client.syncv2.events.file_change_event import FileChangeEvent
 from syft_client.syncv2.messages.proposed_filechange import (
+    MessageFileName,
+    FileNameParseError,
     ProposedFileChangesMessage,
     ProposedFileChange,
 )
@@ -22,6 +30,7 @@ from syft_client.environment import Environment
 
 SYFT_FOLDER = "SyftClient"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
+SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
 class GdriveInboxOutBoxFolder(BaseModel):
@@ -32,7 +41,7 @@ class GdriveInboxOutBoxFolder(BaseModel):
         return f"syft_{self.sender_email}_to_{self.recipient_email}_outbox_inbox"
 
 
-class GDriveFilesTransport(BaseModel):
+class GDriveConnection(SyftboxPlatformConnection):
     """Google Drive Files API transport layer"""
 
     class Config:
@@ -48,6 +57,23 @@ class GDriveFilesTransport(BaseModel):
     # email -> inbox folder id
     inbox_folder_id_cache: Dict[str, str] = {}
     outbox_folder_id_cache: Dict[str, str] = {}
+
+    @classmethod
+    def from_config(cls, config: "GdriveConnectionConfig") -> "GDriveConnection":
+        return cls.from_token_path(config.email, config.token_path)
+
+    @classmethod
+    def from_token_path(cls, email: str, token_path: Path) -> "GDriveConnection":
+        res = cls(email=email)
+        credentials = GoogleCredentials.from_authorized_user_file(token_path, SCOPES)
+        res.setup(credentials=credentials)
+        return res
+
+    def get_events_for_datasite_watcher(
+        self, since_timestamp: float | None
+    ) -> List[FileChangeEvent]:
+        # TODO: implement
+        return []
 
     @property
     def environment(self) -> Environment:
@@ -132,12 +158,42 @@ class GDriveFilesTransport(BaseModel):
     @staticmethod
     def is_message_file(file_metadata: Dict) -> bool:
         file_name = file_metadata["name"]
-        mime_type = file_metadata["mimeType"]
-        return (
-            file_name.startswith("msgv2_")
-            and file_name.endswith(".tar.gz")
-            and not mime_type == GOOGLE_FOLDER_MIME_TYPE
-        )
+        try:
+            MessageFileName.from_string(file_name)
+            return True
+        except FileNameParseError:
+            return False
+
+    @staticmethod
+    def _get_valid_files_from_file_metadatas(
+        file_metadatas: List[Dict],
+    ) -> List[MessageFileName]:
+        res = []
+        for file_metadata in file_metadatas:
+            try:
+                message_filename = MessageFileName.from_string(file_metadata["name"])
+                res.append(message_filename)
+            except FileNameParseError:
+                continue
+        return res
+
+    def _get_first_owner_inbox_message(
+        self, sender_email: str
+    ) -> ProposedFileChangesMessage | None:
+        inbox_folder_id = self._get_my_inbox_folder_id(sender_email)
+        file_metadatas = self.get_file_metadatas_from_folder(inbox_folder_id)
+        valid_file_names = self._get_valid_files_from_file_metadatas(file_metadatas)
+        if len(valid_file_names) == 0:
+            return None
+        else:
+            first_file_name = sorted(
+                valid_file_names, key=lambda x: x.submitted_timestamp
+            )[0]
+            first_file_id = [
+                x for x in file_metadatas if x["name"] == first_file_name.as_string()
+            ][0]["id"]
+            file_data = self.download_file(first_file_id)
+            return ProposedFileChangesMessage.from_compressed_data(file_data)
 
     def _get_owner_inbox_messages(
         self, sender_email: str, verbose: bool = True
@@ -195,14 +251,14 @@ class GDriveFilesTransport(BaseModel):
     def send_proposed_file_changes_message(
         self,
         recipient: str,
-        proposed_file_changes: List[ProposedFileChange] | ProposedFileChange,
+        proposed_file_changes_message: ProposedFileChangesMessage,
     ):
-        message = ProposedFileChangesMessage(
-            proposed_file_changes=listify(proposed_file_changes)
-        )
-        data_compressed = message.as_compressed_data()
+        print("sending")
+        data_compressed = proposed_file_changes_message.as_compressed_data()
         self.send_archive_via_transport(
-            data_compressed, message.message_filename, recipient
+            data_compressed,
+            proposed_file_changes_message.message_filename.as_string(),
+            recipient,
         )
 
     def _find_folder_by_name(
@@ -283,3 +339,13 @@ class GDriveFilesTransport(BaseModel):
 
         message_data = file_buffer.getvalue()
         return message_data
+
+
+class GdriveConnectionConfig(ConnectionConfig):
+    connection_type: ClassVar[Type["GDriveConnection"]] = GDriveConnection
+    email: str
+    token_path: Path
+
+    @classmethod
+    def from_token_path(cls, email: str, token_path: Path) -> "GdriveConnectionConfig":
+        return cls(email=email, token_path=token_path)

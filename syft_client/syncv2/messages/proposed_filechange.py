@@ -2,10 +2,15 @@ from datetime import datetime
 from typing import List
 from uuid import UUID, uuid4
 import uuid
+import time
 from pydantic import Field, model_validator
 from pydantic.main import BaseModel
 from syft_client.syncv2.syftbox_utils import compress_data, uncompress_data
 from syft_client.syncv2.syftbox_utils import create_event_timestamp
+
+
+MESSAGE_FILENAME_PREFIX = "msgv2"
+MESSAGE_FILENAME_EXTENSION = ".tar.gz"
 
 
 class ProposedFileChange(BaseModel):
@@ -24,15 +29,33 @@ class ProposedFileChange(BaseModel):
         return data
 
 
-def generate_message_filename() -> str:
-    now = datetime.now().strftime("%Y%m%d_%H%M%S")
-    uid = str(uuid.uuid4()).replace("-", "")[:8]
-    return f"msgv2_{now}_{uid}.tar.gz"
+class FileNameParseError(Exception):
+    pass
+
+
+class MessageFileName(BaseModel):
+    submitted_timestamp: float = Field(default_factory=lambda: time.time())
+    uid: str = Field(default_factory=lambda: str(uuid.uuid4()))
+
+    def as_string(self) -> str:
+        return f"{MESSAGE_FILENAME_PREFIX}_{self.submitted_timestamp}_{self.uid}{MESSAGE_FILENAME_EXTENSION}"
+
+    @classmethod
+    def from_string(cls, filename: str) -> "MessageFileName":
+        try:
+            parts = filename.split("_")
+            if len(parts) != 3:
+                raise ValueError(f"Invalid filename: {filename}")
+            submitted_timestamp = float(parts[1])
+            uid = parts[2].replace(MESSAGE_FILENAME_EXTENSION, "")
+        except Exception:
+            raise FileNameParseError(f"Invalid filename: {filename}")
+        return cls(submitted_timestamp=submitted_timestamp, uid=uid)
 
 
 class ProposedFileChangesMessage(BaseModel):
     id: UUID = Field(default_factory=lambda: uuid4())
-    message_filename: str = Field(default_factory=generate_message_filename)
+    message_filename: MessageFileName = Field(default_factory=lambda: MessageFileName())
     proposed_file_changes: List[ProposedFileChange]
 
     @classmethod

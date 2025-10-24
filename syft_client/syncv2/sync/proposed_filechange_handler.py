@@ -36,9 +36,6 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     #         for callback in self.callbacks.get("on_proposed_filechange_receive", []):
     #             callback(proposed_file_change)
 
-    def init_new_store(self):
-        pass
-
     def check_permissions(self, path: str):
         pass
 

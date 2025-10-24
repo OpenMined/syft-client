@@ -8,6 +8,7 @@ from syft_client.syncv2.sync.caches.datasite_owner_cache import (
 
 
 def test_in_memory_connection():
+    file_path = "email@email.com/my.job"
     manager1, manager2 = SyftboxManager.pair_with_in_memory_connection()
     message_received = False
 
@@ -17,17 +18,18 @@ def test_in_memory_connection():
 
     manager2.job_file_change_handler.handle_file_change = patch_job_handler_file_receive
 
-    manager1.send_file_change("my.job", "Hello, world!")
+    manager1.send_file_change(file_path, "Hello, world!")
     assert message_received
 
 
 def test_sync_to_syftbox_eventlog():
+    file_path = "email@email.com/my.job"
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
 
     events_in_backing_platform = do_manager.get_all_events()
     assert len(events_in_backing_platform) == 0
 
-    ds_manager.send_file_change("test.job", "Hello, world!")
+    ds_manager.send_file_change(file_path, "Hello, world!")
 
     # second event is present
     events_in_backing_platform = do_manager.get_all_events()
@@ -37,11 +39,11 @@ def test_sync_to_syftbox_eventlog():
 def test_valid_and_invalid_proposed_filechange_event():
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
 
-    file_path = "test.job"
+    file_path = "email@email.com/test.job"
 
     event1 = ProposedFileChange(
         old_hash=None,
-        path="test.job",
+        path=file_path,
         content="Content 1",
     )
     hash1 = event1.new_hash
@@ -49,7 +51,7 @@ def test_valid_and_invalid_proposed_filechange_event():
 
     event2 = ProposedFileChange(
         old_hash=hash1,
-        path="test.job",
+        path=file_path,
         content="Content 2",
     )
     do_manager.proposed_file_change_handler.handle_proposed_filechange_event(event2)
@@ -63,7 +65,7 @@ def test_valid_and_invalid_proposed_filechange_event():
 
     event3_outdated = ProposedFileChange(
         old_hash=hash1,
-        path="test.job",
+        path=file_path,
         content="Content 3",
     )
 
@@ -85,7 +87,8 @@ def test_valid_and_invalid_proposed_filechange_event():
 
 def test_sync_back_to_ds_cache():
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
-    ds_manager.send_file_change("test.job", "Hello, world!")
+    file_path = "email@email.com/test.job"
+    ds_manager.send_file_change(file_path, "Hello, world!")
 
     ds_manager.datasite_outbox_puller.datasite_watcher_cache.sync_down()
     assert (
