@@ -4,19 +4,12 @@ A Python library for managing long-running background processes with built-in lo
 
 ## Features
 
-- Start, stop, and monitor background processes
+- Start, stop, and monitor detached background processes
 - Run Python functions as detached processes with cloudpickle
 - Stream stdout/stderr logs
 - Persistent state across Python sessions
 - Interactive Jupyter widgets with live log streaming
 - Optional TTL and health checks
-- PID reuse protection using creation timestamps
-
-## Installation
-
-```bash
-pip install syft-process-manager
-```
 
 ## Quick Start
 
