@@ -55,6 +55,7 @@ class MessageFileName(BaseModel):
 
 class ProposedFileChangesMessage(BaseModel):
     id: UUID = Field(default_factory=lambda: uuid4())
+    sender_email: str
     message_filename: MessageFileName = Field(default_factory=lambda: MessageFileName())
     proposed_file_changes: List[ProposedFileChange]
 

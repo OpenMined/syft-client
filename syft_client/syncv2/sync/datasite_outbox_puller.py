@@ -15,3 +15,6 @@ from syft_client.syncv2.sync.caches.datasite_watcher_cache import DataSiteWatche
 class DatasiteOutboxPuller(BaseModelCallbackMixin):
     connection_router: ConnectionRouter
     datasite_watcher_cache: DataSiteWatcherCache
+
+    def sync_down(self, peer_email: str):
+        self.datasite_watcher_cache.sync_down(peer_email)

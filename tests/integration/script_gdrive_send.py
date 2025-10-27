@@ -19,13 +19,14 @@ transport = GDriveFilesTransport(email="koen@openmined.org")
 success = transport.setup({"credentials": creds})
 
 msgs = ProposedFileChangesMessage(
+    sender_email="koen@openmined.org",
     proposed_file_changes=[
         ProposedFileChange(
             submitted_timestamp=1718544000,
             path="my_file.job",
             content="Hello, world!",
         )
-    ]
+    ],
 )
 
 transport.send_proposed_file_changes_message(

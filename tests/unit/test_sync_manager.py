@@ -90,7 +90,9 @@ def test_sync_back_to_ds_cache():
     file_path = "email@email.com/test.job"
     ds_manager.send_file_change(file_path, "Hello, world!")
 
-    ds_manager.datasite_outbox_puller.datasite_watcher_cache.sync_down()
+    ds_manager.datasite_outbox_puller.datasite_watcher_cache.sync_down(
+        email="email@email.com"
+    )
     assert (
         len(ds_manager.datasite_outbox_puller.datasite_watcher_cache.get_all_events())
         == 1

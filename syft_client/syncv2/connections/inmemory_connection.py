@@ -65,22 +65,24 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             return self.backing_store.proposed_events_inbox[0]
 
     def remove_proposed_filechange_message_from_inbox(
-        self, proposed_filechange_message_id: UUID
+        self, proposed_filechange_message: ProposedFileChangesMessage
     ):
         self.backing_store.proposed_events_inbox = [
             e
             for e in self.backing_store.proposed_events_inbox
-            if e.id != proposed_filechange_message_id
+            if e.id != proposed_filechange_message.id
         ]
 
-    def write_event_to_backing_platform(self, event: FileChangeEvent) -> None:
+    def write_event_to_syftbox(self, event: FileChangeEvent) -> None:
         self.backing_store.event_log.append(event)
 
-    def write_event_to_outbox(self, event: FileChangeEvent) -> None:
+    def write_event_to_outbox_do(
+        self, sender_email: str, event: FileChangeEvent
+    ) -> None:
         self.backing_store.outboxes["all"].append(event)
 
     def get_events_for_datasite_watcher(
-        self, since_timestamp: float | None = None
+        self, peer_email: str, since_timestamp: float | None = None
     ) -> List[FileChangeEvent]:
         # TODO: implement permissions
         all_events = self.backing_store.outboxes["all"]

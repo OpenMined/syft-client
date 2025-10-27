@@ -133,6 +133,7 @@ class SyftboxManager(BaseModel):
             )
             data["proposed_file_change_pusher"] = ProposedFileChangePusher(
                 base_path=data["base_path"],
+                sender_email=data["email"],
                 connection_router=connection_router,
                 datasite_watcher_cache=datasite_watcher_cache,
             )
@@ -147,25 +148,25 @@ class SyftboxManager(BaseModel):
     @classmethod
     def pair_with_google_drive_testing_connection(
         cls,
-        email1: str,
-        email2: str,
-        token_path1: Path,
-        token_path2: Path,
+        do_email: str,
+        ds_email: str,
+        do_token_path: Path,
+        ds_token_path: Path,
         base_path1: str | None = None,
         base_path2: str | None = None,
     ):
         receiver_config = SyftboxManagerConfig.for_google_drive_testing_connection(
-            email=email1,
+            email=do_email,
             base_path=base_path1,
-            token_path=token_path1,
+            token_path=do_token_path,
         )
 
         receiver_manager = cls.from_config(receiver_config)
 
         sender_config = SyftboxManagerConfig.for_google_drive_testing_connection(
-            email=email2,
+            email=ds_email,
             base_path=base_path2,
-            token_path=token_path2,
+            token_path=ds_token_path,
         )
         sender_manager = cls.from_config(sender_config)
 
@@ -187,6 +188,20 @@ class SyftboxManager(BaseModel):
             "on_event_local_write",
             receiver_manager.job_file_change_handler._handle_file_change,
         )
+
+        sender_connection = (
+            sender_manager.proposed_file_change_handler.connection_router.connections[0]
+        )
+
+        sender_connection.add_peer_as_ds(receiver_manager.email)
+
+        receiver_connection = (
+            receiver_manager.proposed_file_change_handler.connection_router.connections[
+                0
+            ]
+        )
+        # create inbox folder
+        receiver_connection.add_peer_as_do(sender_manager.email)
         return sender_manager, receiver_manager
 
     @classmethod
