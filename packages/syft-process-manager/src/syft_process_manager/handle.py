@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 import psutil
 
@@ -11,6 +11,9 @@ from syft_process_manager.models import (
     ProcessState,
 )
 from syft_process_manager.runners import ProcessRunner, get_runner
+
+if TYPE_CHECKING:
+    from syft_process_manager.display.widget import ProcessWidget
 
 
 class ProcessHandle:
@@ -192,12 +195,15 @@ class ProcessHandle:
 
         return "\n".join(lines)
 
-    def _repr_mimebundle_(self, **kwargs) -> tuple[dict, dict] | None:
-        """Jupyter mimebundle representation"""
-        try:
-            from syft_process_manager.display.widget import ProcessWidget
+    def _create_widget(self) -> "ProcessWidget":
+        """Create a Jupyter widget for this process handle"""
+        from syft_process_manager.display.widget import ProcessWidget
 
-            widget: ProcessWidget = ProcessWidget(process_handle=self)
+        return ProcessWidget(process_handle=self)
+
+    def _repr_mimebundle_(self, **kwargs) -> tuple[dict, dict] | None:
+        try:
+            widget = self._create_widget()
             return widget._repr_mimebundle_(**kwargs)
-        except ImportError:
+        except Exception:
             return None
