@@ -177,7 +177,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                 continue
         return res
 
-    def _get_first_owner_inbox_message(
+    def get_next_proposed_filechange_message(
         self, sender_email: str
     ) -> ProposedFileChangesMessage | None:
         inbox_folder_id = self._get_my_inbox_folder_id(sender_email)

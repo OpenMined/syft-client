@@ -17,9 +17,13 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     write_files: bool = True
     connection_router: ConnectionRouter
 
-    def pull_and_process_next_proposed_filechange(self, raise_on_none=True):
+    def pull_and_process_next_proposed_filechange(
+        self, sender_email: str, raise_on_none=True
+    ):
         # raise on none is useful for testing, shouldnt be used in production
-        message = self.connection_router.get_next_proposed_filechange_message()
+        message = self.connection_router.get_next_proposed_filechange_message(
+            sender_email
+        )
         if message is not None:
             for proposed_file_change in message.proposed_file_changes:
                 self.handle_proposed_filechange_event(proposed_file_change)

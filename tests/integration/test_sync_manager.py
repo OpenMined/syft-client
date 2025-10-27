@@ -17,7 +17,7 @@ token_path2 = CREDENTIALS_DIR / file2
 
 
 def test_google_drive_connection():
-    manager1, manager2 = SyftboxManager.pair_with_google_drive_testing_connection(
+    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
         email1="koenlennartvanderveen@gmail.com",
         email2="koen@openmined.org",
         token_path1=token_path1,
@@ -26,11 +26,11 @@ def test_google_drive_connection():
 
     # this eventually calls
     # connection.send_propose_file_change_message
-    manager1.send_file_change("koenlennartvanderveen@gmail.com/my.job", "Hello, world!")
+    manager_ds.send_file_change(
+        "koenlennartvanderveen@gmail.com/my.job", "Hello, world!"
+    )
 
-    # manager1.send_file_change("my.job", "Hello, world!")
-
-    # manager2.sync_down()
+    manager_do.proposed_file_change_handler.pull_and_process_next_proposed_filechange()
 
     # manager1.sync_down()
 

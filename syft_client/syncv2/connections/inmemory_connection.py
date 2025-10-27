@@ -51,7 +51,14 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         self.backing_store.proposed_events_inbox.append(proposed_file_changes_message)
         self.receiver_function(proposed_file_changes_message)
 
-    def get_next_proposed_filechange_message(self) -> ProposedFileChangesMessage | None:
+    def get_next_proposed_filechange_message(
+        self, sender_email: str = None
+    ) -> ProposedFileChangesMessage | None:
+        # TODO: either remove the sender parameter in all SyftboxPlatformConnections
+        # or implement it here
+        if sender_email is not None:
+            raise NotImplementedError("Not implemented")
+
         if len(self.backing_store.proposed_events_inbox) == 0:
             return None
         else:

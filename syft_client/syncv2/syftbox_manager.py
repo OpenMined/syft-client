@@ -33,6 +33,8 @@ class SyftboxManagerConfig(BaseModel):
     email: str
     base_path: str
     write_files: bool = True
+    only_sender: bool = False
+    only_datasider_owner: bool = False
     connection_configs: List[ConnectionConfig] = []
 
     @classmethod
@@ -41,6 +43,8 @@ class SyftboxManagerConfig(BaseModel):
         email: str | None = None,
         base_path: str | None = None,
         write_files: bool = False,
+        only_sender: bool = False,
+        only_datasider_owner: bool = False,
     ):
         base_path = base_path or random_base_path()
         email = email or random_email()
@@ -48,6 +52,8 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             base_path=base_path,
             write_files=write_files,
+            only_sender=only_sender,
+            only_datasider_owner=only_datasider_owner,
         )
 
     @classmethod
@@ -77,10 +83,10 @@ class SyftboxManager(BaseModel):
     email: str
     dev_mode: bool = False
     proposed_file_change_pusher: ProposedFileChangePusher
-    proposed_file_change_handler: ProposedFileChangeHandler
-    datasite_outbox_puller: DatasiteOutboxPuller
+    proposed_file_change_handler: ProposedFileChangeHandler | None = None
+    datasite_outbox_puller: DatasiteOutboxPuller | None = None
 
-    job_file_change_handler: JobFileChangeHandler
+    job_file_change_handler: JobFileChangeHandler | None = None
 
     @classmethod
     def from_config(cls, config: SyftboxManagerConfig):
@@ -89,6 +95,8 @@ class SyftboxManager(BaseModel):
             email=config.email,
             connection_configs=config.connection_configs,
             write_files=config.write_files,
+            only_sender=config.only_sender,
+            only_datasider_owner=config.only_datasider_owner,
         )
 
         return manager_res
@@ -109,27 +117,31 @@ class SyftboxManager(BaseModel):
             base_path=data["base_path"], write_files=write_files
         )
 
-        # todo: is this used?
-        data["proposed_file_change_handler"] = ProposedFileChangeHandler(
-            write_files=write_files, connection_router=connection_router
-        )
+        # if we also have an owner
+        init_handlers = not data.get("only_sender", False)
+        if init_handlers:
+            data["proposed_file_change_handler"] = ProposedFileChangeHandler(
+                write_files=write_files, connection_router=connection_router
+            )
 
-        datasite_watcher_cache = DataSiteWatcherCache(
-            connection_router=connection_router,
-        )
+            data["job_file_change_handler"] = JobFileChangeHandler()
 
-        data["proposed_file_change_pusher"] = ProposedFileChangePusher(
-            base_path=data["base_path"],
-            connection_router=connection_router,
-            datasite_watcher_cache=datasite_watcher_cache,
-        )
+        init_pullers_pushers = not data.get("only_datasite_owner", False)
+        if init_pullers_pushers:
+            datasite_watcher_cache = DataSiteWatcherCache(
+                connection_router=connection_router,
+            )
+            data["proposed_file_change_pusher"] = ProposedFileChangePusher(
+                base_path=data["base_path"],
+                connection_router=connection_router,
+                datasite_watcher_cache=datasite_watcher_cache,
+            )
 
-        data["datasite_outbox_puller"] = DatasiteOutboxPuller(
-            connection_router=connection_router,
-            datasite_watcher_cache=datasite_watcher_cache,
-        )
+            data["datasite_outbox_puller"] = DatasiteOutboxPuller(
+                connection_router=connection_router,
+                datasite_watcher_cache=datasite_watcher_cache,
+            )
 
-        data["job_file_change_handler"] = JobFileChangeHandler()
         return data
 
     @classmethod
@@ -189,6 +201,8 @@ class SyftboxManager(BaseModel):
         receiver_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email1,
             base_path=base_path1,
+            only_sender=False,
+            only_datasider_owner=True,
         )
 
         receiver_manager = cls.from_config(receiver_config)
@@ -196,6 +210,8 @@ class SyftboxManager(BaseModel):
         sender_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email2,
             base_path=base_path2,
+            only_sender=True,
+            only_datasider_owner=False,
         )
         sender_manager = cls.from_config(sender_config)
 
@@ -238,12 +254,23 @@ class SyftboxManager(BaseModel):
         return sender_manager, receiver_manager
 
     def add_connection(self, connection: SyftboxPlatformConnection):
-        self.proposed_file_change_handler.connection_router.connections.append(
-            connection
-        )
-        # this should be the same for the puller and pusher, as they use refernces to the same router
-        # self.proposed_file_change_puller.connection_router.connections.append(connection)
-        # self.proposed_file_change_pusher.connection_router.connections.append(connection)
+        # all connection routers are pointers to the same object for in memory setup
+        if not isinstance(connection, InMemoryPlatformConnection):
+            raise ValueError(
+                "Only InMemoryPlatformConnections can be added to the manager"
+            )
+        if self.proposed_file_change_handler is not None:
+            connection_router = self.proposed_file_change_handler.connection_router
+        elif self.proposed_file_change_pusher is not None:
+            connection_router = self.proposed_file_change_pusher.connection_router
+        elif self.datasite_outbox_puller is not None:
+            connection_router = self.datasite_outbox_puller.connection_router
+        elif self.job_file_change_handler is not None:
+            connection_router = self.job_file_change_handler.connection_router
+        else:
+            raise ValueError("No connection router found")
+
+        connection_router.connections.append(connection)
 
     def send_file_change(self, path: str, content: str):
         self.file_writer.write_file(path, content)
