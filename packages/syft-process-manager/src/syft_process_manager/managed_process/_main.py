@@ -112,7 +112,7 @@ def start_user_function(process_config: ProcessConfig) -> tuple[threading.Thread
 def handle_exit(func_thread: threading.Thread, result: dict):
     """Handle different exit scenarios"""
     if _shutdown_requested.is_set():
-        func_thread.join(timeout=2.0)
+        func_thread.join(timeout=1.0)
         if func_thread.is_alive():
             logger.warning("Worker thread still running after 2s, forcing exit")
         else:

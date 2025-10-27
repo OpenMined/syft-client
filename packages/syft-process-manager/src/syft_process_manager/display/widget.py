@@ -1,12 +1,10 @@
-"""Prototype anywidget implementation for ProcessHandle"""
-
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anywidget
 import traitlets
-from syft_process_manager.display.resources import ASSETS_DIR
+from syft_process_manager.constants import ASSETS_DIR
 from syft_process_manager.runners import ProcessRunner, get_runner
 from traitlets import observe
 

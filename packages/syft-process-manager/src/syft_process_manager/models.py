@@ -35,10 +35,6 @@ class ProcessConfig(BaseModel):
         return self.process_dir / "config.json"
 
     @property
-    def pid_path(self) -> Path:
-        return self.process_dir / "pid.json"
-
-    @property
     def health_path(self) -> Path:
         return self.process_dir / "health.json"
 
