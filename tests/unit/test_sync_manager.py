@@ -38,6 +38,7 @@ def test_sync_to_syftbox_eventlog():
 
 def test_valid_and_invalid_proposed_filechange_event():
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+    ds_email = ds_manager.email
 
     file_path = "email@email.com/test.job"
 
@@ -47,14 +48,18 @@ def test_valid_and_invalid_proposed_filechange_event():
         content="Content 1",
     )
     hash1 = event1.new_hash
-    do_manager.proposed_file_change_handler.handle_proposed_filechange_event(event1)
+    do_manager.proposed_file_change_handler.handle_proposed_filechange_event(
+        ds_email, event1
+    )
 
     event2 = ProposedFileChange(
         old_hash=hash1,
         path=file_path,
         content="Content 2",
     )
-    do_manager.proposed_file_change_handler.handle_proposed_filechange_event(event2)
+    do_manager.proposed_file_change_handler.handle_proposed_filechange_event(
+        ds_email, event2
+    )
 
     content = (
         do_manager.proposed_file_change_handler.event_cache.file_connection.read_file(
@@ -72,7 +77,7 @@ def test_valid_and_invalid_proposed_filechange_event():
     # This should fail, as the event is outdated
     with pytest.raises(ProposedEventFileOutdatedException):
         do_manager.proposed_file_change_handler.handle_proposed_filechange_event(
-            event3_outdated
+            ds_email, event3_outdated
         )
 
     content = (
@@ -91,7 +96,7 @@ def test_sync_back_to_ds_cache():
     ds_manager.send_file_change(file_path, "Hello, world!")
 
     ds_manager.datasite_outbox_puller.datasite_watcher_cache.sync_down(
-        email="email@email.com"
+        peer_email="email@email.com"
     )
     assert (
         len(ds_manager.datasite_outbox_puller.datasite_watcher_cache.get_all_events())
