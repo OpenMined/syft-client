@@ -24,6 +24,7 @@ class DataSiteWatcherCache(BaseModel):
     )
     last_sync: datetime | None = None
     seconds_before_syncing_down: int = SECONDS_BEFORE_SYNCING_DOWN
+    peers: List[str] = []
 
     @property
     def last_event_timestamp(self) -> float | None:
@@ -31,8 +32,9 @@ class DataSiteWatcherCache(BaseModel):
             return None
         return self.events_connection.get_latest().timestamp
 
-    def sync_down(self):
+    def sync_down(self, peer_email: str):
         new_events = self.connection_router.get_events_for_datasite_watcher(
+            peer_email=peer_email,
             since_timestamp=self.last_event_timestamp,
         )
         for event in sorted(new_events, key=lambda x: x.timestamp):
@@ -49,14 +51,15 @@ class DataSiteWatcherCache(BaseModel):
     def get_all_events(self) -> List[FileChangeEvent]:
         return self.events_connection.get_all()
 
-    def sync_down_if_needed(self):
+    def sync_down_if_needed(self, peer_email: str):
         if self.last_sync is None:
-            self.sync_down()
+            self.sync_down(peer_email)
 
         time_since_last_sync = datetime.now() - self.last_sync
         if time_since_last_sync > timedelta(seconds=SECONDS_BEFORE_SYNCING_DOWN):
             self.sync_down()
 
     def current_hash_for_file(self, path: str) -> int | None:
-        self.sync_down_if_needed()
+        for peer in self.peers:
+            self.sync_down_if_needed(peer)
         return self.file_hashes.get(path, None)

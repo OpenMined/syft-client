@@ -10,11 +10,11 @@ class ConnectionConfig(BaseModel):
 class SyftboxPlatformConnection(BaseModel):
     config: ConnectionConfig | None = None
 
-    def send_propose_file_change_message(
+    def send_proposed_file_changes_message(
         self, proposed_file_change_message: ProposedFileChangesMessage
     ):
         raise NotImplementedError()
 
     @classmethod
     def from_config(cls, config: ConnectionConfig):
-        return cls(config=config)
+        return config.connection_type.from_config(config)

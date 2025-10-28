@@ -17,15 +17,22 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     write_files: bool = True
     connection_router: ConnectionRouter
 
-    def pull_and_process_next_proposed_filechange(self, raise_on_none=True):
+    def pull_and_process_next_proposed_filechange(
+        self, sender_email: str, raise_on_none=True
+    ):
         # raise on none is useful for testing, shouldnt be used in production
-        message = self.connection_router.get_next_proposed_filechange_message()
+        message = self.connection_router.get_next_proposed_filechange_message(
+            sender_email=sender_email
+        )
         if message is not None:
+            sender_email = message.sender_email
             for proposed_file_change in message.proposed_file_changes:
-                self.handle_proposed_filechange_event(proposed_file_change)
+                self.handle_proposed_filechange_event(
+                    sender_email, proposed_file_change
+                )
 
             # delete the message once we are done
-            self.connection_router.remove_proposed_filechange_from_inbox(message.id)
+            self.connection_router.remove_proposed_filechange_from_inbox(message)
         elif raise_on_none:
             raise ValueError("No proposed file change to process")
 
@@ -36,21 +43,20 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     #         for callback in self.callbacks.get("on_proposed_filechange_receive", []):
     #             callback(proposed_file_change)
 
-    def init_new_store(self):
-        pass
-
     def check_permissions(self, path: str):
         pass
 
-    def handle_proposed_filechange_event(self, accepted_event: ProposedFileChange):
-        self.check_permissions(accepted_event.path)
+    def handle_proposed_filechange_event(
+        self, sender_email: str, proposed_event: ProposedFileChange
+    ):
+        self.check_permissions(proposed_event.path)
 
-        accepted_event = self.event_cache.process_proposed_event(accepted_event)
-        self.write_event_to_backing_platform(accepted_event)
+        accepted_event = self.event_cache.process_proposed_event(proposed_event)
+        self.write_event_to_syftbox(sender_email, accepted_event)
 
-    def write_event_to_backing_platform(self, event: FileChangeEvent):
-        self.connection_router.write_event_to_backing_platform(event)
-        self.connection_router.write_event_to_outbox(event)
+    def write_event_to_syftbox(self, sender_email: str, event: FileChangeEvent):
+        self.connection_router.write_event_to_syftbox(event)
+        self.connection_router.write_event_to_outbox_do(sender_email, event)
 
     def write_file_filesystem(self, path: str, content: str):
         if self.write_files:

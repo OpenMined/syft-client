@@ -44,35 +44,45 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             backing_store=backing_store or InMemoryBackingPlatform(),
         )
 
-    def send_propose_file_change_message(
-        self, proposed_file_change_message: ProposedFileChangesMessage
+    def send_proposed_file_changes_message(
+        self, recipient: str, proposed_file_changes_message: ProposedFileChangesMessage
     ):
-        self.backing_store.proposed_events_inbox.append(proposed_file_change_message)
-        self.receiver_function(proposed_file_change_message)
+        # TODO: do something with the recipient
+        self.backing_store.proposed_events_inbox.append(proposed_file_changes_message)
+        self.receiver_function(proposed_file_changes_message)
 
-    def get_next_proposed_filechange_message(self) -> ProposedFileChangesMessage | None:
+    def get_next_proposed_filechange_message(
+        self, sender_email: str = None
+    ) -> ProposedFileChangesMessage | None:
+        # TODO: either remove the sender parameter in all SyftboxPlatformConnections
+        # or implement it here
+        if sender_email is not None:
+            raise NotImplementedError("Not implemented")
+
         if len(self.backing_store.proposed_events_inbox) == 0:
             return None
         else:
             return self.backing_store.proposed_events_inbox[0]
 
     def remove_proposed_filechange_message_from_inbox(
-        self, proposed_filechange_message_id: UUID
+        self, proposed_filechange_message: ProposedFileChangesMessage
     ):
         self.backing_store.proposed_events_inbox = [
             e
             for e in self.backing_store.proposed_events_inbox
-            if e.id != proposed_filechange_message_id
+            if e.id != proposed_filechange_message.id
         ]
 
-    def write_event_to_backing_platform(self, event: FileChangeEvent) -> None:
+    def write_event_to_syftbox(self, event: FileChangeEvent) -> None:
         self.backing_store.event_log.append(event)
 
-    def write_event_to_outbox(self, event: FileChangeEvent) -> None:
+    def write_event_to_outbox_do(
+        self, sender_email: str, event: FileChangeEvent
+    ) -> None:
         self.backing_store.outboxes["all"].append(event)
 
     def get_events_for_datasite_watcher(
-        self, since_timestamp: float | None = None
+        self, peer_email: str, since_timestamp: float | None = None
     ) -> List[FileChangeEvent]:
         # TODO: implement permissions
         all_events = self.backing_store.outboxes["all"]

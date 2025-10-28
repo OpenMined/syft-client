@@ -14,16 +14,9 @@ from syft_client.syncv2.sync.caches.datasite_watcher_cache import DataSiteWatche
 
 class ProposedFileChangePusher(BaseModelCallbackMixin):
     base_path: Path
+    sender_email: str
     connection_router: ConnectionRouter
-    datasite_watcher_cache: DataSiteWatcherCache = Field(default=None, init=False)
-
-    @model_validator(mode="after")
-    def _initialize_cache(self) -> Self:
-        if self.datasite_watcher_cache is None:
-            self.datasite_watcher_cache = DataSiteWatcherCache(
-                connection_router=self.connection_router
-            )
-        return self
+    datasite_watcher_cache: DataSiteWatcherCache
 
     def get_proposed_file_change_object(
         self, path: str, content: str
@@ -37,6 +30,13 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
             with open(self.base_path / path, "r") as f:
                 content = f.read()
 
-        file_change = self.get_proposed_file_change_object(path, content)
-        message = ProposedFileChangesMessage(proposed_file_changes=[file_change])
-        self.connection_router.send_proposed_filechange_message(message)
+        splitted = path.split("/")
+        # TODO: add some better parsing logic here
+        recipient = splitted[0]
+        path_in_datasite = splitted[1]
+
+        file_change = self.get_proposed_file_change_object(path_in_datasite, content)
+        message = ProposedFileChangesMessage(
+            sender_email=self.sender_email, proposed_file_changes=[file_change]
+        )
+        self.connection_router.send_proposed_file_changes_message(recipient, message)

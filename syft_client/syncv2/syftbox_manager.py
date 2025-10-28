@@ -1,4 +1,5 @@
 import time
+from pathlib import Path
 from typing import List
 
 from pydantic import BaseModel, model_validator
@@ -8,7 +9,9 @@ from syft_client.syncv2.connections.base_connection import (
     SyftboxPlatformConnection,
 )
 from syft_client.syncv2.connections.connection_router import ConnectionRouter
-from syft_client.syncv2.connections.gdrive_transport_v2 import GDriveFilesTransport
+from syft_client.syncv2.connections.drive.gdrive_transport import (
+    GdriveConnectionConfig,
+)
 from syft_client.syncv2.connections.inmemory_connection import (
     InMemoryPlatformConnection,
 )
@@ -28,6 +31,8 @@ class SyftboxManagerConfig(BaseModel):
     email: str
     base_path: str
     write_files: bool = True
+    only_sender: bool = False
+    only_datasider_owner: bool = False
     connection_configs: List[ConnectionConfig] = []
     dev_mode: bool = False
 
@@ -37,6 +42,8 @@ class SyftboxManagerConfig(BaseModel):
         email: str | None = None,
         base_path: str | None = None,
         write_files: bool = False,
+        only_sender: bool = False,
+        only_datasider_owner: bool = False,
     ):
         base_path = base_path or random_base_path()
         email = email or random_email()
@@ -44,18 +51,23 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             base_path=base_path,
             write_files=write_files,
+            only_sender=only_sender,
+            only_datasider_owner=only_datasider_owner,
         )
 
     @classmethod
     def for_google_drive_testing_connection(
         cls,
         email: str,
+        token_path: Path,
         base_path: str | None = None,
         write_files: bool = False,
     ):
         base_path = base_path or random_base_path()
         email = email or random_email()
-        connection_configs = [ConnectionConfig(connection_type=GDriveFilesTransport)]
+        connection_configs = [
+            GdriveConnectionConfig(email=email, token_path=token_path)
+        ]
         return cls(
             email=email,
             base_path=base_path,
@@ -70,10 +82,10 @@ class SyftboxManager(BaseModel):
     email: str
     dev_mode: bool = False
     proposed_file_change_pusher: ProposedFileChangePusher
-    proposed_file_change_handler: ProposedFileChangeHandler
-    datasite_outbox_puller: DatasiteOutboxPuller
+    proposed_file_change_handler: ProposedFileChangeHandler | None = None
+    datasite_outbox_puller: DatasiteOutboxPuller | None = None
 
-    job_file_change_handler: JobFileChangeHandler
+    job_file_change_handler: JobFileChangeHandler | None = None
 
     @classmethod
     def from_config(cls, config: SyftboxManagerConfig):
@@ -83,6 +95,8 @@ class SyftboxManager(BaseModel):
             connection_configs=config.connection_configs,
             write_files=config.write_files,
             dev_mode=config.dev_mode,
+            only_sender=config.only_sender,
+            only_datasider_owner=config.only_datasider_owner,
         )
 
         return manager_res
@@ -103,46 +117,56 @@ class SyftboxManager(BaseModel):
             base_path=data["base_path"], write_files=write_files
         )
 
-        # todo: is this used?
-        data["proposed_file_change_handler"] = ProposedFileChangeHandler(
-            write_files=write_files, connection_router=connection_router
-        )
+        # if we also have an owner
+        init_handlers = not data.get("only_sender", False)
+        if init_handlers:
+            data["proposed_file_change_handler"] = ProposedFileChangeHandler(
+                write_files=write_files, connection_router=connection_router
+            )
 
-        data["proposed_file_change_pusher"] = ProposedFileChangePusher(
-            base_path=data["base_path"],
-            connection_router=connection_router,
-        )
+            data["job_file_change_handler"] = JobFileChangeHandler()
 
-        datasite_watcher_cache = DataSiteWatcherCache(
-            connection_router=connection_router,
-        )
+        init_pullers_pushers = not data.get("only_datasite_owner", False)
+        if init_pullers_pushers:
+            datasite_watcher_cache = DataSiteWatcherCache(
+                connection_router=connection_router,
+            )
+            data["proposed_file_change_pusher"] = ProposedFileChangePusher(
+                base_path=data["base_path"],
+                sender_email=data["email"],
+                connection_router=connection_router,
+                datasite_watcher_cache=datasite_watcher_cache,
+            )
 
-        data["datasite_outbox_puller"] = DatasiteOutboxPuller(
-            connection_router=connection_router,
-            datasite_watcher_cache=datasite_watcher_cache,
-        )
+            data["datasite_outbox_puller"] = DatasiteOutboxPuller(
+                connection_router=connection_router,
+                datasite_watcher_cache=datasite_watcher_cache,
+            )
 
-        data["job_file_change_handler"] = JobFileChangeHandler()
         return data
 
     @classmethod
     def pair_with_google_drive_testing_connection(
         cls,
-        email1: str,
-        email2: str,
+        do_email: str,
+        ds_email: str,
+        do_token_path: Path,
+        ds_token_path: Path,
         base_path1: str | None = None,
         base_path2: str | None = None,
     ):
         receiver_config = SyftboxManagerConfig.for_google_drive_testing_connection(
-            email=email1,
+            email=do_email,
             base_path=base_path1,
+            token_path=do_token_path,
         )
 
         receiver_manager = cls.from_config(receiver_config)
 
         sender_config = SyftboxManagerConfig.for_google_drive_testing_connection(
-            email=email2,
+            email=ds_email,
             base_path=base_path2,
+            token_path=ds_token_path,
         )
         sender_manager = cls.from_config(sender_config)
 
@@ -164,10 +188,21 @@ class SyftboxManager(BaseModel):
             "on_event_local_write",
             receiver_manager.job_file_change_handler._handle_file_change,
         )
-        return sender_manager, receiver_manager
 
-    def init_dataowner_store(self):
-        self.proposed_file_change_handler.init_new_store()
+        sender_connection = (
+            sender_manager.proposed_file_change_handler.connection_router.connections[0]
+        )
+
+        sender_connection.add_peer_as_ds(receiver_manager.email)
+
+        receiver_connection = (
+            receiver_manager.proposed_file_change_handler.connection_router.connections[
+                0
+            ]
+        )
+        # create inbox folder
+        receiver_connection.add_peer_as_do(sender_manager.email)
+        return sender_manager, receiver_manager
 
     @classmethod
     def pair_with_in_memory_connection(
@@ -181,6 +216,8 @@ class SyftboxManager(BaseModel):
         receiver_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email1,
             base_path=base_path1,
+            only_sender=False,
+            only_datasider_owner=True,
         )
 
         receiver_manager = cls.from_config(receiver_config)
@@ -188,6 +225,8 @@ class SyftboxManager(BaseModel):
         sender_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email2,
             base_path=base_path2,
+            only_sender=True,
+            only_datasider_owner=False,
         )
         sender_manager = cls.from_config(sender_config)
 
@@ -227,18 +266,26 @@ class SyftboxManager(BaseModel):
             receiver_manager.job_file_change_handler._handle_file_change,
         )
 
-        # init receiver store so we have a head
-        receiver_manager.init_dataowner_store()
-
         return sender_manager, receiver_manager
 
     def add_connection(self, connection: SyftboxPlatformConnection):
-        self.proposed_file_change_handler.connection_router.connections.append(
-            connection
-        )
-        # this should be the same for the puller and pusher, as they use refernces to the same router
-        # self.proposed_file_change_puller.connection_router.connections.append(connection)
-        # self.proposed_file_change_pusher.connection_router.connections.append(connection)
+        # all connection routers are pointers to the same object for in memory setup
+        if not isinstance(connection, InMemoryPlatformConnection):
+            raise ValueError(
+                "Only InMemoryPlatformConnections can be added to the manager"
+            )
+        if self.proposed_file_change_handler is not None:
+            connection_router = self.proposed_file_change_handler.connection_router
+        elif self.proposed_file_change_pusher is not None:
+            connection_router = self.proposed_file_change_pusher.connection_router
+        elif self.datasite_outbox_puller is not None:
+            connection_router = self.datasite_outbox_puller.connection_router
+        elif self.job_file_change_handler is not None:
+            connection_router = self.job_file_change_handler.connection_router
+        else:
+            raise ValueError("No connection router found")
+
+        connection_router.connections.append(connection)
 
     def send_file_change(self, path: str, content: str):
         self.file_writer.write_file(path, content)
