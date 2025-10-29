@@ -14,12 +14,10 @@ from typing import Callable
 
 import cloudpickle
 
+from syft_process_manager.managed_process.signals import shutdown_requested
 from syft_process_manager.models import ProcessConfig, ProcessHealth
 
 logger = logging.getLogger(__name__)
-
-# Global flag for shutdown
-_shutdown_requested = threading.Event()
 
 
 def set_process_title(title: str):
@@ -91,7 +89,7 @@ def handle_shutdown_signal(signum, frame):
     """Handle SIGTERM/SIGINT for shutdown"""
     sig_name = signal.Signals(signum).name
     logger.info(f"Received {sig_name}, initiating shutdown...")
-    _shutdown_requested.set()
+    shutdown_requested.set()
 
 
 def start_user_function(process_config: ProcessConfig) -> tuple[threading.Thread, dict]:
@@ -111,7 +109,7 @@ def start_user_function(process_config: ProcessConfig) -> tuple[threading.Thread
 
 def handle_exit(func_thread: threading.Thread, result: dict):
     """Handle different exit scenarios"""
-    if _shutdown_requested.is_set():
+    if shutdown_requested.is_set():
         func_thread.join(timeout=1.0)
         if func_thread.is_alive():
             logger.warning("Worker thread still running after 2s, forcing exit")
@@ -146,7 +144,7 @@ def main():
 
     # Monitor TTL and write health checks
     last_health_write = 0
-    while func_thread.is_alive() and not _shutdown_requested.is_set():
+    while func_thread.is_alive() and not shutdown_requested.is_set():
         if process_config.ttl_seconds:
             now = time.time()
             stop_at = start_time + process_config.ttl_seconds
