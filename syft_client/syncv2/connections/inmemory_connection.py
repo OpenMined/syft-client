@@ -56,8 +56,8 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
     ) -> ProposedFileChangesMessage | None:
         # TODO: either remove the sender parameter in all SyftboxPlatformConnections
         # or implement it here
-        if sender_email is not None:
-            raise NotImplementedError("Not implemented")
+        # if sender_email is not None:
+        #     raise NotImplementedError("Not implemented")
 
         if len(self.backing_store.proposed_events_inbox) == 0:
             return None

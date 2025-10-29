@@ -1,17 +1,15 @@
-import time
 from pathlib import Path
 from typing import List
 
 from pydantic import BaseModel, model_validator
+from syft_process_manager import shutdown_requested
 
 from syft_client.syncv2.connections.base_connection import (
     ConnectionConfig,
     SyftboxPlatformConnection,
 )
 from syft_client.syncv2.connections.connection_router import ConnectionRouter
-from syft_client.syncv2.connections.drive.gdrive_transport import (
-    GdriveConnectionConfig,
-)
+from syft_client.syncv2.connections.drive.grdrive_config import GdriveConnectionConfig
 from syft_client.syncv2.connections.inmemory_connection import (
     InMemoryPlatformConnection,
 )
@@ -82,9 +80,9 @@ class SyftboxManager(BaseModel):
     email: str
     dev_mode: bool = False
     proposed_file_change_pusher: ProposedFileChangePusher
-    proposed_file_change_handler: ProposedFileChangeHandler | None = None
     datasite_outbox_puller: DatasiteOutboxPuller | None = None
 
+    proposed_file_change_handler: ProposedFileChangeHandler | None = None
     job_file_change_handler: JobFileChangeHandler | None = None
 
     @classmethod
@@ -154,6 +152,7 @@ class SyftboxManager(BaseModel):
         ds_token_path: Path,
         base_path1: str | None = None,
         base_path2: str | None = None,
+        add_peers: bool = True,
     ):
         receiver_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=do_email,
@@ -193,7 +192,8 @@ class SyftboxManager(BaseModel):
             sender_manager.proposed_file_change_handler.connection_router.connections[0]
         )
 
-        sender_connection.add_peer_as_ds(receiver_manager.email)
+        if add_peers:
+            sender_connection.add_peer_as_ds(receiver_manager.email)
 
         receiver_connection = (
             receiver_manager.proposed_file_change_handler.connection_router.connections[
@@ -201,7 +201,8 @@ class SyftboxManager(BaseModel):
             ]
         )
         # create inbox folder
-        receiver_connection.add_peer_as_do(sender_manager.email)
+        if add_peers:
+            receiver_connection.add_peer_as_do(sender_manager.email)
         return sender_manager, receiver_manager
 
     @classmethod
@@ -220,7 +221,7 @@ class SyftboxManager(BaseModel):
             only_datasider_owner=True,
         )
 
-        receiver_manager = cls.from_config(receiver_config)
+        do_manager = cls.from_config(receiver_config)
 
         sender_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email2,
@@ -228,19 +229,19 @@ class SyftboxManager(BaseModel):
             only_sender=True,
             only_datasider_owner=False,
         )
-        sender_manager = cls.from_config(sender_config)
+        ds_manager = cls.from_config(sender_config)
 
         # this makes sure that when we write a file as sender, the inactive file watcher picks it up
-        sender_manager.file_writer.add_callback(
+        ds_manager.file_writer.add_callback(
             "write_file",
-            sender_manager.proposed_file_change_pusher.on_file_change,
+            ds_manager.proposed_file_change_pusher.on_file_change,
         )
         # this makes sure that a message travels from through our in memory platform from pusher to puller
-        receiver_receive_function = receiver_manager.proposed_file_change_handler.pull_and_process_next_proposed_filechange
+        receiver_receive_function = do_manager.proposed_file_change_handler.pull_and_process_next_proposed_filechange
         sender_in_memory_connection = InMemoryPlatformConnection(
             receiver_function=receiver_receive_function
         )
-        sender_manager.add_connection(sender_in_memory_connection)
+        ds_manager.add_connection(sender_in_memory_connection)
 
         # this make sure we can do communication the other way, it also makes sure we have a fake backing store for the receiver
         # so we can store events in memory
@@ -251,22 +252,22 @@ class SyftboxManager(BaseModel):
         def sender_receiver_function(*args, **kwargs):
             pass
 
-        sender_backing_store = sender_manager.proposed_file_change_pusher.connection_router.connection_for_eventlog().backing_store
+        sender_backing_store = ds_manager.proposed_file_change_pusher.connection_router.connection_for_eventlog().backing_store
         receiver_connection = InMemoryPlatformConnection(
             receiver_function=sender_receiver_function,
             backing_store=sender_backing_store,
         )
-        receiver_manager.add_connection(receiver_connection)
+        do_manager.add_connection(receiver_connection)
 
         # this make sure that when the receiver writes a file to disk,
         # the file watcher picks it up
         # we use the underscored method to allow for monkey patching
-        receiver_manager.proposed_file_change_handler.event_cache.add_callback(
+        do_manager.proposed_file_change_handler.event_cache.add_callback(
             "on_event_local_write",
-            receiver_manager.job_file_change_handler._handle_file_change,
+            do_manager.job_file_change_handler._handle_file_change,
         )
 
-        return sender_manager, receiver_manager
+        return ds_manager, do_manager
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
@@ -295,6 +296,19 @@ class SyftboxManager(BaseModel):
 
     def run_forever(self):
         print("SyftboxManager started")
-        while True:
-            time.sleep(2)
+        while not shutdown_requested.is_set():
+            if shutdown_requested.wait(timeout=2):
+                print("Shutdown requested, exiting...")
+                break
             print("SyftboxManager running...")
+
+    @property
+    def connection_router(self) -> ConnectionRouter:
+        # for DOs we have a handler, for DSs we have a pusher
+        if self.proposed_file_change_handler is not None:
+            return self.proposed_file_change_handler.connection_router
+        else:
+            return self.proposed_file_change_pusher.connection_router
+
+    def delete_syftbox(self):
+        self.connection_router.delete_syftbox()
