@@ -294,14 +294,6 @@ class SyftboxManager(BaseModel):
     def get_all_events(self) -> List[FileChangeEvent]:
         return self.proposed_file_change_handler.connection_router.get_all_events()
 
-    def run_forever(self):
-        print("SyftboxManager started")
-        while not shutdown_requested.is_set():
-            if shutdown_requested.wait(timeout=2):
-                print("Shutdown requested, exiting...")
-                break
-            print("SyftboxManager running...")
-
     @property
     def connection_router(self) -> ConnectionRouter:
         # for DOs we have a handler, for DSs we have a pusher
@@ -312,3 +304,12 @@ class SyftboxManager(BaseModel):
 
     def delete_syftbox(self):
         self.connection_router.delete_syftbox()
+
+    def run_forever(self):
+        print("SyftboxManager started")
+        # shutdown_requested is a global event managed by syft_process_manager
+        while not shutdown_requested.is_set():
+            if shutdown_requested.wait(timeout=1):
+                print("SyftboxManager shutdown requested, exiting...")
+                break
+            print("SyftboxManager running...")
