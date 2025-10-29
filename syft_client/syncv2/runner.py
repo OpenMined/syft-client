@@ -29,6 +29,7 @@ def get_or_create_syftbox_manager_handle(
         if existing_handle is not None:
             return existing_handle
 
+    # Alternative: create + run = syft_process_manager.run_function(**same_args)
     return create_handle_for_function(
         run_manager,
         config,
