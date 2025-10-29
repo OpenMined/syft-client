@@ -1,0 +1,160 @@
+/* Light theme (default) */
+.process-widget-container {
+  --bg-color: #ffffff;
+  --border-color: #ddd;
+  --text-color: #333;
+  --label-color: #666;
+  --log-bg: #f8f9fa;
+  --log-text: #374151;
+  --error-text: #d73a49;
+  --empty-log-color: #888;
+  --table-stripe-color: #f8f9fa;
+
+  --status-running: #27ae60;
+  --status-unhealthy: #f39c12;
+  --status-stopped: #95a5a6;
+  --status-unknown: #95a5a6;
+}
+
+/* Dark theme */
+.process-widget-container.theme-dark {
+  --bg-color: #1e1e1e;
+  --border-color: #3e3e3e;
+  --text-color: #e0e0e0;
+  --label-color: #a0a0a0;
+  --log-bg: #1a1a1a;
+  --log-text: #9ca3af;
+  --error-text: #ff6b6b;
+  --empty-log-color: #666;
+  --table-stripe-color: #2a2a2a;
+
+  --status-running: #27ae60;
+  --status-unhealthy: #f39c12;
+  --status-stopped: #95a5a6;
+  --status-unknown: #95a5a6;
+}
+
+.process-widget-container {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding: 15px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--bg-color);
+  color: var(--text-color);
+}
+
+.process-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.process-widget-title {
+  margin: 0;
+}
+
+.process-widget-controls {
+  display: flex;
+  gap: 5px;
+}
+
+.process-widget-theme-btn,
+.process-widget-polling-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  background: var(--log-bg);
+  color: var(--text-color);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.process-widget-theme-btn:hover,
+.process-widget-polling-btn:hover {
+  opacity: 0.8;
+}
+
+.process-widget-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 10px;
+}
+
+.process-widget-table tr:nth-child(even) {
+  background-color: var(--table-stripe-color);
+}
+
+.process-widget-table td {
+  padding: 5px 0;
+}
+
+.process-widget-table td:first-child {
+  padding-right: 10px;
+  vertical-align: top;
+  color: var(--label-color);
+}
+
+.process-dir-link {
+  text-decoration: underline;
+  font-size: 11px;
+  color: inherit;
+}
+
+.process-widget-status {
+  font-weight: bold;
+}
+
+.process-widget-status.running {
+  color: var(--status-running);
+}
+
+.process-widget-status.unhealthy {
+  color: var(--status-unhealthy);
+}
+
+.process-widget-status.stopped {
+  color: var(--status-stopped);
+}
+
+.process-widget-status.unknown {
+  color: var(--status-unknown);
+}
+
+.process-widget-logs {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.process-widget-log-panel {
+  padding: 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border-color);
+  background: var(--log-bg);
+}
+
+.process-widget-log-header {
+  font-size: 11px;
+  margin-bottom: 5px;
+  color: var(--label-color);
+}
+
+.process-widget-log-content {
+  font-size: 11px;
+  height: 100px;
+  overflow-y: auto;
+  font-family: monospace;
+  color: var(--log-text);
+}
+
+.process-widget-log-content.stderr {
+  color: var(--error-text);
+}
+
+.empty-log-message {
+  color: var(--empty-log-color);
+  font-style: italic;
+}
