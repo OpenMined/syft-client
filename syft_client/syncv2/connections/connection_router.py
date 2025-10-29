@@ -25,6 +25,9 @@ class ConnectionRouter(BaseModel):
     def connection_for_outbox(self) -> SyftboxPlatformConnection:
         return self.connections[0]
 
+    def connection_for_own_syftbox(self) -> SyftboxPlatformConnection:
+        return self.connections[0]
+
     def send_proposed_file_changes_message(
         self, recipient: str, proposed_file_changes_message: ProposedFileChangesMessage
     ):
@@ -33,6 +36,10 @@ class ConnectionRouter(BaseModel):
         connection.send_proposed_file_changes_message(
             recipient, proposed_file_changes_message
         )
+
+    def delete_syftbox(self):
+        connection = self.connection_for_own_syftbox()
+        connection.delete_syftbox()
 
     def write_event_to_syftbox(self, event: FileChangeEvent):
         connection = self.connection_for_eventlog()

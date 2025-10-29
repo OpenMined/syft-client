@@ -152,6 +152,7 @@ class SyftboxManager(BaseModel):
         ds_token_path: Path,
         base_path1: str | None = None,
         base_path2: str | None = None,
+        add_peers: bool = True,
     ):
         receiver_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=do_email,
@@ -191,7 +192,8 @@ class SyftboxManager(BaseModel):
             sender_manager.proposed_file_change_handler.connection_router.connections[0]
         )
 
-        sender_connection.add_peer_as_ds(receiver_manager.email)
+        if add_peers:
+            sender_connection.add_peer_as_ds(receiver_manager.email)
 
         receiver_connection = (
             receiver_manager.proposed_file_change_handler.connection_router.connections[
@@ -199,7 +201,8 @@ class SyftboxManager(BaseModel):
             ]
         )
         # create inbox folder
-        receiver_connection.add_peer_as_do(sender_manager.email)
+        if add_peers:
+            receiver_connection.add_peer_as_do(sender_manager.email)
         return sender_manager, receiver_manager
 
     @classmethod
@@ -290,3 +293,14 @@ class SyftboxManager(BaseModel):
 
     def get_all_events(self) -> List[FileChangeEvent]:
         return self.proposed_file_change_handler.connection_router.get_all_events()
+
+    @property
+    def connection_router(self) -> ConnectionRouter:
+        # for DOs we have a handler, for DSs we have a pusher
+        if self.proposed_file_change_handler is not None:
+            return self.proposed_file_change_handler.connection_router
+        else:
+            return self.proposed_file_change_pusher.connection_router
+
+    def delete_syftbox(self):
+        self.connection_router.delete_syftbox()

@@ -4,19 +4,15 @@ import io
 import json
 from pathlib import Path
 import pickle
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple
 from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from syft_client.syncv2.connections.drive.grdrive_config import (
-        GdriveConnectionConfig,
-    )
 
 from pydantic import BaseModel
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2.credentials import Credentials as GoogleCredentials
+
+from syft_client.syncv2.connections.drive.gdrive_utils import delete_folder_recursive
 
 from syft_client.syncv2.connections.base_connection import (
     SyftboxPlatformConnection,
@@ -34,10 +30,23 @@ from syft_client.syncv2.messages.proposed_filechange import (
 from syft_client.environment import Environment
 
 
+if TYPE_CHECKING:
+    from syft_client.syncv2.connections.drive.grdrive_config import (
+        GdriveConnectionConfig,
+    )
+
 SYFTBOX_FOLDER = "SyftBox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 GDRIVE_TRANSPORT_NAME = "gdrive_files"
+
+
+class GdriveArchiveFolder(BaseModel):
+    sender_email: str
+    recipient_email: str
+
+    def as_string(self) -> str:
+        return f"syft_{self.sender_email}_to_{self.recipient_email}_archive"
 
 
 class GdriveInboxOutBoxFolder(BaseModel):
@@ -127,6 +136,14 @@ class GDriveConnection(SyftboxPlatformConnection):
         """Creates /SyftBox"""
         return self.create_folder(SYFTBOX_FOLDER, None)
 
+    def create_archive_folder(self, sender_email: str) -> str:
+        archive_folder = GdriveArchiveFolder(
+            sender_email=sender_email, recipient_email=self.email
+        )
+        archive_folder_name = archive_folder.as_string()
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        return self.create_folder(archive_folder_name, syftbox_folder_id)
+
     def add_peer_as_do(self, peer_email: str):
         """Add peer knowing that self is do"""
         pass
@@ -135,14 +152,12 @@ class GDriveConnection(SyftboxPlatformConnection):
         """Add peer knowing that self is ds"""
         # create the DS outbox (DO inbox)
         peer_folder_id = self._get_ds_outbox_folder_id(peer_email)
-        print(f"Existing peer folder id: {peer_folder_id}")
         if peer_folder_id is None:
             peer_folder_id = self.create_peer_outbox_folder_as_ds(peer_email)
         self.add_permission(peer_folder_id, peer_email, write=True)
 
         # create the DS inbox (DO outbox)
         peer_folder_id = self._get_ds_inbox_folder_id(peer_email)
-        print(f"Existing peer folder id: {peer_folder_id}")
         if peer_folder_id is None:
             peer_folder_id = self.create_peer_inbox_folder_as_ds(peer_email)
         self.add_permission(peer_folder_id, peer_email, write=True)
@@ -224,7 +239,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             self.drive_service.files().get(fileId=gdrive_id, fields="parents").execute()
         )
         previous_parents = ",".join(file_info.get("parents", []))
-        archive_folder_id = self.get_archive_folder_id(sender_email)
+        archive_folder_id = self.get_archive_folder_id_as_do(sender_email)
         self.drive_service.files().update(
             fileId=gdrive_id,
             addParents=archive_folder_id,
@@ -236,7 +251,6 @@ class GDriveConnection(SyftboxPlatformConnection):
     def add_permission(self, file_id: str, recipient: str, write=False):
         """Add permission to the file"""
         role = "writer" if write else "reader"
-        print(f"Adding permission to {file_id} for {recipient} with role {role}")
         permission = {
             "type": "user",
             "role": role,
@@ -291,6 +305,27 @@ class GDriveConnection(SyftboxPlatformConnection):
                 return self._syftbox_folder_id
             else:
                 return self.create_syftbox_folder()
+
+    def get_archive_folder_id_from_drive(self, sender_email: str) -> str | None:
+        archive_folder = GdriveArchiveFolder(
+            sender_email=sender_email, recipient_email=self.email
+        )
+        archive_folder_name = archive_folder.as_string()
+        query = f"name='{archive_folder_name}' and mimeType='application/vnd.google-apps.folder' and 'me' in owners and trashed=false"
+        results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+        items = results.get("files", [])
+        return items[0]["id"] if items else None
+
+    def get_archive_folder_id_as_do(self, sender_email: str) -> str:
+        if sender_email in self.archive_folder_id_cache:
+            return self.archive_folder_id_cache[sender_email]
+        else:
+            archive_folder_id = self.get_archive_folder_id_from_drive(sender_email)
+            if archive_folder_id:
+                self.archive_folder_id_cache[sender_email] = archive_folder_id
+                return archive_folder_id
+            else:
+                return self.create_archive_folder(sender_email)
 
     def get_file_metadatas_from_folder(self, folder_id: str) -> List[Dict]:
         query = f"'{folder_id}' in parents and trashed=false"
@@ -442,6 +477,11 @@ class GDriveConnection(SyftboxPlatformConnection):
             body=file_metadata, media_body=payload, fields="id"
         ).execute()
 
+    def delete_syftbox(self):
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        if syftbox_folder_id is not None:
+            delete_folder_recursive(self.drive_service, syftbox_folder_id, verbose=True)
+
     def create_file_payload(self, data: Any) -> Tuple[MediaIoBaseUpload, str]:
         """Create a file payload for the GDrive"""
         if isinstance(data, str):
@@ -530,17 +570,3 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
         items = results.get("files", [])
         return items[0]["id"] if items else None
-
-    def get_archive_folder_id(self, sender_email: str) -> str:
-        if sender_email in self.archive_folder_id_cache:
-            return self.archive_folder_id_cache[sender_email]
-        else:
-            archive_folder_name = f"syft_{sender_email}_to_{self.email}_archive"
-            query = f"name='{archive_folder_name}' and mimeType='application/vnd.google-apps.folder' and 'me' in owners and trashed=false"
-            results = (
-                self.drive_service.files().list(q=query, fields="files(id)").execute()
-            )
-            items = results.get("files", [])
-            _id = items[0]["id"]
-            self.archive_folder_id_cache[sender_email] = _id
-            return _id
