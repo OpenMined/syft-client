@@ -59,6 +59,7 @@ def test_google_drive_connection():
     )
 
     # this calls connection.send_propose_file_change_message via callbacks
+    sleep(1)
     start_time = time.time()
     manager_ds.send_file_change(f"{email_do}/my.job", "Hello, world!")
     end_time_sending = time.time()
@@ -68,31 +69,13 @@ def test_google_drive_connection():
     sleep(1)
 
     # this is just for timing purposes, you can ignore it
-    time_to_end_in_cache = None
-    write_event_to_syftbox = (
-        manager_do.proposed_file_change_handler.write_event_to_syftbox
-    )
-
-    def wrapper_write_event_to_syftbox(*args, **kwargs):
-        nonlocal time_to_end_in_cache
-        time_to_end_in_cache = time.time()
-        write_event_to_syftbox(*args, **kwargs)
-
-    manager_do.proposed_file_change_handler.write_event_to_syftbox = (
-        wrapper_write_event_to_syftbox
-    )
-
     # continuing with the test
 
     manager_do.proposed_file_change_handler.pull_and_process_next_proposed_filechange(
         sender_email=email_ds
     )
-    # this is the time before a message becomes visible to the DO
-    print(
-        f"Time taken to send and receive message: {time_to_end_in_cache - start_time} seconds"
-    )
 
-    manager_ds.datasite_outbox_puller.sync_down(peer_email=email_do)
+    manager_ds.sync()
 
     events = manager_ds.datasite_outbox_puller.datasite_watcher_cache.get_all_events()
     assert len(events) > 0

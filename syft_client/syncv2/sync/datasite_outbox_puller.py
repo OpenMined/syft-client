@@ -16,5 +16,6 @@ class DatasiteOutboxPuller(BaseModelCallbackMixin):
     connection_router: ConnectionRouter
     datasite_watcher_cache: DataSiteWatcherCache
 
-    def sync_down(self, peer_email: str):
-        self.datasite_watcher_cache.sync_down(peer_email)
+    def sync_down(self, peer_emails: list[str]):
+        for peer_email in peer_emails:
+            self.datasite_watcher_cache.sync_down(peer_email)

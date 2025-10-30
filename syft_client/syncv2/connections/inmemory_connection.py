@@ -49,7 +49,17 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
     ):
         # TODO: do something with the recipient
         self.backing_store.proposed_events_inbox.append(proposed_file_changes_message)
-        self.receiver_function(proposed_file_changes_message)
+
+        if self.receiver_function is not None:
+            self.receiver_function()
+
+    def add_peer_as_do(self, peer_email: str):
+        # TODO: implement
+        pass
+
+    def add_peer_as_ds(self, peer_email: str):
+        # TODO: implement
+        pass
 
     def get_next_proposed_filechange_message(
         self, sender_email: str = None

@@ -16,10 +16,30 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     )
     write_files: bool = True
     connection_router: ConnectionRouter
+    initial_sync_done: bool = False
+
+    def sync(self, peer_emails: list[str]):
+        if not self.initial_sync_done:
+            self.pull_initial_state()
+        # first, pull existing state
+        for peer_email in peer_emails:
+            while True:
+                msg = self.pull_and_process_next_proposed_filechange(
+                    peer_email, raise_on_none=False
+                )
+                if msg is None:
+                    # no new message, we are done
+                    break
+
+    def pull_initial_state(self):
+        # pull all events from the syftbox
+        events: list[FileChangeEvent] = self.connection_router.get_all_accepted_events()
+        for event in events:
+            self.event_cache.add_event_to_local_cache(event)
 
     def pull_and_process_next_proposed_filechange(
         self, sender_email: str, raise_on_none=True
-    ):
+    ) -> ProposedFileChangesMessage | None:
         # raise on none is useful for testing, shouldnt be used in production
         message = self.connection_router.get_next_proposed_filechange_message(
             sender_email=sender_email
@@ -33,8 +53,11 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
 
             # delete the message once we are done
             self.connection_router.remove_proposed_filechange_from_inbox(message)
+            return message
         elif raise_on_none:
             raise ValueError("No proposed file change to process")
+        else:
+            return None
 
     # def on_proposed_filechange_receive(
     #     self, proposed_file_change_message: ProposedFileChangesMessage

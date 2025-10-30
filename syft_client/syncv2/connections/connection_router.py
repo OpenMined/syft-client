@@ -37,6 +37,14 @@ class ConnectionRouter(BaseModel):
             recipient, proposed_file_changes_message
         )
 
+    def add_peer_as_do(self, peer_email: str):
+        connection = self.connection_for_send_message()
+        connection.add_peer_as_do(peer_email)
+
+    def add_peer_as_ds(self, peer_email: str):
+        connection = self.connection_for_receive_message()
+        connection.add_peer_as_ds(peer_email)
+
     def delete_syftbox(self):
         connection = self.connection_for_own_syftbox()
         connection.delete_syftbox()
@@ -49,7 +57,7 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_outbox()
         connection.write_event_to_outbox_do(sender_email, event)
 
-    def get_all_events(self) -> List[FileChangeEvent]:
+    def get_all_accepted_events(self) -> List[FileChangeEvent]:
         connection = self.connection_for_eventlog()
         return connection.get_all_events()
 

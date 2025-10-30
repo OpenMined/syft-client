@@ -14,7 +14,7 @@ from syft_client.syncv2.sync.caches.datasite_watcher_cache import DataSiteWatche
 
 class ProposedFileChangePusher(BaseModelCallbackMixin):
     base_path: Path
-    sender_email: str
+    email: str
     connection_router: ConnectionRouter
     datasite_watcher_cache: DataSiteWatcherCache
 
@@ -37,6 +37,6 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
 
         file_change = self.get_proposed_file_change_object(path_in_datasite, content)
         message = ProposedFileChangesMessage(
-            sender_email=self.sender_email, proposed_file_changes=[file_change]
+            sender_email=self.email, proposed_file_changes=[file_change]
         )
         self.connection_router.send_proposed_file_changes_message(recipient, message)

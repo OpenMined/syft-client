@@ -13,4 +13,4 @@ class JobFileChangeHandler(BaseModelCallbackMixin):
         self.handle_file_change(path, content)
 
     def handle_file_change(self, path: str, content: str):
-        print("handling file change")
+        pass
