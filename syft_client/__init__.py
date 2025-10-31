@@ -11,7 +11,7 @@ def login_do(email: str):
     env = check_env()
 
     if env == Environment.COLAB:
-        SyftboxManager.for_colab(email=email, only_datasider_owner=True)
+        return SyftboxManager.for_colab(email=email, only_datasider_owner=True)
     elif env == Environment.JUPYTER:
         raise NotImplementedError("Jupyter login is not implemented yet")
         # SyftboxManager.for_jupyter(email=email)
