@@ -160,6 +160,7 @@ class SyftboxManager(BaseModel):
         base_path1: str | None = None,
         base_path2: str | None = None,
         add_peers: bool = True,
+        load_peers: bool = False,
     ):
         receiver_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=do_email,
@@ -200,8 +201,11 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
-            sender_manager.add_peer(receiver_manager.email)
-            receiver_manager.add_peer(sender_manager.email)
+            sender_manager.create_peer_request(receiver_manager.email)
+            receiver_manager.create_peer_request(sender_manager.email)
+        if load_peers:
+            receiver_manager.load_peers()
+            sender_manager.load_peers()
 
         # create inbox folder
         return sender_manager, receiver_manager
@@ -247,7 +251,8 @@ class SyftboxManager(BaseModel):
             receiver_receive_function = None
 
         sender_in_memory_connection = InMemoryPlatformConnection(
-            receiver_function=receiver_receive_function
+            receiver_function=receiver_receive_function,
+            owner_email=ds_manager.email,
         )
         ds_manager.add_connection(sender_in_memory_connection)
 
@@ -264,6 +269,7 @@ class SyftboxManager(BaseModel):
         receiver_connection = InMemoryPlatformConnection(
             receiver_function=sender_receiver_function,
             backing_store=sender_backing_store,
+            owner_email=do_manager.email,
         )
         do_manager.add_connection(receiver_connection)
 
@@ -276,16 +282,16 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
-            ds_manager.add_peer(do_manager.email)
-            do_manager.add_peer(ds_manager.email)
+            ds_manager.create_peer_request(do_manager.email)
+            do_manager.create_peer_request(ds_manager.email)
 
         return ds_manager, do_manager
 
-    def add_peer(self, peer_email: str):
+    def create_peer_request(self, peer_email: str):
         if self.is_do:
-            self.connection_router.add_peer_as_do(peer_email)
+            self.connection_router.add_peer_as_do(peer_email=peer_email)
         else:
-            self.connection_router.add_peer_as_ds(peer_email)
+            self.connection_router.add_peer_as_ds(peer_email=peer_email)
         self.peers.append(Peer(email=peer_email))
 
     @property
@@ -299,6 +305,14 @@ class SyftboxManager(BaseModel):
         else:
             # ds
             self.datasite_outbox_puller.sync_down(peer_emails)
+
+    def load_peers(self):
+        if self.is_do:
+            peer_emails = self.connection_router.get_peers_as_do()
+        else:
+            peer_emails = self.connection_router.get_peers_as_ds()
+
+        self.peers = [Peer(email=peer_email) for peer_email in peer_emails]
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
@@ -322,8 +336,8 @@ class SyftboxManager(BaseModel):
     def send_file_change(self, path: str, content: str):
         self.file_writer.write_file(path, content)
 
-    def get_all_events(self) -> List[FileChangeEvent]:
-        return self.proposed_file_change_handler.connection_router.get_all_accepted_events()
+    def get_all_accepted_events_do(self) -> List[FileChangeEvent]:
+        return self.proposed_file_change_handler.connection_router.get_all_accepted_events_do()
 
     @property
     def connection_router(self) -> ConnectionRouter:

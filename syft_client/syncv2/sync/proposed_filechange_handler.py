@@ -33,9 +33,12 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
 
     def pull_initial_state(self):
         # pull all events from the syftbox
-        events: list[FileChangeEvent] = self.connection_router.get_all_accepted_events()
+        events: list[FileChangeEvent] = (
+            self.connection_router.get_all_accepted_events_do()
+        )
         for event in events:
             self.event_cache.add_event_to_local_cache(event)
+        self.initial_sync_done = True
 
     def pull_and_process_next_proposed_filechange(
         self, sender_email: str, raise_on_none=True

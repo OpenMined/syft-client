@@ -70,3 +70,6 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
 
         for callback in self.callbacks.get("on_event_local_write", []):
             callback(event.path, event.content)
+
+    def get_cached_events(self) -> List[FileChangeEvent]:
+        return self.events_connection.get_all()

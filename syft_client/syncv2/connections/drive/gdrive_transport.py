@@ -39,6 +39,7 @@ SYFTBOX_FOLDER = "SyftBox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 GDRIVE_TRANSPORT_NAME = "gdrive_files"
+GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
 
 
 class GdriveArchiveFolder(BaseModel):
@@ -54,7 +55,14 @@ class GdriveInboxOutBoxFolder(BaseModel):
     recipient_email: str
 
     def as_string(self) -> str:
-        return f"syft_{self.sender_email}_to_{self.recipient_email}_outbox_inbox"
+        return f"{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}_{self.sender_email}_to_{self.recipient_email}"
+
+    @classmethod
+    def from_name(cls, name: str) -> "GdriveInboxOutBoxFolder":
+        return cls(
+            sender_email=name.split("_")[3],
+            recipient_email=name.split("_")[5],
+        )
 
 
 class GDriveConnection(SyftboxPlatformConnection):
@@ -162,6 +170,46 @@ class GDriveConnection(SyftboxPlatformConnection):
             peer_folder_id = self.create_peer_inbox_folder_as_ds(peer_email)
         self.add_permission(peer_folder_id, peer_email, write=True)
 
+    def get_peers_as_do(self) -> List[str]:
+        results = (
+            self.drive_service.files()
+            .list(
+                q=f"name contains '{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}' and trashed=false"
+                f"and mimeType = '{GOOGLE_FOLDER_MIME_TYPE}'"
+            )
+            .execute()
+        )
+        peers = set()
+        inbox_folders = results.get("files", [])
+        inbox_folder_names = [x["name"] for x in inbox_folders]
+        for name in inbox_folder_names:
+            outbox_folder = GdriveInboxOutBoxFolder.from_name(name)
+            if outbox_folder.sender_email != self.email:
+                peers.add(outbox_folder.sender_email)
+        return list(peers)
+
+    def get_peers_as_ds(self) -> List[str]:
+        results = (
+            self.drive_service.files()
+            .list(
+                q=f"name contains '{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}' and 'me' in owners and trashed=false"
+                f"and mimeType = '{GOOGLE_FOLDER_MIME_TYPE}'"
+            )
+            .execute()
+        )
+        peers = set()
+        # we want to know who it is shared with and gather those email addresses
+        outbox_folders = results.get("files", [])
+        outbox_folder_names = [x["name"] for x in outbox_folders]
+        for name in outbox_folder_names:
+            try:
+                outbox_folder = GdriveInboxOutBoxFolder.from_name(name)
+                if outbox_folder.recipient_email != self.email:
+                    peers.add(outbox_folder.recipient_email)
+            except Exception as e:
+                continue
+        return list(peers)
+
     def get_events_for_datasite_watcher(
         self, peer_email: str, since_timestamp: float | None
     ) -> List[FileChangeEvent]:
@@ -208,6 +256,26 @@ class GDriveConnection(SyftboxPlatformConnection):
         gdrive_id = res.get("id")
         self.personal_syftbox_event_id_cache[filename] = gdrive_id
         return gdrive_id
+
+    def get_all_events_do(self) -> List[FileChangeEvent]:
+        """Reads from /SyftBox/myemail"""
+        personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
+        file_metadatas = self.get_file_metadatas_from_folder(personal_syftbox_folder_id)
+        valid_fname_objs = self._get_valid_events_from_file_metadatas(file_metadatas)
+
+        result = []
+        for fname_obj in valid_fname_objs:
+            gdrive_id = [
+                f for f in file_metadatas if f["name"] == fname_obj.as_string()
+            ][0]["id"]
+            try:
+                file_data = self.download_file(gdrive_id)
+            except Exception as e:
+                print(e)
+                continue
+            event = FileChangeEvent.from_compressed_data(file_data)
+            result.append(event)
+        return result
 
     def write_event_to_outbox_do(self, recipient: str, event: FileChangeEvent):
         fname = event.event_filepath.as_string()
@@ -395,6 +463,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     def _get_do_inbox_folder_id(self, sender_email: str) -> str | None:
         if sender_email in self.do_inbox_folder_id_cache:
+            print(f"Using cached inbox folder id for {sender_email}")
             return self.do_inbox_folder_id_cache[sender_email]
 
         recipient_email = self.email

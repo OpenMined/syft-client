@@ -12,49 +12,8 @@ from syft_client.syncv2.events.file_change_event import FileChangeEventFileName
 from syft_client.syncv2.sync.caches.datasite_owner_cache import (
     ProposedEventFileOutdatedException,
 )
-
-
-def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:
-    file_path = path.split("/")[-1]
-    content = "Hello, world!"
-    new_hash = hash(content)
-    return FileChangeEvent(
-        id=uuid.uuid4(),
-        path=file_path,
-        submitted_timestamp=time.time(),
-        timestamp=time.time(),
-        content=content,
-        new_hash=new_hash,
-        event_filepath=FileChangeEventFileName(
-            id=uuid.uuid4(),
-            file_path=file_path,
-            timestamp=time.time(),
-        ),
-    )
-
-
-def get_mock_events(n_events: int = 2) -> List[FileChangeEvent]:
-    res = [get_mock_event(f"email@email.com/test{i}.job") for i in range(n_events)]
-    return res
-
-
-def mock_message(path: str = "email@email.com/test.job") -> ProposedFileChangesMessage:
-    return ProposedFileChangesMessage(
-        sender_email="email@email.com",
-        proposed_file_changes=[
-            ProposedFileChange(
-                old_hash=None,
-                path=path,
-                content="Hello, world!",
-            ),
-        ],
-    )
-
-
-def get_mock_proposed_events_messages(
-    n_events: int = 2,
-) -> List[ProposedFileChangesMessage]:
-    return [mock_message(f"email@email.com/test{i}.job") for i in range(n_events)]
+from tests.unit.utils import get_mock_events
+from tests.unit.utils import get_mock_proposed_events_messages
 
 
 def test_in_memory_connection():
@@ -76,13 +35,13 @@ def test_sync_to_syftbox_eventlog():
     file_path = "email@email.com/my.job"
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
 
-    events_in_backing_platform = do_manager.get_all_events()
+    events_in_backing_platform = do_manager.get_all_accepted_events_do()
     assert len(events_in_backing_platform) == 0
 
     ds_manager.send_file_change(file_path, "Hello, world!")
 
     # second event is present
-    events_in_backing_platform = do_manager.get_all_events()
+    events_in_backing_platform = do_manager.get_all_accepted_events_do()
     assert len(events_in_backing_platform) > 0
 
 
@@ -137,8 +96,6 @@ def test_valid_and_invalid_proposed_filechange_event():
     )
     assert content == "Content 2"
 
-    # print(do_manager.proposed_file_change_handler.connection_router.get_all_events())
-
 
 def test_sync_back_to_ds_cache():
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
@@ -147,7 +104,9 @@ def test_sync_back_to_ds_cache():
 
     ds_manager.sync()
     assert (
-        len(ds_manager.datasite_outbox_puller.datasite_watcher_cache.get_all_events())
+        len(
+            ds_manager.datasite_outbox_puller.datasite_watcher_cache.get_cached_events()
+        )
         == 1
     )
 
@@ -231,3 +190,24 @@ def test_sync_existing_datasite_state_ds():
         ds_manager.datasite_outbox_puller.datasite_watcher_cache.events_connection
     )
     assert ds_events_in_cache == 2
+
+
+def test_load_peers():
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        add_peers=False
+    )
+
+    ds_manager.create_peer_request("peer1@email.com")
+    ds_manager.create_peer_request("peer2@email.com")
+
+    do_manager.create_peer_request("peer3@email.com")
+
+    # reset the peers and load them from connection
+    do_manager.peers = []
+    ds_manager.peers = []
+
+    do_manager.load_peers()
+    ds_manager.load_peers()
+
+    assert len(ds_manager.peers) == 2
+    assert len(do_manager.peers) == 1
