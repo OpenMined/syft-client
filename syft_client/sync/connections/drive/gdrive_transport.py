@@ -26,14 +26,7 @@ from syft_client.sync.messages.proposed_filechange import (
     FileNameParseError,
     ProposedFileChangesMessage,
 )
-from enum import Enum
-
-
-class Environment(Enum):
-    COLAB = "colab"
-    JUPYTER = "jupyter"
-    REPL = "repl"
-
+from syft_client.sync.environments.environment import Environment
 
 if TYPE_CHECKING:
     from syft_client.sync.connections.drive.grdrive_config import (
