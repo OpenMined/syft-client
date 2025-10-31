@@ -2,41 +2,17 @@
 
 import io
 import json
-import io
-import os
+import logging
 import pickle
 from datetime import datetime
-from pathlib import Path
-import random
-from typing import Any, Dict, List, Optional, Tuple
-from syft_client.syncv2.syftbox_utils import compress_data, uncompress_data
+from typing import Any, Dict, List, Optional
 
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload, MediaIoBaseUpload
-from googleapiclient.http import MediaIoBaseDownload
-from syft_client.syncv2.messages.proposed_filechange import ProposedFileChange
-from syft_client.syncv2.messages.proposed_filechange import ProposedFileChangesMessage
-import logging
-from pydantic import BaseModel, Field
-import uuid
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 from ...environment import Environment
 from ...transports.base import BaseTransport
 from ..transport_base import BaseTransportLayer
-
-
-class GdriveInboxOutBoxFolder(BaseModel):
-    sender_email: str
-    recipient_email: str
-
-    def as_string(self) -> str:
-        return f"syft_{self.sender_email}_to_{self.recipient_email}_outbox_inbox"
-
-
-def generate_message_filename() -> str:
-    now = datetime.now().strftime("%Y%m%d_%H%M%S")
-    uid = str(uuid.uuid4()).replace("-", "")[:8]
-    return f"msgv2_{now}_{uid}.tar.gz"
 
 
 class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
@@ -64,8 +40,6 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         self._contacts_folder_id = None
         self._syftbox_folder_id = None
         self.verbose = True  # Default verbose mode
-        self.outbox_folder_cache = {}
-        self.inbox_folder_cache = {}
 
     @staticmethod
     def check_api_enabled(platform_client: Any) -> bool:
@@ -132,8 +106,8 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         transport_name: str, email: str, project_id: Optional[str] = None
     ) -> None:
         """Show instructions for enabling Google Drive API"""
-        print(f"\n🔧 To enable the Google Drive API:")
-        print(f"\n1. Open this URL in your browser:")
+        print("\n🔧 To enable the Google Drive API:")
+        print("\n1. Open this URL in your browser:")
         if project_id:
             print(
                 f"   https://console.cloud.google.com/marketplace/product/google/drive.googleapis.com?authuser={email}&project={project_id}"
@@ -142,10 +116,10 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             print(
                 f"   https://console.cloud.google.com/marketplace/product/google/drive.googleapis.com?authuser={email}"
             )
-        print(f"\n2. Click the 'Enable' button")
-        print(f"\n3. Wait for the API to be enabled (may take 5-10 seconds)")
+        print("\n2. Click the 'Enable' button")
+        print("\n3. Wait for the API to be enabled (may take 5-10 seconds)")
         print(
-            f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
+            "\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
         )
 
     @staticmethod
@@ -153,8 +127,8 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         transport_name: str, email: str, project_id: Optional[str] = None
     ) -> None:
         """Show instructions for disabling Google Drive API"""
-        print(f"\n🔧 To disable the Google Drive API:")
-        print(f"\n1. Open this URL in your browser:")
+        print("\n🔧 To disable the Google Drive API:")
+        print("\n1. Open this URL in your browser:")
         if project_id:
             print(
                 f"   https://console.cloud.google.com/apis/api/drive.googleapis.com/overview?authuser={email}&project={project_id}"
@@ -163,10 +137,10 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             print(
                 f"   https://console.cloud.google.com/apis/api/drive.googleapis.com/overview?authuser={email}"
             )
-        print(f"\n2. Click 'Manage' or 'Disable API'")
-        print(f"\n3. Confirm by clicking 'Disable'")
+        print("\n2. Click 'Manage' or 'Disable API'")
+        print("\n3. Confirm by clicking 'Disable'")
         print(
-            f"\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
+            "\n📝 Note: API tends to flicker for 5-10 seconds before enabling/disabling"
         )
 
     @property
@@ -245,9 +219,10 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         # In Colab, we can always set up on demand
         if self.environment == Environment.COLAB:
             try:
-                from google.colab import auth as colab_auth
+                import importlib.util
 
-                return True  # Can authenticate on demand
+                if importlib.util.find_spec("google.colab") is not None:
+                    return True  # Can authenticate on demand
             except ImportError:
                 pass
             except AttributeError:
@@ -281,57 +256,8 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     .execute()
                 )
                 self._folder_id = folder.get("id")
-        except:
+        except Exception:
             pass
-
-    def create_file_payload(self, data: Any) -> Tuple[MediaIoBaseUpload, str]:
-        """Create a file payload for the GDrive"""
-        if isinstance(data, str):
-            file_data = data.encode("utf-8")
-            mime_type = "text/plain"
-            extension = ".txt"
-        elif isinstance(data, dict):
-            file_data = json.dumps(data, indent=2).encode("utf-8")
-            mime_type = "application/json"
-            extension = ".json"
-        elif isinstance(data, bytes):
-            file_data = data
-            mime_type = "application/octet-stream"
-            extension = ".bin"
-        else:
-            # Pickle for other data types
-            file_data = pickle.dumps(data)
-            mime_type = "application/octet-stream"
-            extension = ".pkl"
-
-        media = MediaIoBaseUpload(
-            io.BytesIO(file_data), mimetype=mime_type, resumable=True
-        )
-
-        return media, extension
-
-    def create_file_metadata(self, subject: str, extension: str) -> Dict[str, Any]:
-        """Create file metadata for the GDrive"""
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        subject_wo_spaces = subject.replace(" ", "_")
-        filename = f"syft_{subject_wo_spaces}_{timestamp}{extension}"
-        return {
-            "name": filename,
-            "parents": [self._folder_id] if self._folder_id else [],
-        }
-
-    def add_permission(self, file_id: str, recipient: str) -> bool:
-        """Add permission to the file"""
-        permission = {
-            "type": "user",
-            "role": "reader",
-            "emailAddress": recipient,
-        }
-        self.drive_service.permissions().create(
-            fileId=file_id, body=permission, sendNotificationEmail=True
-        ).execute()
-        return True
 
     def send(self, recipient: str, data: Any, subject: str = "Syft Data") -> bool:
         """Upload file to GDrive and share with recipient"""
@@ -340,8 +266,33 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
 
         try:
             # Prepare data
-            media, extension = self.create_file_payload(data)
-            file_metadata = self.create_file_metadata(subject, extension)
+            if isinstance(data, str):
+                file_data = data.encode("utf-8")
+                mime_type = "text/plain"
+                extension = ".txt"
+            elif isinstance(data, dict):
+                file_data = json.dumps(data, indent=2).encode("utf-8")
+                mime_type = "application/json"
+                extension = ".json"
+            else:
+                # Pickle for other data types
+                file_data = pickle.dumps(data)
+                mime_type = "application/octet-stream"
+                extension = ".pkl"
+
+            # Create filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"syft_{subject.replace(' ', '_')}_{timestamp}{extension}"
+
+            # Upload file
+            file_metadata = {
+                "name": filename,
+                "parents": [self._folder_id] if self._folder_id else [],
+            }
+
+            media = MediaIoBaseUpload(
+                io.BytesIO(file_data), mimetype=mime_type, resumable=True
+            )
 
             file = (
                 self.drive_service.files()
@@ -353,7 +304,15 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
 
             # Share with recipient
             if recipient and "@" in recipient:
-                self.add_permission(file_id, recipient)
+                permission = {
+                    "type": "user",
+                    "role": "reader",
+                    "emailAddress": recipient,
+                }
+
+                self.drive_service.permissions().create(
+                    fileId=file_id, body=permission, sendNotificationEmail=True
+                ).execute()
 
             return True
 
@@ -408,7 +367,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                         message["data"] = self._download_file(
                             file["id"], file["mimeType"]
                         )
-                    except:
+                    except Exception:
                         pass
 
                 messages.append(message)
@@ -442,7 +401,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             else:
                 return data
 
-        except:
+        except Exception:
             return None
 
     def create_public_folder(self, folder_name: str) -> Optional[str]:
@@ -475,7 +434,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
 
             return folder.get("webViewLink")
 
-        except:
+        except Exception:
             return None
 
     def test(self, test_data: str = "test123", cleanup: bool = True) -> Dict[str, Any]:
@@ -570,96 +529,6 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
         """Get the name of this transport"""
         return "gdrive_files"
 
-    def koen_get_syftbox_folder_id(self) -> None:
-        """Ensure the main SyftBox folder exists"""
-        if self._syftbox_folder_id:
-            return
-
-        try:
-            # Search for existing SyftBox folder
-            query = "name='SyftBox' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-            results = (
-                self.drive_service.files()
-                .list(q=query, fields="files(id, name)")
-                .execute()
-            )
-            items = results.get("files", [])
-
-            if items:
-                self._syftbox_folder_id = items[0]["id"]
-            else:
-                # Create SyftBox folder
-                file_metadata = {
-                    "name": "SyftBox",
-                    "mimeType": "application/vnd.google-apps.folder",
-                }
-                folder = (
-                    self.drive_service.files()
-                    .create(body=file_metadata, fields="id")
-                    .execute()
-                )
-                self._syftbox_folder_id = folder.get("id")
-        except Exception as e:
-            raise Exception(f"Error creating SyftBox folder: {e}") from e
-
-    def _get_inbox_folder_id(self, sender_email: str) -> Optional[str]:
-        """note that ones outbox can be someone elses inbox"""
-        if sender_email in self.inbox_folder_cache:
-            return self.inbox_folder_cache[sender_email]
-        inbox_folder = GdriveInboxOutBoxFolder(
-            sender_email=sender_email, recipient_email=self.email
-        )
-        inbox_folder_id = self._find_folder_by_name(
-            inbox_folder.as_string(), parent_id=self._syftbox_folder_id
-        )
-        self.inbox_folder_cache[sender_email] = inbox_folder_id
-        return inbox_folder_id
-
-    def _get_outbox_folder_id(self, recipient: str) -> Optional[str]:
-        if recipient in self.outbox_folder_cache:
-            return self.outbox_folder_cache[recipient]
-
-        outbox_folder = GdriveInboxOutBoxFolder(
-            sender_email=self.email, recipient_email=recipient
-        )
-
-        outbox_folder_id = self._find_folder_by_name(
-            outbox_folder.as_string(), parent_id=self._syftbox_folder_id
-        )
-        self.outbox_folder_cache[recipient] = outbox_folder_id
-        return outbox_folder_id
-
-    def _koen_send_proposed_file_changes_message(
-        self, recipient: str, messages: List[ProposedFileChange]
-    ):
-        message = ProposedFileChangesMessage(proposed_file_changes=messages)
-        data = message.model_dump_json(indent=2).encode("utf-8")
-        data_compressed = compress_data(data)
-        self._koen_send_archive_via_transport(
-            data_compressed, message.message_filename, recipient
-        )
-
-    def _koen_send_archive_via_transport(
-        self,
-        archive_data: bytes,
-        filename: str,
-        recipient: str,
-    ) -> bool:
-        try:
-            file_metadata = {
-                "name": filename,
-                "parents": [self._get_outbox_folder_id(recipient)],
-            }
-
-            payload, _ = self.create_file_payload(archive_data)
-
-            self.drive_service.files().create(
-                body=file_metadata, media_body=payload, fields="id"
-            ).execute()
-
-        except Exception as e:
-            raise Exception("Error sending archive via Google Drive") from e
-
     def _send_archive_via_transport(
         self,
         archive_data: bytes,
@@ -677,15 +546,12 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 return False
 
             # Find the outbox folder for this recipient
-            outbox_folder = GdriveInboxFolder(
-                sender_email=self.email, recipient_email=recipient
+            outbox_name = f"syft_{self.email}_to_{recipient}_outbox_inbox"
+            outbox_id = self._find_folder_by_name(
+                outbox_name, parent_id=self._syftbox_folder_id
             )
 
-            outbox_folder_id = self._find_folder_by_name(
-                outbox_folder.as_string(), parent_id=self._syftbox_folder_id
-            )
-
-            if not outbox_folder_id:
+            if not outbox_id:
                 if self.verbose:
                     print(
                         f"❌ No outbox folder found for {recipient}. Add them as a peer first."
@@ -693,13 +559,17 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 return False
 
             # Upload file to outbox
-            file_metadata = {"name": filename, "parents": [outbox_folder_id]}
+            file_metadata = {"name": filename, "parents": [outbox_id]}
 
-            payload, _ = self.create_file_payload(archive_data)
+            media = MediaIoBaseUpload(
+                io.BytesIO(archive_data),
+                mimetype="application/octet-stream",
+                resumable=True,
+            )
 
-            file = (
+            (
                 self.drive_service.files()
-                .create(body=file_metadata, media_body=payload, fields="id")
+                .create(body=file_metadata, media_body=media, fields="id")
                 .execute()
             )
 
@@ -759,8 +629,8 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
 
             if verbose:
                 print(f"✅ Added {email} as a peer!")
-                print(f"   📤 Your outgoing channel is ready")
-                print(f"   📥 Your incoming archive is ready")
+                print("   📤 Your outgoing channel is ready")
+                print("   📥 Your incoming archive is ready")
                 print(f"\n💡 Ask {email} to run: client.add_peer('{self.email}')")
 
             return True
@@ -1025,7 +895,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     .execute()
                 )
                 self._syftbox_folder_id = folder.get("id")
-        except:
+        except Exception:
             pass
 
     def _setup_communication_channel(
@@ -1074,7 +944,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     folder_ids["pending"] = pending_id
                     if verbose:
                         print(f"📁 Created pending folder: {pending_name}")
-                        print(f"   ⏳ For preparing messages (private)")
+                        print("   ⏳ For preparing messages (private)")
 
             # Create/check outbox_inbox folder (shared with receiver)
             outbox_id = self._find_folder_by_name(
@@ -1093,7 +963,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     folder_ids["outbox_inbox"] = outbox_id
                     if verbose:
                         print(f"📁 Created outbox/inbox folder: {outbox_inbox_name}")
-                        print(f"   📬 For active communication (shared)")
+                        print("   📬 For active communication (shared)")
 
             # Grant receiver write access to outbox_inbox
             if outbox_id:
@@ -1207,7 +1077,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                             print(f"   ⚠️  Could not set permissions: {e}")
                 else:
                     if verbose:
-                        print(f"❌ Failed to create archive folder")
+                        print("❌ Failed to create archive folder")
                     return None
 
             return archive_id
@@ -1235,7 +1105,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
 
             items = results.get("files", [])
             return items[0]["id"] if items else None
-        except:
+        except Exception:
             return None
 
     def _find_folder_details(
@@ -1268,7 +1138,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 )
                 return folder
             return None
-        except:
+        except Exception:
             return None
 
     def _create_folder(self, folder_name: str, parent_id: str = None) -> Optional[str]:
@@ -1289,7 +1159,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             )
 
             return folder.get("id")
-        except:
+        except Exception:
             return None
 
     def _ensure_peers_folder(self) -> Optional[Dict[str, Any]]:
@@ -1322,7 +1192,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                     .execute()
                 )
                 return folder
-        except:
+        except Exception:
             return None
 
     def _find_peers_folder(self) -> Optional[Dict[str, Any]]:
@@ -1342,7 +1212,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             )
             items = results.get("files", [])
             return items[0] if items else None
-        except:
+        except Exception:
             return None
 
     def _find_peer_folder(self, peer_identifier: str) -> Optional[Dict[str, Any]]:
@@ -1413,7 +1283,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
             existing_contacts = set(self.list_peers())
 
             # Search for syft folders shared with us
-            query = f"sharedWithMe=true and name contains 'syft_' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            query = "sharedWithMe=true and name contains 'syft_' and mimeType='application/vnd.google-apps.folder' and trashed=false"
 
             results = (
                 self.drive_service.files()
@@ -1458,69 +1328,9 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
 
             return sorted(list(pending_requests))
 
-        except Exception as e:
+        except Exception:
             # Silently fail - peer request checking is optional
             return []
-
-    def get_files_from_folder(self, folder_id: str) -> List[Dict]:
-        query = f"'{folder_id}' in parents and trashed=false"
-        results = (
-            self.drive_service.files()
-            .list(
-                q=query,
-                fields="files(id, name, size, mimeType, modifiedTime)",
-                pageSize=100,
-            )
-            .execute()
-        )
-        return results.get("files", [])
-
-    def download_file(self, file_id: str) -> bytes:
-        # This is likely a message archive
-        request = self.drive_service.files().get_media(fileId=file_id)
-
-        # Download to memory
-        file_buffer = io.BytesIO()
-        downloader = MediaIoBaseDownload(file_buffer, request)
-
-        done = False
-        while not done:
-            status, done = downloader.next_chunk()
-
-        message_data = file_buffer.getvalue()
-        return message_data
-
-    def _koen_get_messages_from_transport(
-        self, sender_email: str, verbose: bool = True
-    ) -> List[ProposedFileChangesMessage]:
-        messages = []
-
-        # Determine the inbox folder name pattern
-        inbox_folder_id = self._get_inbox_folder_id(sender_email)
-        files = self.get_files_from_folder(inbox_folder_id)
-
-        for file in files:
-            try:
-                file_name = file["name"]
-                file_id = file["id"]
-
-                # Skip if it's a folder
-                if file["mimeType"] == "application/vnd.google-apps.folder":
-                    continue
-
-                # Download the file
-                if file_name.startswith("msgv2_") and file_name.endswith(".tar.gz"):
-                    message_data = self.download_file(file_id)
-                    message = ProposedFileChangesMessage.from_compressed_data(
-                        message_data
-                    )
-                    messages.append(message)
-
-            except Exception as e:
-                if verbose:
-                    print(f"   ❌ Error downloading {file['name']}: {e}")
-
-        return messages
 
     def _get_messages_from_transport(
         self, sender_email: str, verbose: bool = True
@@ -1711,7 +1521,7 @@ class GDriveFilesTransport(BaseTransportLayer, BaseTransport):
                 ).execute()
 
                 if verbose:
-                    print(f"   📦 Archived message")
+                    print("   📦 Archived message")
 
         except Exception as e:
             if verbose:
