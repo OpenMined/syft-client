@@ -1,8 +1,5 @@
 from pathlib import Path
-from typing import Self
-from uuid import UUID
 
-from pydantic import Field, model_validator
 from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.messages.proposed_filechange import (

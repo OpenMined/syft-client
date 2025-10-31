@@ -4,7 +4,6 @@ from pathlib import Path
 import time
 from time import sleep
 import pytest
-from tests.integration.utils import get_mock_events
 
 # from tests.integration.utils import get_mock_events
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 
 

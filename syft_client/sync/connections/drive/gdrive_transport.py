@@ -211,7 +211,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                 outbox_folder = GdriveInboxOutBoxFolder.from_name(name)
                 if outbox_folder.recipient_email != self.email:
                     peers.add(outbox_folder.recipient_email)
-            except Exception as e:
+            except Exception:
                 continue
         return list(peers)
 

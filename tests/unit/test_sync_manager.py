@@ -1,14 +1,8 @@
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlatform
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
-from syft_client.sync.events.file_change_event import FileChangeEvent
-from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 import pytest
-import uuid
-import time
-from typing import List
 
-from syft_client.sync.events.file_change_event import FileChangeEventFileName
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     ProposedEventFileOutdatedException,
 )

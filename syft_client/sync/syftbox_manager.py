@@ -17,9 +17,6 @@ from syft_client.sync.job_file_change_handler import JobFileChangeHandler
 from syft_client.sync.connections.connection_router import ConnectionRouter
 
 from syft_client.sync.connections.drive.grdrive_config import GdriveConnectionConfig
-from syft_client.sync.connections.base_connection import (
-    ConnectionConfig,
-)
 from syft_client.sync.connections.inmemory_connection import (
     InMemoryPlatformConnection,
 )

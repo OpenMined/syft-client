@@ -1,5 +1,4 @@
 from typing import Callable, Dict, List
-from uuid import UUID
 
 from pydantic import BaseModel, Field
 from syft_client.sync.connections.base_connection import (
@@ -8,7 +7,6 @@ from syft_client.sync.connections.base_connection import (
 )
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.messages.proposed_filechange import (
-    ProposedFileChange,
     ProposedFileChangesMessage,
 )
 

@@ -1,6 +1,5 @@
-import time
-from typing import Any, List
-from uuid import UUID, uuid4
+from typing import Any
+from uuid import UUID
 from pydantic import BaseModel, model_validator
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_client.sync.syftbox_utils import create_event_timestamp

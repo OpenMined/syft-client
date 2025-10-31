@@ -1,5 +1,4 @@
-from pydantic import BaseModel
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from pydantic import Field
@@ -8,12 +7,6 @@ from syft_client.sync.sync.caches.cache_file_writer_connection import (
     CacheFileConnection,
     InMemoryCacheFileConnection,
 )
-
-"""
-There are reasons why we want to support merges right now
-Even though we have a single merger, we have multiple writers
-If these writers are making writes that are not conflicting, we should support them
-"""
 
 
 class ProposedEventFileOutdatedException(Exception):

@@ -1,10 +1,8 @@
-from uuid import UUID
 from pydantic import BaseModel
 from typing import List
 from syft_client.sync.connections.base_connection import SyftboxPlatformConnection
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
-from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 
 
 class ConnectionRouter(BaseModel):

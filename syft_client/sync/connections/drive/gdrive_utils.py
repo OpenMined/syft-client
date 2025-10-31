@@ -1,4 +1,3 @@
-from operator import irshift
 from typing import Any, List
 
 
