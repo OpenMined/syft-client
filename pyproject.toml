@@ -40,6 +40,7 @@ dependencies = [
 
 [project.optional-dependencies]
 job = ["syft-job"]
+syft-datasets = ["syft-datasets"]
 test = [
     "pytest>=7.0.0",
     "pytest-mock>=3.10.0",
@@ -67,6 +68,8 @@ members = ["packages/*"]
 [tool.uv.sources]
 "syft-job" = { git = "https://github.com/OpenMined/syft-job", branch = "main" }
 "syft-process-manager" = { workspace = true }
+"syft-datasets" = { workspace = true }
+syft-notebook-ui = { workspace = true }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"

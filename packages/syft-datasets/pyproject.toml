@@ -1,0 +1,16 @@
+[project]
+name = "syft-datasets"
+version = "0.1.0"
+description = "Syft Datasets"
+authors = [{ name = "OpenMined", email = "info@openmined.org" }]
+license = { text = "Apache-2.0" }
+requires-python = ">=3.12"
+
+dependencies = [
+    "syft-notebook-ui"
+]
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
