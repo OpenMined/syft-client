@@ -35,7 +35,6 @@ dependencies = [
     "requests>=2.32.4",
     "pandas",
     "syft-process-manager",
-    "ruff>=0.14.2",
 ]
 
 [project.optional-dependencies]
