@@ -1,5 +1,5 @@
-from syft_client.syncv2.events.file_change_event import FileChangeEvent
-from syft_client.syncv2.events.file_change_event import FileChangeEventFileName
+from syft_client.sync.events.file_change_event import FileChangeEvent
+from syft_client.sync.events.file_change_event import FileChangeEventFileName
 import uuid
 import time
 from typing import List
