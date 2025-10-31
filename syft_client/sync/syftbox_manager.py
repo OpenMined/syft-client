@@ -122,8 +122,16 @@ class SyftboxManager(BaseModel):
         return manager_res
 
     @classmethod
-    def for_colab(cls, email: str):
-        return cls.from_config(SyftboxManagerConfig.for_colab(email=email))
+    def for_colab(
+        cls, email: str, only_sender: bool = False, only_datasider_owner: bool = False
+    ):
+        return cls.from_config(
+            SyftboxManagerConfig.for_colab(
+                email=email,
+                only_sender=only_sender,
+                only_datasider_owner=only_datasider_owner,
+            )
+        )
 
     @model_validator(mode="before")
     def pre_init(cls, data):
