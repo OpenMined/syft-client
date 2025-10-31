@@ -1,10 +1,10 @@
-from syft_client.syncv2.events.file_change_event import FileChangeEvent
-from syft_client.syncv2.events.file_change_event import FileChangeEventFileName
+from syft_client.sync.events.file_change_event import FileChangeEvent
+from syft_client.sync.events.file_change_event import FileChangeEventFileName
 import uuid
 from typing import List
 import time
-from syft_client.syncv2.messages.proposed_filechange import ProposedFileChangesMessage
-from syft_client.syncv2.messages.proposed_filechange import ProposedFileChange
+from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
+from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 
 
 def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:

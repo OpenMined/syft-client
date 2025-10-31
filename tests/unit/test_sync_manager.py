@@ -1,15 +1,9 @@
-from syft_client.syncv2.syftbox_manager import SyftboxManager
-from syft_client.syncv2.connections.inmemory_connection import InMemoryBackingPlatform
-from syft_client.syncv2.messages.proposed_filechange import ProposedFileChange
-from syft_client.syncv2.events.file_change_event import FileChangeEvent
-from syft_client.syncv2.messages.proposed_filechange import ProposedFileChangesMessage
+from syft_client.sync.syftbox_manager import SyftboxManager
+from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlatform
+from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 import pytest
-import uuid
-import time
-from typing import List
 
-from syft_client.syncv2.events.file_change_event import FileChangeEventFileName
-from syft_client.syncv2.sync.caches.datasite_owner_cache import (
+from syft_client.sync.sync.caches.datasite_owner_cache import (
     ProposedEventFileOutdatedException,
 )
 from tests.unit.utils import get_mock_events

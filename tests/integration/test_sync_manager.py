@@ -1,10 +1,9 @@
-from syft_client.syncv2.syftbox_manager import SyftboxManager
+from syft_client.sync.syftbox_manager import SyftboxManager
 import os
 from pathlib import Path
 import time
 from time import sleep
 import pytest
-from tests.integration.utils import get_mock_events
 
 # from tests.integration.utils import get_mock_events
 
