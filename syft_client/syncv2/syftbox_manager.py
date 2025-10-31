@@ -1,28 +1,28 @@
 from pathlib import Path
-from pydantic import BaseModel, model_validator
 from typing import List
-from syft_client.syncv2.peers.peer import Peer
-from syft_client.syncv2.sync.datasite_outbox_puller import DatasiteOutboxPuller
-from syft_client.syncv2.sync.caches.datasite_watcher_cache import DataSiteWatcherCache
+
+from pydantic import BaseModel, model_validator
+from syft_process_manager import shutdown_requested
+
 from syft_client.syncv2.connections.base_connection import (
     ConnectionConfig,
     SyftboxPlatformConnection,
 )
-from syft_client.syncv2.events.file_change_event import FileChangeEvent
-from syft_client.syncv2.syftbox_utils import random_email, random_base_path
-from syft_client.syncv2.file_writer import FileWriter
-
-from syft_client.syncv2.sync.proposed_file_change_pusher import ProposedFileChangePusher
-from syft_client.syncv2.job_file_change_handler import JobFileChangeHandler
 from syft_client.syncv2.connections.connection_router import ConnectionRouter
-
-from syft_client.syncv2.connections.drive.grdrive_config import GdriveConnectionConfig
-from syft_client.syncv2.connections.base_connection import (
-    ConnectionConfig,
+from syft_client.syncv2.connections.drive.gdrive_transport import (
+    GdriveConnectionConfig,
 )
 from syft_client.syncv2.connections.inmemory_connection import (
     InMemoryPlatformConnection,
 )
+from syft_client.syncv2.events.file_change_event import FileChangeEvent
+from syft_client.syncv2.file_writer import FileWriter
+from syft_client.syncv2.job_file_change_handler import JobFileChangeHandler
+from syft_client.syncv2.peers.peer import Peer
+from syft_client.syncv2.syftbox_utils import random_base_path, random_email
+from syft_client.syncv2.sync.caches.datasite_watcher_cache import DataSiteWatcherCache
+from syft_client.syncv2.sync.datasite_outbox_puller import DatasiteOutboxPuller
+from syft_client.syncv2.sync.proposed_file_change_pusher import ProposedFileChangePusher
 from syft_client.syncv2.sync.proposed_filechange_handler import (
     ProposedFileChangeHandler,
 )
@@ -349,3 +349,12 @@ class SyftboxManager(BaseModel):
 
     def delete_syftbox(self):
         self.connection_router.delete_syftbox()
+
+    def run_forever(self):
+        print("SyftboxManager started")
+        # shutdown_requested is a global event managed by syft_process_manager
+        while not shutdown_requested.is_set():
+            if shutdown_requested.wait(timeout=1):
+                print("SyftboxManager shutdown requested, exiting...")
+                break
+            print("SyftboxManager running...")
