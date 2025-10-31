@@ -6,9 +6,12 @@ from pathlib import Path
 from typing import Optional
 
 from google.oauth2.credentials import Credentials
+from syft_client.notebook_auth.google.credentials import CredentialHandler
+
+from .base_storage import BaseStorage
 
 
-class DriveStorage:
+class DriveStorage(BaseStorage):
     """
     Stores OAuth credentials and configuration in Google Drive.
 
@@ -152,7 +155,6 @@ class DriveStorage:
         Returns:
             Google OAuth2 credentials or None if not found
         """
-        from ..core.credentials import CredentialHandler
 
         email_dir = self.base_path / self._sanitize_email(email)
         path = email_dir / "credentials.json"
