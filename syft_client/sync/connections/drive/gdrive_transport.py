@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import pickle
+from syft_client.sync.syftbox_utils import check_env
 from typing import Any, Dict, List, Optional, Tuple
 from typing import TYPE_CHECKING
 
@@ -26,14 +27,7 @@ from syft_client.sync.messages.proposed_filechange import (
     FileNameParseError,
     ProposedFileChangesMessage,
 )
-from enum import Enum
-
-
-class Environment(Enum):
-    COLAB = "colab"
-    JUPYTER = "jupyter"
-    REPL = "repl"
-
+from syft_client.sync.environments.environment import Environment
 
 if TYPE_CHECKING:
     from syft_client.sync.connections.drive.grdrive_config import (
@@ -109,9 +103,14 @@ class GDriveConnection(SyftboxPlatformConnection):
         return cls.from_token_path(config.email, config.token_path)
 
     @classmethod
-    def from_token_path(cls, email: str, token_path: Path) -> "GDriveConnection":
+    def from_token_path(cls, email: str, token_path: Path | None) -> "GDriveConnection":
         res = cls(email=email)
-        credentials = GoogleCredentials.from_authorized_user_file(token_path, SCOPES)
+        if token_path:
+            credentials = GoogleCredentials.from_authorized_user_file(
+                token_path, SCOPES
+            )
+        else:
+            credentials = None
         res.setup(credentials=credentials)
         return res
 
@@ -138,7 +137,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     @property
     def environment(self) -> Environment:
-        return Environment.REPL
+        return check_env()
 
     def create_personal_syftbox_folder(self) -> str:
         """Creates /SyftBox/myemail"""
