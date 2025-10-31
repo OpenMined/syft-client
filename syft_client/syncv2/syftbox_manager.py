@@ -35,7 +35,6 @@ class SyftboxManagerConfig(BaseModel):
     only_sender: bool = False
     only_datasider_owner: bool = False
     connection_configs: List[ConnectionConfig] = []
-    dev_mode: bool = False
 
     @classmethod
     def base_config_for_in_memory_connection(
@@ -101,7 +100,6 @@ class SyftboxManager(BaseModel):
             email=config.email,
             connection_configs=config.connection_configs,
             write_files=config.write_files,
-            dev_mode=config.dev_mode,
             only_sender=config.only_sender,
             only_datasider_owner=config.only_datasider_owner,
         )
@@ -337,9 +335,6 @@ class SyftboxManager(BaseModel):
 
     def send_file_change(self, path: str, content: str):
         self.file_writer.write_file(path, content)
-
-    def get_all_events(self) -> List[FileChangeEvent]:
-        return self.proposed_file_change_handler.connection_router.get_all_events()
 
     def get_all_accepted_events_do(self) -> List[FileChangeEvent]:
         return self.proposed_file_change_handler.connection_router.get_all_accepted_events_do()
