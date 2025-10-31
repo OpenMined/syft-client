@@ -1,6 +1,9 @@
 from syft_process_manager.constants import DEFAULT_PROCESS_MANAGER_DIR  # noqa: F401
 from syft_process_manager.handle import ProcessHandle  # noqa: F401
 from syft_process_manager.managed_process.launcher import run_function  # noqa: F401
+from syft_process_manager.managed_process.signals import (
+    shutdown_requested,  # noqa: F401
+)
 from syft_process_manager.process_manager import ProcessManager  # noqa: F401
 
 
