@@ -48,7 +48,7 @@ class DataSiteWatcherCache(BaseModel):
 
         self.events_connection.write_file(event.eventfile_filepath(), event)
 
-    def get_all_events(self) -> List[FileChangeEvent]:
+    def get_cached_events(self) -> List[FileChangeEvent]:
         return self.events_connection.get_all()
 
     def sync_down_if_needed(self, peer_email: str):

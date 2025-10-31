@@ -20,6 +20,7 @@ class InMemoryPlatformConnectionConfig(ConnectionConfig):
 class InMemoryBackingPlatform(BaseModel):
     proposed_events_inbox: List[ProposedFileChangesMessage] = []
     event_log: List[FileChangeEvent] = []
+    peers: Dict[str, List[str]] = {}
 
     outboxes: Dict[str, List[FileChangeEvent]] = {
         "all": [],
@@ -27,6 +28,7 @@ class InMemoryBackingPlatform(BaseModel):
 
 
 class InMemoryPlatformConnection(SyftboxPlatformConnection):
+    owner_email: str
     receiver_function: Callable | None = None
     backing_store: InMemoryBackingPlatform = Field(
         default_factory=InMemoryBackingPlatform
@@ -44,20 +46,39 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             backing_store=backing_store or InMemoryBackingPlatform(),
         )
 
+    def get_peers_as_do(self) -> List[str]:
+        return self.backing_store.peers.get(self.owner_email, [])
+
+    def get_peers_as_ds(self) -> List[str]:
+        return self.backing_store.peers.get(self.owner_email, [])
+
     def send_proposed_file_changes_message(
         self, recipient: str, proposed_file_changes_message: ProposedFileChangesMessage
     ):
         # TODO: do something with the recipient
         self.backing_store.proposed_events_inbox.append(proposed_file_changes_message)
-        self.receiver_function(proposed_file_changes_message)
+
+        if self.receiver_function is not None:
+            self.receiver_function()
+
+    def add_peer(self, owner_email: str, peer_email: str):
+        if owner_email not in self.backing_store.peers:
+            self.backing_store.peers[owner_email] = []
+        self.backing_store.peers[owner_email].append(peer_email)
+
+    def add_peer_as_do(self, peer_email: str):
+        self.add_peer(self.owner_email, peer_email)
+
+    def add_peer_as_ds(self, peer_email: str):
+        self.add_peer(self.owner_email, peer_email)
 
     def get_next_proposed_filechange_message(
         self, sender_email: str = None
     ) -> ProposedFileChangesMessage | None:
         # TODO: either remove the sender parameter in all SyftboxPlatformConnections
         # or implement it here
-        if sender_email is not None:
-            raise NotImplementedError("Not implemented")
+        # if sender_email is not None:
+        #     raise NotImplementedError("Not implemented")
 
         if len(self.backing_store.proposed_events_inbox) == 0:
             return None
@@ -91,5 +112,5 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         else:
             return [e for e in all_events if e.timestamp > since_timestamp]
 
-    def get_all_events(self) -> List[FileChangeEvent]:
+    def get_all_events_do(self) -> List[FileChangeEvent]:
         return self.backing_store.event_log

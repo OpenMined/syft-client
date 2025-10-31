@@ -25,6 +25,9 @@ class ConnectionRouter(BaseModel):
     def connection_for_outbox(self) -> SyftboxPlatformConnection:
         return self.connections[0]
 
+    def connection_for_own_syftbox(self) -> SyftboxPlatformConnection:
+        return self.connections[0]
+
     def send_proposed_file_changes_message(
         self, recipient: str, proposed_file_changes_message: ProposedFileChangesMessage
     ):
@@ -34,6 +37,18 @@ class ConnectionRouter(BaseModel):
             recipient, proposed_file_changes_message
         )
 
+    def add_peer_as_do(self, peer_email: str):
+        connection = self.connection_for_send_message()
+        connection.add_peer_as_do(peer_email=peer_email)
+
+    def add_peer_as_ds(self, peer_email: str):
+        connection = self.connection_for_receive_message()
+        connection.add_peer_as_ds(peer_email=peer_email)
+
+    def delete_syftbox(self):
+        connection = self.connection_for_own_syftbox()
+        connection.delete_syftbox()
+
     def write_event_to_syftbox(self, event: FileChangeEvent):
         connection = self.connection_for_eventlog()
         connection.write_event_to_syftbox(event)
@@ -42,9 +57,9 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_outbox()
         connection.write_event_to_outbox_do(sender_email, event)
 
-    def get_all_events(self) -> List[FileChangeEvent]:
+    def get_all_accepted_events_do(self) -> List[FileChangeEvent]:
         connection = self.connection_for_eventlog()
-        return connection.get_all_events()
+        return connection.get_all_events_do()
 
     def get_next_proposed_filechange_message(
         self, sender_email: str = None
@@ -53,6 +68,14 @@ class ConnectionRouter(BaseModel):
         return connection.get_next_proposed_filechange_message(
             sender_email=sender_email
         )
+
+    def get_peers_as_do(self) -> List[str]:
+        connection = self.connection_for_send_message()
+        return connection.get_peers_as_do()
+
+    def get_peers_as_ds(self) -> List[str]:
+        connection = self.connection_for_receive_message()
+        return connection.get_peers_as_ds()
 
     def remove_proposed_filechange_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage
