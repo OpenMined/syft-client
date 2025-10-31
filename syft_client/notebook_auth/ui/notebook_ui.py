@@ -27,7 +27,7 @@ class NotebookAuthUI:
         """Display the UI container."""
         display(self.container)
 
-    def show_drive_mount(self, on_mount: Callable[[], bool]) -> None:
+    def show_drive_mounting(self, on_mount: Callable[[], bool]) -> None:
         """
         Show Drive mount step (Colab only).
 
@@ -88,7 +88,7 @@ class NotebookAuthUI:
         card = UIComponents.create_card("📂 Google Drive Setup", [message], [mount_btn])
         self.container.children = [card]
 
-    def show_checking_cache(self):
+    def show_checking_cached_credentials(self):
         """Show checking for cached credentials."""
         message, progress = UIComponents.create_progress(
             "Checking for saved credentials...", 50

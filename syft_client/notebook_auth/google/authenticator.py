@@ -1,5 +1,6 @@
 """Main orchestrator for Google Workspace authentication flow."""
 
+from typing import cast
 import json
 import time
 from typing import Optional
@@ -7,9 +8,15 @@ from typing import Optional
 from google.auth import default
 from google.oauth2.credentials import Credentials
 
-from .core import APIManager, CredentialHandler, OAuthFlow, ProjectManager
-from .storage import DriveStorage, LocalStorage
-from .ui import NotebookAuthUI
+from syft_client.notebook_auth.google.apis import APIManager
+from syft_client.notebook_auth.google.credentials import CredentialHandler
+from syft_client.notebook_auth.google.oauth import OAuthFlow
+from syft_client.notebook_auth.google.project import ProjectManager
+from syft_client.notebook_auth.storage.drive_storage import DriveStorage
+from syft_client.notebook_auth.storage.local_storage import LocalStorage
+from syft_client.notebook_auth.ui.notebook_ui import NotebookAuthUI
+from syft_client.sync.environments.environment import Environment
+from syft_client.notebook_auth.storage.base_storage import BaseStorage
 
 
 class GoogleWorkspaceAuth:
@@ -47,7 +54,7 @@ class GoogleWorkspaceAuth:
         self.environment = self._detect_environment()
 
         # Create storage backend
-        self.storage = self._create_storage()
+        self.storage: BaseStorage = self._create_storage()
 
         # Create UI
         self.ui = NotebookAuthUI()
@@ -63,13 +70,13 @@ class GoogleWorkspaceAuth:
         try:
             import google.colab  # noqa: F401
 
-            return "colab"
+            return Environment.COLAB
         except ImportError:
-            return "jupyter"
+            return Environment.JUPYTER
 
-    def _create_storage(self):
+    def _create_storage(self) -> BaseStorage:
         """Create appropriate storage backend."""
-        if self.environment == "colab":
+        if self.environment == Environment.COLAB:
             return DriveStorage()
         else:
             return LocalStorage()
@@ -91,18 +98,20 @@ class GoogleWorkspaceAuth:
         self.ui.display()
 
         # Step 1: Handle Colab Drive mount
-        if self.environment == "colab":
-            if not self.storage.is_drive_mounted():
-                self.ui.show_drive_mount(self._mount_drive)
+        if isinstance(self.storage, DriveStorage):
+            # wait for drive to be mounted
+            drive_storage = cast(DriveStorage, self.storage)
+            if not drive_storage.is_drive_mounted():
+                self.ui.show_drive_mounting(self._mount_drive)
                 time.sleep(2)  # Give user time to see the button
 
                 # Wait for mount to complete
-                while not self.storage.is_drive_mounted():
+                while not drive_storage.is_drive_mounted():
                     time.sleep(1)
 
         # Step 2: Check for cached credentials
         if not force_new:
-            self.ui.show_checking_cache()
+            self.ui.show_checking_cached_credentials()
             time.sleep(0.5)
 
             cached_creds = self.storage.load_credentials(self.email, self.scopes)
@@ -120,39 +129,39 @@ class GoogleWorkspaceAuth:
                     # Check if we have saved setup
                     project_info = self.storage.load_project_info(self.email)
 
+                    # Fall through to new setup if reconfigure chosen
                     if project_info:
                         self.project_id = project_info.get("project_id")
-
-                        # Show cached found screen
-                        continue_event = {"done": False}
-                        reconfigure_event = {"done": False}
-
-                        def on_continue():
-                            continue_event["done"] = True
-
-                        def on_reconfigure():
-                            reconfigure_event["done"] = True
-
-                        self.ui.show_cached_found(
-                            self.email, self.project_id, on_continue, on_reconfigure
-                        )
-
-                        # Wait for user choice
-                        while (
-                            not continue_event["done"] and not reconfigure_event["done"]
-                        ):
-                            time.sleep(0.5)
-
-                        if continue_event["done"]:
+                        use_cached = self.ask_user_to_use_cached()
+                        if use_cached:
                             self.credentials = cached_creds
                             # Test APIs and return
                             self._test_and_complete()
                             return self.credentials
 
-                        # Fall through to new setup if reconfigure chosen
-
         # Step 3: Run full setup
         return self._run_full_setup()
+
+    def ask_user_to_use_cached(self) -> Credentials:
+        # Show cached found screen
+        choice = None
+
+        def on_continue():
+            nonlocal choice
+            choice = "continue"
+
+        def on_reconfigure():
+            nonlocal choice
+            choice = "reconfigure"
+
+        self.ui.show_cached_found(
+            self.email, self.project_id, on_continue, on_reconfigure
+        )
+
+        # Wait for user choice
+        while choice is None:
+            time.sleep(0.5)
+        return choice == "continue"
 
     def _mount_drive(self) -> bool:
         """Mount Google Drive (Colab only)."""
@@ -164,28 +173,20 @@ class GoogleWorkspaceAuth:
 
     def _run_full_setup(self) -> Credentials:
         """Run the complete setup wizard."""
-        # Step 1: Authenticate with GCP (for project management)
         self._authenticate_gcp()
 
-        # Step 2: Check Terms of Service
         self._check_tos()
 
-        # Step 3: Get or create project
         self._get_or_create_project()
 
-        # Step 4: Configure OAuth consent screen
         self._setup_oauth_consent()
 
-        # Step 5: Create OAuth client
-        self._setup_oauth_client()
+        self._get_and_store_client_secret()
 
-        # Step 6: Run OAuth flow to get user credentials
         self._run_oauth_flow()
 
-        # Step 7: Enable APIs
         self._enable_apis()
 
-        # Step 8: Test APIs
         self._test_and_complete()
 
         return self.credentials
@@ -294,7 +295,7 @@ class GoogleWorkspaceAuth:
         while not done_event["done"]:
             time.sleep(0.5)
 
-    def _setup_oauth_client(self):
+    def _get_and_store_client_secret(self):
         """Guide user through OAuth client creation and get client secret."""
         # Check if we already have client secret saved
         client_secret = self.storage.load_client_secret(self.email)
