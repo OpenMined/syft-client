@@ -35,7 +35,11 @@ dependencies = [
     "watchdog>=3.0.0",
     "syft-serve>=0.3.11",
     "requests>=2.32.4",
-    "pandas"
+    "pandas",
+    "google-cloud-resource-manager>=1.15.0",
+    "google-cloud-core>=2.5.0",
+    "google-api-core>=2.25.1",
+    "google-auth-httplib2>=0.2.0",
 ]
 
 [project.optional-dependencies]
