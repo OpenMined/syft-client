@@ -2,6 +2,17 @@ import random
 import io
 import tarfile
 import time
+from syft_client.sync.environments.environment import Environment
+
+
+def check_env() -> Environment:
+    try:
+        import google.colab  # noqa: F401
+
+        return Environment.COLAB
+    except Exception:
+        # this is bad, also do jupyter check
+        return Environment.JUPYTER
 
 
 def create_event_timestamp() -> float:

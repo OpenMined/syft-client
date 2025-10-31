@@ -34,6 +34,24 @@ class SyftboxManagerConfig(BaseModel):
     connection_configs: List[ConnectionConfig] = []
 
     @classmethod
+    def for_colab(
+        cls, email: str, only_sender: bool = False, only_datasider_owner: bool = False
+    ):
+        if not only_sender and not only_datasider_owner:
+            raise ValueError(
+                "At least one of only_sender or only_datasider_owner must be True"
+            )
+
+        connection_configs = [GdriveConnectionConfig(email=email, token_path=None)]
+        return cls(
+            email=email,
+            base_path="/",
+            only_sender=only_sender,
+            only_datasider_owner=only_datasider_owner,
+            connection_configs=connection_configs,
+        )
+
+    @classmethod
     def base_config_for_in_memory_connection(
         cls,
         email: str | None = None,
@@ -102,6 +120,10 @@ class SyftboxManager(BaseModel):
         )
 
         return manager_res
+
+    @classmethod
+    def for_colab(cls, email: str):
+        return cls.from_config(SyftboxManagerConfig.for_colab(email=email))
 
     @model_validator(mode="before")
     def pre_init(cls, data):
