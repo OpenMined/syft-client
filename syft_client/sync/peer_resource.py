@@ -68,7 +68,7 @@ class PeerResource:
             # Show each folder
             if self.pending:
                 table.add_row("")
-                table.add_row(f"[yellow]📁 Pending (Private):[/yellow]")
+                table.add_row("[yellow]📁 Pending (Private):[/yellow]")
                 table.add_row(f"   [dim]{self.pending.get('name', 'Unknown')}[/dim]")
                 if self.pending.get("url"):
                     table.add_row(
@@ -77,7 +77,7 @@ class PeerResource:
 
             if self.outbox_inbox:
                 table.add_row("")
-                table.add_row(f"[green]📤 Outbox/Inbox (Shared):[/green]")
+                table.add_row("[green]📤 Outbox/Inbox (Shared):[/green]")
                 table.add_row(
                     f"   [dim]{self.outbox_inbox.get('name', 'Unknown')}[/dim]"
                 )
@@ -98,7 +98,7 @@ class PeerResource:
 
             if self.archive:
                 table.add_row("")
-                table.add_row(f"[blue]📥 Archive (Shared):[/blue]")
+                table.add_row("[blue]📥 Archive (Shared):[/blue]")
                 table.add_row(f"   [dim]{self.archive.get('name', 'Unknown')}[/dim]")
                 if self.archive.get("url"):
                     table.add_row(

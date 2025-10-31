@@ -84,7 +84,7 @@ class SyncHistory:
             if operation == "delete" and not os.path.exists(file_path):
                 if verbose:
                     print(
-                        f"      File doesn't exist, checking all metadata for deletion history",
+                        "      File doesn't exist, checking all metadata for deletion history",
                         flush=True,
                     )
 
@@ -112,7 +112,7 @@ class SyncHistory:
                         or metadata.get("file_path") == relative_path
                     ):
                         if verbose:
-                            print(f"      Found metadata for deleted file", flush=True)
+                            print("      Found metadata for deleted file", flush=True)
 
                         # Check sync history
                         sync_history = metadata.get("sync_history", [])
@@ -139,14 +139,14 @@ class SyncHistory:
 
                 # File not found in any metadata
                 if verbose:
-                    print(f"      No metadata found for deleted file", flush=True)
+                    print("      No metadata found for deleted file", flush=True)
                 return False
 
             # For non-deletion or existing files, use normal hash lookup
             if not os.path.exists(file_path):
                 if verbose:
                     print(
-                        f"      File doesn't exist and not checking for deletion",
+                        "      File doesn't exist and not checking for deletion",
                         flush=True,
                     )
                 return False

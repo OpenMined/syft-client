@@ -5,7 +5,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from ...environment import Environment, detect_environment
 
@@ -90,8 +90,6 @@ def validate_credentials_json(
 def test_api_access(state: WizardState, credentials_path: Path) -> Dict[str, bool]:
     """Test which APIs are working with current credentials"""
     try:
-        import os
-
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
         from google_auth_oauthlib.flow import InstalledAppFlow
@@ -140,7 +138,7 @@ def test_api_access(state: WizardState, credentials_path: Path) -> Dict[str, boo
             gmail = build("gmail", "v1", credentials=creds)
             gmail.users().messages().list(userId="me", maxResults=1).execute()
             api_status["gmail"] = True
-        except Exception as e:
+        except Exception:
             api_status["gmail"] = False
 
         # Test Drive
@@ -148,7 +146,7 @@ def test_api_access(state: WizardState, credentials_path: Path) -> Dict[str, boo
             drive = build("drive", "v3", credentials=creds)
             drive.files().list(pageSize=1).execute()
             api_status["drive"] = True
-        except Exception as e:
+        except Exception:
             api_status["drive"] = False
 
         # Test Sheets
@@ -241,7 +239,7 @@ def search_for_project_credentials(project_id: str) -> Optional[Path]:
                         is_valid, file_project_id, _ = validate_credentials_json(file)
                         if is_valid and file_project_id == project_id:
                             found_credentials.append(file)
-                    except:
+                    except Exception:
                         pass
 
                 # Also check for credentials.json files (non-recursive)
@@ -250,7 +248,7 @@ def search_for_project_credentials(project_id: str) -> Optional[Path]:
                         is_valid, file_project_id, _ = validate_credentials_json(file)
                         if is_valid and file_project_id == project_id:
                             found_credentials.append(file)
-                    except:
+                    except Exception:
                         pass
 
                 # Check .syft subdirectories for credentials
@@ -267,9 +265,9 @@ def search_for_project_credentials(project_id: str) -> Optional[Path]:
                                         )
                                         if is_valid and file_project_id == project_id:
                                             found_credentials.append(file)
-                                    except:
+                                    except Exception:
                                         pass
-            except:
+            except Exception:
                 pass
 
     if found_credentials:
@@ -281,7 +279,7 @@ def search_for_project_credentials(project_id: str) -> Optional[Path]:
         else:
             print("   Multiple files found:")
             for i, file in enumerate(found_credentials[:3]):
-                print(f"   {i+1}. {file}")
+                print(f"   {i + 1}. {file}")
             choice = input(
                 "\nEnter number to use (1-3) or press Enter to create new: "
             ).strip()
@@ -420,8 +418,8 @@ def enable_apis_step(state: WizardState) -> str:
     for api_name, url in apis_to_enable:
         print(f"\n{api_name} API:")
         print(f"  1. Open: {url}")
-        print(f"  2. Click 'ENABLE'")
-        print(f"  3. Wait for confirmation")
+        print("  2. Click 'ENABLE'")
+        print("  3. Wait for confirmation")
 
     print("\n📍 Note: APIs tend to flicker for 5-10 seconds before enabling")
     input("\nPress Enter after enabling all APIs...")
@@ -595,7 +593,7 @@ def download_credentials_step(state: WizardState) -> str:
                         elif not state.project_id:
                             # No project ID set, any valid creds are good
                             valid_credentials.append((file, project_id, False))
-            except:
+            except Exception:
                 pass
 
     # Sort by: exact match first, then modification time
@@ -625,7 +623,7 @@ def download_credentials_step(state: WizardState) -> str:
                 mod_time = datetime.fromtimestamp(file.stat().st_mtime).strftime(
                     "%H:%M:%S"
                 )
-                msg = f"   {i+1}. {file.name} (downloaded at {mod_time}"
+                msg = f"   {i + 1}. {file.name} (downloaded at {mod_time}"
                 if is_match:
                     msg += f", matches project: {proj_id})"
                 else:
@@ -703,7 +701,7 @@ def download_credentials_step(state: WizardState) -> str:
             try:
                 with open(config_path, "r") as f:
                     config_data = json.load(f)
-            except:
+            except Exception:
                 config_data = {}
 
         # Update with project info
@@ -717,7 +715,7 @@ def download_credentials_step(state: WizardState) -> str:
         with open(config_path, "w") as f:
             json.dump(config_data, f, indent=2)
 
-        print(f"✅ Project info saved to config.json")
+        print("✅ Project info saved to config.json")
 
     # Only mark as newly downloaded if we went through the full wizard
     # (i.e., created a new project). If using existing project, skip API test
@@ -745,7 +743,7 @@ def verify_setup_step(state: WizardState) -> str:
     # Show next steps
     print("\n" + "=" * 50)
     print("\nYour OAuth2 credentials are ready. You can now run:")
-    print(f"  >>> from syft_client import login")
+    print("  >>> from syft_client import login")
     print(f"  >>> client = login('{state.email or 'your@gmail.com'}')")
 
     return "done"
@@ -772,27 +770,28 @@ def run_adaptive_wizard(
     # Check environment
     if state.environment == Environment.COLAB:
         try:
-            import google.colab
+            import importlib.util
 
-            print("\n🎉 Good news! You're using Google Colab")
-            print("Google Colab provides built-in authentication.")
+            if importlib.util.find_spec("google.colab") is not None:
+                print("\n🎉 Good news! You're using Google Colab")
+                print("Google Colab provides built-in authentication.")
 
-            # But still need to check for project
-            print(
-                f"\nHave you created a Google Cloud project for Syft with {state.email} before?"
-            )
-            print(
-                "(If you're not sure, say 'No' - it doesn't break anything, it'll just mean a few more steps)"
-            )
-            if ask_yes_no(""):
-                project_id = find_existing_project(state.email)
-                if project_id:
-                    state.project_id = project_id
-                    next_step = "enable_apis"
+                # But still need to check for project
+                print(
+                    f"\nHave you created a Google Cloud project for Syft with {state.email} before?"
+                )
+                print(
+                    "(If you're not sure, say 'No' - it doesn't break anything, it'll just mean a few more steps)"
+                )
+                if ask_yes_no(""):
+                    project_id = find_existing_project(state.email)
+                    if project_id:
+                        state.project_id = project_id
+                        next_step = "enable_apis"
+                    else:
+                        next_step = "create_project"
                 else:
                     next_step = "create_project"
-            else:
-                next_step = "create_project"
         except ImportError:
             pass
 
@@ -962,9 +961,9 @@ def scan_for_any_client_secrets(
                         is_valid, project_id, _ = validate_credentials_json(file)
                         if is_valid:
                             found_secrets.append((file, project_id))
-                    except:
+                    except Exception:
                         pass
-            except:
+            except Exception:
                 pass
 
     if not found_secrets:
@@ -974,7 +973,7 @@ def scan_for_any_client_secrets(
     # For now, we'll show all found credentials and let user choose
     if len(found_secrets) == 1:
         file, project_id = found_secrets[0]
-        print(f"\n✅ Found Google credentials file!")
+        print("\n✅ Found Google credentials file!")
         print(f"   File: {file.name}")
         print(f"   Project: {project_id}")
         if ask_yes_no(f"\nUse this for {email}?", default=True):
@@ -982,7 +981,7 @@ def scan_for_any_client_secrets(
     else:
         print(f"\n✅ Found {len(found_secrets)} Google credential files:")
         for i, (file, proj_id) in enumerate(found_secrets[:5]):  # Show max 5
-            print(f"   {i+1}. {file.name}")
+            print(f"   {i + 1}. {file.name}")
             print(f"      Project: {proj_id}")
 
         print(f"\nWhich one is for {email}?")
@@ -1043,7 +1042,7 @@ def check_or_create_credentials(
                 try:
                     with open(config_path, "r") as f:
                         config_data = json.load(f)
-                except:
+                except Exception:
                     config_data = {}
 
             # Update with project info
@@ -1057,7 +1056,7 @@ def check_or_create_credentials(
             with open(config_path, "w") as f:
                 json.dump(config_data, f, indent=2)
 
-            print(f"✅ Project info saved to config.json")
+            print("✅ Project info saved to config.json")
 
         return target_path
 

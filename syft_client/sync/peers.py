@@ -2,14 +2,13 @@
 Peer management for sync functionality
 """
 
-import json
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from .discovery import PeerDiscovery
-from .peer_model import Peer, TransportEndpoint
+from .peer_model import Peer
 from .peer_request import PeerRequest
 
 if TYPE_CHECKING:
@@ -86,7 +85,7 @@ class PeerManager:
                                     transports_with_peer[platform_name].append(
                                         attr_name
                                     )
-                            except:
+                            except Exception:
                                 pass
 
             # Update peer based on what we found
@@ -297,6 +296,9 @@ class PeerManager:
 
             self._save_peer(peer)
 
+            # Show prominent restart kernel instructions
+            self._show_restart_kernel_instructions()
+
             return True
         else:
             print(f"❌ Failed to add peer {email} on any transport")
@@ -375,7 +377,7 @@ class PeerManager:
                 file_path = peers_dir / file_name
                 if file_path.exists():
                     file_path.unlink()
-            except:
+            except Exception:
                 pass
 
             # Invalidate cache
@@ -561,7 +563,7 @@ class PeerManager:
                 file_path.unlink()
                 deletion_results["local_cache"] = True
                 if self.client.verbose:
-                    print(f"\n🗄️  Deleted local peer cache file")
+                    print("\n🗄️  Deleted local peer cache file")
         except Exception as e:
             if self.client.verbose:
                 print(f"\n❌ Error deleting peer cache: {e}")
@@ -576,7 +578,7 @@ class PeerManager:
                 discovery_cache.unlink()
                 deletion_results["discovery_cache"] = True
                 if self.client.verbose:
-                    print(f"🔍 Deleted discovery cache")
+                    print("🔍 Deleted discovery cache")
         except Exception as e:
             if self.client.verbose:
                 print(f"❌ Error deleting discovery cache: {e}")
@@ -798,7 +800,7 @@ class PeerManager:
                         try:
                             peers = transport.list_peers()
                             all_peers.update(peers)
-                        except:
+                        except Exception:
                             pass
 
         return list(all_peers)
@@ -970,6 +972,44 @@ class PeerManager:
             )
 
         return all_requests
+
+    def _show_restart_kernel_instructions(self):
+        """Show prominent restart kernel instructions"""
+        # Detect environment to show appropriate instructions
+        try:
+            from ..environment import detect_environment, Environment
+
+            environment = detect_environment()
+        except Exception:
+            environment = None
+
+        # Create a bold, attention-grabbing message
+        print("\n" + "=" * 80)
+        print("🔄 IMPORTANT: RESTART YOUR JUPYTER KERNEL/RUNTIME")
+        print("=" * 80)
+        print(
+            "\nFor the peer connection to work properly, please restart your kernel/runtime:\n"
+        )
+
+        if environment == Environment.COLAB:
+            print("📱 Google Colab:")
+            print("   1. Go to 'Runtime' menu → 'Restart runtime'")
+            print("   2. Or use keyboard shortcut: Ctrl+M . (Ctrl+M then dot)")
+            print("   3. Re-run your imports after restart")
+        else:
+            print("💻 Jupyter Lab:")
+            print("   1. Go to 'Kernel' menu → 'Restart Kernel'")
+            print("   2. Or use keyboard shortcut: Ctrl+Shift+R")
+            print("   3. Re-run your imports after restart")
+            print("\n💻 Jupyter Notebook:")
+            print("   1. Go to 'Kernel' menu → 'Restart'")
+            print("   2. Or use keyboard shortcut: Ctrl+M . (Ctrl+M then dot)")
+            print("   3. Re-run your imports after restart")
+
+        print(
+            "\n⚠️  Without restarting, the peer connection may not function correctly!"
+        )
+        print("=" * 80)
 
 
 __all__ = ["PeerManager"]

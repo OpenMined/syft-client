@@ -2,10 +2,8 @@
 Service management for watcher and receiver sync services
 """
 
-import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-import requests
 
 if TYPE_CHECKING:
     from ..syft_client import SyftClient

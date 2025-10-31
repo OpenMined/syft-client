@@ -13,18 +13,21 @@ Thank you for your interest in contributing to syft-client! This document provid
 ### Initial Setup
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/OpenMined/syft-client.git
    cd syft-client
    ```
 
 2. **Create a virtual environment**
+
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
 3. **Install dependencies**
+
    ```bash
    # Using uv (recommended)
    pip install uv
@@ -35,6 +38,7 @@ Thank you for your interest in contributing to syft-client! This document provid
    ```
 
 4. **Install pre-commit hooks**
+
    ```bash
    pip install pre-commit
    pre-commit install
@@ -58,6 +62,7 @@ Pre-commit hooks run automatically before each commit. They include:
 - **Standard checks**: trailing whitespace, file endings, merge conflicts, etc.
 
 **Run manually:**
+
 ```bash
 pre-commit run --all-files
 ```
@@ -114,6 +119,7 @@ git checkout -b fix/bug-description
 ### 3. Run Quality Checks
 
 Before committing:
+
 ```bash
 # Run all pre-commit hooks
 pre-commit run --all-files
@@ -133,13 +139,16 @@ git commit -m "Description of changes"
 ```
 
 Pre-commit hooks will run automatically. If they fail:
+
 - Some issues are auto-fixed (black, isort) - just commit again
 - Other issues need manual fixes - fix them and commit again
 
 **Skip hooks locally (if needed for speed):**
+
 ```bash
 git commit --no-verify -m "Description of changes"
 ```
+
 ⚠️ **Note**: CI will still catch any skipped issues, so use this only when you're confident or need to commit quickly. The PR will fail CI checks if there are any issues.
 
 ### 5. Push and Create PR
@@ -162,6 +171,7 @@ All PRs must pass automated checks:
 These run automatically on every PR via GitHub Actions.
 
 **Local vs CI behavior:**
+
 - **Locally**: You can skip hooks with `--no-verify` for speed
 - **In CI**: All checks run strictly and will fail the PR if there are issues
 - **mypy only**: Advisory locally (manual stage), but runs in CI for visibility

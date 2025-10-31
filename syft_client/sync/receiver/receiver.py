@@ -3,7 +3,6 @@ Receiver server endpoint implementation using syft-serve
 """
 
 import os
-from pathlib import Path
 
 
 def create_receiver_endpoint(
@@ -37,13 +36,11 @@ def create_receiver_endpoint(
 
     def receiver_main():
         """Main receiver function that runs in the server"""
-        import json
         import os
         import sys
         import threading
         import time
         from datetime import datetime
-        from pathlib import Path
 
         # Add the local syft_client to Python path dynamically
         possible_paths = [
@@ -92,7 +89,7 @@ def create_receiver_endpoint(
             client = sc.login(
                 email, verbose=False, force_relogin=False, skip_server_setup=True
             )
-            print(f"Login successful!", flush=True)
+            print("Login successful!", flush=True)
 
             # No need for message processor or inbox monitor - check_inbox handles everything
 
@@ -134,7 +131,7 @@ def create_receiver_endpoint(
                     current_time = time.time()
                     if current_time - last_discovery_time > discovery_interval:
                         if verbose:
-                            print(f"🔍 Running peer discovery...", flush=True)
+                            print("🔍 Running peer discovery...", flush=True)
                         try:
                             # Invalidate peer cache to force re-discovery
                             if hasattr(client, "_peer_manager") and hasattr(
@@ -142,7 +139,7 @@ def create_receiver_endpoint(
                             ):
                                 client._peer_manager._invalidate_peers_cache()
                                 if verbose:
-                                    print(f"   ✓ Peer cache cleared", flush=True)
+                                    print("   ✓ Peer cache cleared", flush=True)
                         except Exception as e:
                             if verbose:
                                 print(
@@ -202,7 +199,7 @@ def create_receiver_endpoint(
                                         print(f"  ✓ Found {msg_count} messages")
                             else:
                                 if verbose:
-                                    print(f"  ⚠️  Peer doesn't support check_inbox")
+                                    print("  ⚠️  Peer doesn't support check_inbox")
 
                         except Exception as e:
                             stats["errors"] += 1
@@ -237,7 +234,7 @@ def create_receiver_endpoint(
                                                 f"  ✗ Failed to accept {req_email}: {e}",
                                                 flush=True,
                                             )
-                        except:
+                        except Exception:
                             pass
 
                     # Summary handled by peer check_inbox

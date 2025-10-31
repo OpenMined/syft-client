@@ -3,7 +3,6 @@ SyftMessage class for creating and managing messages
 """
 
 import json
-import os
 import shutil
 import tarfile
 import uuid
