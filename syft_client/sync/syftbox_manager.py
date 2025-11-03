@@ -365,13 +365,13 @@ class SyftboxManager(BaseModel):
         existing_emails = [p.email for p in self.peers]
         if peer_email in existing_emails:
             print(f"Peer {peer_email} already exists, skipping")
-
-        if self.is_do:
-            peer = self.connection_router.add_peer_as_do(peer_email=peer_email)
         else:
-            peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
-        self.peers.append(peer)
-        print_peer_added(peer)
+            if self.is_do:
+                peer = self.connection_router.add_peer_as_do(peer_email=peer_email)
+            else:
+                peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
+            self.peers.append(peer)
+            print_peer_added(peer)
 
     @property
     def is_do(self) -> bool:
