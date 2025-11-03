@@ -191,10 +191,10 @@ def test_load_peers():
         add_peers=False
     )
 
-    ds_manager.create_peer_request("peer1@email.com")
-    ds_manager.create_peer_request("peer2@email.com")
+    ds_manager.add_peer("peer1@email.com")
+    ds_manager.add_peer("peer2@email.com")
 
-    do_manager.create_peer_request("peer3@email.com")
+    do_manager.add_peer("peer3@email.com")
 
     # reset the peers and load them from connection
     do_manager.peers = []

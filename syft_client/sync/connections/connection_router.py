@@ -3,6 +3,8 @@ from typing import List
 from syft_client.sync.connections.base_connection import SyftboxPlatformConnection
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
+from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
+from syft_client.sync.peers.peer import Peer
 
 
 class ConnectionRouter(BaseModel):
@@ -35,13 +37,15 @@ class ConnectionRouter(BaseModel):
             recipient, proposed_file_changes_message
         )
 
-    def add_peer_as_do(self, peer_email: str):
+    def add_peer_as_do(self, peer_email: str) -> Peer:
         connection = self.connection_for_send_message()
         connection.add_peer_as_do(peer_email=peer_email)
+        return Peer(email=peer_email, platforms=[GdriveFilesPlatform()])
 
-    def add_peer_as_ds(self, peer_email: str):
+    def add_peer_as_ds(self, peer_email: str) -> Peer:
         connection = self.connection_for_receive_message()
         connection.add_peer_as_ds(peer_email=peer_email)
+        return Peer(email=peer_email, platforms=[GdriveFilesPlatform()])
 
     def delete_syftbox(self):
         connection = self.connection_for_own_syftbox()
@@ -67,13 +71,21 @@ class ConnectionRouter(BaseModel):
             sender_email=sender_email
         )
 
-    def get_peers_as_do(self) -> List[str]:
+    def get_peers_as_do(self) -> List[Peer]:
         connection = self.connection_for_send_message()
-        return connection.get_peers_as_do()
+        peer_emails = connection.get_peers_as_do()
+        return [
+            Peer(email=peer_email, platforms=[GdriveFilesPlatform()])
+            for peer_email in peer_emails
+        ]
 
-    def get_peers_as_ds(self) -> List[str]:
+    def get_peers_as_ds(self) -> List[Peer]:
         connection = self.connection_for_receive_message()
-        return connection.get_peers_as_ds()
+        peer_emails = connection.get_peers_as_ds()
+        return [
+            Peer(email=peer_email, platforms=[GdriveFilesPlatform()])
+            for peer_email in peer_emails
+        ]
 
     def remove_proposed_filechange_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage

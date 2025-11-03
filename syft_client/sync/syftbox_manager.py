@@ -1,4 +1,5 @@
 from pathlib import Path
+from syft_client.sync.platforms.base_platform import BasePlatform
 from pydantic import BaseModel, model_validator
 from typing import List
 from syft_client.sync.peers.peer import Peer
@@ -228,8 +229,8 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
-            sender_manager.create_peer_request(receiver_manager.email)
-            receiver_manager.create_peer_request(sender_manager.email)
+            sender_manager.add_peer(receiver_manager.email)
+            receiver_manager.add_peer(sender_manager.email)
         if load_peers:
             receiver_manager.load_peers()
             sender_manager.load_peers()
@@ -309,17 +310,17 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
-            ds_manager.create_peer_request(do_manager.email)
-            do_manager.create_peer_request(ds_manager.email)
+            ds_manager.add_peer(do_manager.email)
+            do_manager.add_peer(ds_manager.email)
 
         return ds_manager, do_manager
 
-    def create_peer_request(self, peer_email: str):
+    def add_peer(self, peer_email: str):
         if self.is_do:
-            self.connection_router.add_peer_as_do(peer_email=peer_email)
+            peer = self.connection_router.add_peer_as_do(peer_email=peer_email)
         else:
-            self.connection_router.add_peer_as_ds(peer_email=peer_email)
-        self.peers.append(Peer(email=peer_email))
+            peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
+        self.peers.append(peer)
 
     @property
     def is_do(self) -> bool:
@@ -335,11 +336,11 @@ class SyftboxManager(BaseModel):
 
     def load_peers(self):
         if self.is_do:
-            peer_emails = self.connection_router.get_peers_as_do()
+            peers = self.connection_router.get_peers_as_do()
         else:
-            peer_emails = self.connection_router.get_peers_as_ds()
+            peers = self.connection_router.get_peers_as_ds()
 
-        self.peers = [Peer(email=peer_email) for peer_email in peer_emails]
+        self.peers = peers
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
@@ -376,3 +377,7 @@ class SyftboxManager(BaseModel):
 
     def delete_syftbox(self):
         self.connection_router.delete_syftbox()
+
+    def _get_all_peer_platforms(self) -> List[BasePlatform]:
+        all_platforms = set([plat for p in self.peers for plat in p.platforms])
+        return list(all_platforms)
