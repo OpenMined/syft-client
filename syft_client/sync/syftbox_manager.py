@@ -361,9 +361,9 @@ class SyftboxManager(BaseModel):
 
         return ds_manager, do_manager
 
-    def add_peer(self, peer_email: str):
+    def add_peer(self, peer_email: str, force: bool = False):
         existing_emails = [p.email for p in self.peers]
-        if peer_email in existing_emails:
+        if peer_email in existing_emails and not force:
             print(f"Peer {peer_email} already exists, skipping")
         else:
             if self.is_do:
