@@ -65,8 +65,13 @@ all = [
 ]
 
 
+[tool.uv.workspace]
+members = ["packages/*"]
+
 [tool.uv.sources]
 "syft-job" = { git = "https://github.com/OpenMined/syft-job" , branch = "main" }
+"syft-notebook-ui" = { workspace = true }
+"syft-datasets" = { workspace = true }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"
