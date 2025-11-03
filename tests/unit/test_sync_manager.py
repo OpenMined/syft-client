@@ -205,3 +205,35 @@ def test_load_peers():
 
     assert len(ds_manager.peers) == 2
     assert len(do_manager.peers) == 1
+
+
+def test_file_connections():
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    syftbox_dir_do = (
+        do_manager.proposed_file_change_handler.event_cache.file_connection.base_dir
+    )
+
+    syftbox_dir_ds = ds_manager.datasite_outbox_puller.datasite_watcher_cache.file_connection.base_dir
+
+    assert syftbox_dir_do != syftbox_dir_ds
+
+    job_path = "email@email.com/test.job"
+
+    ds_manager.send_file_change(job_path, "Hello, world!")
+
+    assert (syftbox_dir_do / job_path).exists()
+
+    result_rel_path = "do@email.com/test_result.job"
+    result_path = syftbox_dir_do / result_rel_path
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(result_path, "w") as f:
+        f.write("I am a result")
+
+    do_manager.sync()
+
+    ds_manager.sync()
+
+    assert (syftbox_dir_ds / result_rel_path).exists()

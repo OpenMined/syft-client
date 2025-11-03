@@ -150,3 +150,44 @@ def test_google_drive_connection_load_state():
         manager_ds3.datasite_outbox_puller.datasite_watcher_cache.get_cached_events()
     )
     assert len(loaded_events_ds) == 2
+
+
+@pytest.mark.usefixtures("setup_delete_syftboxes")
+def test_google_drive_files():
+    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
+        do_email=EMAIL_DO,
+        ds_email=EMAIL_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
+        use_in_memory_cache=False,
+    )
+
+    syftbox_dir_do = (
+        manager_do.proposed_file_change_handler.event_cache.file_connection.base_dir
+    )
+
+    syftbox_dir_ds = manager_ds.datasite_outbox_puller.datasite_watcher_cache.file_connection.base_dir
+
+    assert syftbox_dir_do != syftbox_dir_ds
+
+    job_path = f"{EMAIL_DO}/test.job"
+
+    manager_ds.send_file_change(job_path, "This is a job")
+    sleep(1)
+
+    manager_do.sync()
+
+    assert (syftbox_dir_do / job_path).exists()
+
+    result_rel_path = f"{EMAIL_DO}/test_result.job"
+    result_path = syftbox_dir_do / result_rel_path
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(result_path, "w") as f:
+        f.write("I am a result")
+
+    manager_do.sync()
+    sleep(1)
+
+    manager_ds.sync()
+
+    assert (syftbox_dir_ds / result_rel_path).exists()
