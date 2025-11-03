@@ -1,8 +1,10 @@
 from pathlib import Path
+from pydantic import ConfigDict
+from syft_client.sync.utils.print_utils import print_peer_added
 from syft_client.sync.platforms.base_platform import BasePlatform
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, Field
 from typing import List
-from syft_client.sync.peers.peer import Peer
+from syft_client.sync.peers.peer_list import PeerList
 from syft_client.sync.sync.datasite_outbox_puller import DatasiteOutboxPuller
 from syft_client.sync.sync.caches.datasite_watcher_cache import DataSiteWatcherCache
 from syft_client.sync.connections.base_connection import (
@@ -10,7 +12,7 @@ from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
 )
 from syft_client.sync.events.file_change_event import FileChangeEvent
-from syft_client.sync.syftbox_utils import random_email, random_base_path
+from syft_client.sync.utils.syftbox_utils import random_email, random_base_path
 from syft_client.sync.file_writer import FileWriter
 
 from syft_client.sync.sync.proposed_file_change_pusher import ProposedFileChangePusher
@@ -47,6 +49,30 @@ class SyftboxManagerConfig(BaseModel):
         return cls(
             email=email,
             base_path="/",
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
+            connection_configs=connection_configs,
+        )
+
+    @classmethod
+    def for_jupyter(
+        cls,
+        email: str,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
+        token_path: Path | None = None,
+    ):
+        if not only_ds and not only_datasite_owner:
+            raise ValueError(
+                "At least one of only_ds or only_datasite_owner must be True"
+            )
+
+        connection_configs = [
+            GdriveConnectionConfig(email=email, token_path=token_path)
+        ]
+        return cls(
+            email=email,
+            base_path="/tmp/syftbox",
             only_ds=only_ds,
             only_datasite_owner=only_datasite_owner,
             connection_configs=connection_configs,
@@ -97,6 +123,9 @@ class SyftboxManagerConfig(BaseModel):
 
 
 class SyftboxManager(BaseModel):
+    # needed for peers
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     file_writer: FileWriter
     base_path: str
     email: str
@@ -107,7 +136,7 @@ class SyftboxManager(BaseModel):
     proposed_file_change_handler: ProposedFileChangeHandler | None = None
     job_file_change_handler: JobFileChangeHandler | None = None
 
-    peers: List[Peer] = []
+    peers: PeerList = Field(default_factory=PeerList)
 
     @classmethod
     def from_config(cls, config: SyftboxManagerConfig):
@@ -131,6 +160,23 @@ class SyftboxManager(BaseModel):
                 email=email,
                 only_ds=only_ds,
                 only_datasite_owner=only_datasite_owner,
+            )
+        )
+
+    @classmethod
+    def for_jupyter(
+        cls,
+        email: str,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
+        token_path: Path | None = None,
+    ):
+        return cls.from_config(
+            SyftboxManagerConfig.for_jupyter(
+                email=email,
+                only_ds=only_ds,
+                only_datasite_owner=only_datasite_owner,
+                token_path=token_path,
             )
         )
 
@@ -321,6 +367,7 @@ class SyftboxManager(BaseModel):
         else:
             peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
         self.peers.append(peer)
+        print_peer_added(peer)
 
     @property
     def is_do(self) -> bool:
@@ -340,7 +387,7 @@ class SyftboxManager(BaseModel):
         else:
             peers = self.connection_router.get_peers_as_ds()
 
-        self.peers = peers
+        self.peers = PeerList(peers)
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup

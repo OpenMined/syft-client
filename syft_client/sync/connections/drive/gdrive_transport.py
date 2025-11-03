@@ -4,7 +4,7 @@ import io
 import json
 from pathlib import Path
 import pickle
-from syft_client.sync.syftbox_utils import check_env
+from syft_client.sync.utils.syftbox_utils import check_env
 from typing import Any, Dict, List, Optional, Tuple
 from typing import TYPE_CHECKING
 
