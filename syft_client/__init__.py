@@ -7,6 +7,14 @@ from syft_client.sync.environments.environment import Environment
 from syft_client.sync.syftbox_manager import SyftboxManager
 
 
+# def login(email: str):
+#     login_ds(email)
+
+
+# def login_ds(email: str):
+#     print("login_ds not implemented yet")
+
+
 def login_do(email: str):
     env = check_env()
 
@@ -17,12 +25,3 @@ def login_do(email: str):
         # SyftboxManager.for_jupyter(email=email)
     else:
         raise ValueError(f"Environment {env} not supported")
-
-
-# Class SyftManager():
-
-
-#     @classmethod
-#     def for_jupyter(cls, email: str):
-#         creds = authenticate(email=email, platforms=["gdrive"])
-#         cls(creds=creds)
