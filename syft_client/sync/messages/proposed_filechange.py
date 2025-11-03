@@ -4,8 +4,8 @@ import uuid
 import time
 from pydantic import Field, model_validator
 from pydantic.main import BaseModel
-from syft_client.sync.syftbox_utils import compress_data, uncompress_data
-from syft_client.sync.syftbox_utils import create_event_timestamp
+from syft_client.sync.utils.syftbox_utils import compress_data, uncompress_data
+from syft_client.sync.utils.syftbox_utils import create_event_timestamp
 
 
 MESSAGE_FILENAME_PREFIX = "msgv2"

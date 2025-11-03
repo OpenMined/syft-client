@@ -1,7 +1,10 @@
 from pathlib import Path
-from pydantic import BaseModel, model_validator
+from pydantic import ConfigDict
+from syft_client.sync.utils.print_utils import print_peer_added
+from syft_client.sync.platforms.base_platform import BasePlatform
+from pydantic import BaseModel, model_validator, Field
 from typing import List
-from syft_client.sync.peers.peer import Peer
+from syft_client.sync.peers.peer_list import PeerList
 from syft_client.sync.sync.datasite_outbox_puller import DatasiteOutboxPuller
 from syft_client.sync.sync.caches.datasite_watcher_cache import DataSiteWatcherCache
 from syft_client.sync.connections.base_connection import (
@@ -9,7 +12,7 @@ from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
 )
 from syft_client.sync.events.file_change_event import FileChangeEvent
-from syft_client.sync.syftbox_utils import random_email, random_base_path
+from syft_client.sync.utils.syftbox_utils import random_email, random_base_path
 from syft_client.sync.file_writer import FileWriter
 
 from syft_client.sync.sync.proposed_file_change_pusher import ProposedFileChangePusher
@@ -29,25 +32,49 @@ class SyftboxManagerConfig(BaseModel):
     email: str
     base_path: str
     write_files: bool = True
-    only_sender: bool = False
-    only_datasider_owner: bool = False
+    only_ds: bool = False
+    only_datasite_owner: bool = False
     connection_configs: List[ConnectionConfig] = []
 
     @classmethod
     def for_colab(
-        cls, email: str, only_sender: bool = False, only_datasider_owner: bool = False
+        cls, email: str, only_ds: bool = False, only_datasite_owner: bool = False
     ):
-        if not only_sender and not only_datasider_owner:
+        if not only_ds and not only_datasite_owner:
             raise ValueError(
-                "At least one of only_sender or only_datasider_owner must be True"
+                "At least one of only_ds or only_datasite_owner must be True"
             )
 
         connection_configs = [GdriveConnectionConfig(email=email, token_path=None)]
         return cls(
             email=email,
             base_path="/",
-            only_sender=only_sender,
-            only_datasider_owner=only_datasider_owner,
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
+            connection_configs=connection_configs,
+        )
+
+    @classmethod
+    def for_jupyter(
+        cls,
+        email: str,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
+        token_path: Path | None = None,
+    ):
+        if not only_ds and not only_datasite_owner:
+            raise ValueError(
+                "At least one of only_ds or only_datasite_owner must be True"
+            )
+
+        connection_configs = [
+            GdriveConnectionConfig(email=email, token_path=token_path)
+        ]
+        return cls(
+            email=email,
+            base_path="/tmp/syftbox",
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
             connection_configs=connection_configs,
         )
 
@@ -57,8 +84,8 @@ class SyftboxManagerConfig(BaseModel):
         email: str | None = None,
         base_path: str | None = None,
         write_files: bool = False,
-        only_sender: bool = False,
-        only_datasider_owner: bool = False,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
     ):
         base_path = base_path or random_base_path()
         email = email or random_email()
@@ -66,8 +93,8 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             base_path=base_path,
             write_files=write_files,
-            only_sender=only_sender,
-            only_datasider_owner=only_datasider_owner,
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
         )
 
     @classmethod
@@ -77,8 +104,8 @@ class SyftboxManagerConfig(BaseModel):
         token_path: Path,
         base_path: str | None = None,
         write_files: bool = False,
-        only_sender: bool = False,
-        only_datasider_owner: bool = False,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
     ):
         base_path = base_path or random_base_path()
         email = email or random_email()
@@ -90,23 +117,26 @@ class SyftboxManagerConfig(BaseModel):
             base_path=base_path,
             write_files=write_files,
             connection_configs=connection_configs,
-            only_sender=only_sender,
-            only_datasider_owner=only_datasider_owner,
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
         )
 
 
 class SyftboxManager(BaseModel):
+    # needed for peers
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     file_writer: FileWriter
     base_path: str
     email: str
     dev_mode: bool = False
-    proposed_file_change_pusher: ProposedFileChangePusher
+    proposed_file_change_pusher: ProposedFileChangePusher | None = None
     datasite_outbox_puller: DatasiteOutboxPuller | None = None
 
     proposed_file_change_handler: ProposedFileChangeHandler | None = None
     job_file_change_handler: JobFileChangeHandler | None = None
 
-    peers: List[Peer] = []
+    peers: PeerList = Field(default_factory=PeerList)
 
     @classmethod
     def from_config(cls, config: SyftboxManagerConfig):
@@ -115,21 +145,38 @@ class SyftboxManager(BaseModel):
             email=config.email,
             connection_configs=config.connection_configs,
             write_files=config.write_files,
-            only_sender=config.only_sender,
-            only_datasider_owner=config.only_datasider_owner,
+            only_ds=config.only_ds,
+            only_datasite_owner=config.only_datasite_owner,
         )
 
         return manager_res
 
     @classmethod
     def for_colab(
-        cls, email: str, only_sender: bool = False, only_datasider_owner: bool = False
+        cls, email: str, only_ds: bool = False, only_datasite_owner: bool = False
     ):
         return cls.from_config(
             SyftboxManagerConfig.for_colab(
                 email=email,
-                only_sender=only_sender,
-                only_datasider_owner=only_datasider_owner,
+                only_ds=only_ds,
+                only_datasite_owner=only_datasite_owner,
+            )
+        )
+
+    @classmethod
+    def for_jupyter(
+        cls,
+        email: str,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
+        token_path: Path | None = None,
+    ):
+        return cls.from_config(
+            SyftboxManagerConfig.for_jupyter(
+                email=email,
+                only_ds=only_ds,
+                only_datasite_owner=only_datasite_owner,
+                token_path=token_path,
             )
         )
 
@@ -150,7 +197,7 @@ class SyftboxManager(BaseModel):
         )
 
         # if we also have an owner
-        init_handlers = not data.get("only_sender", False)
+        init_handlers = not data.get("only_ds", False)
         if init_handlers:
             data["proposed_file_change_handler"] = ProposedFileChangeHandler(
                 write_files=write_files, connection_router=connection_router
@@ -193,8 +240,8 @@ class SyftboxManager(BaseModel):
             email=do_email,
             base_path=base_path1,
             token_path=do_token_path,
-            only_sender=False,
-            only_datasider_owner=True,
+            only_ds=False,
+            only_datasite_owner=True,
         )
 
         receiver_manager = cls.from_config(receiver_config)
@@ -203,8 +250,8 @@ class SyftboxManager(BaseModel):
             email=ds_email,
             base_path=base_path2,
             token_path=ds_token_path,
-            only_sender=True,
-            only_datasider_owner=False,
+            only_ds=True,
+            only_datasite_owner=False,
         )
         sender_manager = cls.from_config(sender_config)
 
@@ -228,8 +275,8 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
-            sender_manager.create_peer_request(receiver_manager.email)
-            receiver_manager.create_peer_request(sender_manager.email)
+            sender_manager.add_peer(receiver_manager.email)
+            receiver_manager.add_peer(sender_manager.email)
         if load_peers:
             receiver_manager.load_peers()
             sender_manager.load_peers()
@@ -251,8 +298,8 @@ class SyftboxManager(BaseModel):
         receiver_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email1,
             base_path=base_path1,
-            only_sender=False,
-            only_datasider_owner=True,
+            only_ds=False,
+            only_datasite_owner=True,
         )
 
         do_manager = cls.from_config(receiver_config)
@@ -260,8 +307,8 @@ class SyftboxManager(BaseModel):
         sender_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email2,
             base_path=base_path2,
-            only_sender=True,
-            only_datasider_owner=False,
+            only_ds=True,
+            only_datasite_owner=False,
         )
         ds_manager = cls.from_config(sender_config)
 
@@ -309,17 +356,22 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
-            ds_manager.create_peer_request(do_manager.email)
-            do_manager.create_peer_request(ds_manager.email)
+            ds_manager.add_peer(do_manager.email)
+            do_manager.add_peer(ds_manager.email)
 
         return ds_manager, do_manager
 
-    def create_peer_request(self, peer_email: str):
-        if self.is_do:
-            self.connection_router.add_peer_as_do(peer_email=peer_email)
+    def add_peer(self, peer_email: str, force: bool = False):
+        existing_emails = [p.email for p in self.peers]
+        if peer_email in existing_emails and not force:
+            print(f"Peer {peer_email} already exists, skipping")
         else:
-            self.connection_router.add_peer_as_ds(peer_email=peer_email)
-        self.peers.append(Peer(email=peer_email))
+            if self.is_do:
+                peer = self.connection_router.add_peer_as_do(peer_email=peer_email)
+            else:
+                peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
+            self.peers.append(peer)
+            print_peer_added(peer)
 
     @property
     def is_do(self) -> bool:
@@ -335,11 +387,11 @@ class SyftboxManager(BaseModel):
 
     def load_peers(self):
         if self.is_do:
-            peer_emails = self.connection_router.get_peers_as_do()
+            peers = self.connection_router.get_peers_as_do()
         else:
-            peer_emails = self.connection_router.get_peers_as_ds()
+            peers = self.connection_router.get_peers_as_ds()
 
-        self.peers = [Peer(email=peer_email) for peer_email in peer_emails]
+        self.peers = PeerList(peers)
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
@@ -376,3 +428,7 @@ class SyftboxManager(BaseModel):
 
     def delete_syftbox(self):
         self.connection_router.delete_syftbox()
+
+    def _get_all_peer_platforms(self) -> List[BasePlatform]:
+        all_platforms = set([plat for p in self.peers for plat in p.platforms])
+        return list(all_platforms)

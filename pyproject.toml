@@ -35,7 +35,8 @@ dependencies = [
     "watchdog>=3.0.0",
     "syft-serve>=0.3.11",
     "requests>=2.32.4",
-    "pandas"
+    "pandas",
+    "pydantic-settings>=2.11.0",
 ]
 
 [project.optional-dependencies]
