@@ -174,13 +174,13 @@ class SyftDatasetManager:
         )
         mock_url = SyftBoxURL.from_path(
             path=mock_dir,
-            workspace=self.syftbox_config.workspace,
+            workspace=self.syftbox_config.syftbox_folder,
         )
         readme_url = None
         if readme_path:
             readme_url = SyftBoxURL.from_path(
                 path=mock_dir / readme_path.name,
-                workspace=self.syftbox_config.workspace,
+                workspace=self.syftbox_config.syftbox_folder,
             )
 
         dataset = Dataset(
