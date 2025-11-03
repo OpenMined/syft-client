@@ -77,6 +77,8 @@ class SyftboxManagerConfig(BaseModel):
             ),
         )
         proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
+            base_path=base_path,
+            email=email,
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
                 use_in_memory_cache=use_in_memory_cache, base_path=base_path
@@ -84,8 +86,10 @@ class SyftboxManagerConfig(BaseModel):
         )
         datasite_outbox_puller_config = DatasiteOutboxPullerConfig(
             connection_configs=connection_configs,
-            datasite_outbox_puller_config=DatasiteOutboxPullerConfig(
-                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+            datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                use_in_memory_cache=use_in_memory_cache,
+                base_path=base_path,
+                connection_configs=connection_configs,
             ),
         )
         return cls(
