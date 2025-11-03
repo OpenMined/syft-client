@@ -1,7 +1,9 @@
 from typing import List, Dict
+from pathlib import Path
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
+from pydantic import BaseModel, model_validator
+from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConnection
 from syft_client.sync.events.file_change_event import FileChangeEvent
-from pydantic import Field
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.sync.caches.cache_file_writer_connection import (
     CacheFileConnection,
@@ -16,18 +18,51 @@ class ProposedEventFileOutdatedException(Exception):
         )
 
 
+class DataSiteOwnerEventCacheConfig(BaseModel):
+    use_in_memory_cache: bool = True
+    base_path: Path | None = None
+    events_base_path: Path | None = None
+
+    @model_validator(mode="before")
+    def pre_init(cls, data):
+        if data.get("events_base_path") is None and data.get("base_path") is not None:
+            base_path = data["base_path"]
+            data["events_base_path"] = Path(base_path) / "events"
+        return data
+
+
 class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     # we keep a list of heads, which are the latest events for each path
 
-    events_connection: CacheFileConnection[FileChangeEvent] = Field(
-        default_factory=lambda: InMemoryCacheFileConnection[FileChangeEvent]()
-    )
-    file_connection: CacheFileConnection[str] = Field(
-        default_factory=lambda: InMemoryCacheFileConnection[str]()
-    )
+    events_connection: CacheFileConnection = InMemoryCacheFileConnection
+    file_connection: CacheFileConnection = InMemoryCacheFileConnection
 
     # file path to the hash of the filecontent
     file_hashes: Dict[str, int] = {}
+
+    @classmethod
+    def from_config(cls, config: DataSiteOwnerEventCacheConfig):
+        if config.use_in_memory_cache:
+            return cls(
+                events_connection=InMemoryCacheFileConnection[FileChangeEvent](),
+                file_connection=InMemoryCacheFileConnection[str](),
+            )
+        else:
+            if config.base_path is None:
+                raise ValueError("base_path is required for non-in-memory cache")
+            return cls(
+                events_connection=FSFileConnection(
+                    base_dir=Path(config.base_path) / "events"
+                ),
+                file_connection=FSFileConnection(
+                    base_dir=Path(config.base_path) / "files"
+                ),
+            )
+
+    def clear_cache(self):
+        self.events_connection.clear_cache()
+        self.file_connection.clear_cache()
+        self.file_hashes = {}
 
     def has_conflict(self, proposed_event: ProposedFileChange) -> bool:
         if proposed_event.path not in self.file_hashes:

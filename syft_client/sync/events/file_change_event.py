@@ -42,8 +42,8 @@ class FileChangeEvent(BaseModel):
     id: UUID
     path: str
     content: str
-    old_hash: int | None = None
-    new_hash: int
+    old_hash: str | None = None
+    new_hash: str
     submitted_timestamp: float
     timestamp: float
     event_filepath: FileChangeEventFileName
@@ -77,6 +77,7 @@ class FileChangeEvent(BaseModel):
         )
 
     def __hash__(self) -> int:
+        # this is for comparing locally
         return hash(self.id)
 
     def __eq__(self, other: Any) -> bool:

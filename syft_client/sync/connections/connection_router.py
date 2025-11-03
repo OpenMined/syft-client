@@ -1,6 +1,9 @@
 from pydantic import BaseModel
 from typing import List
-from syft_client.sync.connections.base_connection import SyftboxPlatformConnection
+from syft_client.sync.connections.base_connection import (
+    SyftboxPlatformConnection,
+    ConnectionConfig,
+)
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
@@ -13,6 +16,18 @@ from syft_client.sync.utils.print_utils import (
 
 class ConnectionRouter(BaseModel):
     connections: List[SyftboxPlatformConnection]
+
+    @classmethod
+    def from_configs(cls, connection_configs: List[ConnectionConfig]):
+        return cls(
+            connections=[
+                SyftboxPlatformConnection.from_config(config)
+                for config in connection_configs
+            ]
+        )
+
+    def add_connection(self, connection: SyftboxPlatformConnection):
+        self.connections.append(connection)
 
     def connection_for_send_message(self) -> SyftboxPlatformConnection:
         return self.connections[0]

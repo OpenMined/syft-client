@@ -1,9 +1,10 @@
 from pydantic import BaseModel
 from typing import Dict, List, Callable
+from pathlib import Path
 
 
 class FileWriter(BaseModel):
-    base_path: str
+    base_path: Path
     callbacks: Dict[str, List[Callable]] = {}
     write_files: bool = True
 

@@ -4,6 +4,8 @@ import tarfile
 import time
 import subprocess
 from syft_client.sync.environments.environment import Environment
+from hashlib import sha256
+from pathlib import Path
 
 
 def check_env() -> Environment:
@@ -33,6 +35,10 @@ def get_email_colab() -> str:
     return email
 
 
+def get_event_hash_from_content(content: str) -> str:
+    return sha256(content.encode("utf-8")).hexdigest()
+
+
 def create_event_timestamp() -> float:
     return time.time()
 
@@ -41,8 +47,8 @@ def random_email():
     return f"test{random.randint(1, 1000000)}@test.com"
 
 
-def random_base_path():
-    return f"/tmp/syftbox{random.randint(1, 1000000)}"
+def random_base_path_for_testing():
+    return Path(f"/tmp/syftbox-testing-{random.randint(1, 1000000)}")
 
 
 def compress_data(data: bytes) -> bytes:

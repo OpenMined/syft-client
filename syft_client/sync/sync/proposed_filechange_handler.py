@@ -1,5 +1,10 @@
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, BaseModel
 from syft_client.sync.events.file_change_event import FileChangeEvent
+from syft_client.sync.connections.base_connection import ConnectionConfig
+from typing import List
+from syft_client.sync.sync.caches.datasite_owner_cache import (
+    DataSiteOwnerEventCacheConfig,
+)
 from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_client.sync.sync.caches.datasite_owner_cache import DataSiteOwnerEventCache
@@ -7,16 +12,32 @@ from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 
 
+class ProposedFileChangeHandlerConfig(BaseModel):
+    write_files: bool = True
+    cache_config: DataSiteOwnerEventCacheConfig = Field(
+        default_factory=DataSiteOwnerEventCacheConfig
+    )
+    connection_configs: List[ConnectionConfig] = []
+
+
 class ProposedFileChangeHandler(BaseModelCallbackMixin):
     """Responsible for downloading files and checking permissions"""
 
     model_config = ConfigDict(extra="allow")
     event_cache: DataSiteOwnerEventCache = Field(
-        default_factory=lambda: DataSiteOwnerEventCache(is_new_cache=True)
+        default_factory=lambda: DataSiteOwnerEventCache()
     )
     write_files: bool = True
     connection_router: ConnectionRouter
     initial_sync_done: bool = False
+
+    @classmethod
+    def from_config(cls, config: ProposedFileChangeHandlerConfig):
+        return cls(
+            event_cache=DataSiteOwnerEventCache.from_config(config.cache_config),
+            write_files=config.write_files,
+            connection_router=ConnectionRouter.from_configs(config.connection_configs),
+        )
 
     def sync(self, peer_emails: list[str]):
         if not self.initial_sync_done:
