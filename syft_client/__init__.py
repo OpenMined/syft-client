@@ -11,7 +11,7 @@ from syft_client.sync.utils.print_utils import print_client_connected
 
 
 def login(email: str):
-    login_ds(email)
+    return login_ds(email)
 
 
 def login_ds(email: str, sync: bool = True):
