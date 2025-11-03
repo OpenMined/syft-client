@@ -71,6 +71,7 @@ class SyftboxManagerConfig(BaseModel):
         use_in_memory_cache = False
         connection_configs = [GdriveConnectionConfig(email=email, token_path=None)]
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
+            email=email,
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
                 use_in_memory_cache=use_in_memory_cache, base_path=base_path
@@ -123,6 +124,7 @@ class SyftboxManagerConfig(BaseModel):
             GdriveConnectionConfig(email=email, token_path=token_path)
         ]
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
+            email=email,
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
                 use_in_memory_cache=False,
@@ -173,6 +175,7 @@ class SyftboxManagerConfig(BaseModel):
         email = email or random_email()
 
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
+            email=email,
             write_files=write_files,
             cache_config=DataSiteOwnerEventCacheConfig(
                 use_in_memory_cache=use_in_memory_cache, base_path=base_path
@@ -220,6 +223,7 @@ class SyftboxManagerConfig(BaseModel):
             GdriveConnectionConfig(email=email, token_path=token_path)
         ]
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
+            email=email,
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
                 use_in_memory_cache=use_in_memory_cache, base_path=base_path
@@ -350,11 +354,13 @@ class SyftboxManager(BaseModel):
         base_path2: str | None = None,
         add_peers: bool = True,
         load_peers: bool = False,
+        use_in_memory_cache: bool = True,
         clear_caches: bool = True,
     ):
         receiver_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=do_email,
             base_path=base_path1,
+            use_in_memory_cache=use_in_memory_cache,
             token_path=do_token_path,
             only_ds=False,
             only_datasite_owner=True,
@@ -365,6 +371,7 @@ class SyftboxManager(BaseModel):
         sender_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=ds_email,
             base_path=base_path2,
+            use_in_memory_cache=use_in_memory_cache,
             token_path=ds_token_path,
             only_ds=True,
             only_datasite_owner=False,

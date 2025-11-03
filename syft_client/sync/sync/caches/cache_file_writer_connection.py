@@ -2,8 +2,13 @@ from typing import Generic, List, TypeVar
 from pydantic import BaseModel, Field
 from pathlib import Path
 import shutil
+from typing import Tuple
 
 T = TypeVar("T")
+
+
+def is_valid_cache_type(cache_type: type) -> bool:
+    return cache_type in (str, bytes) or issubclass(cache_type, BaseModel)
 
 
 def _serialize(self, content: T) -> bytes:
@@ -43,9 +48,28 @@ class CacheFileConnection(BaseModel, Generic[T]):
     class Config:
         arbitrary_types_allowed = True
 
+    @classmethod
+    def get_generic_type(cls) -> type[T]:
+        generic_args = cls.__pydantic_generic_metadata__.get("args", ())
+        if not generic_args:
+            raise TypeError(f"No generic type found on {cls.__name__}")
+        return generic_args[0]
+
+    def model_post_init(self, __context):
+        super().model_post_init(__context)
+
+        # generic_type = self.get_generic_type()
+        # if not is_valid_cache_type(generic_type):
+        #     raise TypeError(
+        #         f"Invalid cache type: {generic_type} for {self.__class__.__name__}. Must be str, bytes, or a Pydantic BaseModel."
+        #     )
+
 
 class InMemoryCacheFileConnection(CacheFileConnection[T]):
     sorted_files: KeySortedDict[str, T] = Field(default_factory=KeySortedDict)
+
+    def get_items(self) -> List[Tuple[str, T]]:
+        return list(self.sorted_files.items())
 
     def clear_cache(self):
         self.sorted_files = KeySortedDict()
@@ -74,12 +98,22 @@ class InMemoryCacheFileConnection(CacheFileConnection[T]):
 class FSFileConnection(CacheFileConnection[T]):
     base_dir: Path
 
+    def get_items(self) -> List[Tuple[str, T]]:
+        return [
+            (
+                str(f.relative_to(self.base_dir)),
+                self._read_file_full_path(f),
+            )
+            for f in self._iter_files()
+        ]
+
     def clear_cache(self):
-        for file_or_folder in self.base_dir.iterdir():
-            if file_or_folder.is_file():
-                file_or_folder.unlink()
-            elif file_or_folder.is_dir():
-                shutil.rmtree(file_or_folder)
+        if self.base_dir.exists():
+            for file_or_folder in self.base_dir.iterdir():
+                if file_or_folder.is_file():
+                    file_or_folder.unlink()
+                elif file_or_folder.is_dir():
+                    shutil.rmtree(file_or_folder)
 
     def model_post_init(self, context):
         super().model_post_init(context)
@@ -111,7 +145,10 @@ class FSFileConnection(CacheFileConnection[T]):
 
     def read_file(self, path: str) -> T:
         full_path = self._resolve_full_path(path)
-        dtype = self.get_generic_type()
+        return self._read_file_full_path(full_path)
+
+    def _read_file_full_path(self, full_path: Path) -> T:
+        dtype = str
         with open(full_path, "rb") as f:
             res_bytes = f.read()
         res = _deserialize(self, res_bytes, dtype)

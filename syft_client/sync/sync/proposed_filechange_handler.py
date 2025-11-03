@@ -13,6 +13,7 @@ from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMes
 
 
 class ProposedFileChangeHandlerConfig(BaseModel):
+    email: str
     write_files: bool = True
     cache_config: DataSiteOwnerEventCacheConfig = Field(
         default_factory=DataSiteOwnerEventCacheConfig
@@ -30,6 +31,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     write_files: bool = True
     connection_router: ConnectionRouter
     initial_sync_done: bool = False
+    email: str
 
     @classmethod
     def from_config(cls, config: ProposedFileChangeHandlerConfig):
@@ -37,11 +39,15 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
             event_cache=DataSiteOwnerEventCache.from_config(config.cache_config),
             write_files=config.write_files,
             connection_router=ConnectionRouter.from_configs(config.connection_configs),
+            email=config.email,
         )
 
-    def sync(self, peer_emails: list[str]):
+    def sync(self, peer_emails: list[str], recompute_hashes: bool = True):
         if not self.initial_sync_done:
             self.pull_initial_state()
+
+        if recompute_hashes:
+            self.process_local_changes(recipients=peer_emails)
         # first, pull existing state
         for peer_email in peer_emails:
             while True:
@@ -60,6 +66,12 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         for event in events:
             self.event_cache.add_event_to_local_cache(event)
         self.initial_sync_done = True
+
+    def process_local_changes(self, recipients: list[str]):
+        # TODO: currently permissions are not implemented, so we just write to all recipients
+        events = self.event_cache.process_local_file_changes()
+        for event in events:
+            self.write_event_to_syftbox(recipients=recipients, event=event)
 
     def pull_and_process_next_proposed_filechange(
         self, sender_email: str, raise_on_none=True
@@ -99,11 +111,12 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         self.check_permissions(proposed_event.path)
 
         accepted_event = self.event_cache.process_proposed_event(proposed_event)
-        self.write_event_to_syftbox(sender_email, accepted_event)
+        self.write_event_to_syftbox(recipients=[sender_email], event=accepted_event)
 
-    def write_event_to_syftbox(self, sender_email: str, event: FileChangeEvent):
+    def write_event_to_syftbox(self, recipients: list[str], event: FileChangeEvent):
         self.connection_router.write_event_to_syftbox(event)
-        self.connection_router.write_event_to_outbox_do(sender_email, event)
+        for recipient in recipients:
+            self.connection_router.write_event_to_outbox_do(recipient, event)
 
     def write_file_filesystem(self, path: str, content: str):
         if self.write_files:

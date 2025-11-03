@@ -1,5 +1,7 @@
 from typing import List, Dict
+from uuid import uuid4
 from pathlib import Path
+from syft_client.sync.utils.syftbox_utils import create_event_timestamp
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from pydantic import BaseModel, model_validator
 from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConnection
@@ -9,6 +11,7 @@ from syft_client.sync.sync.caches.cache_file_writer_connection import (
     CacheFileConnection,
     InMemoryCacheFileConnection,
 )
+from syft_client.sync.utils.syftbox_utils import get_event_hash_from_content
 
 
 class ProposedEventFileOutdatedException(Exception):
@@ -27,7 +30,8 @@ class DataSiteOwnerEventCacheConfig(BaseModel):
     def pre_init(cls, data):
         if data.get("events_base_path") is None and data.get("base_path") is not None:
             base_path = data["base_path"]
-            data["events_base_path"] = Path(base_path) / "events"
+            base_parent = base_path.parent
+            data["events_base_path"] = base_parent / "events"
         return data
 
 
@@ -54,10 +58,27 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 events_connection=FSFileConnection(
                     base_dir=Path(config.base_path) / "events"
                 ),
-                file_connection=FSFileConnection(
-                    base_dir=Path(config.base_path) / "files"
-                ),
+                file_connection=FSFileConnection(base_dir=Path(config.base_path)),
             )
+
+    def process_local_file_changes(self) -> List[FileChangeEvent]:
+        new_events = []
+        for path, content in self.file_connection.get_items():
+            current_hash = get_event_hash_from_content(content)
+            if current_hash != self.file_hashes.get(path, None):
+                timestamp = create_event_timestamp()
+                event = FileChangeEvent(
+                    id=uuid4(),
+                    path=path,
+                    content=content,
+                    new_hash=current_hash,
+                    submitted_timestamp=timestamp,
+                    timestamp=timestamp,
+                )
+                # its already written so no need to write again
+                self.add_event_to_local_cache(event, write_file=False)
+                new_events.append(event)
+        return new_events
 
     def clear_cache(self):
         self.events_connection.clear_cache()
@@ -91,9 +112,12 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         self.add_event_to_local_cache(event)
         return event
 
-    def add_event_to_local_cache(self, event: FileChangeEvent):
+    def add_event_to_local_cache(self, event: FileChangeEvent, write_file: bool = True):
         self.file_hashes[event.path] = event.new_hash
-        self.file_connection.write_file(event.path, event.content)
+
+        if write_file:
+            self.file_connection.write_file(event.path, event.content)
+
         self.events_connection.write_file(event.eventfile_filepath(), event)
 
         for callback in self.callbacks.get("on_event_local_write", []):

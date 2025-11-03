@@ -24,7 +24,8 @@ class DataSiteWatcherCacheConfig(BaseModel):
     def pre_init(cls, data):
         if data.get("events_base_path") is None and data.get("base_path") is not None:
             base_path = data["base_path"]
-            data["events_base_path"] = Path(base_path) / "events"
+            base_parent = base_path.parent
+            data["events_base_path"] = base_parent / "events"
         return data
 
 
@@ -62,9 +63,7 @@ class DataSiteWatcherCache(BaseModel):
                 events_connection=FSFileConnection(
                     base_dir=Path(config.base_path) / "events"
                 ),
-                file_connection=FSFileConnection(
-                    base_dir=Path(config.base_path) / "files"
-                ),
+                file_connection=FSFileConnection(base_dir=Path(config.base_path)),
                 connection_router=ConnectionRouter.from_configs(
                     connection_configs=config.connection_configs
                 ),

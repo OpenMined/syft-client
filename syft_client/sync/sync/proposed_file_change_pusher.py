@@ -55,7 +55,7 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
         splitted = path.split("/")
         # TODO: add some better parsing logic here
         recipient = splitted[0]
-        path_in_datasite = splitted[1]
+        path_in_datasite = path
 
         file_change = self.get_proposed_file_change_object(path_in_datasite, content)
         message = ProposedFileChangesMessage(
