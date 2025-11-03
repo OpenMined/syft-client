@@ -29,25 +29,25 @@ class SyftboxManagerConfig(BaseModel):
     email: str
     base_path: str
     write_files: bool = True
-    only_sender: bool = False
-    only_datasider_owner: bool = False
+    only_ds: bool = False
+    only_datasite_owner: bool = False
     connection_configs: List[ConnectionConfig] = []
 
     @classmethod
     def for_colab(
-        cls, email: str, only_sender: bool = False, only_datasider_owner: bool = False
+        cls, email: str, only_ds: bool = False, only_datasite_owner: bool = False
     ):
-        if not only_sender and not only_datasider_owner:
+        if not only_ds and not only_datasite_owner:
             raise ValueError(
-                "At least one of only_sender or only_datasider_owner must be True"
+                "At least one of only_ds or only_datasite_owner must be True"
             )
 
         connection_configs = [GdriveConnectionConfig(email=email, token_path=None)]
         return cls(
             email=email,
             base_path="/",
-            only_sender=only_sender,
-            only_datasider_owner=only_datasider_owner,
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
             connection_configs=connection_configs,
         )
 
@@ -57,8 +57,8 @@ class SyftboxManagerConfig(BaseModel):
         email: str | None = None,
         base_path: str | None = None,
         write_files: bool = False,
-        only_sender: bool = False,
-        only_datasider_owner: bool = False,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
     ):
         base_path = base_path or random_base_path()
         email = email or random_email()
@@ -66,8 +66,8 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             base_path=base_path,
             write_files=write_files,
-            only_sender=only_sender,
-            only_datasider_owner=only_datasider_owner,
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
         )
 
     @classmethod
@@ -77,8 +77,8 @@ class SyftboxManagerConfig(BaseModel):
         token_path: Path,
         base_path: str | None = None,
         write_files: bool = False,
-        only_sender: bool = False,
-        only_datasider_owner: bool = False,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
     ):
         base_path = base_path or random_base_path()
         email = email or random_email()
@@ -90,8 +90,8 @@ class SyftboxManagerConfig(BaseModel):
             base_path=base_path,
             write_files=write_files,
             connection_configs=connection_configs,
-            only_sender=only_sender,
-            only_datasider_owner=only_datasider_owner,
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
         )
 
 
@@ -100,7 +100,7 @@ class SyftboxManager(BaseModel):
     base_path: str
     email: str
     dev_mode: bool = False
-    proposed_file_change_pusher: ProposedFileChangePusher
+    proposed_file_change_pusher: ProposedFileChangePusher | None = None
     datasite_outbox_puller: DatasiteOutboxPuller | None = None
 
     proposed_file_change_handler: ProposedFileChangeHandler | None = None
@@ -115,21 +115,21 @@ class SyftboxManager(BaseModel):
             email=config.email,
             connection_configs=config.connection_configs,
             write_files=config.write_files,
-            only_sender=config.only_sender,
-            only_datasider_owner=config.only_datasider_owner,
+            only_ds=config.only_ds,
+            only_datasite_owner=config.only_datasite_owner,
         )
 
         return manager_res
 
     @classmethod
     def for_colab(
-        cls, email: str, only_sender: bool = False, only_datasider_owner: bool = False
+        cls, email: str, only_ds: bool = False, only_datasite_owner: bool = False
     ):
         return cls.from_config(
             SyftboxManagerConfig.for_colab(
                 email=email,
-                only_sender=only_sender,
-                only_datasider_owner=only_datasider_owner,
+                only_ds=only_ds,
+                only_datasite_owner=only_datasite_owner,
             )
         )
 
@@ -150,7 +150,7 @@ class SyftboxManager(BaseModel):
         )
 
         # if we also have an owner
-        init_handlers = not data.get("only_sender", False)
+        init_handlers = not data.get("only_ds", False)
         if init_handlers:
             data["proposed_file_change_handler"] = ProposedFileChangeHandler(
                 write_files=write_files, connection_router=connection_router
@@ -193,8 +193,8 @@ class SyftboxManager(BaseModel):
             email=do_email,
             base_path=base_path1,
             token_path=do_token_path,
-            only_sender=False,
-            only_datasider_owner=True,
+            only_ds=False,
+            only_datasite_owner=True,
         )
 
         receiver_manager = cls.from_config(receiver_config)
@@ -203,8 +203,8 @@ class SyftboxManager(BaseModel):
             email=ds_email,
             base_path=base_path2,
             token_path=ds_token_path,
-            only_sender=True,
-            only_datasider_owner=False,
+            only_ds=True,
+            only_datasite_owner=False,
         )
         sender_manager = cls.from_config(sender_config)
 
@@ -251,8 +251,8 @@ class SyftboxManager(BaseModel):
         receiver_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email1,
             base_path=base_path1,
-            only_sender=False,
-            only_datasider_owner=True,
+            only_ds=False,
+            only_datasite_owner=True,
         )
 
         do_manager = cls.from_config(receiver_config)
@@ -260,8 +260,8 @@ class SyftboxManager(BaseModel):
         sender_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email2,
             base_path=base_path2,
-            only_sender=True,
-            only_datasider_owner=False,
+            only_ds=True,
+            only_datasite_owner=False,
         )
         ds_manager = cls.from_config(sender_config)
 
