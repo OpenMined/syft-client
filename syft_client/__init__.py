@@ -14,13 +14,15 @@ def login(email: str):
     return login_ds(email)
 
 
-def login_ds(email: str, sync: bool = True):
+def login_ds(email: str, sync: bool = True, load_peers: bool = True):
     env = check_env()
 
     if env == Environment.COLAB:
         client = SyftboxManager.for_colab(email=email, only_ds=True)
         if sync:
             client.sync()
+        if load_peers:
+            client.load_peers()
         print_client_connected(client)
         return client
 
@@ -31,13 +33,15 @@ def login_ds(email: str, sync: bool = True):
         raise ValueError(f"Environment {env} not supported")
 
 
-def login_do(email: str, sync: bool = True):
+def login_do(email: str, sync: bool = True, load_peers: bool = True):
     env = check_env()
 
     if env == Environment.COLAB:
         client = SyftboxManager.for_colab(email=email, only_datasite_owner=True)
         if sync:
             client.sync()
+        if load_peers:
+            client.load_peers()
         print_client_connected(client)
         return client
     elif env == Environment.JUPYTER:
