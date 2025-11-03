@@ -7,10 +7,8 @@ name = "syft-client"
 version = "0.1.87"
 description = "A simple client library for setting up secure communication channels using Google Drive"
 readme = "README.md"
-authors = [
-    {name = "OpenMined", email = "info@openmined.org"}
-]
-license = {text = "Apache-2.0"}
+authors = [{ name = "OpenMined", email = "info@openmined.org" }]
+license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 keywords = ["privacy", "federated-learning", "google-drive", "communication"]
 classifiers = [
@@ -23,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Security :: Cryptography",
-    "Topic :: Communications :: File Sharing"
+    "Topic :: Communications :: File Sharing",
 ]
 dependencies = [
     "google-api-python-client>=2.95.0",
@@ -35,13 +33,12 @@ dependencies = [
     "watchdog>=3.0.0",
     "syft-serve>=0.3.11",
     "requests>=2.32.4",
-    "pandas"
+    "pandas",
+    "syft-process-manager",
 ]
 
 [project.optional-dependencies]
-job = [
-    "syft-job"
-]
+job = ["syft-job"]
 test = [
     "pytest>=7.0.0",
     "pytest-mock>=3.10.0",
@@ -52,21 +49,23 @@ test = [
     "flake8>=6.0.0",
     "mypy>=1.0.0",
     "isort>=5.12.0",
-    "coverage>=7.0.0"
+    "coverage>=7.0.0",
 ]
 dev = [
     "jupyter>=1.0.0",
     "notebook>=6.5.0",
     "ipython>=8.0.0",
-    "tqdm>=4.64.0"
+    "tqdm>=4.64.0",
+    "pre-commit>=4.3.0",
 ]
-all = [
-    "syft-client[test,dev,job]"
-]
+all = ["syft-client[test,dev,job]"]
 
+[tool.uv.workspace]
+members = ["packages/*"]
 
 [tool.uv.sources]
-"syft-job" = { git = "https://github.com/OpenMined/syft-job" , branch = "main" }
+"syft-job" = { git = "https://github.com/OpenMined/syft-job", branch = "main" }
+"syft-process-manager" = { workspace = true }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"
@@ -86,24 +85,17 @@ markers = [
     "unit: Unit tests (fast, mocked)",
     "integration: Integration tests (slow, real API)",
     "cleanup: Tests that require cleanup",
-    "slow: Tests that take a long time to run"
+    "slow: Tests that take a long time to run",
 ]
-addopts = [
-    "--strict-markers",
-    "--strict-config"
-]
+addopts = ["--strict-markers", "--strict-config"]
 filterwarnings = [
     "ignore::DeprecationWarning",
-    "ignore::PendingDeprecationWarning"
+    "ignore::PendingDeprecationWarning",
 ]
 
 [tool.coverage.run]
 source = ["syft_client"]
-omit = [
-    "*/tests/*",
-    "*/test_*.py",
-    "setup.py"
-]
+omit = ["*/tests/*", "*/test_*.py", "setup.py"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -112,7 +104,7 @@ exclude_lines = [
     "raise AssertionError",
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
-    "if TYPE_CHECKING:"
+    "if TYPE_CHECKING:",
 ]
 
 [tool.black]
@@ -145,10 +137,10 @@ skip_glob = ["**/__pycache__/**"]
 [tool.flake8]
 max-line-length = 88
 extend-ignore = [
-    "E203",  # whitespace before ':'
-    "E501",  # line too long (handled by black)
-    "W503",  # line break before binary operator
-    "W504"   # line break after binary operator
+    "E203", # whitespace before ':'
+    "E501", # line too long (handled by black)
+    "W503", # line break before binary operator
+    "W504", # line break after binary operator
 ]
 exclude = [
     ".git",
@@ -157,7 +149,7 @@ exclude = [
     "dist",
     "*.egg-info",
     ".venv",
-    ".tox"
+    ".tox",
 ]
 
 [tool.mypy]
@@ -177,16 +169,20 @@ strict_equality = true
 show_error_codes = true
 
 [[tool.mypy.overrides]]
-module = [
-    "google.*",
-    "googleapiclient.*",
-    "syft_widget.*"
-]
+module = ["google.*", "googleapiclient.*", "syft_widget.*"]
 ignore_missing_imports = true
 
 [tool.bandit]
 exclude_dirs = ["tests", "build", "dist", ".venv", "venv"]
-skips = ["B101"]  # Skip assert_used (needed in tests)
+skips = ["B101"]                                           # Skip assert_used (needed in tests)
 
 [tool.bandit.assert_used]
 skips = ["*/test_*.py", "*/tests/*"]
+
+[dependency-groups]
+dev = [
+    "jupyter>=1.1.1",
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
+    "pytest-xdist>=3.8.0",
+]
