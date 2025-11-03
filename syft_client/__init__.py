@@ -22,6 +22,7 @@ def login_ds(email: str, sync: bool = True):
         if sync:
             client.sync()
         print_client_connected(client)
+        return client
 
     elif env == Environment.JUPYTER:
         raise NotImplementedError("Jupyter login is not implemented yet")
@@ -38,6 +39,7 @@ def login_do(email: str, sync: bool = True):
         if sync:
             client.sync()
         print_client_connected(client)
+        return client
     elif env == Environment.JUPYTER:
         raise NotImplementedError("Jupyter login is not implemented yet")
         # SyftboxManager.for_jupyter(email=email)
