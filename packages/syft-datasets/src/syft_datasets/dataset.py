@@ -80,7 +80,6 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
     name: str
-    created_at: datetime
     summary: str | None = None
     tags: list[str] = []
     location: str | None = None
