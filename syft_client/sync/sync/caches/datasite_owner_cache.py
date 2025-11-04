@@ -23,7 +23,7 @@ class ProposedEventFileOutdatedException(Exception):
 
 class DataSiteOwnerEventCacheConfig(BaseModel):
     use_in_memory_cache: bool = True
-    base_path: Path | None = None
+    syftbox_folder: Path | None = None
     events_base_path: Path | None = None
 
     @model_validator(mode="before")
@@ -52,18 +52,21 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 file_connection=InMemoryCacheFileConnection[str](),
             )
         else:
-            if config.base_path is None:
+            if config.syftbox_folder is None:
                 raise ValueError("base_path is required for non-in-memory cache")
+            syftbox_folder_name = Path(config.syftbox_folder).name
+            syftbox_parent = Path(config.syftbox_folder).parent
+            events_folder = syftbox_parent / f"{syftbox_folder_name}-events"
             return cls(
-                events_connection=FSFileConnection(
-                    base_dir=Path(config.base_path) / "events"
-                ),
-                file_connection=FSFileConnection(base_dir=Path(config.base_path)),
+                events_connection=FSFileConnection(base_dir=events_folder),
+                file_connection=FSFileConnection(base_dir=Path(config.syftbox_folder)),
             )
 
     def process_local_file_changes(self) -> List[FileChangeEvent]:
         new_events = []
         for path, content in self.file_connection.get_items():
+            if path.startswith("private"):
+                continue
             current_hash = get_event_hash_from_content(content)
             if current_hash != self.file_hashes.get(path, None):
                 timestamp = create_event_timestamp()

@@ -17,12 +17,15 @@ FOLDER_NAME = "syft_datasets"
 METADATA_FILENAME = "dataset.yaml"
 
 
-    
-
 class SyftDatasetManager:
     def __init__(self, syftbox_folder_path: PathLike, email: str):
-        self.syftbox_config = SyftBoxConfig(syftbox_folder=to_path(syftbox_folder_path), email=email)
+        self.syftbox_config = SyftBoxConfig(
+            syftbox_folder=to_path(syftbox_folder_path), email=email
+        )
 
+    @classmethod
+    def from_config(cls, config: SyftBoxConfig) -> Self:
+        return cls(syftbox_folder_path=config.syftbox_folder, email=config.email)
 
     def public_dir_for_datasite(self, datasite: str) -> Path:
         dir = self.syftbox_config.datasites / datasite / "public" / FOLDER_NAME

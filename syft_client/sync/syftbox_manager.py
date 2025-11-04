@@ -1,5 +1,7 @@
 from pathlib import Path
 from pydantic import ConfigDict
+from syft_datasets.config import SyftBoxConfig
+from syft_datasets.dataset_manager import SyftDatasetManager
 from syft_client.sync.utils.print_utils import print_peer_added
 from syft_client.sync.platforms.base_platform import BasePlatform
 from pydantic import BaseModel, Field
@@ -41,13 +43,13 @@ from syft_client.sync.sync.proposed_file_change_pusher import (
 )
 from syft_client.sync.sync.datasite_outbox_puller import DatasiteOutboxPullerConfig
 
-COLAB_BASE_PATH = Path("/")
-JUPYTER_BASE_PATH = Path.home() / "SyftBox"
+COLAB_DEFAULT_SYFTBOX_FOLDER = Path("/")
+JUPYTER_DEFAULT_SYFTBOX_FOLDER = Path.home() / "SyftBox"
 
 
 class SyftboxManagerConfig(BaseModel):
     email: str
-    base_path: Path
+    syftbox_folder: Path
     write_files: bool = True
     only_ds: bool = False
     only_datasite_owner: bool = False
@@ -57,6 +59,7 @@ class SyftboxManagerConfig(BaseModel):
 
     proposed_file_change_pusher_config: ProposedFileChangePusherConfig
     datasite_outbox_puller_config: DatasiteOutboxPullerConfig
+    dataset_manager_config: SyftBoxConfig
 
     @classmethod
     def for_colab(
@@ -67,35 +70,39 @@ class SyftboxManagerConfig(BaseModel):
                 "At least one of only_ds or only_datasite_owner must be True"
             )
 
-        base_path = COLAB_BASE_PATH
+        syftbox_folder = COLAB_DEFAULT_SYFTBOX_FOLDER
         use_in_memory_cache = False
         connection_configs = [GdriveConnectionConfig(email=email, token_path=None)]
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
             email=email,
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
-                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+                use_in_memory_cache=use_in_memory_cache, syftbox_folder=syftbox_folder
             ),
         )
         proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
-            base_path=base_path,
+            syftbox_folder=syftbox_folder,
             email=email,
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
-                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+                use_in_memory_cache=use_in_memory_cache, syftbox_folder=syftbox_folder
             ),
         )
         datasite_outbox_puller_config = DatasiteOutboxPullerConfig(
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
                 use_in_memory_cache=use_in_memory_cache,
-                base_path=base_path,
+                syftbox_folder=syftbox_folder,
                 connection_configs=connection_configs,
             ),
         )
+        dataset_manager_config = SyftBoxConfig(
+            syftbox_folder=syftbox_folder,
+            email=email,
+        )
         return cls(
             email=email,
-            base_path=base_path,
+            syftbox_folder=syftbox_folder,
             only_ds=only_ds,
             only_datasite_owner=only_datasite_owner,
             connection_configs=connection_configs,
@@ -103,6 +110,7 @@ class SyftboxManagerConfig(BaseModel):
             proposed_file_change_handler_config=proposed_file_change_handler_config,
             proposed_file_change_pusher_config=proposed_file_change_pusher_config,
             datasite_outbox_puller_config=datasite_outbox_puller_config,
+            dataset_manager_config=dataset_manager_config,
         )
 
     @classmethod
@@ -118,7 +126,7 @@ class SyftboxManagerConfig(BaseModel):
                 "At least one of only_ds or only_datasite_owner must be True"
             )
 
-        base_path = JUPYTER_BASE_PATH
+        syftbox_folder = JUPYTER_DEFAULT_SYFTBOX_FOLDER
 
         connection_configs = [
             GdriveConnectionConfig(email=email, token_path=token_path)
@@ -128,17 +136,17 @@ class SyftboxManagerConfig(BaseModel):
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
                 use_in_memory_cache=False,
-                base_path=base_path,
+                syftbox_folder=syftbox_folder,
                 connection_configs=connection_configs,
             ),
         )
         proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
-            base_path=base_path,
+            syftbox_folder=syftbox_folder,
             email=email,
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
                 use_in_memory_cache=False,
-                base_path=base_path,
+                syftbox_folder=syftbox_folder,
                 connection_configs=connection_configs,
             ),
         )
@@ -146,57 +154,68 @@ class SyftboxManagerConfig(BaseModel):
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
                 use_in_memory_cache=False,
-                base_path=base_path,
+                syftbox_folder=syftbox_folder,
                 connection_configs=connection_configs,
             ),
         )
+        dataset_manager_config = SyftBoxConfig(
+            syftbox_folder=syftbox_folder,
+            email=email,
+        )
         return cls(
             email=email,
-            base_path=base_path,
+            syftbox_folder=syftbox_folder,
             only_ds=only_ds,
             only_datasite_owner=only_datasite_owner,
             use_in_memory_cache=False,
             proposed_file_change_handler_config=proposed_file_change_handler_config,
             proposed_file_change_pusher_config=proposed_file_change_pusher_config,
             datasite_outbox_puller_config=datasite_outbox_puller_config,
+            dataset_manager_config=dataset_manager_config,
         )
 
     @classmethod
     def base_config_for_in_memory_connection(
         cls,
         email: str | None = None,
-        base_path: str | None = None,
+        syftbox_folder: str | None = None,
         write_files: bool = False,
         only_ds: bool = False,
         only_datasite_owner: bool = False,
         use_in_memory_cache: bool = True,
     ):
-        base_path = base_path or random_base_path_for_testing()
+        syftbox_folder = syftbox_folder or random_base_path_for_testing()
         email = email or random_email()
 
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
             email=email,
             write_files=write_files,
             cache_config=DataSiteOwnerEventCacheConfig(
-                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+                use_in_memory_cache=use_in_memory_cache, syftbox_folder=syftbox_folder
             ),
         )
         proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
             email=email,
-            base_path=base_path,
+            syftbox_folder=syftbox_folder,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
-                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+                use_in_memory_cache=use_in_memory_cache, syftbox_folder=syftbox_folder
             ),
         )
         datasite_outbox_puller_config = DatasiteOutboxPullerConfig(
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
-                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+                use_in_memory_cache=use_in_memory_cache, syftbox_folder=syftbox_folder
             ),
             connection_configs=[],
         )
+
+        dataset_manager_config = SyftBoxConfig(
+            syftbox_folder=syftbox_folder,
+            email=email,
+        )
+
         return cls(
             email=email,
-            base_path=base_path,
+            syftbox_folder=syftbox_folder,
             write_files=write_files,
             only_ds=only_ds,
             only_datasite_owner=only_datasite_owner,
@@ -204,6 +223,7 @@ class SyftboxManagerConfig(BaseModel):
             proposed_file_change_handler_config=proposed_file_change_handler_config,
             proposed_file_change_pusher_config=proposed_file_change_pusher_config,
             datasite_outbox_puller_config=datasite_outbox_puller_config,
+            dataset_manager_config=dataset_manager_config,
         )
 
     @classmethod
@@ -211,13 +231,13 @@ class SyftboxManagerConfig(BaseModel):
         cls,
         email: str,
         token_path: Path,
-        base_path: str | None = None,
+        syftbox_folder: str | None = None,
         write_files: bool = False,
         only_ds: bool = False,
         only_datasite_owner: bool = False,
         use_in_memory_cache: bool = True,
     ):
-        base_path = base_path or random_base_path_for_testing()
+        syftbox_folder = syftbox_folder or random_base_path_for_testing()
         email = email or random_email()
         connection_configs = [
             GdriveConnectionConfig(email=email, token_path=token_path)
@@ -226,16 +246,16 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
-                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+                use_in_memory_cache=use_in_memory_cache, syftbox_folder=syftbox_folder
             ),
         )
         proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
-            base_path=base_path,
+            syftbox_folder=syftbox_folder,
             email=email,
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
                 use_in_memory_cache=use_in_memory_cache,
-                base_path=base_path,
+                syftbox_folder=syftbox_folder,
                 connection_configs=connection_configs,
             ),
         )
@@ -243,13 +263,18 @@ class SyftboxManagerConfig(BaseModel):
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
                 use_in_memory_cache=use_in_memory_cache,
-                base_path=base_path,
+                syftbox_folder=syftbox_folder,
                 connection_configs=connection_configs,
             ),
         )
+
+        dataset_manager_config = SyftBoxConfig(
+            syftbox_folder=syftbox_folder,
+            email=email,
+        )
         return cls(
             email=email,
-            base_path=base_path,
+            syftbox_folder=syftbox_folder,
             write_files=write_files,
             proposed_file_change_handler_config=proposed_file_change_handler_config,
             proposed_file_change_pusher_config=proposed_file_change_pusher_config,
@@ -257,6 +282,7 @@ class SyftboxManagerConfig(BaseModel):
             only_ds=only_ds,
             only_datasite_owner=only_datasite_owner,
             use_in_memory_cache=False,
+            dataset_manager_config=dataset_manager_config,
         )
 
 
@@ -265,7 +291,7 @@ class SyftboxManager(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     file_writer: FileWriter
-    base_path: Path
+    syftbox_folder: Path
     email: str
     dev_mode: bool = False
     proposed_file_change_pusher: ProposedFileChangePusher | None = None
@@ -273,19 +299,22 @@ class SyftboxManager(BaseModel):
 
     proposed_file_change_handler: ProposedFileChangeHandler | None = None
     job_file_change_handler: JobFileChangeHandler | None = None
+    dataset_manager: SyftDatasetManager | None = None
 
     peers: PeerList = Field(default_factory=PeerList)
 
     @classmethod
     def from_config(cls, config: SyftboxManagerConfig):
         file_writer = FileWriter(
-            base_path=config.base_path, write_files=config.write_files
+            base_path=config.syftbox_folder, write_files=config.write_files
         )
 
         proposed_file_change_handler = None
         job_file_change_handler = None
         proposed_file_change_pusher = None
         datasite_outbox_puller = None
+
+        dataset_manager = SyftDatasetManager.from_config(config.dataset_manager_config)
 
         if config.only_datasite_owner:
             proposed_file_change_handler = ProposedFileChangeHandler.from_config(
@@ -303,13 +332,14 @@ class SyftboxManager(BaseModel):
             )
 
         manager_res = cls(
-            base_path=config.base_path,
+            syftbox_folder=config.syftbox_folder,
             email=config.email,
             file_writer=file_writer,
             proposed_file_change_handler=proposed_file_change_handler,
             job_file_change_handler=job_file_change_handler,
             proposed_file_change_pusher=proposed_file_change_pusher,
             datasite_outbox_puller=datasite_outbox_puller,
+            dataset_manager=dataset_manager,
         )
 
         return manager_res
@@ -359,7 +389,7 @@ class SyftboxManager(BaseModel):
     ):
         receiver_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=do_email,
-            base_path=base_path1,
+            syftbox_folder=base_path1,
             use_in_memory_cache=use_in_memory_cache,
             token_path=do_token_path,
             only_ds=False,
@@ -370,7 +400,7 @@ class SyftboxManager(BaseModel):
 
         sender_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=ds_email,
-            base_path=base_path2,
+            syftbox_folder=base_path2,
             use_in_memory_cache=use_in_memory_cache,
             token_path=ds_token_path,
             only_ds=True,
@@ -425,7 +455,7 @@ class SyftboxManager(BaseModel):
         # this doesnt contain the connections, as we need to set them after creation
         receiver_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email1,
-            base_path=base_path1,
+            syftbox_folder=base_path1,
             only_ds=False,
             only_datasite_owner=True,
             use_in_memory_cache=use_in_memory_cache,
@@ -435,7 +465,7 @@ class SyftboxManager(BaseModel):
 
         sender_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email2,
-            base_path=base_path2,
+            syftbox_folder=base_path2,
             only_ds=True,
             only_datasite_owner=False,
             use_in_memory_cache=use_in_memory_cache,
@@ -551,6 +581,19 @@ class SyftboxManager(BaseModel):
 
     def get_all_accepted_events_do(self) -> List[FileChangeEvent]:
         return self.proposed_file_change_handler.connection_router.get_all_accepted_events_do()
+
+    def create_dataset(self, *args, sync=True, **kwargs):
+        if self.dataset_manager is None:
+            raise ValueError("Dataset manager is not set")
+        self.dataset_manager.create(*args, **kwargs)
+        if sync:
+            self.sync()
+
+    @property
+    def datasets(self) -> SyftDatasetManager:
+        if self.dataset_manager is None:
+            raise ValueError("Dataset manager is not set")
+        return self.dataset_manager
 
     @property
     def connection_router(self) -> ConnectionRouter:

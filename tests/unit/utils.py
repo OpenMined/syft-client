@@ -1,6 +1,8 @@
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.events.file_change_event import FileChangeEventFileName
+from pathlib import Path
 import uuid
+import random
 from typing import List
 import time
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
@@ -49,3 +51,15 @@ def get_mock_proposed_events_messages(
     n_events: int = 2,
 ) -> List[ProposedFileChangesMessage]:
     return [mock_message(f"email@email.com/test{i}.job") for i in range(n_events)]
+
+
+def create_tmp_dataset_files():
+    tmp_dir = Path("/tmp/syft-datasets-testing") / str(random.randint(1, 1000000))
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    mock_path = tmp_dir / "mock.txt"
+    private_path = tmp_dir / "private.txt"
+    readme_path = tmp_dir / "readme.md"
+    mock_path.write_text("Hello, world!")
+    private_path.write_text("Hello, world!")
+    readme_path.write_text("Hello, world!")
+    return mock_path, private_path, readme_path

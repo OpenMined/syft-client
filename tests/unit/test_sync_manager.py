@@ -1,7 +1,9 @@
+from pathlib import Path
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlatform
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 import pytest
+from tests.unit.utils import create_tmp_dataset_files
 
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     ProposedEventFileOutdatedException,
@@ -237,3 +239,34 @@ def test_file_connections():
     ds_manager.sync()
 
     assert (syftbox_dir_ds / result_rel_path).exists()
+
+
+def test_datasets():
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+    do_manager.create_dataset(
+        name="my dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="This is a summary",
+        readme_path=readme_path,
+        tags=["tag1", "tag2"],
+    )
+
+    datasets = do_manager.datasets.get_all()
+    assert len(datasets) == 1
+    dataset = datasets[0]
+    print(dataset.mock_url)
+
+    ds_manager.sync()
+
+    assert len(ds_manager.datasets.get_all()) == 1
+
+    def has_file(root_dir, filename):
+        return any(p.name == filename for p in Path(root_dir).rglob("*"))
+
+    assert has_file(ds_manager.syftbox_folder, "mock.txt")
+    assert not has_file(ds_manager.syftbox_folder, "private.txt")

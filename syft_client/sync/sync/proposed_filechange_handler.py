@@ -48,6 +48,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
 
         if recompute_hashes:
             self.process_local_changes(recipients=peer_emails)
+
         # first, pull existing state
         for peer_email in peer_emails:
             while True:

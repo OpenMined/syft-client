@@ -16,7 +16,7 @@ SECONDS_BEFORE_SYNCING_DOWN = 0
 
 class DataSiteWatcherCacheConfig(BaseModel):
     use_in_memory_cache: bool = True
-    base_path: Path | None = None
+    syftbox_folder: Path | None = None
     events_base_path: Path | None = None
     connection_configs: List[ConnectionConfig] = []
 
@@ -57,13 +57,13 @@ class DataSiteWatcherCache(BaseModel):
             )
             return res
         else:
-            if config.base_path is None:
+            if config.syftbox_folder is None:
                 raise ValueError("base_path is required for non-in-memory cache")
             return cls(
                 events_connection=FSFileConnection(
-                    base_dir=Path(config.base_path) / "events"
+                    base_dir=Path(config.syftbox_folder) / "events"
                 ),
-                file_connection=FSFileConnection(base_dir=Path(config.base_path)),
+                file_connection=FSFileConnection(base_dir=Path(config.syftbox_folder)),
                 connection_router=ConnectionRouter.from_configs(
                     connection_configs=config.connection_configs
                 ),

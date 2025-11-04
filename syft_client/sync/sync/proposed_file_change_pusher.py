@@ -15,7 +15,7 @@ from syft_client.sync.sync.caches.datasite_watcher_cache import (
 
 
 class ProposedFileChangePusherConfig(BaseModel):
-    base_path: Path | None = None
+    syftbox_folder: Path | None = None
     email: str | None = None
     connection_configs: List[ConnectionConfig] = []
     datasite_watcher_cache_config: DataSiteWatcherCacheConfig = Field(
@@ -32,7 +32,7 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
     @classmethod
     def from_config(cls, config: ProposedFileChangePusherConfig):
         return cls(
-            base_path=config.base_path,
+            base_path=config.syftbox_folder,
             email=config.email,
             connection_router=ConnectionRouter.from_configs(config.connection_configs),
             datasite_watcher_cache=DataSiteWatcherCache.from_config(
