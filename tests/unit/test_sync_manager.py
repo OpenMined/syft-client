@@ -265,14 +265,8 @@ def test_datasets():
 
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
-    print(
-        do_manager.proposed_file_change_handler.event_cache.file_connection.get_keys()
-    )
 
     ds_manager.sync()
-    print(
-        ds_manager.datasite_outbox_puller.datasite_watcher_cache.file_connection.get_keys()
-    )
 
     assert len(ds_manager.datasets.get_all()) == 1
 
