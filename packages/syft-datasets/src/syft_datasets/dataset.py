@@ -99,7 +99,7 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
     def _url_to_path(self, url: SyftBoxURL) -> Path:
         return url.to_local_path(
-            datasites_path=self.syftbox_config.datasites,
+            syftbox_folder=self.syftbox_config.syftbox_folder,
         )
 
     @property

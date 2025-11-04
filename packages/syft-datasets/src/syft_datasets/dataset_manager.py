@@ -28,7 +28,7 @@ class SyftDatasetManager:
         return cls(syftbox_folder_path=config.syftbox_folder, email=config.email)
 
     def public_dir_for_datasite(self, datasite: str) -> Path:
-        dir = self.syftbox_config.datasites / datasite / "public" / FOLDER_NAME
+        dir = self.syftbox_config.syftbox_folder / datasite / "public" / FOLDER_NAME
         dir.mkdir(parents=True, exist_ok=True)
         return dir
 
@@ -177,13 +177,13 @@ class SyftDatasetManager:
         )
         mock_url = SyftBoxURL.from_path(
             path=mock_dir,
-            datasite_path=self.syftbox_config.datasites,
+            syftbox_folder=self.syftbox_config.syftbox_folder,
         )
         readme_url = None
         if readme_path:
             readme_url = SyftBoxURL.from_path(
                 path=mock_dir / readme_path.name,
-                datasite_path=self.syftbox_config.datasites,
+                syftbox_folder=self.syftbox_config.syftbox_folder,
             )
 
         dataset = Dataset(
@@ -254,8 +254,11 @@ class SyftDatasetManager:
         if datasite:
             datasites_to_check = [datasite]
         else:
-            ds_folder = self.syftbox_config.datasites
-            datasites_to_check = [ds.name for ds in ds_folder.iterdir() if ds.is_dir()]
+            syftbox_folder = self.syftbox_config.syftbox_folder
+            # All directories with "@" in the name are peer/owner email directories
+            datasites_to_check = [
+                d.name for d in syftbox_folder.iterdir() if d.is_dir() and "@" in d.name
+            ]
 
         for datasite in datasites_to_check:
             public_datasets_dir = self.public_dir_for_datasite(datasite)

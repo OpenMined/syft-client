@@ -9,13 +9,9 @@ class SyftBoxConfig(BaseModel):
     email: str = Field(..., description="Email associated with the SyftBox.")
 
     @property
-    def datasites(self) -> Path:
-        return self.syftbox_folder / "datasites"
-
-    @property
     def private_dir(self) -> Path:
         return self.syftbox_folder / "private"
 
     @property
     def public_dir(self) -> Path:
-        return self.datasites / self.email / "public"
+        return self.syftbox_folder / self.email / "public"

@@ -52,18 +52,18 @@ class SyftBoxURL(str):
         """Returns the path component after the email."""
         return self.parsed.path
 
-    def to_local_path(self, datasites_path: PathLike) -> Path:
+    def to_local_path(self, syftbox_folder: PathLike) -> Path:
         """
         Converts the SyftBoxURL to a local file system path.
 
         Args:
-            datasites_path (Path): Base directory for datasites.
+            syftbox_folder (Path): Base SyftBox directory.
 
         Returns:
             Path: Local file system path.
         """
-        # Remove the protocol and prepend the datasites_path
-        local_path = to_path(datasites_path) / self.host / self.path.lstrip("/")
+        # Remove the protocol and prepend the syftbox_folder
+        local_path = to_path(syftbox_folder) / self.host / self.path.lstrip("/")
         return local_path.resolve()
 
     def as_http_params(self) -> Dict[str, str]:
@@ -81,8 +81,8 @@ class SyftBoxURL(str):
         return http_url
 
     @classmethod
-    def from_path(cls, path: PathLike, datasite_path: PathLike) -> Self:
-        rel_path = to_path(path).relative_to(to_path(datasite_path))
+    def from_path(cls, path: PathLike, syftbox_folder: PathLike) -> Self:
+        rel_path = to_path(path).relative_to(to_path(syftbox_folder))
         # convert to posix path to make it work on Windows OS
         rel_path = rel_path.as_posix()
         return cls(f"syft://{rel_path}")
