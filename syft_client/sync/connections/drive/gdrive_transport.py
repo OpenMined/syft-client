@@ -4,7 +4,7 @@ import io
 import json
 from pathlib import Path
 import pickle
-from syft_client.sync.syftbox_utils import check_env
+from syft_client.sync.utils.syftbox_utils import check_env
 from typing import Any, Dict, List, Optional, Tuple
 from typing import TYPE_CHECKING
 
@@ -286,6 +286,10 @@ class GDriveConnection(SyftboxPlatformConnection):
         event_data = event.as_compressed_data()
 
         outbox_folder_id = self._get_do_outbox_folder_id(recipient)
+
+        if outbox_folder_id is None:
+            raise ValueError(f"Outbox folder for {recipient} not found")
+
         file_payload, _ = self.create_file_payload(event_data)
 
         file_metadata = {

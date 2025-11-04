@@ -1,12 +1,33 @@
 from pydantic import BaseModel
 from typing import List
-from syft_client.sync.connections.base_connection import SyftboxPlatformConnection
+from syft_client.sync.connections.base_connection import (
+    SyftboxPlatformConnection,
+    ConnectionConfig,
+)
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
+from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
+from syft_client.sync.peers.peer import Peer
+from syft_client.sync.utils.print_utils import (
+    print_peer_adding_to_platform,
+    print_peer_added_to_platform,
+)
 
 
 class ConnectionRouter(BaseModel):
     connections: List[SyftboxPlatformConnection]
+
+    @classmethod
+    def from_configs(cls, connection_configs: List[ConnectionConfig]):
+        return cls(
+            connections=[
+                SyftboxPlatformConnection.from_config(config)
+                for config in connection_configs
+            ]
+        )
+
+    def add_connection(self, connection: SyftboxPlatformConnection):
+        self.connections.append(connection)
 
     def connection_for_send_message(self) -> SyftboxPlatformConnection:
         return self.connections[0]
@@ -35,13 +56,31 @@ class ConnectionRouter(BaseModel):
             recipient, proposed_file_changes_message
         )
 
-    def add_peer_as_do(self, peer_email: str):
+    def add_peer_as_do(self, peer_email: str, verbose: bool = True) -> Peer:
         connection = self.connection_for_send_message()
+        platform = GdriveFilesPlatform()
+
+        if verbose:
+            print_peer_adding_to_platform(peer_email, platform.module_path)
+
         connection.add_peer_as_do(peer_email=peer_email)
 
-    def add_peer_as_ds(self, peer_email: str):
+        if verbose:
+            print_peer_added_to_platform(peer_email, platform.module_path)
+        return Peer(email=peer_email, platforms=[platform])
+
+    def add_peer_as_ds(self, peer_email: str, verbose: bool = True) -> Peer:
         connection = self.connection_for_receive_message()
+        platform = GdriveFilesPlatform()
+
+        if verbose:
+            print_peer_adding_to_platform(peer_email, platform.module_path)
+
         connection.add_peer_as_ds(peer_email=peer_email)
+
+        if verbose:
+            print_peer_added_to_platform(peer_email, platform.module_path)
+        return Peer(email=peer_email, platforms=[platform])
 
     def delete_syftbox(self):
         connection = self.connection_for_own_syftbox()
@@ -67,13 +106,21 @@ class ConnectionRouter(BaseModel):
             sender_email=sender_email
         )
 
-    def get_peers_as_do(self) -> List[str]:
+    def get_peers_as_do(self) -> List[Peer]:
         connection = self.connection_for_send_message()
-        return connection.get_peers_as_do()
+        peer_emails = connection.get_peers_as_do()
+        return [
+            Peer(email=peer_email, platforms=[GdriveFilesPlatform()])
+            for peer_email in peer_emails
+        ]
 
-    def get_peers_as_ds(self) -> List[str]:
+    def get_peers_as_ds(self) -> List[Peer]:
         connection = self.connection_for_receive_message()
-        return connection.get_peers_as_ds()
+        peer_emails = connection.get_peers_as_ds()
+        return [
+            Peer(email=peer_email, platforms=[GdriveFilesPlatform()])
+            for peer_email in peer_emails
+        ]
 
     def remove_proposed_filechange_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage
