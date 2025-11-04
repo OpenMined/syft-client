@@ -258,12 +258,16 @@ def test_datasets():
 
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
-    dataset = datasets[0]
-    print(dataset.mock_url)
+    datasets[0]
 
     ds_manager.sync()
 
     assert len(ds_manager.datasets.get_all()) == 1
+
+    dataset_ds = ds_manager.datasets.get("my dataset", datasite=do_manager.email)
+
+    mock_content_ds = (dataset_ds.mock_dir / "mock.txt").read_text()
+    assert len(mock_content_ds) > 0
 
     def has_file(root_dir, filename):
         return any(p.name == filename for p in Path(root_dir).rglob("*"))
