@@ -203,15 +203,6 @@ css = [
 ]
 
 [[package]]
-name = "bracex"
-version = "2.6"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/63/9a/fec38644694abfaaeca2798b58e276a8e61de49e2e37494ace423395febc/bracex-2.6.tar.gz", hash = "sha256:98f1347cd77e22ee8d967a30ad4e310b233f7754dbf31ff3fceb76145ba47dc7", size = 26642 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/2a/9186535ce58db529927f6cf5990a849aa9e052eea3e2cfefe20b9e1802da/bracex-2.6-py3-none-any.whl", hash = "sha256:0b0049264e7340b3ec782b5cb99beb325f36c3782a32e36e876452fd49a09952", size = 11508 },
-]
-
-[[package]]
 name = "cachetools"
 version = "6.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2503,36 +2494,27 @@ requires-dist = [
 provides-extras = ["job", "test", "dev", "all"]
 
 [[package]]
-name = "syft-core"
-version = "0.3.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic", extra = ["email"] },
-    { name = "pyyaml" },
-    { name = "typing-extensions" },
-    { name = "wcmatch" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/51/11/b8d839523c6dff526b11d238796858bf70b4c6d4c20f41259c2296a7d252/syft_core-0.3.0.tar.gz", hash = "sha256:aee35660c3b5190add2cc8c5af655c03af8d413dd30e060eefcd54baa98eeb58", size = 17509 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b1/3f/54732f87c6fff25abdc690348a681a7fd1583ba058c61e625259adaf1f8d/syft_core-0.3.0-py3-none-any.whl", hash = "sha256:407362c44c5a028f012db99c720bdcaa497908bcf40fa18b67a4fb4e0702f51e", size = 14570 },
-]
-
-[[package]]
 name = "syft-datasets"
 version = "0.1.0"
 source = { editable = "packages/syft-datasets" }
 dependencies = [
     { name = "pyyaml" },
-    { name = "syft-core" },
     { name = "syft-notebook-ui" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ipykernel" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "syft-core" },
     { name = "syft-notebook-ui", editable = "packages/syft-notebook-ui" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ipykernel", specifier = ">=7.1.0" }]
 
 [[package]]
 name = "syft-job"
@@ -2868,18 +2850,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4f/55/2af26693fd15165c4ff7857e38330e1b61ab8c37d15dc79118cdba115b7a/watchfiles-1.1.1-cp314-cp314t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8c91ed27800188c2ae96d16e3149f199d62f86c7af5f5f4d2c61a3ed8cd3666c", size = 455072 },
     { url = "https://files.pythonhosted.org/packages/66/1d/d0d200b10c9311ec25d2273f8aad8c3ef7cc7ea11808022501811208a750/watchfiles-1.1.1-cp314-cp314t-musllinux_1_1_aarch64.whl", hash = "sha256:311ff15a0bae3714ffb603e6ba6dbfba4065ab60865d15a6ec544133bdb21099", size = 629104 },
     { url = "https://files.pythonhosted.org/packages/e3/bd/fa9bb053192491b3867ba07d2343d9f2252e00811567d30ae8d0f78136fe/watchfiles-1.1.1-cp314-cp314t-musllinux_1_1_x86_64.whl", hash = "sha256:a916a2932da8f8ab582f242c065f5c81bed3462849ca79ee357dd9551b0e9b01", size = 622112 },
-]
-
-[[package]]
-name = "wcmatch"
-version = "10.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "bracex" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/41/ab/b3a52228538ccb983653c446c1656eddf1d5303b9cb8b9aef6a91299f862/wcmatch-10.0.tar.gz", hash = "sha256:e72f0de09bba6a04e0de70937b0cf06e55f36f37b3deb422dfaf854b867b840a", size = 115578 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/df/4ee467ab39cc1de4b852c212c1ed3becfec2e486a51ac1ce0091f85f38d7/wcmatch-10.0-py3-none-any.whl", hash = "sha256:0dd927072d03c0a6527a20d2e6ad5ba8d0380e60870c383bc533b71744df7b7a", size = 39347 },
 ]
 
 [[package]]

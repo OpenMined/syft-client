@@ -25,7 +25,7 @@ class SyftDatasetManager:
 
 
     def public_dir_for_datasite(self, datasite: str) -> Path:
-        dir = self.syftbox_config.public_dir / FOLDER_NAME
+        dir = self.syftbox_config.datasites / datasite / "public" / FOLDER_NAME
         dir.mkdir(parents=True, exist_ok=True)
         return dir
 
@@ -170,7 +170,7 @@ class SyftDatasetManager:
 
         mock_dir = self.get_mock_dataset_dir(
             dataset_name=name,
-            datasite=self.syftbox_config.syftbox_folder,
+            datasite=self.syftbox_config.email,
         )
         mock_url = SyftBoxURL.from_path(
             path=mock_dir,
