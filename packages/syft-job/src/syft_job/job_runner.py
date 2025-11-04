@@ -26,6 +26,10 @@ class SyftJobRunner:
         # Ensure directory structure exists for the root user
         self._ensure_root_user_directories()
 
+    @classmethod
+    def from_config(cls, config: SyftJobConfig) -> "SyftJobRunner":
+        return cls(config)
+
     def _ensure_root_user_directories(self) -> None:
         """Ensure job directory structure exists for the root user."""
         root_email = self.config.email
@@ -220,7 +224,7 @@ class SyftJobRunner:
 
             # Prepare environment variables
             env = os.environ.copy()
-            env["SYFTBOX_FOLDER"] = str(self.config.syftbox_folder)
+            env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
 
             # Execute run.sh and capture output
             result = subprocess.run(
@@ -282,9 +286,9 @@ class SyftJobRunner:
         print(f"📋 Found {len(approved_jobs)} job(s) in approved directory")
 
         for job_name in approved_jobs:
-            print(f"\n{'='*50}")
+            print(f"\n{'=' * 50}")
             self._execute_job(job_name)
-            print(f"{'='*50}")
+            print(f"{'=' * 50}")
 
         if approved_jobs:
             print(f"\n✅ Processed {len(approved_jobs)} job(s)")

@@ -24,7 +24,7 @@ class ProposedFileChangePusherConfig(BaseModel):
 
 
 class ProposedFileChangePusher(BaseModelCallbackMixin):
-    base_path: Path
+    syftbox_folder: Path
     email: str
     connection_router: ConnectionRouter
     datasite_watcher_cache: DataSiteWatcherCache
@@ -32,7 +32,7 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
     @classmethod
     def from_config(cls, config: ProposedFileChangePusherConfig):
         return cls(
-            base_path=config.syftbox_folder,
+            syftbox_folder=config.syftbox_folder,
             email=config.email,
             connection_router=ConnectionRouter.from_configs(config.connection_configs),
             datasite_watcher_cache=DataSiteWatcherCache.from_config(
@@ -41,21 +41,34 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
         )
 
     def get_proposed_file_change_object(
-        self, path: str, content: str
+        self, relative_path: Path, content: str
     ) -> ProposedFileChange:
-        old_hash = self.datasite_watcher_cache.current_hash_for_file(path)
-        return ProposedFileChange(path=path, content=content, old_hash=old_hash)
+        old_hash = self.datasite_watcher_cache.current_hash_for_file(relative_path)
+        return ProposedFileChange(
+            datasite_email=self.email,
+            path_in_datasite=relative_path,
+            content=content,
+            old_hash=old_hash,
+        )
 
-    def on_file_change(self, path: str, content: str | None = None):
+    def on_file_change(self, relative_path: Path | str, content: str | None = None):
+        relative_path = Path(relative_path)
+
         # for in memory connection we pass content directly
         if content is None:
-            with open(self.base_path / path, "r") as f:
+            with open(self.syftbox_folder / relative_path, "r") as f:
                 content = f.read()
 
-        splitted = path.split("/")
+        # splitted = relative_path.split("/")
+
+        datasite_email = relative_path.parts[0]
+        path_in_datasite = (
+            Path(*relative_path.parts[1:]) if len(relative_path.parts) > 1 else Path()
+        )
+
         # TODO: add some better parsing logic here
-        recipient = splitted[0]
-        path_in_datasite = path
+        recipient = datasite_email
+        path_in_datasite = path_in_datasite
 
         file_change = self.get_proposed_file_change_object(path_in_datasite, content)
         message = ProposedFileChangesMessage(

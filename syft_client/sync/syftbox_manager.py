@@ -1,5 +1,8 @@
 from pathlib import Path
 from pydantic import ConfigDict
+from syft_job.client import JobClient
+from syft_job.job_runner import SyftJobRunner
+from syft_job import SyftJobConfig
 from syft_datasets.config import SyftBoxConfig
 from syft_datasets.dataset_manager import SyftDatasetManager
 from syft_client.sync.utils.print_utils import print_peer_added
@@ -20,7 +23,7 @@ from syft_client.sync.connections.base_connection import (
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.utils.syftbox_utils import (
     random_email,
-    random_base_path_for_testing,
+    random_syftbox_folder_for_testing,
 )
 from syft_client.sync.file_writer import FileWriter
 
@@ -60,6 +63,7 @@ class SyftboxManagerConfig(BaseModel):
     proposed_file_change_pusher_config: ProposedFileChangePusherConfig
     datasite_outbox_puller_config: DatasiteOutboxPullerConfig
     dataset_manager_config: SyftBoxConfig
+    job_client_config: SyftJobConfig
 
     @classmethod
     def for_colab(
@@ -77,7 +81,9 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
-                use_in_memory_cache=use_in_memory_cache, syftbox_folder=syftbox_folder
+                email=email,
+                use_in_memory_cache=use_in_memory_cache,
+                syftbox_folder=syftbox_folder,
             ),
         )
         proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
@@ -96,6 +102,10 @@ class SyftboxManagerConfig(BaseModel):
                 connection_configs=connection_configs,
             ),
         )
+        job_client_config = SyftJobConfig(
+            syftbox_folder=syftbox_folder,
+            email=email,
+        )
         dataset_manager_config = SyftBoxConfig(
             syftbox_folder=syftbox_folder,
             email=email,
@@ -111,6 +121,7 @@ class SyftboxManagerConfig(BaseModel):
             proposed_file_change_pusher_config=proposed_file_change_pusher_config,
             datasite_outbox_puller_config=datasite_outbox_puller_config,
             dataset_manager_config=dataset_manager_config,
+            job_client_config=job_client_config,
         )
 
     @classmethod
@@ -135,6 +146,7 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
+                email=email,
                 use_in_memory_cache=False,
                 syftbox_folder=syftbox_folder,
                 connection_configs=connection_configs,
@@ -162,6 +174,10 @@ class SyftboxManagerConfig(BaseModel):
             syftbox_folder=syftbox_folder,
             email=email,
         )
+        job_client_config = SyftJobConfig(
+            syftbox_folder=syftbox_folder,
+            email=email,
+        )
         return cls(
             email=email,
             syftbox_folder=syftbox_folder,
@@ -172,26 +188,29 @@ class SyftboxManagerConfig(BaseModel):
             proposed_file_change_pusher_config=proposed_file_change_pusher_config,
             datasite_outbox_puller_config=datasite_outbox_puller_config,
             dataset_manager_config=dataset_manager_config,
+            job_client_config=job_client_config,
         )
 
     @classmethod
     def base_config_for_in_memory_connection(
         cls,
         email: str | None = None,
-        syftbox_folder: str | None = None,
+        syftbox_folder: Path | None = None,
         write_files: bool = False,
         only_ds: bool = False,
         only_datasite_owner: bool = False,
         use_in_memory_cache: bool = True,
     ):
-        syftbox_folder = syftbox_folder or random_base_path_for_testing()
+        syftbox_folder = syftbox_folder or random_syftbox_folder_for_testing()
         email = email or random_email()
 
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
             email=email,
             write_files=write_files,
             cache_config=DataSiteOwnerEventCacheConfig(
-                use_in_memory_cache=use_in_memory_cache, syftbox_folder=syftbox_folder
+                email=email,
+                use_in_memory_cache=use_in_memory_cache,
+                syftbox_folder=syftbox_folder,
             ),
         )
         proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
@@ -212,6 +231,10 @@ class SyftboxManagerConfig(BaseModel):
             syftbox_folder=syftbox_folder,
             email=email,
         )
+        job_client_config = SyftJobConfig(
+            syftbox_folder=Path(syftbox_folder),
+            email=email,
+        )
 
         return cls(
             email=email,
@@ -224,6 +247,7 @@ class SyftboxManagerConfig(BaseModel):
             proposed_file_change_pusher_config=proposed_file_change_pusher_config,
             datasite_outbox_puller_config=datasite_outbox_puller_config,
             dataset_manager_config=dataset_manager_config,
+            job_client_config=job_client_config,
         )
 
     @classmethod
@@ -237,7 +261,7 @@ class SyftboxManagerConfig(BaseModel):
         only_datasite_owner: bool = False,
         use_in_memory_cache: bool = True,
     ):
-        syftbox_folder = syftbox_folder or random_base_path_for_testing()
+        syftbox_folder = syftbox_folder or random_syftbox_folder_for_testing()
         email = email or random_email()
         connection_configs = [
             GdriveConnectionConfig(email=email, token_path=token_path)
@@ -246,7 +270,9 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
-                use_in_memory_cache=use_in_memory_cache, syftbox_folder=syftbox_folder
+                email=email,
+                use_in_memory_cache=use_in_memory_cache,
+                syftbox_folder=syftbox_folder,
             ),
         )
         proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
@@ -272,6 +298,10 @@ class SyftboxManagerConfig(BaseModel):
             syftbox_folder=syftbox_folder,
             email=email,
         )
+        job_client_config = SyftJobConfig(
+            syftbox_folder=syftbox_folder,
+            email=email,
+        )
         return cls(
             email=email,
             syftbox_folder=syftbox_folder,
@@ -283,6 +313,7 @@ class SyftboxManagerConfig(BaseModel):
             only_datasite_owner=only_datasite_owner,
             use_in_memory_cache=False,
             dataset_manager_config=dataset_manager_config,
+            job_client_config=job_client_config,
         )
 
 
@@ -300,6 +331,8 @@ class SyftboxManager(BaseModel):
     proposed_file_change_handler: ProposedFileChangeHandler | None = None
     job_file_change_handler: JobFileChangeHandler | None = None
     dataset_manager: SyftDatasetManager | None = None
+    job_client: JobClient | None = None
+    job_runner: SyftJobRunner | None = None
 
     peers: PeerList = Field(default_factory=PeerList)
 
@@ -313,8 +346,10 @@ class SyftboxManager(BaseModel):
         job_file_change_handler = None
         proposed_file_change_pusher = None
         datasite_outbox_puller = None
+        job_runner = None
 
         dataset_manager = SyftDatasetManager.from_config(config.dataset_manager_config)
+        job_client = JobClient.from_config(config.job_client_config)
 
         if config.only_datasite_owner:
             proposed_file_change_handler = ProposedFileChangeHandler.from_config(
@@ -322,6 +357,7 @@ class SyftboxManager(BaseModel):
             )
 
             job_file_change_handler = JobFileChangeHandler()
+            job_runner = SyftJobRunner.from_config(config.job_client_config)
 
         if not config.only_datasite_owner:
             proposed_file_change_pusher = ProposedFileChangePusher.from_config(
@@ -340,6 +376,8 @@ class SyftboxManager(BaseModel):
             proposed_file_change_pusher=proposed_file_change_pusher,
             datasite_outbox_puller=datasite_outbox_puller,
             dataset_manager=dataset_manager,
+            job_client=job_client,
+            job_runner=job_runner,
         )
 
         return manager_res
@@ -533,6 +571,21 @@ class SyftboxManager(BaseModel):
             self.peers.append(peer)
             print_peer_added(peer)
 
+    def submit_bash_job(self, *args, sync=True, **kwargs):
+        job_dir = self.job_client.submit_bash_job(*args, **kwargs)
+        self.push_job_files(job_dir)
+
+    def submit_python_job(self, *args, sync=True, **kwargs):
+        job_dir = self.job_client.submit_python_job(*args, **kwargs)
+        self.push_job_files(job_dir)
+
+    def push_job_files(self, job_dir: Path):
+        file_paths = [Path(p) for p in job_dir.rglob("*")]
+        relative_file_paths = [p.relative_to(self.syftbox_folder) for p in file_paths]
+
+        for relative_file_path in relative_file_paths:
+            self.proposed_file_change_pusher.on_file_change(relative_file_path)
+
     @property
     def is_do(self) -> bool:
         return self.proposed_file_change_handler is not None
@@ -576,7 +629,7 @@ class SyftboxManager(BaseModel):
             )
             self.datasite_outbox_puller.connection_router.add_connection(connection)
 
-    def send_file_change(self, path: str, content: str):
+    def send_file_change(self, path: str | Path, content: str):
         self.file_writer.write_file(path, content)
 
     def get_all_accepted_events_do(self) -> List[FileChangeEvent]:
