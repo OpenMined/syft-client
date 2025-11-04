@@ -1,5 +1,5 @@
 /* Dark mode support */
-body[data-jp-theme-light="false"],
+body[data-jp-theme-light='false'],
 body.vscode-dark {
   --primary-color: #111111;
   --secondary-color: #212121;
@@ -21,7 +21,7 @@ body {
 }
 
 .model-container {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
     Arial, sans-serif;
   border: 1px solid var(--border-color);
   border-radius: 6px;
@@ -112,7 +112,7 @@ body {
 
 /* Add custom arrow for the summary */
 .code-section details summary::before {
-  content: "▶";
+  content: '▶';
   display: inline-block;
   margin-right: 8px;
   transition: transform 0.2s;
@@ -130,7 +130,7 @@ body {
   background-color: var(--surface-color);
   border-radius: 3px;
   border: 1px solid var(--border-color);
-  font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 12px;
   line-height: 1.4;
 }
