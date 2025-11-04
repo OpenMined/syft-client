@@ -10,7 +10,7 @@ from typing_extensions import Literal
 from syft_datasets.dataset import Dataset, PrivateDatasetConfig
 from syft_datasets.file_utils import copy_dir_contents, copy_paths, is_empty_dir
 
-from syft_core import SyftBoxURL
+from .url import SyftBoxURL
 from .config import SyftBoxConfig
 
 FOLDER_NAME = "syft_datasets"
@@ -174,13 +174,13 @@ class SyftDatasetManager:
         )
         mock_url = SyftBoxURL.from_path(
             path=mock_dir,
-            workspace=self.syftbox_config.syftbox_folder,
+            datasite_path=self.syftbox_config.datasites,
         )
         readme_url = None
         if readme_path:
             readme_url = SyftBoxURL.from_path(
                 path=mock_dir / readme_path.name,
-                workspace=self.syftbox_config.syftbox_folder,
+                datasite_path=self.syftbox_config.datasites,
             )
 
         dataset = Dataset(

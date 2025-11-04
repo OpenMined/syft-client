@@ -13,7 +13,7 @@ from syft_notebook_ui.formatter_mixin import (
 )
 
 from .types import PathLike, to_path
-from syft_core import SyftBoxURL
+from .url import SyftBoxURL
 from .config import SyftBoxConfig
 
 
@@ -153,7 +153,7 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
         # TODO add 'private' to sb workspace
         private_datasets_dir = (
-            self.syftbox_config.workspace.data_dir
+            self.syftbox_config.syftbox_folder
             / "private"
             / self.syftbox_config.email
             / "syft_datasets"
