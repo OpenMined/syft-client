@@ -32,6 +32,11 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         default_factory=InMemoryBackingPlatform
     )
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, InMemoryPlatformConnection):
+            return False
+        return self.owner_email == other.owner_email
+
     @classmethod
     def from_config(
         cls,

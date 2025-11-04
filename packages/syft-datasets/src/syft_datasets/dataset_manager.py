@@ -10,28 +10,22 @@ from typing_extensions import Literal
 from syft_datasets.dataset import Dataset, PrivateDatasetConfig
 from syft_datasets.file_utils import copy_dir_contents, copy_paths, is_empty_dir
 
-from pydantic import BaseModel, Field
+from .url import SyftBoxURL
+from .config import SyftBoxConfig
 
 FOLDER_NAME = "syft_datasets"
 METADATA_FILENAME = "dataset.yaml"
 
-class SyftBoxConfig(BaseModel):
-    syftbox_folder: Path = Field(..., description="Path to the SyftBox folder on the local filesystem.")
-
-    def datasites(self) -> Path:
-        return self.syftbox_folder / "datasites"
-    
-    
 
     
 
 class SyftDatasetManager:
-    def __init__(self, syftbox_folder_path: PathLike):
-        self.config = SyftBoxConfig(syftbox_folder=to_path(syftbox_folder_path))
+    def __init__(self, syftbox_folder_path: PathLike, email: str):
+        self.syftbox_config = SyftBoxConfig(syftbox_folder=to_path(syftbox_folder_path), email=email)
 
 
     def public_dir_for_datasite(self, datasite: str) -> Path:
-        dir = self.config.datasites / datasite / "public" / FOLDER_NAME
+        dir = self.syftbox_config.datasites / datasite / "public" / FOLDER_NAME
         dir.mkdir(parents=True, exist_ok=True)
         return dir
 
@@ -176,17 +170,17 @@ class SyftDatasetManager:
 
         mock_dir = self.get_mock_dataset_dir(
             dataset_name=name,
-            datasite=self.config.syftbox_folder,
+            datasite=self.syftbox_config.email,
         )
         mock_url = SyftBoxURL.from_path(
             path=mock_dir,
-            workspace=self.syftbox_client.workspace,
+            datasite_path=self.syftbox_config.datasites,
         )
         readme_url = None
         if readme_path:
             readme_url = SyftBoxURL.from_path(
                 path=mock_dir / readme_path.name,
-                workspace=self.syftbox_client.workspace,
+                datasite_path=self.syftbox_config.datasites,
             )
 
         dataset = Dataset(
@@ -197,7 +191,7 @@ class SyftDatasetManager:
             location=location,
             tags=tags,
         )
-        dataset._syftbox_client = self.syftbox_client
+        dataset._syftbox_config = self.syftbox_config
 
         self._prepare_mock_data(
             dataset=dataset,
@@ -230,11 +224,11 @@ class SyftDatasetManager:
 
         return Dataset.load(
             filepath=metadata_path,
-            syftbox_client=self.syftbox_client,
+            syftbox_config=self.syftbox_config,
         )
 
     def get(self, name: str, datasite: str | None = None) -> Dataset:
-        datasite = datasite or self.syftbox_client.email
+        datasite = datasite or self.syftbox_config.email
         mock_dir = self.get_mock_dataset_dir(
             dataset_name=name,
             datasite=datasite,
@@ -257,7 +251,7 @@ class SyftDatasetManager:
         if datasite:
             datasites_to_check = [datasite]
         else:
-            ds_folder = self.syftbox_client.datasites
+            ds_folder = self.syftbox_config.datasites
             datasites_to_check = [ds.name for ds in ds_folder.iterdir() if ds.is_dir()]
 
         for datasite in datasites_to_check:
@@ -291,9 +285,9 @@ class SyftDatasetManager:
         datasite: str | None = None,
         require_confirmation: bool = True,
     ) -> None:
-        datasite = datasite or self.syftbox_client.email
+        datasite = datasite or self.syftbox_config.email
 
-        if datasite != self.syftbox_client.email:
+        if datasite != self.syftbox_config.email:
             # NOTE this check is easily bypassed, but bypassing does not have any effect.
             # When bypassed, the dataset will be restored because the user only has
             # read access to someone else's datasite.

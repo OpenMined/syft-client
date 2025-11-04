@@ -13,6 +13,8 @@ from syft_notebook_ui.formatter_mixin import (
 )
 
 from .types import PathLike, to_path
+from .url import SyftBoxURL
+from .config import SyftBoxConfig
 
 
 def _utcnow():
@@ -21,7 +23,7 @@ def _utcnow():
 
 class DatasetBase(BaseModel):
     __display_formatter__: ClassVar[PydanticFormatter] = ANSIPydanticFormatter()
-    _syftbox_client: SyftBoxClient | None = None
+    _syftbox_config: SyftBoxConfig | None = None
 
     def save(self, filepath: PathLike) -> None:
         filepath = to_path(filepath)
@@ -37,7 +39,7 @@ class DatasetBase(BaseModel):
 
     @classmethod
     def load(
-        cls, filepath: PathLike, syftbox_client: SyftBoxClient | None = None
+        cls, filepath: PathLike, syftbox_config: SyftBoxConfig | None = None
     ) -> Self:
         filepath = to_path(filepath)
         if not filepath.exists():
@@ -45,7 +47,7 @@ class DatasetBase(BaseModel):
 
         data = yaml.safe_load(filepath.read_text())
         res = cls.model_validate(data)
-        res._syftbox_client = syftbox_client
+        res._syftbox_config = syftbox_config
         return res
 
     def __str__(self) -> str:
@@ -78,7 +80,6 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
     name: str
-    created_at: datetime
     summary: str | None = None
     tags: list[str] = []
     location: str | None = None
@@ -91,14 +92,14 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
         return self.mock_url.host
 
     @property
-    def syftbox_client(self) -> SyftBoxClient:
-        if self._syftbox_client is None:
-            raise ValueError("SyftBox client is not set.")
-        return self._syftbox_client
+    def syftbox_config(self) -> SyftBoxConfig:
+        if self._syftbox_config is None:
+            raise ValueError("SyftBox config is not set.")
+        return self._syftbox_config
 
     def _url_to_path(self, url: SyftBoxURL) -> Path:
         return url.to_local_path(
-            datasites_path=self.syftbox_client.datasites,
+            datasites_path=self.syftbox_config.datasites,
         )
 
     @property
@@ -119,7 +120,7 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
     @property
     def private_config_path(self) -> Path:
-        if self.syftbox_client.email != self.owner:
+        if self.syftbox_config.email != self.owner:
             raise ValueError(
                 "Cannot access private config for a dataset owned by another user."
             )
@@ -134,7 +135,7 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
             )
 
         return PrivateDatasetConfig.load(
-            filepath=config_path, syftbox_client=self._syftbox_client
+            filepath=config_path, syftbox_config=self._syftbox_config
         )
 
     @property
@@ -144,16 +145,16 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
     @property
     def _private_metadata_dir(self) -> Path:
-        if self.syftbox_client.email != self.owner:
+        if self.syftbox_config.email != self.owner:
             raise ValueError(
                 "Cannot access private data for a dataset owned by another user."
             )
 
         # TODO add 'private' to sb workspace
         private_datasets_dir = (
-            self.syftbox_client.workspace.data_dir
+            self.syftbox_config.syftbox_folder
             / "private"
-            / self.syftbox_client.email
+            / self.syftbox_config.email
             / "syft_datasets"
         )
 

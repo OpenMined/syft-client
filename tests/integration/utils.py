@@ -3,12 +3,13 @@ from syft_client.sync.events.file_change_event import FileChangeEventFileName
 import uuid
 import time
 from typing import List
+from syft_client.sync.utils.syftbox_utils import get_event_hash_from_content
 
 
 def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:
     file_path = path.split("/")[-1]
     content = "Hello, world!"
-    new_hash = hash(content)
+    new_hash = get_event_hash_from_content(content)
     return FileChangeEvent(
         id=uuid.uuid4(),
         path=file_path,

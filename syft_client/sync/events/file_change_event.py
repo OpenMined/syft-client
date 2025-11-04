@@ -2,9 +2,9 @@ from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, model_validator
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
-from syft_client.sync.syftbox_utils import create_event_timestamp
-from syft_client.sync.syftbox_utils import compress_data
-from syft_client.sync.syftbox_utils import uncompress_data
+from syft_client.sync.utils.syftbox_utils import create_event_timestamp
+from syft_client.sync.utils.syftbox_utils import compress_data
+from syft_client.sync.utils.syftbox_utils import uncompress_data
 
 
 FILE_CHANGE_FILENAME_PREFIX = "syfteventv2"
@@ -42,8 +42,8 @@ class FileChangeEvent(BaseModel):
     id: UUID
     path: str
     content: str
-    old_hash: int | None = None
-    new_hash: int
+    old_hash: str | None = None
+    new_hash: str
     submitted_timestamp: float
     timestamp: float
     event_filepath: FileChangeEventFileName
@@ -77,6 +77,7 @@ class FileChangeEvent(BaseModel):
         )
 
     def __hash__(self) -> int:
+        # this is for comparing locally
         return hash(self.id)
 
     def __eq__(self, other: Any) -> bool:

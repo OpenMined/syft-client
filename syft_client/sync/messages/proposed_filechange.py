@@ -4,8 +4,9 @@ import uuid
 import time
 from pydantic import Field, model_validator
 from pydantic.main import BaseModel
-from syft_client.sync.syftbox_utils import compress_data, uncompress_data
-from syft_client.sync.syftbox_utils import create_event_timestamp
+from syft_client.sync.utils.syftbox_utils import compress_data, uncompress_data
+from syft_client.sync.utils.syftbox_utils import create_event_timestamp
+from syft_client.sync.utils.syftbox_utils import get_event_hash_from_content
 
 
 MESSAGE_FILENAME_PREFIX = "msgv2"
@@ -14,8 +15,8 @@ MESSAGE_FILENAME_EXTENSION = ".tar.gz"
 
 class ProposedFileChange(BaseModel):
     id: UUID = Field(default_factory=lambda: uuid4())
-    old_hash: int | None = None
-    new_hash: int
+    old_hash: str | None = None
+    new_hash: str
     # Use UNIX timestamp (seconds since epoch)
     submitted_timestamp: float = Field(default_factory=lambda: create_event_timestamp())
     path: str
@@ -24,7 +25,9 @@ class ProposedFileChange(BaseModel):
     @model_validator(mode="before")
     def pre_init(cls, data):
         if "new_hash" not in data:
-            data["new_hash"] = hash(data.get("content"))
+            content = data.get("content")
+            data["new_hash"] = get_event_hash_from_content(content)
+
         return data
 
 

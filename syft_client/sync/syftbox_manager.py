@@ -1,15 +1,25 @@
 from pathlib import Path
-from pydantic import BaseModel, model_validator
+from pydantic import ConfigDict
+from syft_client.sync.utils.print_utils import print_peer_added
+from syft_client.sync.platforms.base_platform import BasePlatform
+from pydantic import BaseModel, Field
 from typing import List
-from syft_client.sync.peers.peer import Peer
+from syft_client.sync.sync.caches.datasite_watcher_cache import (
+    DataSiteWatcherCacheConfig,
+)
+from syft_client.sync.sync.caches.datasite_owner_cache import (
+    DataSiteOwnerEventCacheConfig,
+)
+from syft_client.sync.peers.peer_list import PeerList
 from syft_client.sync.sync.datasite_outbox_puller import DatasiteOutboxPuller
-from syft_client.sync.sync.caches.datasite_watcher_cache import DataSiteWatcherCache
 from syft_client.sync.connections.base_connection import (
-    ConnectionConfig,
     SyftboxPlatformConnection,
 )
 from syft_client.sync.events.file_change_event import FileChangeEvent
-from syft_client.sync.syftbox_utils import random_email, random_base_path
+from syft_client.sync.utils.syftbox_utils import (
+    random_email,
+    random_base_path_for_testing,
+)
 from syft_client.sync.file_writer import FileWriter
 
 from syft_client.sync.sync.proposed_file_change_pusher import ProposedFileChangePusher
@@ -23,32 +33,132 @@ from syft_client.sync.connections.inmemory_connection import (
 from syft_client.sync.sync.proposed_filechange_handler import (
     ProposedFileChangeHandler,
 )
+from syft_client.sync.sync.proposed_filechange_handler import (
+    ProposedFileChangeHandlerConfig,
+)
+from syft_client.sync.sync.proposed_file_change_pusher import (
+    ProposedFileChangePusherConfig,
+)
+from syft_client.sync.sync.datasite_outbox_puller import DatasiteOutboxPullerConfig
+
+COLAB_BASE_PATH = Path("/")
+JUPYTER_BASE_PATH = Path.home() / "SyftBox"
 
 
 class SyftboxManagerConfig(BaseModel):
     email: str
-    base_path: str
+    base_path: Path
     write_files: bool = True
-    only_sender: bool = False
-    only_datasider_owner: bool = False
-    connection_configs: List[ConnectionConfig] = []
+    only_ds: bool = False
+    only_datasite_owner: bool = False
+    use_in_memory_cache: bool = True
+
+    proposed_file_change_handler_config: ProposedFileChangeHandlerConfig
+
+    proposed_file_change_pusher_config: ProposedFileChangePusherConfig
+    datasite_outbox_puller_config: DatasiteOutboxPullerConfig
 
     @classmethod
     def for_colab(
-        cls, email: str, only_sender: bool = False, only_datasider_owner: bool = False
+        cls, email: str, only_ds: bool = False, only_datasite_owner: bool = False
     ):
-        if not only_sender and not only_datasider_owner:
+        if not only_ds and not only_datasite_owner:
             raise ValueError(
-                "At least one of only_sender or only_datasider_owner must be True"
+                "At least one of only_ds or only_datasite_owner must be True"
             )
 
+        base_path = COLAB_BASE_PATH
+        use_in_memory_cache = False
         connection_configs = [GdriveConnectionConfig(email=email, token_path=None)]
+        proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
+            email=email,
+            connection_configs=connection_configs,
+            cache_config=DataSiteOwnerEventCacheConfig(
+                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+            ),
+        )
+        proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
+            base_path=base_path,
+            email=email,
+            connection_configs=connection_configs,
+            datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+            ),
+        )
+        datasite_outbox_puller_config = DatasiteOutboxPullerConfig(
+            connection_configs=connection_configs,
+            datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                use_in_memory_cache=use_in_memory_cache,
+                base_path=base_path,
+                connection_configs=connection_configs,
+            ),
+        )
         return cls(
             email=email,
-            base_path="/",
-            only_sender=only_sender,
-            only_datasider_owner=only_datasider_owner,
+            base_path=base_path,
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
             connection_configs=connection_configs,
+            use_in_memory_cache=False,
+            proposed_file_change_handler_config=proposed_file_change_handler_config,
+            proposed_file_change_pusher_config=proposed_file_change_pusher_config,
+            datasite_outbox_puller_config=datasite_outbox_puller_config,
+        )
+
+    @classmethod
+    def for_jupyter(
+        cls,
+        email: str,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
+        token_path: Path | None = None,
+    ):
+        if not only_ds and not only_datasite_owner:
+            raise ValueError(
+                "At least one of only_ds or only_datasite_owner must be True"
+            )
+
+        base_path = JUPYTER_BASE_PATH
+
+        connection_configs = [
+            GdriveConnectionConfig(email=email, token_path=token_path)
+        ]
+        proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
+            email=email,
+            connection_configs=connection_configs,
+            cache_config=DataSiteOwnerEventCacheConfig(
+                use_in_memory_cache=False,
+                base_path=base_path,
+                connection_configs=connection_configs,
+            ),
+        )
+        proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
+            base_path=base_path,
+            email=email,
+            connection_configs=connection_configs,
+            datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                use_in_memory_cache=False,
+                base_path=base_path,
+                connection_configs=connection_configs,
+            ),
+        )
+        datasite_outbox_puller_config = DatasiteOutboxPullerConfig(
+            connection_configs=connection_configs,
+            datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                use_in_memory_cache=False,
+                base_path=base_path,
+                connection_configs=connection_configs,
+            ),
+        )
+        return cls(
+            email=email,
+            base_path=base_path,
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
+            use_in_memory_cache=False,
+            proposed_file_change_handler_config=proposed_file_change_handler_config,
+            proposed_file_change_pusher_config=proposed_file_change_pusher_config,
+            datasite_outbox_puller_config=datasite_outbox_puller_config,
         )
 
     @classmethod
@@ -57,17 +167,43 @@ class SyftboxManagerConfig(BaseModel):
         email: str | None = None,
         base_path: str | None = None,
         write_files: bool = False,
-        only_sender: bool = False,
-        only_datasider_owner: bool = False,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
+        use_in_memory_cache: bool = True,
     ):
-        base_path = base_path or random_base_path()
+        base_path = base_path or random_base_path_for_testing()
         email = email or random_email()
+
+        proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
+            email=email,
+            write_files=write_files,
+            cache_config=DataSiteOwnerEventCacheConfig(
+                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+            ),
+        )
+        proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
+            email=email,
+            base_path=base_path,
+            datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+            ),
+        )
+        datasite_outbox_puller_config = DatasiteOutboxPullerConfig(
+            datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+            ),
+            connection_configs=[],
+        )
         return cls(
             email=email,
             base_path=base_path,
             write_files=write_files,
-            only_sender=only_sender,
-            only_datasider_owner=only_datasider_owner,
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
+            use_in_memory_cache=use_in_memory_cache,
+            proposed_file_change_handler_config=proposed_file_change_handler_config,
+            proposed_file_change_pusher_config=proposed_file_change_pusher_config,
+            datasite_outbox_puller_config=datasite_outbox_puller_config,
         )
 
     @classmethod
@@ -77,105 +213,135 @@ class SyftboxManagerConfig(BaseModel):
         token_path: Path,
         base_path: str | None = None,
         write_files: bool = False,
-        only_sender: bool = False,
-        only_datasider_owner: bool = False,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
+        use_in_memory_cache: bool = True,
     ):
-        base_path = base_path or random_base_path()
+        base_path = base_path or random_base_path_for_testing()
         email = email or random_email()
         connection_configs = [
             GdriveConnectionConfig(email=email, token_path=token_path)
         ]
+        proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
+            email=email,
+            connection_configs=connection_configs,
+            cache_config=DataSiteOwnerEventCacheConfig(
+                use_in_memory_cache=use_in_memory_cache, base_path=base_path
+            ),
+        )
+        proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
+            base_path=base_path,
+            email=email,
+            connection_configs=connection_configs,
+            datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                use_in_memory_cache=use_in_memory_cache,
+                base_path=base_path,
+                connection_configs=connection_configs,
+            ),
+        )
+        datasite_outbox_puller_config = DatasiteOutboxPullerConfig(
+            connection_configs=connection_configs,
+            datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                use_in_memory_cache=use_in_memory_cache,
+                base_path=base_path,
+                connection_configs=connection_configs,
+            ),
+        )
         return cls(
             email=email,
             base_path=base_path,
             write_files=write_files,
-            connection_configs=connection_configs,
-            only_sender=only_sender,
-            only_datasider_owner=only_datasider_owner,
+            proposed_file_change_handler_config=proposed_file_change_handler_config,
+            proposed_file_change_pusher_config=proposed_file_change_pusher_config,
+            datasite_outbox_puller_config=datasite_outbox_puller_config,
+            only_ds=only_ds,
+            only_datasite_owner=only_datasite_owner,
+            use_in_memory_cache=False,
         )
 
 
 class SyftboxManager(BaseModel):
+    # needed for peers
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     file_writer: FileWriter
-    base_path: str
+    base_path: Path
     email: str
     dev_mode: bool = False
-    proposed_file_change_pusher: ProposedFileChangePusher
+    proposed_file_change_pusher: ProposedFileChangePusher | None = None
     datasite_outbox_puller: DatasiteOutboxPuller | None = None
 
     proposed_file_change_handler: ProposedFileChangeHandler | None = None
     job_file_change_handler: JobFileChangeHandler | None = None
 
-    peers: List[Peer] = []
+    peers: PeerList = Field(default_factory=PeerList)
 
     @classmethod
     def from_config(cls, config: SyftboxManagerConfig):
+        file_writer = FileWriter(
+            base_path=config.base_path, write_files=config.write_files
+        )
+
+        proposed_file_change_handler = None
+        job_file_change_handler = None
+        proposed_file_change_pusher = None
+        datasite_outbox_puller = None
+
+        if config.only_datasite_owner:
+            proposed_file_change_handler = ProposedFileChangeHandler.from_config(
+                config.proposed_file_change_handler_config
+            )
+
+            job_file_change_handler = JobFileChangeHandler()
+
+        if not config.only_datasite_owner:
+            proposed_file_change_pusher = ProposedFileChangePusher.from_config(
+                config.proposed_file_change_pusher_config
+            )
+            datasite_outbox_puller = DatasiteOutboxPuller.from_config(
+                config.datasite_outbox_puller_config
+            )
+
         manager_res = cls(
             base_path=config.base_path,
             email=config.email,
-            connection_configs=config.connection_configs,
-            write_files=config.write_files,
-            only_sender=config.only_sender,
-            only_datasider_owner=config.only_datasider_owner,
+            file_writer=file_writer,
+            proposed_file_change_handler=proposed_file_change_handler,
+            job_file_change_handler=job_file_change_handler,
+            proposed_file_change_pusher=proposed_file_change_pusher,
+            datasite_outbox_puller=datasite_outbox_puller,
         )
 
         return manager_res
 
     @classmethod
     def for_colab(
-        cls, email: str, only_sender: bool = False, only_datasider_owner: bool = False
+        cls, email: str, only_ds: bool = False, only_datasite_owner: bool = False
     ):
         return cls.from_config(
             SyftboxManagerConfig.for_colab(
                 email=email,
-                only_sender=only_sender,
-                only_datasider_owner=only_datasider_owner,
+                only_ds=only_ds,
+                only_datasite_owner=only_datasite_owner,
             )
         )
 
-    @model_validator(mode="before")
-    def pre_init(cls, data):
-        write_files = data.get("write_files", True)
-
-        # for in memory configs we set those later
-        connections = [
-            SyftboxPlatformConnection.from_config(config)
-            for config in data.get("connection_configs", [])
-        ]
-
-        connection_router = ConnectionRouter(connections=connections)
-
-        data["file_writer"] = FileWriter(
-            base_path=data["base_path"], write_files=write_files
+    @classmethod
+    def for_jupyter(
+        cls,
+        email: str,
+        only_ds: bool = False,
+        only_datasite_owner: bool = False,
+        token_path: Path | None = None,
+    ):
+        return cls.from_config(
+            SyftboxManagerConfig.for_jupyter(
+                email=email,
+                only_ds=only_ds,
+                only_datasite_owner=only_datasite_owner,
+                token_path=token_path,
+            )
         )
-
-        # if we also have an owner
-        init_handlers = not data.get("only_sender", False)
-        if init_handlers:
-            data["proposed_file_change_handler"] = ProposedFileChangeHandler(
-                write_files=write_files, connection_router=connection_router
-            )
-
-            data["job_file_change_handler"] = JobFileChangeHandler()
-
-        init_pullers_pushers = not data.get("only_datasite_owner", False)
-        if init_pullers_pushers:
-            datasite_watcher_cache = DataSiteWatcherCache(
-                connection_router=connection_router,
-            )
-            data["proposed_file_change_pusher"] = ProposedFileChangePusher(
-                base_path=data["base_path"],
-                email=data["email"],
-                connection_router=connection_router,
-                datasite_watcher_cache=datasite_watcher_cache,
-            )
-
-            data["datasite_outbox_puller"] = DatasiteOutboxPuller(
-                connection_router=connection_router,
-                datasite_watcher_cache=datasite_watcher_cache,
-            )
-
-        return data
 
     @classmethod
     def pair_with_google_drive_testing_connection(
@@ -188,13 +354,16 @@ class SyftboxManager(BaseModel):
         base_path2: str | None = None,
         add_peers: bool = True,
         load_peers: bool = False,
+        use_in_memory_cache: bool = True,
+        clear_caches: bool = True,
     ):
         receiver_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=do_email,
             base_path=base_path1,
+            use_in_memory_cache=use_in_memory_cache,
             token_path=do_token_path,
-            only_sender=False,
-            only_datasider_owner=True,
+            only_ds=False,
+            only_datasite_owner=True,
         )
 
         receiver_manager = cls.from_config(receiver_config)
@@ -202,9 +371,10 @@ class SyftboxManager(BaseModel):
         sender_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=ds_email,
             base_path=base_path2,
+            use_in_memory_cache=use_in_memory_cache,
             token_path=ds_token_path,
-            only_sender=True,
-            only_datasider_owner=False,
+            only_ds=True,
+            only_datasite_owner=False,
         )
         sender_manager = cls.from_config(sender_config)
 
@@ -228,11 +398,15 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
-            sender_manager.create_peer_request(receiver_manager.email)
-            receiver_manager.create_peer_request(sender_manager.email)
+            sender_manager.add_peer(receiver_manager.email)
+            receiver_manager.add_peer(sender_manager.email)
         if load_peers:
             receiver_manager.load_peers()
             sender_manager.load_peers()
+
+        if clear_caches:
+            receiver_manager.clear_caches()
+            sender_manager.clear_caches()
 
         # create inbox folder
         return sender_manager, receiver_manager
@@ -246,13 +420,15 @@ class SyftboxManager(BaseModel):
         base_path2: str | None = None,
         sync_automatically: bool = True,
         add_peers: bool = True,
+        use_in_memory_cache: bool = True,
     ):
         # this doesnt contain the connections, as we need to set them after creation
         receiver_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email1,
             base_path=base_path1,
-            only_sender=False,
-            only_datasider_owner=True,
+            only_ds=False,
+            only_datasite_owner=True,
+            use_in_memory_cache=use_in_memory_cache,
         )
 
         do_manager = cls.from_config(receiver_config)
@@ -260,8 +436,9 @@ class SyftboxManager(BaseModel):
         sender_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
             email=email2,
             base_path=base_path2,
-            only_sender=True,
-            only_datasider_owner=False,
+            only_ds=True,
+            only_datasite_owner=False,
+            use_in_memory_cache=use_in_memory_cache,
         )
         ds_manager = cls.from_config(sender_config)
 
@@ -309,17 +486,22 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
-            ds_manager.create_peer_request(do_manager.email)
-            do_manager.create_peer_request(ds_manager.email)
+            ds_manager.add_peer(do_manager.email)
+            do_manager.add_peer(ds_manager.email)
 
         return ds_manager, do_manager
 
-    def create_peer_request(self, peer_email: str):
-        if self.is_do:
-            self.connection_router.add_peer_as_do(peer_email=peer_email)
+    def add_peer(self, peer_email: str, force: bool = False):
+        existing_emails = [p.email for p in self.peers]
+        if peer_email in existing_emails and not force:
+            print(f"Peer {peer_email} already exists, skipping")
         else:
-            self.connection_router.add_peer_as_ds(peer_email=peer_email)
-        self.peers.append(Peer(email=peer_email))
+            if self.is_do:
+                peer = self.connection_router.add_peer_as_do(peer_email=peer_email)
+            else:
+                peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
+            self.peers.append(peer)
+            print_peer_added(peer)
 
     @property
     def is_do(self) -> bool:
@@ -335,11 +517,11 @@ class SyftboxManager(BaseModel):
 
     def load_peers(self):
         if self.is_do:
-            peer_emails = self.connection_router.get_peers_as_do()
+            peers = self.connection_router.get_peers_as_do()
         else:
-            peer_emails = self.connection_router.get_peers_as_ds()
+            peers = self.connection_router.get_peers_as_ds()
 
-        self.peers = [Peer(email=peer_email) for peer_email in peer_emails]
+        self.peers = PeerList(peers)
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
@@ -348,17 +530,21 @@ class SyftboxManager(BaseModel):
                 "Only InMemoryPlatformConnections can be added to the manager"
             )
         if self.proposed_file_change_handler is not None:
-            connection_router = self.proposed_file_change_handler.connection_router
-        elif self.proposed_file_change_pusher is not None:
-            connection_router = self.proposed_file_change_pusher.connection_router
-        elif self.datasite_outbox_puller is not None:
-            connection_router = self.datasite_outbox_puller.connection_router
-        elif self.job_file_change_handler is not None:
-            connection_router = self.job_file_change_handler.connection_router
-        else:
-            raise ValueError("No connection router found")
-
-        connection_router.connections.append(connection)
+            self.proposed_file_change_handler.connection_router.add_connection(
+                connection
+            )
+        if self.proposed_file_change_pusher is not None:
+            self.proposed_file_change_pusher.connection_router.add_connection(
+                connection
+            )
+            self.proposed_file_change_pusher.datasite_watcher_cache.connection_router.add_connection(
+                connection
+            )
+        if self.datasite_outbox_puller is not None:
+            self.datasite_outbox_puller.datasite_watcher_cache.connection_router.add_connection(
+                connection
+            )
+            self.datasite_outbox_puller.connection_router.add_connection(connection)
 
     def send_file_change(self, path: str, content: str):
         self.file_writer.write_file(path, content)
@@ -374,5 +560,18 @@ class SyftboxManager(BaseModel):
         else:
             return self.proposed_file_change_pusher.connection_router
 
+    def clear_caches(self):
+        if self.proposed_file_change_handler is not None:
+            self.proposed_file_change_handler.event_cache.clear_cache()
+        if self.datasite_outbox_puller is not None:
+            self.datasite_outbox_puller.datasite_watcher_cache.clear_cache()
+
+        if self.proposed_file_change_pusher is not None:
+            self.proposed_file_change_pusher.datasite_watcher_cache.clear_cache()
+
     def delete_syftbox(self):
         self.connection_router.delete_syftbox()
+
+    def _get_all_peer_platforms(self) -> List[BasePlatform]:
+        all_platforms = set([plat for p in self.peers for plat in p.platforms])
+        return list(all_platforms)

@@ -1,9 +1,11 @@
 from typing import Dict, List
-from pydantic import BaseModel, Field
+from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConnection
+from pathlib import Path
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime, timedelta
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.connections.connection_router import ConnectionRouter
-
+from syft_client.sync.connections.base_connection import ConnectionConfig
 from syft_client.sync.sync.caches.cache_file_writer_connection import (
     CacheFileConnection,
     InMemoryCacheFileConnection,
@@ -12,19 +14,68 @@ from syft_client.sync.sync.caches.cache_file_writer_connection import (
 SECONDS_BEFORE_SYNCING_DOWN = 0
 
 
+class DataSiteWatcherCacheConfig(BaseModel):
+    use_in_memory_cache: bool = True
+    base_path: Path | None = None
+    events_base_path: Path | None = None
+    connection_configs: List[ConnectionConfig] = []
+
+    @model_validator(mode="before")
+    def pre_init(cls, data):
+        if data.get("events_base_path") is None and data.get("base_path") is not None:
+            base_path = data["base_path"]
+            base_parent = base_path.parent
+            data["events_base_path"] = base_parent / "events"
+        return data
+
+
 class DataSiteWatcherCache(BaseModel):
-    events_connection: CacheFileConnection[FileChangeEvent] = Field(
-        default_factory=lambda: InMemoryCacheFileConnection[FileChangeEvent]()
+    events_connection: CacheFileConnection = Field(
+        default_factory=InMemoryCacheFileConnection
     )
+
+    file_connection: CacheFileConnection = Field(
+        default_factory=InMemoryCacheFileConnection
+    )
+
     file_hashes: Dict[str, int] = {}
     current_check_point: str = None
     connection_router: ConnectionRouter
-    file_connection: CacheFileConnection[str] = Field(
-        default_factory=lambda: InMemoryCacheFileConnection[str]()
-    )
     last_sync: datetime | None = None
     seconds_before_syncing_down: int = SECONDS_BEFORE_SYNCING_DOWN
     peers: List[str] = []
+
+    @classmethod
+    def from_config(cls, config: DataSiteWatcherCacheConfig):
+        if config.use_in_memory_cache:
+            res = cls(
+                events_connection=InMemoryCacheFileConnection[FileChangeEvent](),
+                file_connection=InMemoryCacheFileConnection[str](),
+                connection_router=ConnectionRouter.from_configs(
+                    connection_configs=config.connection_configs
+                ),
+            )
+            return res
+        else:
+            if config.base_path is None:
+                raise ValueError("base_path is required for non-in-memory cache")
+            return cls(
+                events_connection=FSFileConnection(
+                    base_dir=Path(config.base_path) / "events"
+                ),
+                file_connection=FSFileConnection(base_dir=Path(config.base_path)),
+                connection_router=ConnectionRouter.from_configs(
+                    connection_configs=config.connection_configs
+                ),
+            )
+
+    def clear_cache(self):
+        self.events_connection.clear_cache()
+        self.file_connection.clear_cache()
+        self.file_hashes = {}
+        self.last_sync = None
+        self.peers = []
+        self.current_check_point = None
 
     @property
     def last_event_timestamp(self) -> float | None:
