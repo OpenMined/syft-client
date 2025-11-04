@@ -11,6 +11,7 @@ resolution-markers = [
 members = [
     "syft-client",
     "syft-datasets",
+    "syft-job",
     "syft-notebook-ui",
 ]
 
@@ -2500,6 +2501,9 @@ all = [
     { name = "syft-job" },
     { name = "tqdm" },
 ]
+datasets = [
+    { name = "syft-datasets" },
+]
 dev = [
     { name = "ipython" },
     { name = "jupyter" },
@@ -2552,12 +2556,13 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32.4" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "syft-client", extras = ["test", "dev", "job"], marker = "extra == 'all'" },
-    { name = "syft-job", marker = "extra == 'job'", git = "https://github.com/OpenMined/syft-job?branch=main" },
+    { name = "syft-datasets", marker = "extra == 'datasets'", editable = "packages/syft-datasets" },
+    { name = "syft-job", marker = "extra == 'job'", editable = "packages/syft-job" },
     { name = "syft-serve", specifier = ">=0.3.11" },
     { name = "tqdm", marker = "extra == 'dev'", specifier = ">=4.64.0" },
     { name = "watchdog", specifier = ">=3.0.0" },
 ]
-provides-extras = ["job", "test", "dev", "all"]
+provides-extras = ["job", "datasets", "test", "dev", "all"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pre-commit", specifier = ">=4.3.0" }]
@@ -2588,11 +2593,18 @@ dev = [{ name = "ipykernel", specifier = ">=7.1.0" }]
 [[package]]
 name = "syft-job"
 version = "0.1.21"
-source = { git = "https://github.com/OpenMined/syft-job?branch=main#6aa6330db6ede661be88085f798e9dcd4961204a" }
+source = { editable = "packages/syft-job" }
 dependencies = [
     { name = "pandas" },
     { name = "pydantic" },
     { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pandas" },
+    { name = "pydantic", specifier = ">=2.11.7" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 
 [[package]]
