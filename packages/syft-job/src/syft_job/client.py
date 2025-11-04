@@ -1183,7 +1183,7 @@ class JobInfo:
             <div class="syftjob-single-header">
                 <h3 class="syftjob-single-title">📋 {self.name}</h3>
                 <span class="syftjob-single-status-{self.status}">
-                    {'📥' if self.status == 'inbox' else '✅' if self.status == 'approved' else '🎉'} {self.status.upper()}
+                    {"📥" if self.status == "inbox" else "✅" if self.status == "approved" else "🎉"} {self.status.upper()}
                 </span>
             </div>
             <div class="syftjob-single-content">
@@ -1729,7 +1729,7 @@ class JobsList:
                             </td>
                             <td class="syftjob-td">
                                 <span class="syftjob-status-{job.status}">
-                                    {style_info['emoji']} {job.status.upper()}
+                                    {style_info["emoji"]} {job.status.upper()}
                                 </span>
                             </td>
                         </tr>
@@ -1752,7 +1752,7 @@ class JobsList:
             style_info = status_styles.get(status, {"emoji": "❓"})
             html += f"""
                     <span class="syftjob-summary-item">
-                        {style_info['emoji']} {count} {status}
+                        {style_info["emoji"]} {count} {status}
                     </span>
             """
 
@@ -1779,6 +1779,10 @@ class JobClient:
 
         # Validate that user_email exists in SyftBox root
         self._validate_user_email()
+
+    @classmethod
+    def from_config(cls, config: SyftJobConfig) -> "JobClient":
+        return cls(config, config.email)
 
     def _validate_user_email(self) -> None:
         """Validate that the user_email directory exists in SyftBox root."""
@@ -1979,7 +1983,7 @@ python {code_path_obj.name}
     def _get_all_jobs(self) -> List[JobInfo]:
         """Get all jobs from all peer directories (inbox, approved, done)."""
         jobs: list[JobInfo] = []
-        syftbox_root = Path(self.config.syftbox_folder)
+        syftbox_root = self.config.syftbox_folder
 
         if not syftbox_root.exists():
             return jobs

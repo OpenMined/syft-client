@@ -47,8 +47,8 @@ def random_email():
     return f"test{random.randint(1, 1000000)}@test.com"
 
 
-def random_base_path_for_testing():
-    return Path(f"/tmp/syftbox-testing-{random.randint(1, 1000000)}")
+def random_syftbox_folder_for_testing():
+    return Path(f"/tmp/sb_folder_testing-{random.randint(1, 1000000)}")
 
 
 def compress_data(data: bytes) -> bytes:

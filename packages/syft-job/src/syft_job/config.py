@@ -6,8 +6,12 @@ from pydantic import BaseModel, Field
 class SyftJobConfig(BaseModel):
     """Configuration for SyftJob system."""
 
-    syftbox_folder: str = Field(..., description="Path to SyftBox root folder")
+    syftbox_folder: Path = Field(..., description="Path to SyftBox root folder")
     email: str = Field(..., description="User email address")
+
+    @property
+    def syftbox_folder_path_str(self) -> str:
+        return str(self.syftbox_folder.expanduser().resolve())
 
     @classmethod
     def from_syftbox_folder(
@@ -31,7 +35,7 @@ class SyftJobConfig(BaseModel):
         if not syftbox_path.is_dir():
             raise ValueError(f"Path is not a directory: {syftbox_folder_path}")
 
-        return cls(syftbox_folder=str(syftbox_path), email=email)
+        return cls(syftbox_folder=syftbox_path, email=email)
 
     @classmethod
     def from_file(cls, config_path: str) -> "SyftJobConfig":
@@ -47,7 +51,7 @@ class SyftJobConfig(BaseModel):
         New structure: SyftBox/<user_email>/
         (No datasites folder)
         """
-        return Path(self.syftbox_folder) / user_email
+        return self.syftbox_folder / user_email
 
     def get_job_dir(self, user_email: str) -> Path:
         """
