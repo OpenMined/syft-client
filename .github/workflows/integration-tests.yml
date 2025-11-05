@@ -32,12 +32,12 @@ jobs:
       - name: Set up DO credentials
         env:
           TOKEN_DO_JSON: ${{ secrets.TOKEN_DO_JSON }}
-        run: echo "$TOKEN_DO_JSON" > credentials/token_do.json
+        run: printf '%s' "$TOKEN_DO_JSON" > credentials/token_do.json
 
       - name: Set up DS credentials
         env:
           TOKEN_DS_JSON: ${{ secrets.TOKEN_DS_JSON }}
-        run: echo "$TOKEN_DS_JSON" > credentials/token_ds.json
+        run: printf '%s' "$TOKEN_DS_JSON" > credentials/token_ds.json
 
       - name: Run integration tests
         env:
