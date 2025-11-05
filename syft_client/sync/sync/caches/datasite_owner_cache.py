@@ -64,8 +64,8 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             syftbox_parent = Path(config.syftbox_folder).parent
             events_folder = syftbox_parent / f"{syftbox_folder_name}-events"
             return cls(
-                events_connection=FSFileConnection(base_dir=events_folder),
-                file_connection=FSFileConnection(base_dir=my_datasite_folder),
+                events_connection=FSFileConnection[FileChangeEvent](base_dir=events_folder),
+                file_connection=FSFileConnection[str](base_dir=my_datasite_folder),
                 email=config.email,
             )
 

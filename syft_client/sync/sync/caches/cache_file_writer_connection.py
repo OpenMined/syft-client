@@ -23,18 +23,19 @@ def _serialize(self, content: T) -> bytes:
 
 
 def _deserialize(self, data: bytes, content_type: type[T]) -> T:
-    try:
-        return data.decode("utf-8")
-    except Exception:
+    if content_type is bytes:
         return data
-    # if content_type is bytes:
-    #     return data
-    # elif content_type is str:
-    #     return data.decode("utf-8")
-    # elif issubclass(content_type, BaseModel):
-    #     return content_type.model_validate_json(data.decode("utf-8"))
-    # else:
-    #     raise TypeError(f"Unsupported content type: {content_type}")
+    elif content_type is str:
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            # If the file cannot be decoded as UTF-8, return as bytes
+            # This handles binary files that might be stored in a string-typed connection
+            return data
+    elif issubclass(content_type, BaseModel):
+        return content_type.model_validate_json(data.decode("utf-8"))
+    else:
+        raise TypeError(f"Unsupported content type: {content_type}")
 
 
 class KeySortedDict(dict):
@@ -157,11 +158,11 @@ class FSFileConnection(CacheFileConnection[T]):
         return self._read_file_full_path(full_path)
 
     def _read_file_full_path(self, full_path: Path) -> T:
-        dtype = str
-        # if full_path.suffix in [".json", ".txt", ".py", ".yaml", ".yml", "", "sh"]:
-        #     dtype = str
-        # else:
-        #     dtype = bytes
+        try:
+            dtype = self.get_generic_type()
+        except TypeError:
+            # If no generic type is specified, default to str
+            dtype = str
         with open(full_path, "rb") as f:
             res_bytes = f.read()
         res = _deserialize(self, res_bytes, dtype)
