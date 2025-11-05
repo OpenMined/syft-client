@@ -50,6 +50,10 @@ COLAB_DEFAULT_SYFTBOX_FOLDER = Path("/")
 JUPYTER_DEFAULT_SYFTBOX_FOLDER = Path.home() / "SyftBox"
 
 
+def get_jupyter_default_syftbox_folder(email: str):
+    return Path.home() / f"SyftBox_{email}"
+
+
 class SyftboxManagerConfig(BaseModel):
     email: str
     syftbox_folder: Path
@@ -137,7 +141,7 @@ class SyftboxManagerConfig(BaseModel):
                 "At least one of only_ds or only_datasite_owner must be True"
             )
 
-        syftbox_folder = JUPYTER_DEFAULT_SYFTBOX_FOLDER
+        syftbox_folder = get_jupyter_default_syftbox_folder(email)
 
         connection_configs = [
             GdriveConnectionConfig(email=email, token_path=token_path)
@@ -402,6 +406,8 @@ class SyftboxManager(BaseModel):
         only_datasite_owner: bool = False,
         token_path: Path | None = None,
     ):
+        if token_path is not None:
+            token_path = Path(token_path)
         return cls.from_config(
             SyftboxManagerConfig.for_jupyter(
                 email=email,
@@ -591,6 +597,7 @@ class SyftboxManager(BaseModel):
         return self.proposed_file_change_handler is not None
 
     def sync(self):
+        self.load_peers()
         peer_emails = [peer.email for peer in self.peers]
         if self.is_do:
             self.proposed_file_change_handler.sync(peer_emails)

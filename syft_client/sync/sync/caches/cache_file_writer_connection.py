@@ -22,7 +22,9 @@ def _serialize(self, content: T) -> bytes:
         raise TypeError(f"Unsupported content type: {type(content)}")
 
 
-def _deserialize(self, data: bytes, content_type: type[T]) -> T:
+def _deserialize(self, data: bytes, content_type: type[T] | None = None) -> T:
+    if content_type is not None:
+        return content_type.model_validate_json(data.decode("utf-8"))
     try:
         return data.decode("utf-8")
     except Exception:
@@ -103,6 +105,7 @@ class InMemoryCacheFileConnection(CacheFileConnection[T]):
 
 class FSFileConnection(CacheFileConnection[T]):
     base_dir: Path
+    dtype: type[T] | None = None
 
     def get_items(self) -> List[Tuple[str, T]]:
         return [
@@ -157,14 +160,9 @@ class FSFileConnection(CacheFileConnection[T]):
         return self._read_file_full_path(full_path)
 
     def _read_file_full_path(self, full_path: Path) -> T:
-        dtype = str
-        # if full_path.suffix in [".json", ".txt", ".py", ".yaml", ".yml", "", "sh"]:
-        #     dtype = str
-        # else:
-        #     dtype = bytes
         with open(full_path, "rb") as f:
             res_bytes = f.read()
-        res = _deserialize(self, res_bytes, dtype)
+        res = _deserialize(self, res_bytes, self.dtype)
         return res
 
     def __len__(self) -> int:

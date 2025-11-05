@@ -167,3 +167,9 @@ SyftBox/
 # CI test outputs
 test_outputs/
 test_suite_output.log
+
+
+# Notebooks
+notebooks/e2e/sales_mock.csv
+notebooks/e2e/sales_private.csv
+notebooks/e2e/readme.md
