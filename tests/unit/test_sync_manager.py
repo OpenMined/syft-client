@@ -381,4 +381,4 @@ with open("outputs/result.json", "w") as f:
     with open(output_path, "r") as f:
         json_content = json.loads(f.read())
 
-    assert json_content["result"] == "Hello World!"
+    assert json_content["result"] == "Hello, world!"
