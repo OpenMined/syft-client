@@ -152,9 +152,7 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
         # TODO add 'private' to sb workspace
         private_datasets_dir = (
-            self.syftbox_config.syftbox_folder
-            / "private"
-            / "syft_datasets"
+            self.syftbox_config.syftbox_folder / "private" / "syft_datasets"
         )
 
         return private_datasets_dir / self.name

@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 from typing import Optional, Union
 
+
 def resolve_path(
     path: Union[str, Path], syftbox_folder: Optional[Union[str, Path]] = None
 ) -> Path:
