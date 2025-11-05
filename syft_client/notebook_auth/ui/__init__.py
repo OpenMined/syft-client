@@ -1,6 +1,4 @@
-"""UI components for notebook authentication flow."""
+from .rich_components import RichComponents
+from .rich_ui import RichAuthUI
 
-from .components import UIComponents
-from .notebook_ui import NotebookAuthUI
-
-__all__ = ["UIComponents", "NotebookAuthUI"]
+__all__ = ["RichComponents", "RichAuthUI"]

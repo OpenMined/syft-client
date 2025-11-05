@@ -14,7 +14,7 @@ from syft_client.notebook_auth.google.oauth import OAuthFlow
 from syft_client.notebook_auth.google.project import ProjectManager
 from syft_client.notebook_auth.storage.drive_storage import DriveStorage
 from syft_client.notebook_auth.storage.local_storage import LocalStorage
-from syft_client.notebook_auth.ui.notebook_ui import NotebookAuthUI
+from syft_client.notebook_auth.ui.rich_ui import RichAuthUI
 from syft_client.sync.environments.environment import Environment
 from syft_client.notebook_auth.storage.base_storage import BaseStorage
 
@@ -57,7 +57,7 @@ class GoogleWorkspaceAuth:
         self.storage: BaseStorage = self._create_storage()
 
         # Create UI
-        self.ui = NotebookAuthUI()
+        self.ui = RichAuthUI()
 
         # State
         self.credentials: Optional[Credentials] = None
@@ -142,26 +142,22 @@ class GoogleWorkspaceAuth:
         # Step 3: Run full setup
         return self._run_full_setup()
 
-    def ask_user_to_use_cached(self) -> Credentials:
+    def ask_user_to_use_cached(self) -> bool:
         # Show cached found screen
-        choice = None
+        # Rich UI handles the prompt directly and returns immediately
+        continue_chosen = {"value": False}
 
         def on_continue():
-            nonlocal choice
-            choice = "continue"
+            continue_chosen["value"] = True
 
         def on_reconfigure():
-            nonlocal choice
-            choice = "reconfigure"
+            continue_chosen["value"] = False
 
         self.ui.show_cached_found(
             self.email, self.project_id, on_continue, on_reconfigure
         )
 
-        # Wait for user choice
-        while choice is None:
-            time.sleep(0.5)
-        return choice == "continue"
+        return continue_chosen["value"]
 
     def _mount_drive(self) -> bool:
         """Mount Google Drive (Colab only)."""
@@ -228,22 +224,22 @@ class GoogleWorkspaceAuth:
             user_name = self.user_info.get("first_name", "there")
             console_url = result  # Result is the console URL
 
+            # Rich UI handles the prompt and calls on_accepted when user confirms
             self.ui.show_tos_check(user_name, console_url, on_accepted, on_retry)
 
-            # Wait for user to accept
-            while not accepted_event["done"]:
-                time.sleep(1)
-                # Re-check ToS
+            # Check if ToS was accepted
+            if not accepted_event["done"]:
+                # Verify ToS acceptance
                 tos_accepted, _ = ProjectManager.check_tos(
                     self.gcp_credentials, self.user_info["email"]
                 )
                 if tos_accepted:
-                    break
+                    accepted_event["done"] = True
 
         # Show ToS accepted
         user_name = self.user_info.get("first_name", "there")
         self.ui.show_tos_accepted(user_name)
-        time.sleep(1)
+        time.sleep(0.5)
 
     def _get_or_create_project(self):
         """Get existing project or create new one."""
@@ -255,12 +251,10 @@ class GoogleWorkspaceAuth:
         def on_select(project_id_or_create):
             selected_event["project_id"] = project_id_or_create
 
+        # Rich UI handles the selection and calls on_select with the result
         self.ui.show_project_selection(user_name, projects, on_select)
 
-        # Wait for selection
-        while selected_event["project_id"] is None:
-            time.sleep(0.5)
-
+        # At this point, on_select has been called with the selection
         if selected_event["project_id"] == "CREATE_NEW":
             # Create new project
             project_id = ProjectManager.generate_project_id()
@@ -276,7 +270,7 @@ class GoogleWorkspaceAuth:
 
             self.project_id = project_id
             self.ui.show_project_created(project_id)
-            time.sleep(1)
+            time.sleep(0.5)
         else:
             self.project_id = selected_event["project_id"]
 
@@ -287,13 +281,12 @@ class GoogleWorkspaceAuth:
         def on_done():
             done_event["done"] = True
 
+        # Rich UI handles the prompt and calls on_done when confirmed
         self.ui.show_oauth_consent_instructions(
             self.project_id, self.user_info["email"], on_done
         )
 
-        # Wait for user to complete
-        while not done_event["done"]:
-            time.sleep(0.5)
+        # on_done has been called at this point
 
     def _get_and_store_client_secret(self):
         """Guide user through OAuth client creation and get client secret."""
@@ -307,11 +300,8 @@ class GoogleWorkspaceAuth:
             def on_done():
                 done_event["done"] = True
 
+            # Rich UI handles the prompt and calls on_done when confirmed
             self.ui.show_oauth_client_instructions(self.project_id, on_done)
-
-            # Wait for user to complete
-            while not done_event["done"]:
-                time.sleep(0.5)
 
             # Now get the client secret JSON
             parsed_event = {"done": False, "client_secret": None}
@@ -344,11 +334,8 @@ class GoogleWorkspaceAuth:
                 except Exception as e:
                     return False, str(e)
 
+            # Rich UI handles the input and validation loop
             self.ui.show_paste_client_secret(on_submit)
-
-            # Wait for parsing
-            while not parsed_event["done"]:
-                time.sleep(0.5)
 
             client_secret = parsed_event["client_secret"]
 
@@ -387,11 +374,8 @@ class GoogleWorkspaceAuth:
             except Exception as e:
                 return False, f"Authentication failed: {e}"
 
+        # Rich UI handles the input and validation loop
         self.ui.show_oauth_flow(auth_url, on_submit)
-
-        # Wait for completion
-        while not completed_event["done"]:
-            time.sleep(0.5)
 
         self.credentials = completed_event["credentials"]
 
