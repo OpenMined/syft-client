@@ -23,14 +23,18 @@ def _serialize(self, content: T) -> bytes:
 
 
 def _deserialize(self, data: bytes, content_type: type[T]) -> T:
-    if content_type is bytes:
-        return data
-    elif content_type is str:
+    try:
         return data.decode("utf-8")
-    elif issubclass(content_type, BaseModel):
-        return content_type.model_validate_json(data.decode("utf-8"))
-    else:
-        raise TypeError(f"Unsupported content type: {content_type}")
+    except Exception:
+        return data
+    # if content_type is bytes:
+    #     return data
+    # elif content_type is str:
+    #     return data.decode("utf-8")
+    # elif issubclass(content_type, BaseModel):
+    #     return content_type.model_validate_json(data.decode("utf-8"))
+    # else:
+    #     raise TypeError(f"Unsupported content type: {content_type}")
 
 
 class KeySortedDict(dict):
@@ -66,18 +70,20 @@ class CacheFileConnection(BaseModel, Generic[T]):
 
 
 class InMemoryCacheFileConnection(CacheFileConnection[T]):
-    sorted_files: KeySortedDict[str, T] = Field(default_factory=KeySortedDict)
+    sorted_files: KeySortedDict[Path, T] = Field(default_factory=KeySortedDict)
 
-    def get_items(self) -> List[Tuple[str, T]]:
+    def get_items(self) -> List[Tuple[Path, T]]:
         return list(self.sorted_files.items())
 
     def clear_cache(self):
         self.sorted_files = KeySortedDict()
 
-    def write_file(self, path: str, content: T):
+    def write_file(self, path: str | Path, content: T):
+        path = Path(path)
         self.sorted_files[path] = content
 
-    def read_file(self, path: str) -> T:
+    def read_file(self, path: str | Path) -> T:
+        path = Path(path)
         return self.sorted_files[path]
 
     def __len__(self) -> int:
@@ -115,6 +121,9 @@ class FSFileConnection(CacheFileConnection[T]):
                 elif file_or_folder.is_dir():
                     shutil.rmtree(file_or_folder)
 
+    def get_keys(self) -> List[str]:
+        return [str(f.relative_to(self.base_dir)) for f in self._iter_files()]
+
     def model_post_init(self, context):
         super().model_post_init(context)
         self.base_dir.mkdir(parents=True, exist_ok=True)
@@ -149,6 +158,10 @@ class FSFileConnection(CacheFileConnection[T]):
 
     def _read_file_full_path(self, full_path: Path) -> T:
         dtype = str
+        # if full_path.suffix in [".json", ".txt", ".py", ".yaml", ".yml", "", "sh"]:
+        #     dtype = str
+        # else:
+        #     dtype = bytes
         with open(full_path, "rb") as f:
             res_bytes = f.read()
         res = _deserialize(self, res_bytes, dtype)

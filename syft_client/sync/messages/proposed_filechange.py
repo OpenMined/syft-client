@@ -1,5 +1,6 @@
 from typing import List
 from uuid import UUID, uuid4
+from pathlib import Path
 import uuid
 import time
 from pydantic import Field, model_validator
@@ -19,8 +20,9 @@ class ProposedFileChange(BaseModel):
     new_hash: str
     # Use UNIX timestamp (seconds since epoch)
     submitted_timestamp: float = Field(default_factory=lambda: create_event_timestamp())
-    path: str
+    path_in_datasite: Path
     content: str
+    datasite_email: str
 
     @model_validator(mode="before")
     def pre_init(cls, data):

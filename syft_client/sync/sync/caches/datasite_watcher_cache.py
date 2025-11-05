@@ -16,7 +16,7 @@ SECONDS_BEFORE_SYNCING_DOWN = 0
 
 class DataSiteWatcherCacheConfig(BaseModel):
     use_in_memory_cache: bool = True
-    base_path: Path | None = None
+    syftbox_folder: Path | None = None
     events_base_path: Path | None = None
     connection_configs: List[ConnectionConfig] = []
 
@@ -57,13 +57,16 @@ class DataSiteWatcherCache(BaseModel):
             )
             return res
         else:
-            if config.base_path is None:
+            if config.syftbox_folder is None:
                 raise ValueError("base_path is required for non-in-memory cache")
+
+            syftbox_folder_name = Path(config.syftbox_folder).name
+            syftbox_parent = Path(config.syftbox_folder).parent
+            events_folder = syftbox_parent / f"{syftbox_folder_name}-events"
+
             return cls(
-                events_connection=FSFileConnection(
-                    base_dir=Path(config.base_path) / "events"
-                ),
-                file_connection=FSFileConnection(base_dir=Path(config.base_path)),
+                events_connection=FSFileConnection(base_dir=events_folder),
+                file_connection=FSFileConnection(base_dir=config.syftbox_folder),
                 connection_router=ConnectionRouter.from_configs(
                     connection_configs=config.connection_configs
                 ),
@@ -94,8 +97,8 @@ class DataSiteWatcherCache(BaseModel):
         self.last_sync = datetime.now()
 
     def apply_event(self, event: FileChangeEvent):
-        self.file_connection.write_file(event.path, event.content)
-        self.file_hashes[event.path] = event.new_hash
+        self.file_connection.write_file(event.path_in_syftbox, event.content)
+        self.file_hashes[event.path_in_syftbox] = event.new_hash
 
         self.events_connection.write_file(event.eventfile_filepath(), event)
 

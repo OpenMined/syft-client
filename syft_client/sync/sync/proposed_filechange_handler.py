@@ -48,6 +48,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
 
         if recompute_hashes:
             self.process_local_changes(recipients=peer_emails)
+
         # first, pull existing state
         for peer_email in peer_emails:
             while True:
@@ -108,7 +109,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     def handle_proposed_filechange_event(
         self, sender_email: str, proposed_event: ProposedFileChange
     ):
-        self.check_permissions(proposed_event.path)
+        self.check_permissions(proposed_event.path_in_datasite)
 
         accepted_event = self.event_cache.process_proposed_event(proposed_event)
         self.write_event_to_syftbox(recipients=[sender_email], event=accepted_event)

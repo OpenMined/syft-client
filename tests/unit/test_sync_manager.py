@@ -1,7 +1,10 @@
+from pathlib import Path
+import json
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlatform
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 import pytest
+from tests.unit.utils import create_tmp_dataset_files
 
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     ProposedEventFileOutdatedException,
@@ -42,13 +45,16 @@ def test_sync_to_syftbox_eventlog():
 def test_valid_and_invalid_proposed_filechange_event():
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
     ds_email = ds_manager.email
+    do_email = do_manager.email
 
-    file_path = "email@email.com/test.job"
+    path_from_syftbox = "email@email.com/test.job"
+    path_in_datasite = path_from_syftbox.split("/")[-1]
 
     event1 = ProposedFileChange(
         old_hash=None,
-        path=file_path,
+        path_in_datasite=path_in_datasite,
         content="Content 1",
+        datasite_email=do_email,
     )
     hash1 = event1.new_hash
     do_manager.proposed_file_change_handler.handle_proposed_filechange_event(
@@ -57,8 +63,9 @@ def test_valid_and_invalid_proposed_filechange_event():
 
     event2 = ProposedFileChange(
         old_hash=hash1,
-        path=file_path,
+        path_in_datasite=path_in_datasite,
         content="Content 2",
+        datasite_email=do_email,
     )
     do_manager.proposed_file_change_handler.handle_proposed_filechange_event(
         ds_email, event2
@@ -66,15 +73,16 @@ def test_valid_and_invalid_proposed_filechange_event():
 
     content = (
         do_manager.proposed_file_change_handler.event_cache.file_connection.read_file(
-            file_path
+            path_in_datasite
         )
     )
     assert content == "Content 2"
 
     event3_outdated = ProposedFileChange(
         old_hash=hash1,
-        path=file_path,
+        path_in_datasite=path_in_datasite,
         content="Content 3",
+        datasite_email=do_email,
     )
 
     # This should fail, as the event is outdated
@@ -85,7 +93,7 @@ def test_valid_and_invalid_proposed_filechange_event():
 
     content = (
         do_manager.proposed_file_change_handler.event_cache.file_connection.read_file(
-            file_path
+            path_in_datasite
         )
     )
     assert content == "Content 2"
@@ -212,22 +220,23 @@ def test_file_connections():
         use_in_memory_cache=False
     )
 
-    syftbox_dir_do = (
+    datasite_dir_do = (
         do_manager.proposed_file_change_handler.event_cache.file_connection.base_dir
     )
 
     syftbox_dir_ds = ds_manager.datasite_outbox_puller.datasite_watcher_cache.file_connection.base_dir
 
-    assert syftbox_dir_do != syftbox_dir_ds
+    assert datasite_dir_do != syftbox_dir_ds
 
     job_path = "email@email.com/test.job"
+    job_path_in_datasite = job_path.split("/")[-1]
 
     ds_manager.send_file_change(job_path, "Hello, world!")
 
-    assert (syftbox_dir_do / job_path).exists()
+    assert (datasite_dir_do / job_path_in_datasite).exists()
 
-    result_rel_path = "do@email.com/test_result.job"
-    result_path = syftbox_dir_do / result_rel_path
+    result_rel_path = "test_result.job"
+    result_path = datasite_dir_do / result_rel_path
     result_path.parent.mkdir(parents=True, exist_ok=True)
     with open(result_path, "w") as f:
         f.write("I am a result")
@@ -236,4 +245,76 @@ def test_file_connections():
 
     ds_manager.sync()
 
-    assert (syftbox_dir_ds / result_rel_path).exists()
+    assert (syftbox_dir_ds / do_manager.email / result_rel_path).exists()
+
+
+def test_datasets():
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+    do_manager.create_dataset(
+        name="my dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="This is a summary",
+        readme_path=readme_path,
+        tags=["tag1", "tag2"],
+    )
+
+    datasets = do_manager.datasets.get_all()
+    assert len(datasets) == 1
+
+    ds_manager.sync()
+
+    assert len(ds_manager.datasets.get_all()) == 1
+
+    dataset_ds = ds_manager.datasets.get("my dataset", datasite=do_manager.email)
+
+    mock_content_ds = (dataset_ds.mock_dir / "mock.txt").read_text()
+    assert len(mock_content_ds) > 0
+
+    def has_file(root_dir, filename):
+        return any(p.name == filename for p in Path(root_dir).rglob("*"))
+
+    assert has_file(ds_manager.syftbox_folder, "mock.txt")
+    assert not has_file(ds_manager.syftbox_folder, "private.txt")
+
+
+def test_jobs():
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    test_py_path = "/tmp/test.py"
+    with open(test_py_path, "w") as f:
+        f.write("""
+import os
+os.mkdir("outputs")
+with open("outputs/result.json", "w") as f:
+    f.write('{"result": 1}')
+""")
+
+    ds_manager.submit_python_job(
+        user=do_manager.email,
+        code_path=test_py_path,
+        job_name="test.job",
+    )
+
+    assert len(do_manager.job_client.jobs) == 1
+    job = do_manager.job_client.jobs[0]
+
+    job.approve()
+
+    do_manager.job_runner.process_approved_jobs()
+
+    do_manager.sync()
+
+    ds_manager.sync()
+
+    output_path = ds_manager.job_client.jobs[-1].output_paths[0]
+    with open(output_path, "r") as f:
+        json_content = json.loads(f.read())
+
+    assert json_content["result"] == 1

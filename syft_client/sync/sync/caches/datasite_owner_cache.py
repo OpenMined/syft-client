@@ -23,7 +23,8 @@ class ProposedEventFileOutdatedException(Exception):
 
 class DataSiteOwnerEventCacheConfig(BaseModel):
     use_in_memory_cache: bool = True
-    base_path: Path | None = None
+    syftbox_folder: Path | None = None
+    email: str | None = None
     events_base_path: Path | None = None
 
     @model_validator(mode="before")
@@ -43,6 +44,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
 
     # file path to the hash of the filecontent
     file_hashes: Dict[str, int] = {}
+    email: str
 
     @classmethod
     def from_config(cls, config: DataSiteOwnerEventCacheConfig):
@@ -50,30 +52,41 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             return cls(
                 events_connection=InMemoryCacheFileConnection[FileChangeEvent](),
                 file_connection=InMemoryCacheFileConnection[str](),
+                email=config.email,
             )
         else:
-            if config.base_path is None:
+            if config.syftbox_folder is None:
                 raise ValueError("base_path is required for non-in-memory cache")
+            if config.email is None:
+                raise ValueError("email is required for non-in-memory cache")
+            syftbox_folder_name = Path(config.syftbox_folder).name
+            my_datasite_folder = config.syftbox_folder / config.email
+            syftbox_parent = Path(config.syftbox_folder).parent
+            events_folder = syftbox_parent / f"{syftbox_folder_name}-events"
             return cls(
-                events_connection=FSFileConnection(
-                    base_dir=Path(config.base_path) / "events"
-                ),
-                file_connection=FSFileConnection(base_dir=Path(config.base_path)),
+                events_connection=FSFileConnection(base_dir=events_folder),
+                file_connection=FSFileConnection(base_dir=my_datasite_folder),
+                email=config.email,
             )
 
     def process_local_file_changes(self) -> List[FileChangeEvent]:
         new_events = []
         for path, content in self.file_connection.get_items():
+            if str(path).startswith("private"):
+                continue
+            if ".venv" in str(path):
+                continue
             current_hash = get_event_hash_from_content(content)
             if current_hash != self.file_hashes.get(path, None):
                 timestamp = create_event_timestamp()
                 event = FileChangeEvent(
                     id=uuid4(),
-                    path=path,
+                    path_in_datasite=path,
                     content=content,
                     new_hash=current_hash,
                     submitted_timestamp=timestamp,
                     timestamp=timestamp,
+                    datasite_email=self.email,
                 )
                 # its already written so no need to write again
                 self.add_event_to_local_cache(event, write_file=False)
@@ -86,20 +99,22 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         self.file_hashes = {}
 
     def has_conflict(self, proposed_event: ProposedFileChange) -> bool:
-        if proposed_event.path not in self.file_hashes:
+        if proposed_event.path_in_datasite not in self.file_hashes:
             if proposed_event.old_hash is None:
                 return False
             else:
                 raise ValueError(
-                    f"File {proposed_event.path} is not in the cache but it does have an old hash"
+                    f"File {proposed_event.path_in_datasite} is not in the cache but it does have an old hash"
                 )
-        return self.file_hashes[proposed_event.path] != proposed_event.old_hash
+        return (
+            self.file_hashes[proposed_event.path_in_datasite] != proposed_event.old_hash
+        )
 
     def process_proposed_event(self, proposed_event: ProposedFileChange):
         if self.has_conflict(proposed_event):
-            hash_on_disk = self.file_hashes[proposed_event.path]
+            hash_on_disk = self.file_hashes[proposed_event.path_in_datasite]
             raise ProposedEventFileOutdatedException(
-                proposed_event.path, proposed_event.old_hash, hash_on_disk
+                proposed_event.path_in_datasite, proposed_event.old_hash, hash_on_disk
             )
         else:
             result_event = self.apply_propposed_event_to_cache(proposed_event)
@@ -113,15 +128,15 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         return event
 
     def add_event_to_local_cache(self, event: FileChangeEvent, write_file: bool = True):
-        self.file_hashes[event.path] = event.new_hash
+        self.file_hashes[event.path_in_datasite] = event.new_hash
 
         if write_file:
-            self.file_connection.write_file(event.path, event.content)
+            self.file_connection.write_file(event.path_in_datasite, event.content)
 
         self.events_connection.write_file(event.eventfile_filepath(), event)
 
         for callback in self.callbacks.get("on_event_local_write", []):
-            callback(event.path, event.content)
+            callback(event.path_in_datasite, event.content)
 
     def get_cached_events(self) -> List[FileChangeEvent]:
         return self.events_connection.get_all()

@@ -1,4 +1,5 @@
 from typing import Any
+from pathlib import Path
 from uuid import UUID
 from pydantic import BaseModel, model_validator
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
@@ -13,12 +14,12 @@ DEFAULT_EVENT_FILENAME_EXTENSION = ".tar.gz"
 
 class FileChangeEventFileName(BaseModel):
     id: UUID
-    file_path: str
+    file_path_in_datasite: Path
     timestamp: float
     extension: str = DEFAULT_EVENT_FILENAME_EXTENSION
 
     def as_string(self) -> str:
-        return f"{FILE_CHANGE_FILENAME_PREFIX}_{self.timestamp}_{self.id}_{self.file_path}{DEFAULT_EVENT_FILENAME_EXTENSION}"
+        return f"{FILE_CHANGE_FILENAME_PREFIX}_{self.timestamp}_{self.id}_{self.file_path_in_datasite}{DEFAULT_EVENT_FILENAME_EXTENSION}"
 
     @classmethod
     def from_string(cls, filename: str) -> "FileChangeEventFileName":
@@ -33,14 +34,17 @@ class FileChangeEventFileName(BaseModel):
             file_path = file_path_with_ext
             if file_path.endswith(DEFAULT_EVENT_FILENAME_EXTENSION):
                 file_path = file_path[: -len(DEFAULT_EVENT_FILENAME_EXTENSION)]
-            return cls(id=id, file_path=file_path, timestamp=timestamp)
+            return cls(
+                id=id, file_path_in_datasite=Path(file_path), timestamp=timestamp
+            )
         except Exception:
             raise ValueError(f"Invalid filename: {filename}")
 
 
 class FileChangeEvent(BaseModel):
     id: UUID
-    path: str
+    path_in_datasite: Path
+    datasite_email: str
     content: str
     old_hash: str | None = None
     new_hash: str
@@ -48,12 +52,16 @@ class FileChangeEvent(BaseModel):
     timestamp: float
     event_filepath: FileChangeEventFileName
 
+    @property
+    def path_in_syftbox(self) -> Path:
+        return Path(self.datasite_email) / self.path_in_datasite
+
     @model_validator(mode="before")
     def pre_init(cls, data):
         if "event_filepath" not in data:
             data["event_filepath"] = FileChangeEventFileName(
                 id=data["id"],
-                file_path=data["path"],
+                file_path_in_datasite=data["path_in_datasite"],
                 timestamp=data["timestamp"],
             )
         return data
@@ -67,13 +75,14 @@ class FileChangeEvent(BaseModel):
         proposed_filechange: ProposedFileChange,
     ) -> "FileChangeEvent":
         return cls(
-            path=proposed_filechange.path,
+            path_in_datasite=proposed_filechange.path_in_datasite,
             content=proposed_filechange.content,
             id=proposed_filechange.id,
             old_hash=proposed_filechange.old_hash,
             new_hash=proposed_filechange.new_hash,
             submitted_timestamp=proposed_filechange.submitted_timestamp,
             timestamp=create_event_timestamp(),
+            datasite_email=proposed_filechange.datasite_email,
         )
 
     def __hash__(self) -> int:
