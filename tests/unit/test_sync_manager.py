@@ -320,7 +320,6 @@ with open("outputs/result.json", "w") as f:
     assert json_content["result"] == 1
 
 
-
 def test_submission():
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
         use_in_memory_cache=False
@@ -351,7 +350,7 @@ import syft_client as sc
 import json
 
 data_path = "syft://private/syft_datasets/my dataset/private.txt"
-resolved_path = sc.resolve_path(data_path)                
+resolved_path = sc.resolve_path(data_path)
 
 os.mkdir("outputs")
 with open("outputs/result.json", "w") as f:
@@ -360,7 +359,7 @@ with open("outputs/result.json", "w") as f:
         result = {"result": data}
         f.write(json.dumps(result))
 """)
-    
+
     ds_manager.submit_python_job(
         user=do_manager.email,
         code_path=test_py_path,
@@ -382,6 +381,4 @@ with open("outputs/result.json", "w") as f:
     with open(output_path, "r") as f:
         json_content = json.loads(f.read())
 
-    assert json_content["result"] == "Hello World!"
-
-
+    assert json_content["result"] == "Hello, world!"

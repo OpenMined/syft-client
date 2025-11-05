@@ -65,7 +65,9 @@ class DataSiteWatcherCache(BaseModel):
             events_folder = syftbox_parent / f"{syftbox_folder_name}-events"
 
             return cls(
-                events_connection=FSFileConnection(base_dir=events_folder),
+                events_connection=FSFileConnection(
+                    base_dir=events_folder, dtype=FileChangeEvent
+                ),
                 file_connection=FSFileConnection(base_dir=config.syftbox_folder),
                 connection_router=ConnectionRouter.from_configs(
                     connection_configs=config.connection_configs
