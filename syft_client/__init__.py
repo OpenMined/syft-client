@@ -10,6 +10,7 @@ from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.utils.print_utils import print_client_connected
 from syft_client.sync.utils.syftbox_utils import get_email_colab
 from syft_client.sync.config.config import settings
+from syft_client.utils import resolve_path
 
 
 def login(email: str | None = None, sync: bool = True, load_peers: bool = True):
