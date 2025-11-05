@@ -154,7 +154,6 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
         private_datasets_dir = (
             self.syftbox_config.syftbox_folder
             / "private"
-            / self.syftbox_config.email
             / "syft_datasets"
         )
 
