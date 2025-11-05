@@ -318,3 +318,70 @@ with open("outputs/result.json", "w") as f:
         json_content = json.loads(f.read())
 
     assert json_content["result"] == 1
+
+
+
+def test_submission():
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+    do_manager.create_dataset(
+        name="my dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="This is a summary",
+        readme_path=readme_path,
+        tags=["tag1", "tag2"],
+    )
+
+    datasets = do_manager.datasets.get_all()
+    assert len(datasets) == 1
+
+    ds_manager.sync()
+
+    assert len(ds_manager.datasets.get_all()) == 1
+
+    test_py_path = "/tmp/test.py"
+    with open(test_py_path, "w") as f:
+        f.write("""
+import os
+import syft_client as sc
+import json
+
+data_path = "syft://private/syft_datasets/my dataset/private.txt"
+resolved_path = sc.resolve_path(data_path)                
+
+os.mkdir("outputs")
+with open("outputs/result.json", "w") as f:
+    with open(resolved_path, "r") as data_file:
+        data = data_file.read()
+        result = {"result": data}
+        f.write(json.dumps(result))
+""")
+    
+    ds_manager.submit_python_job(
+        user=do_manager.email,
+        code_path=test_py_path,
+        job_name="test.job",
+    )
+
+    assert len(do_manager.job_client.jobs) == 1
+    job = do_manager.job_client.jobs[0]
+
+    job.approve()
+
+    do_manager.job_runner.process_approved_jobs()
+
+    do_manager.sync()
+
+    ds_manager.sync()
+
+    output_path = ds_manager.job_client.jobs[-1].output_paths[0]
+    with open(output_path, "r") as f:
+        json_content = json.loads(f.read())
+
+    assert json_content["result"] == "Hello World!"
+
+
