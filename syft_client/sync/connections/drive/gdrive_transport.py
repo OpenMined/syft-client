@@ -20,7 +20,7 @@ from syft_client.sync.connections.base_connection import (
 )
 from syft_client.sync.events.file_change_event import (
     FileChangeEvent,
-    FileChangeEventFileName,
+    FileChangeEventsMessageFileName,
 )
 from syft_client.sync.messages.proposed_filechange import (
     MessageFileName,
@@ -428,11 +428,13 @@ class GDriveConnection(SyftboxPlatformConnection):
     @staticmethod
     def _get_valid_events_from_file_metadatas(
         file_metadatas: List[Dict],
-    ) -> List[FileChangeEventFileName]:
+    ) -> List[FileChangeEventsMessageFileName]:
         res = []
         for file_metadata in file_metadatas:
             try:
-                event = FileChangeEventFileName.from_string(file_metadata["name"])
+                event = FileChangeEventsMessageFileName.from_string(
+                    file_metadata["name"]
+                )
                 res.append(event)
             except Exception:
                 continue

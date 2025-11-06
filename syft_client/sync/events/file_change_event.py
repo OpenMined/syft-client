@@ -1,42 +1,39 @@
 from typing import Any
 from pathlib import Path
-from uuid import UUID
-from pydantic import BaseModel, model_validator
+from uuid import UUID, uuid4
+from pydantic import BaseModel, Field, model_validator
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_client.sync.utils.syftbox_utils import create_event_timestamp
 from syft_client.sync.utils.syftbox_utils import compress_data
 from syft_client.sync.utils.syftbox_utils import uncompress_data
+from typing import List
 
 
-FILE_CHANGE_FILENAME_PREFIX = "syfteventv2"
+FILE_CHANGE_FILENAME_PREFIX = "syfteventsmessagev3"
 DEFAULT_EVENT_FILENAME_EXTENSION = ".tar.gz"
 
 
-class FileChangeEventFileName(BaseModel):
-    id: UUID
-    file_path_in_datasite: Path
-    timestamp: float
+class FileChangeEventsMessageFileName(BaseModel):
+    id: UUID = Field(default_factory=lambda: uuid4())
+    timestamp: float = Field(default_factory=lambda: create_event_timestamp())
     extension: str = DEFAULT_EVENT_FILENAME_EXTENSION
 
     def as_string(self) -> str:
-        return f"{FILE_CHANGE_FILENAME_PREFIX}_{self.timestamp}_{self.id}_{self.file_path_in_datasite}{DEFAULT_EVENT_FILENAME_EXTENSION}"
+        return f"{FILE_CHANGE_FILENAME_PREFIX}_{self.timestamp}_{self.id}{DEFAULT_EVENT_FILENAME_EXTENSION}"
 
     @classmethod
-    def from_string(cls, filename: str) -> "FileChangeEventFileName":
+    def from_string(cls, filename: str) -> "FileChangeEventsMessageFileName":
         try:
-            parts = filename.split("_", 3)
-            if len(parts) != 4:
+            parts = filename.split("_", 2)
+            if len(parts) != 3:
                 raise ValueError(f"Invalid filename: {filename}")
             timestamp = float(parts[1])
-            id = UUID(parts[2])
 
-            file_path_with_ext = parts[3]
-            file_path = file_path_with_ext
-            if file_path.endswith(DEFAULT_EVENT_FILENAME_EXTENSION):
-                file_path = file_path[: -len(DEFAULT_EVENT_FILENAME_EXTENSION)]
-            return cls(
-                id=id, file_path_in_datasite=Path(file_path), timestamp=timestamp
-            )
+            id_with_ext = parts[3]
+            _id = id_with_ext
+            if _id.endswith(DEFAULT_EVENT_FILENAME_EXTENSION):
+                _id = UUID(_id[: -len(DEFAULT_EVENT_FILENAME_EXTENSION)])
+            return cls(id=id, timestamp=timestamp)
         except Exception:
             raise ValueError(f"Invalid filename: {filename}")
 
@@ -50,7 +47,6 @@ class FileChangeEvent(BaseModel):
     new_hash: str
     submitted_timestamp: float
     timestamp: float
-    event_filepath: FileChangeEventFileName
 
     @property
     def path_in_syftbox(self) -> Path:
@@ -58,16 +54,17 @@ class FileChangeEvent(BaseModel):
 
     @model_validator(mode="before")
     def pre_init(cls, data):
-        if "event_filepath" not in data:
-            data["event_filepath"] = FileChangeEventFileName(
-                id=data["id"],
-                file_path_in_datasite=data["path_in_datasite"],
-                timestamp=data["timestamp"],
-            )
+        # if "event_filepath" not in data:
+        #     data["event_filepath"] = FileChangeEventsMessageFileName(
+        #         id=data["id"],
+        #         file_path_in_datasite=data["path_in_datasite"],
+        #         timestamp=data["timestamp"],
+        #     )
         return data
 
     def eventfile_filepath(self) -> str:
-        return self.event_filepath.as_string()
+        # TODO: remove
+        return f"_{self.id}"
 
     @classmethod
     def from_proposed_filechange(
@@ -101,3 +98,14 @@ class FileChangeEvent(BaseModel):
     def from_compressed_data(cls, data: bytes) -> "FileChangeEvent":
         uncompressed_data = uncompress_data(data)
         return cls.model_validate_json(uncompressed_data)
+
+
+class FileChangeEventsMessage(BaseModel):
+    events: List[FileChangeEvent]
+    message_filepath: FileChangeEventsMessageFileName = Field(
+        default_factory=lambda: FileChangeEventsMessageFileName()
+    )
+
+    @property
+    def timestamp(self) -> float:
+        return self.message_filepath.timestamp

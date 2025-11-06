@@ -4,7 +4,10 @@ from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
     ConnectionConfig,
 )
-from syft_client.sync.events.file_change_event import FileChangeEvent
+from syft_client.sync.events.file_change_event import (
+    FileChangeEvent,
+    FileChangeEventsMessage,
+)
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
 from syft_client.sync.peers.peer import Peer
@@ -86,17 +89,19 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_own_syftbox()
         connection.delete_syftbox()
 
-    def write_event_to_syftbox(self, event: FileChangeEvent):
+    def write_events_message_to_syftbox(self, events_message: FileChangeEventsMessage):
         connection = self.connection_for_eventlog()
-        connection.write_event_to_syftbox(event)
+        connection.write_events_message_to_syftbox(events_message)
 
-    def write_event_to_outbox_do(self, sender_email: str, event: FileChangeEvent):
+    def write_event_messages_to_outbox_do(
+        self, sender_email: str, events_message: FileChangeEventsMessage
+    ):
         connection = self.connection_for_outbox()
-        connection.write_event_to_outbox_do(sender_email, event)
+        connection.write_event_messages_to_outbox_do(sender_email, events_message)
 
-    def get_all_accepted_events_do(self) -> List[FileChangeEvent]:
+    def get_all_accepted_events_messages_do(self) -> List[FileChangeEventsMessage]:
         connection = self.connection_for_eventlog()
-        return connection.get_all_events_do()
+        return connection.get_all_events_messages_do()
 
     def get_next_proposed_filechange_message(
         self, sender_email: str = None

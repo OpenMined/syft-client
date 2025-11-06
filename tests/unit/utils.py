@@ -1,5 +1,6 @@
+from syft_client.sync.events.file_change_event import FileChangeEventsMessage
 from syft_client.sync.events.file_change_event import FileChangeEvent
-from syft_client.sync.events.file_change_event import FileChangeEventFileName
+from syft_client.sync.events.file_change_event import FileChangeEventsMessageFileName
 from pathlib import Path
 import uuid
 import random
@@ -23,7 +24,7 @@ def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:
         timestamp=time.time(),
         content=content,
         new_hash=new_hash,
-        event_filepath=FileChangeEventFileName(
+        event_filepath=FileChangeEventsMessageFileName(
             id=uuid.uuid4(),
             file_path_in_datasite=file_path,
             timestamp=time.time(),
@@ -31,9 +32,11 @@ def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:
     )
 
 
-def get_mock_events(n_events: int = 2) -> List[FileChangeEvent]:
-    res = [get_mock_event(f"email@email.com/test{i}.job") for i in range(n_events)]
-    return res
+def get_mock_events_messages(n_events: int = 2) -> List[FileChangeEventsMessage]:
+    return [
+        FileChangeEventsMessage(events=[get_mock_event(f"email@email.com/test{i}.job")])
+        for i in range(n_events)
+    ]
 
 
 def mock_message(path: str = "email@email.com/test.job") -> ProposedFileChangesMessage:
