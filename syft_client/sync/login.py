@@ -62,6 +62,7 @@ def login_do(
     if env == Environment.COLAB:
         if email is None:
             email = get_email_colab()
+        client = SyftboxManager.for_colab(email=email, only_datasite_owner=True)
 
     elif env == Environment.JUPYTER:
         token_path = token_path or settings.token_path
