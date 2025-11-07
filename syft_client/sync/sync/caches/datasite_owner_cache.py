@@ -55,7 +55,6 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
 
     @classmethod
     def from_config(cls, config: DataSiteOwnerEventCacheConfig):
-        print("value in CONFIG ON INIT", config.use_in_memory_cache)
         if config.use_in_memory_cache:
             return cls(
                 events_connection=InMemoryCacheFileConnection[FileChangeEvent](),
@@ -71,13 +70,14 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             my_datasite_folder = config.syftbox_folder / config.email
             syftbox_parent = Path(config.syftbox_folder).parent
             events_folder = syftbox_parent / f"{syftbox_folder_name}-events"
-            return cls(
-                events_connection=FSFileConnection(
+            res = cls(
+                events_messages_connection=FSFileConnection(
                     base_dir=events_folder, dtype=FileChangeEventsMessage
                 ),
                 file_connection=FSFileConnection(base_dir=my_datasite_folder),
                 email=config.email,
             )
+            return res
 
     def process_local_file_changes(self) -> FileChangeEventsMessage | None:
         new_events = []
