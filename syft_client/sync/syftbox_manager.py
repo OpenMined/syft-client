@@ -90,10 +90,6 @@ class SyftboxManagerConfig(BaseModel):
                 syftbox_folder=syftbox_folder,
             ),
         )
-        print(
-            "value in config",
-            proposed_file_change_handler_config.cache_config.use_in_memory_cache,
-        )
         proposed_file_change_pusher_config = ProposedFileChangePusherConfig(
             syftbox_folder=syftbox_folder,
             email=email,
