@@ -70,14 +70,13 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             my_datasite_folder = config.syftbox_folder / config.email
             syftbox_parent = Path(config.syftbox_folder).parent
             events_folder = syftbox_parent / f"{syftbox_folder_name}-events"
-            res = cls(
+            return cls(
                 events_messages_connection=FSFileConnection(
                     base_dir=events_folder, dtype=FileChangeEventsMessage
                 ),
                 file_connection=FSFileConnection(base_dir=my_datasite_folder),
                 email=config.email,
             )
-            return res
 
     def process_local_file_changes(self) -> FileChangeEventsMessage | None:
         new_events = []
