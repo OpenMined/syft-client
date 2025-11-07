@@ -5,7 +5,9 @@ from syft_client.sync.connections.base_connection import (
     ConnectionConfig,
     SyftboxPlatformConnection,
 )
-from syft_client.sync.events.file_change_event import FileChangeEvent
+from syft_client.sync.events.file_change_event import (
+    FileChangeEventsMessage,
+)
 from syft_client.sync.messages.proposed_filechange import (
     ProposedFileChangesMessage,
 )
@@ -16,13 +18,19 @@ class InMemoryPlatformConnectionConfig(ConnectionConfig):
 
 
 class InMemoryBackingPlatform(BaseModel):
-    proposed_events_inbox: List[ProposedFileChangesMessage] = []
-    event_log: List[FileChangeEvent] = []
-    peers: Dict[str, List[str]] = {}
+    proposed_events_inbox: List[ProposedFileChangesMessage] = Field(
+        default_factory=lambda: []
+    )
+    syftbox_events_message_log: List[FileChangeEventsMessage] = Field(
+        default_factory=lambda: []
+    )
+    peers: Dict[str, List[str]] = Field(default_factory=lambda: {})
 
-    outboxes: Dict[str, List[FileChangeEvent]] = {
-        "all": [],
-    }
+    outboxes: Dict[str, List[FileChangeEventsMessage]] = Field(
+        default_factory=lambda: {
+            "all": [],
+        }
+    )
 
 
 class InMemoryPlatformConnection(SyftboxPlatformConnection):
@@ -97,23 +105,25 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             if e.id != proposed_filechange_message.id
         ]
 
-    def write_event_to_syftbox(self, event: FileChangeEvent) -> None:
-        self.backing_store.event_log.append(event)
-
-    def write_event_to_outbox_do(
-        self, sender_email: str, event: FileChangeEvent
+    def write_events_message_to_syftbox(
+        self, events_message: FileChangeEventsMessage
     ) -> None:
-        self.backing_store.outboxes["all"].append(event)
+        self.backing_store.syftbox_events_message_log.append(events_message)
 
-    def get_events_for_datasite_watcher(
+    def write_event_messages_to_outbox_do(
+        self, sender_email: str, events_message: FileChangeEventsMessage
+    ) -> None:
+        self.backing_store.outboxes["all"].append(events_message)
+
+    def get_events_messages_for_datasite_watcher(
         self, peer_email: str, since_timestamp: float | None = None
-    ) -> List[FileChangeEvent]:
+    ) -> List[FileChangeEventsMessage]:
         # TODO: implement permissions
-        all_events = self.backing_store.outboxes["all"]
+        all_event_messages = self.backing_store.outboxes["all"]
         if since_timestamp is None:
-            return all_events
+            return all_event_messages
         else:
-            return [e for e in all_events if e.timestamp > since_timestamp]
+            return [e for e in all_event_messages if e.timestamp > since_timestamp]
 
-    def get_all_events_do(self) -> List[FileChangeEvent]:
-        return self.backing_store.event_log
+    def get_all_events_messages_do(self) -> List[FileChangeEventsMessage]:
+        return self.backing_store.syftbox_events_message_log

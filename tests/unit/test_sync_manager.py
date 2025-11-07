@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlatform
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
@@ -9,7 +10,7 @@ from tests.unit.utils import create_tmp_dataset_files
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     ProposedEventFileOutdatedException,
 )
-from tests.unit.utils import get_mock_events
+from tests.unit.utils import get_mock_events_messages
 from tests.unit.utils import get_mock_proposed_events_messages
 
 
@@ -50,25 +51,36 @@ def test_valid_and_invalid_proposed_filechange_event():
     path_from_syftbox = "email@email.com/test.job"
     path_in_datasite = path_from_syftbox.split("/")[-1]
 
-    event1 = ProposedFileChange(
-        old_hash=None,
-        path_in_datasite=path_in_datasite,
-        content="Content 1",
-        datasite_email=do_email,
-    )
-    hash1 = event1.new_hash
-    do_manager.proposed_file_change_handler.handle_proposed_filechange_event(
-        ds_email, event1
+    message_1 = ProposedFileChangesMessage(
+        sender_email=ds_email,
+        proposed_file_changes=[
+            ProposedFileChange(
+                old_hash=None,
+                path_in_datasite=path_in_datasite,
+                content="Content 1",
+                datasite_email=do_email,
+            )
+        ],
     )
 
-    event2 = ProposedFileChange(
-        old_hash=hash1,
-        path_in_datasite=path_in_datasite,
-        content="Content 2",
-        datasite_email=do_email,
+    hash1 = message_1.proposed_file_changes[0].new_hash
+    do_manager.proposed_file_change_handler.handle_proposed_filechange_events_message(
+        ds_email, message_1
     )
-    do_manager.proposed_file_change_handler.handle_proposed_filechange_event(
-        ds_email, event2
+
+    message_2 = ProposedFileChangesMessage(
+        sender_email=ds_email,
+        proposed_file_changes=[
+            ProposedFileChange(
+                old_hash=hash1,
+                path_in_datasite=path_in_datasite,
+                content="Content 2",
+                datasite_email=do_email,
+            )
+        ],
+    )
+    do_manager.proposed_file_change_handler.handle_proposed_filechange_events_message(
+        ds_email, message_2
     )
 
     content = (
@@ -78,17 +90,22 @@ def test_valid_and_invalid_proposed_filechange_event():
     )
     assert content == "Content 2"
 
-    event3_outdated = ProposedFileChange(
-        old_hash=hash1,
-        path_in_datasite=path_in_datasite,
-        content="Content 3",
-        datasite_email=do_email,
+    message_3_outdated = ProposedFileChangesMessage(
+        sender_email=ds_email,
+        proposed_file_changes=[
+            ProposedFileChange(
+                old_hash=hash1,
+                path_in_datasite=path_in_datasite,
+                content="Content 3",
+                datasite_email=do_email,
+            )
+        ],
     )
 
     # This should fail, as the event is outdated
     with pytest.raises(ProposedEventFileOutdatedException):
-        do_manager.proposed_file_change_handler.handle_proposed_filechange_event(
-            ds_email, event3_outdated
+        do_manager.proposed_file_change_handler.handle_proposed_filechange_events_message(
+            ds_email, message_3_outdated
         )
 
     content = (
@@ -120,15 +137,16 @@ def test_sync_existing_datasite_state_do():
         0
     ].backing_store
 
-    events = get_mock_events(2)
-    store.event_log.extend(events)
-    store.outboxes["all"].extend(events)
+    events_messages = get_mock_events_messages(2)
+
+    store.syftbox_events_message_log.extend(events_messages)
+    store.outboxes["all"].extend(events_messages)
 
     # sync down existing state
     do_manager.sync()
 
-    n_events_in_cache = len(
-        do_manager.proposed_file_change_handler.event_cache.events_connection
+    n_messages_in_cache = len(
+        do_manager.proposed_file_change_handler.event_cache.events_messages_connection
     )
     n_files_in_cache = len(
         do_manager.proposed_file_change_handler.event_cache.file_connection
@@ -136,7 +154,7 @@ def test_sync_existing_datasite_state_do():
     hashes_in_cache = len(
         do_manager.proposed_file_change_handler.event_cache.file_hashes
     )
-    assert n_events_in_cache == 2
+    assert n_messages_in_cache == 2
     assert n_files_in_cache == 2
     assert hashes_in_cache == 2
     # outbox should still be 2
@@ -154,8 +172,8 @@ def test_sync_existing_inbox_state_do():
 
     do_manager.sync()
 
-    n_events_in_cache = len(
-        do_manager.proposed_file_change_handler.event_cache.events_connection
+    n_events_message_in_cache = len(
+        do_manager.proposed_file_change_handler.event_cache.events_messages_connection
     )
     n_files_in_cache = len(
         do_manager.proposed_file_change_handler.event_cache.file_connection
@@ -163,12 +181,14 @@ def test_sync_existing_inbox_state_do():
     hashes_in_cache = len(
         do_manager.proposed_file_change_handler.event_cache.file_hashes
     )
-    assert n_events_in_cache == 2
+    assert n_events_message_in_cache == 2
     assert n_files_in_cache == 2
     assert hashes_in_cache == 2
 
     n_events_in_syftbox = len(
-        do_manager.connection_router.connections[0].backing_store.event_log
+        do_manager.connection_router.connections[
+            0
+        ].backing_store.syftbox_events_message_log
     )
     assert n_events_in_syftbox == 2
 
@@ -182,9 +202,9 @@ def test_sync_existing_datasite_state_ds():
         0
     ].backing_store
 
-    events = get_mock_events(2)
-    store.event_log.extend(events)
-    store.outboxes["all"].extend(events)
+    events_messages = get_mock_events_messages(2)
+    store.syftbox_events_message_log.extend(events_messages)
+    store.outboxes["all"].extend(events_messages)
 
     ds_manager.sync()
 
@@ -263,6 +283,23 @@ def test_datasets():
         tags=["tag1", "tag2"],
     )
 
+    backing_store = (
+        do_manager.proposed_file_change_handler.connection_router.connections[
+            0
+        ].backing_store
+    )
+
+    syftbox_events = backing_store.syftbox_events_message_log
+    assert len(syftbox_events) == 1
+    # for message in syftbox_events:
+    #     for event in message.events:
+
+    outbox_events_messages = backing_store.outboxes["all"]
+    outbox_events = [
+        event for message in outbox_events_messages for event in message.events
+    ]
+    assert not any("private" in str(event.path_in_datasite) for event in outbox_events)
+
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
 
@@ -284,7 +321,8 @@ def test_datasets():
 
 def test_jobs():
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
-        use_in_memory_cache=False
+        use_in_memory_cache=False,
+        sync_automatically=False,
     )
 
     test_py_path = "/tmp/test.py"
@@ -301,6 +339,21 @@ with open("outputs/result.json", "w") as f:
         code_path=test_py_path,
         job_name="test.job",
     )
+
+    backing_store = (
+        do_manager.proposed_file_change_handler.connection_router.connections[
+            0
+        ].backing_store
+    )
+
+    # We want to make sure that we only send one message for the multiple files in the job.
+    # this is to reduce the number of messages sent, which increases the speed of sync
+    # we do this by not always syncing on a file change, currently this logic is a bit of
+    # a short cut, but we could do this based on timing eventually (if there are items in the
+    # queue for longer than a certain time we start pushing)
+    assert len(backing_store.proposed_events_inbox) == 1
+
+    do_manager.sync()
 
     assert len(do_manager.job_client.jobs) == 1
     job = do_manager.job_client.jobs[0]
@@ -320,7 +373,7 @@ with open("outputs/result.json", "w") as f:
     assert json_content["result"] == 1
 
 
-def test_submission():
+def test_job_flow_with_dataset():
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
         use_in_memory_cache=False
     )
@@ -345,19 +398,20 @@ def test_submission():
     test_py_path = "/tmp/test.py"
     with open(test_py_path, "w") as f:
         f.write("""
-import os
+import os, json
 import syft_client as sc
-import json
 
 data_path = "syft://private/syft_datasets/my dataset/private.txt"
 resolved_path = sc.resolve_path(data_path)
 
+with open(resolved_path, "r") as data_file:
+    data = data_file.read()
+
+result = {"result": data}
+
 os.mkdir("outputs")
 with open("outputs/result.json", "w") as f:
-    with open(resolved_path, "r") as data_file:
-        data = data_file.read()
-        result = {"result": data}
-        f.write(json.dumps(result))
+    f.write(json.dumps(result))
 """)
 
     ds_manager.submit_python_job(

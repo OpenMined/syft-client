@@ -3,7 +3,10 @@ from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConn
 from pathlib import Path
 from pydantic import BaseModel, Field, model_validator
 from datetime import datetime, timedelta
-from syft_client.sync.events.file_change_event import FileChangeEvent
+from syft_client.sync.events.file_change_event import (
+    FileChangeEvent,
+    FileChangeEventsMessage,
+)
 from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.connections.base_connection import ConnectionConfig
 from syft_client.sync.sync.caches.cache_file_writer_connection import (
@@ -62,11 +65,11 @@ class DataSiteWatcherCache(BaseModel):
 
             syftbox_folder_name = Path(config.syftbox_folder).name
             syftbox_parent = Path(config.syftbox_folder).parent
-            events_folder = syftbox_parent / f"{syftbox_folder_name}-events"
+            events_folder = syftbox_parent / f"{syftbox_folder_name}-event-messages"
 
             return cls(
                 events_connection=FSFileConnection(
-                    base_dir=events_folder, dtype=FileChangeEvent
+                    base_dir=events_folder, dtype=FileChangeEventsMessage
                 ),
                 file_connection=FSFileConnection(base_dir=config.syftbox_folder),
                 connection_router=ConnectionRouter.from_configs(
@@ -89,23 +92,29 @@ class DataSiteWatcherCache(BaseModel):
         return self.events_connection.get_latest().timestamp
 
     def sync_down(self, peer_email: str):
-        new_events = self.connection_router.get_events_for_datasite_watcher(
-            peer_email=peer_email,
-            since_timestamp=self.last_event_timestamp,
+        new_event_messages = (
+            self.connection_router.get_events_messages_for_datasite_watcher(
+                peer_email=peer_email,
+                since_timestamp=self.last_event_timestamp,
+            )
         )
-        for event in sorted(new_events, key=lambda x: x.timestamp):
-            self.apply_event(event)
+        for event_message in sorted(new_event_messages, key=lambda x: x.timestamp):
+            self.apply_event_message(event_message)
 
         self.last_sync = datetime.now()
 
-    def apply_event(self, event: FileChangeEvent):
-        self.file_connection.write_file(event.path_in_syftbox, event.content)
-        self.file_hashes[event.path_in_syftbox] = event.new_hash
+    def apply_event_message(self, event_message: FileChangeEventsMessage):
+        self.events_connection.write_file(
+            event_message.message_filepath.as_string(), event_message
+        )
 
-        self.events_connection.write_file(event.eventfile_filepath(), event)
+        for event in event_message.events:
+            self.file_connection.write_file(event.path_in_syftbox, event.content)
+            self.file_hashes[event.path_in_syftbox] = event.new_hash
 
     def get_cached_events(self) -> List[FileChangeEvent]:
-        return self.events_connection.get_all()
+        messages = self.events_connection.get_all()
+        return [event for message in messages for event in message.events]
 
     def sync_down_if_needed(self, peer_email: str):
         if self.last_sync is None:

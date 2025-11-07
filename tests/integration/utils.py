@@ -1,5 +1,5 @@
 from syft_client.sync.events.file_change_event import FileChangeEvent
-from syft_client.sync.events.file_change_event import FileChangeEventFileName
+from syft_client.sync.events.file_change_event import FileChangeEventsMessageFileName
 import uuid
 import time
 from typing import List
@@ -19,7 +19,7 @@ def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:
         timestamp=time.time(),
         content=content,
         new_hash=new_hash,
-        event_filepath=FileChangeEventFileName(
+        event_filepath=FileChangeEventsMessageFileName(
             id=uuid.uuid4(),
             file_path_in_datasite=file_path,
             timestamp=time.time(),

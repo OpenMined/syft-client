@@ -589,8 +589,15 @@ class SyftboxManager(BaseModel):
         file_paths = [Path(p) for p in job_dir.rglob("*")]
         relative_file_paths = [p.relative_to(self.syftbox_folder) for p in file_paths]
 
-        for relative_file_path in relative_file_paths:
-            self.proposed_file_change_pusher.on_file_change(relative_file_path)
+        last_file = False
+        for i, relative_file_path in enumerate(relative_file_paths):
+            # only send a message for the last file, so we reduce the number of messages sent
+            if i == len(relative_file_paths) - 1:
+                last_file = True
+
+            self.proposed_file_change_pusher.on_file_change(
+                relative_file_path, process_now=last_file
+            )
 
     @property
     def is_do(self) -> bool:
@@ -640,7 +647,7 @@ class SyftboxManager(BaseModel):
         self.file_writer.write_file(path, content)
 
     def get_all_accepted_events_do(self) -> List[FileChangeEvent]:
-        return self.proposed_file_change_handler.connection_router.get_all_accepted_events_do()
+        return self.proposed_file_change_handler.connection_router.get_all_accepted_events_messages_do()
 
     def create_dataset(self, *args, sync=True, **kwargs):
         if self.dataset_manager is None:

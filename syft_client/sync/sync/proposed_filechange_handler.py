@@ -1,12 +1,15 @@
 from pydantic import ConfigDict, Field, BaseModel
-from syft_client.sync.events.file_change_event import FileChangeEvent
+from queue import Queue
+from typing import Tuple
+from syft_client.sync.events.file_change_event import (
+    FileChangeEventsMessage,
+)
 from syft_client.sync.connections.base_connection import ConnectionConfig
 from typing import List
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     DataSiteOwnerEventCacheConfig,
 )
 from syft_client.sync.connections.connection_router import ConnectionRouter
-from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_client.sync.sync.caches.datasite_owner_cache import DataSiteOwnerEventCache
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
@@ -24,7 +27,7 @@ class ProposedFileChangeHandlerConfig(BaseModel):
 class ProposedFileChangeHandler(BaseModelCallbackMixin):
     """Responsible for downloading files and checking permissions"""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
     event_cache: DataSiteOwnerEventCache = Field(
         default_factory=lambda: DataSiteOwnerEventCache()
     )
@@ -32,6 +35,11 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     connection_router: ConnectionRouter
     initial_sync_done: bool = False
     email: str
+
+    syftbox_events_queue: Queue[FileChangeEventsMessage] = Field(default_factory=Queue)
+    outbox_queue: Queue[Tuple[str, FileChangeEventsMessage]] = Field(
+        default_factory=Queue
+    )
 
     @classmethod
     def from_config(cls, config: ProposedFileChangeHandlerConfig):
@@ -58,21 +66,26 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
                 if msg is None:
                     # no new message, we are done
                     break
+            self.process_syftbox_events_queue()
 
     def pull_initial_state(self):
         # pull all events from the syftbox
-        events: list[FileChangeEvent] = (
-            self.connection_router.get_all_accepted_events_do()
+        events_messages: list[FileChangeEventsMessage] = (
+            self.connection_router.get_all_accepted_events_messages_do()
         )
-        for event in events:
-            self.event_cache.add_event_to_local_cache(event)
+        for events_message in events_messages:
+            self.event_cache.add_events_message_to_local_cache(events_message)
         self.initial_sync_done = True
 
     def process_local_changes(self, recipients: list[str]):
         # TODO: currently permissions are not implemented, so we just write to all recipients
-        events = self.event_cache.process_local_file_changes()
-        for event in events:
-            self.write_event_to_syftbox(recipients=recipients, event=event)
+        file_change_events_message = self.event_cache.process_local_file_changes()
+        if file_change_events_message is not None:
+            self.queue_event_for_syftbox(
+                recipients=recipients,
+                file_change_events_message=file_change_events_message,
+            )
+            self.process_syftbox_events_queue()
 
     def pull_and_process_next_proposed_filechange(
         self, sender_email: str, raise_on_none=True
@@ -83,10 +96,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         )
         if message is not None:
             sender_email = message.sender_email
-            for proposed_file_change in message.proposed_file_changes:
-                self.handle_proposed_filechange_event(
-                    sender_email, proposed_file_change
-                )
+            self.handle_proposed_filechange_events_message(sender_email, message)
 
             # delete the message once we are done
             self.connection_router.remove_proposed_filechange_from_inbox(message)
@@ -106,18 +116,40 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     def check_permissions(self, path: str):
         pass
 
-    def handle_proposed_filechange_event(
-        self, sender_email: str, proposed_event: ProposedFileChange
+    def handle_proposed_filechange_events_message(
+        self, sender_email: str, proposed_events_message: ProposedFileChangesMessage
     ):
-        self.check_permissions(proposed_event.path_in_datasite)
+        # for event in proposed_events_message.events:
+        #     self.check_permissions(event.path_in_datasite)
 
-        accepted_event = self.event_cache.process_proposed_event(proposed_event)
-        self.write_event_to_syftbox(recipients=[sender_email], event=accepted_event)
+        accepted_events_message = self.event_cache.process_proposed_events_message(
+            proposed_events_message
+        )
+        self.queue_event_for_syftbox(
+            recipients=[sender_email],
+            file_change_events_message=accepted_events_message,
+        )
 
-    def write_event_to_syftbox(self, recipients: list[str], event: FileChangeEvent):
-        self.connection_router.write_event_to_syftbox(event)
+    def queue_event_for_syftbox(
+        self, recipients: list[str], file_change_events_message: FileChangeEventsMessage
+    ):
+        self.syftbox_events_queue.put(file_change_events_message)
+
         for recipient in recipients:
-            self.connection_router.write_event_to_outbox_do(recipient, event)
+            self.outbox_queue.put((recipient, file_change_events_message))
+
+    def process_syftbox_events_queue(self):
+        # TODO: make this atomic
+        while not self.syftbox_events_queue.empty():
+            file_change_events_message = self.syftbox_events_queue.get()
+            self.connection_router.write_events_message_to_syftbox(
+                file_change_events_message
+            )
+        while not self.outbox_queue.empty():
+            recipient, file_change_events_message = self.outbox_queue.get()
+            self.connection_router.write_event_messages_to_outbox_do(
+                recipient, file_change_events_message
+            )
 
     def write_file_filesystem(self, path: str, content: str):
         if self.write_files:

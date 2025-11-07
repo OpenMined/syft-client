@@ -1,6 +1,7 @@
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List
+from queue import Queue
 from syft_client.sync.connections.base_connection import ConnectionConfig
 from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
@@ -24,10 +25,14 @@ class ProposedFileChangePusherConfig(BaseModel):
 
 
 class ProposedFileChangePusher(BaseModelCallbackMixin):
+    class Config:
+        arbitrary_types_allowed = True
+
     syftbox_folder: Path
     email: str
     connection_router: ConnectionRouter
     datasite_watcher_cache: DataSiteWatcherCache
+    queue: Queue = Field(default_factory=Queue)
 
     @classmethod
     def from_config(cls, config: ProposedFileChangePusherConfig):
@@ -51,27 +56,43 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
             old_hash=old_hash,
         )
 
-    def on_file_change(self, relative_path: Path | str, content: str | None = None):
-        relative_path = Path(relative_path)
+    def process_file_changes_queue(self):
+        file_changes = []
+        while not self.queue.empty():
+            relative_path, content = self.queue.get()
 
-        # for in memory connection we pass content directly
-        if content is None:
-            with open(self.syftbox_folder / relative_path, "r") as f:
-                content = f.read()
+            # for in memory connection we pass content directly
+            if content is None:
+                with open(self.syftbox_folder / relative_path, "r") as f:
+                    content = f.read()
 
-        # splitted = relative_path.split("/")
+            # splitted = relative_path.split("/")
 
-        datasite_email = relative_path.parts[0]
-        path_in_datasite = (
-            Path(*relative_path.parts[1:]) if len(relative_path.parts) > 1 else Path()
-        )
+            datasite_email = relative_path.parts[0]
+            path_in_datasite = (
+                Path(*relative_path.parts[1:])
+                if len(relative_path.parts) > 1
+                else Path()
+            )
 
-        # TODO: add some better parsing logic here
-        recipient = datasite_email
-        path_in_datasite = path_in_datasite
+            # TODO: add some better parsing logic here
+            recipient = datasite_email
+            path_in_datasite = path_in_datasite
 
-        file_change = self.get_proposed_file_change_object(path_in_datasite, content)
+            file_change = self.get_proposed_file_change_object(
+                path_in_datasite, content
+            )
+            file_changes.append(file_change)
+
         message = ProposedFileChangesMessage(
-            sender_email=self.email, proposed_file_changes=[file_change]
+            sender_email=self.email, proposed_file_changes=file_changes
         )
         self.connection_router.send_proposed_file_changes_message(recipient, message)
+
+    def on_file_change(
+        self, relative_path: Path | str, content: str | None = None, process_now=True
+    ):
+        relative_path = Path(relative_path)
+        self.queue.put((relative_path, content))
+        if process_now:
+            self.process_file_changes_queue()
