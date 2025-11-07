@@ -92,9 +92,11 @@ class DataSiteWatcherCache(BaseModel):
         return self.events_connection.get_latest().timestamp
 
     def sync_down(self, peer_email: str):
-        new_event_messages = self.connection_router.get_events_for_datasite_watcher(
-            peer_email=peer_email,
-            since_timestamp=self.last_event_timestamp,
+        new_event_messages = (
+            self.connection_router.get_events_messages_for_datasite_watcher(
+                peer_email=peer_email,
+                since_timestamp=self.last_event_timestamp,
+            )
         )
         for event_message in sorted(new_event_messages, key=lambda x: x.timestamp):
             self.apply_event_message(event_message)

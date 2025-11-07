@@ -5,7 +5,6 @@ from syft_client.sync.connections.base_connection import (
     ConnectionConfig,
 )
 from syft_client.sync.events.file_change_event import (
-    FileChangeEvent,
     FileChangeEventsMessage,
 )
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
@@ -135,10 +134,10 @@ class ConnectionRouter(BaseModel):
             proposed_filechange_message
         )
 
-    def get_events_for_datasite_watcher(
+    def get_events_messages_for_datasite_watcher(
         self, peer_email: str, since_timestamp: float | None
-    ) -> List[FileChangeEvent]:
+    ) -> List[FileChangeEventsMessage]:
         connection = self.connection_for_datasite_watcher()
-        return connection.get_events_for_datasite_watcher(
+        return connection.get_events_messages_for_datasite_watcher(
             peer_email=peer_email, since_timestamp=since_timestamp
         )

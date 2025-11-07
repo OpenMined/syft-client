@@ -115,7 +115,7 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
     ) -> None:
         self.backing_store.outboxes["all"].append(events_message)
 
-    def get_events_for_datasite_watcher(
+    def get_events_messages_for_datasite_watcher(
         self, peer_email: str, since_timestamp: float | None = None
     ) -> List[FileChangeEventsMessage]:
         # TODO: implement permissions

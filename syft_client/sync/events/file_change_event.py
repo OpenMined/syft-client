@@ -29,13 +29,13 @@ class FileChangeEventsMessageFileName(BaseModel):
                 raise ValueError(f"Invalid filename: {filename}")
             timestamp = float(parts[1])
 
-            id_with_ext = parts[3]
+            id_with_ext = parts[2]
             _id = id_with_ext
             if _id.endswith(DEFAULT_EVENT_FILENAME_EXTENSION):
                 _id = UUID(_id[: -len(DEFAULT_EVENT_FILENAME_EXTENSION)])
-            return cls(id=id, timestamp=timestamp)
-        except Exception:
-            raise ValueError(f"Invalid filename: {filename}")
+            return cls(id=_id, timestamp=timestamp)
+        except Exception as e:
+            raise ValueError(f"Invalid filename: {filename}") from e
 
 
 class FileChangeEvent(BaseModel):
@@ -91,14 +91,6 @@ class FileChangeEvent(BaseModel):
             return False
         return self.id == other.id
 
-    def as_compressed_data(self) -> bytes:
-        return compress_data(self.model_dump_json().encode("utf-8"))
-
-    @classmethod
-    def from_compressed_data(cls, data: bytes) -> "FileChangeEvent":
-        uncompressed_data = uncompress_data(data)
-        return cls.model_validate_json(uncompressed_data)
-
 
 class FileChangeEventsMessage(BaseModel):
     events: List[FileChangeEvent]
@@ -109,3 +101,11 @@ class FileChangeEventsMessage(BaseModel):
     @property
     def timestamp(self) -> float:
         return self.message_filepath.timestamp
+
+    def as_compressed_data(self) -> bytes:
+        return compress_data(self.model_dump_json().encode("utf-8"))
+
+    @classmethod
+    def from_compressed_data(cls, data: bytes) -> "FileChangeEvent":
+        uncompressed_data = uncompress_data(data)
+        return cls.model_validate_json(uncompressed_data)
