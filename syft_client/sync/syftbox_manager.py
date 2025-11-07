@@ -55,7 +55,7 @@ def get_jupyter_default_syftbox_folder(email: str):
 
 
 def get_colab_default_syftbox_folder(email: str):
-    return Path("/") / f"SyftBox_{email}"
+    return Path("/content") / f"SyftBox_{email}"
 
 
 class SyftboxManagerConfig(BaseModel):
