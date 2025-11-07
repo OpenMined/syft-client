@@ -64,6 +64,8 @@ def login_do(
     if env == Environment.COLAB:
         if email is None:
             email = get_email_colab()
+        if email is None:
+            raise ValueError("Email is required for Colab login")
         client = SyftboxManager.for_colab(email=email, only_datasite_owner=True)
 
     elif env == Environment.JUPYTER:
