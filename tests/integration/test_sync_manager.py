@@ -1,3 +1,4 @@
+from syft_datasets.dataset import Dataset
 from syft_client.sync.syftbox_manager import SyftboxManager
 import os
 from pathlib import Path
@@ -221,6 +222,10 @@ def test_datasets():
 
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
+
+    # Retrieve dataset by name
+    dataset_do = do_manager.datasets["my dataset"]
+    assert isinstance(dataset_do, Dataset)
 
     ds_manager.sync()
 

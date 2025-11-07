@@ -4,6 +4,7 @@ from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMes
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlatform
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
+from syft_datasets.dataset import Dataset
 import pytest
 from tests.unit.utils import create_tmp_dataset_files
 
@@ -302,6 +303,10 @@ def test_datasets():
 
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
+
+    # Retrieve dataset by name
+    dataset_do = do_manager.datasets["my dataset"]
+    assert isinstance(dataset_do, Dataset)
 
     ds_manager.sync()
 
