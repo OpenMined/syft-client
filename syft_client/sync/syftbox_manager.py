@@ -81,7 +81,6 @@ class SyftboxManagerConfig(BaseModel):
             raise ValueError(
                 "At least one of only_ds or only_datasite_owner must be True"
             )
-        print("email", email)
 
         syftbox_folder = get_colab_default_syftbox_folder(email)
         use_in_memory_cache = False
