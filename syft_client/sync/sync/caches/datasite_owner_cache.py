@@ -55,6 +55,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
 
     @classmethod
     def from_config(cls, config: DataSiteOwnerEventCacheConfig):
+        print("value in CONFIG ON INIT", config.use_in_memory_cache)
         if config.use_in_memory_cache:
             return cls(
                 events_connection=InMemoryCacheFileConnection[FileChangeEvent](),
