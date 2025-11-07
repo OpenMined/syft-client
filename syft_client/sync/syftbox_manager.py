@@ -81,8 +81,10 @@ class SyftboxManagerConfig(BaseModel):
             raise ValueError(
                 "At least one of only_ds or only_datasite_owner must be True"
             )
+        print("email3", email)
 
         syftbox_folder = get_colab_default_syftbox_folder(email)
+        print("syftbox_folder", syftbox_folder)
         use_in_memory_cache = False
         connection_configs = [GdriveConnectionConfig(email=email, token_path=None)]
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
@@ -394,7 +396,8 @@ class SyftboxManager(BaseModel):
     def for_colab(
         cls, email: str, only_ds: bool = False, only_datasite_owner: bool = False
     ):
-        return cls.from_config(
+        print("email2", email)
+        cls.from_config(
             SyftboxManagerConfig.for_colab(
                 email=email,
                 only_ds=only_ds,
