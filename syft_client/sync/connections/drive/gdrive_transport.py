@@ -478,7 +478,6 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     def _get_do_inbox_folder_id(self, sender_email: str) -> str | None:
         if sender_email in self.do_inbox_folder_id_cache:
-            print(f"Using cached inbox folder id for {sender_email}")
             return self.do_inbox_folder_id_cache[sender_email]
 
         recipient_email = self.email

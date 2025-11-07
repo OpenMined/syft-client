@@ -1,6 +1,6 @@
 from pathlib import Path
 from pydantic import ConfigDict
-from syft_job.client import JobClient
+from syft_job.client import JobClient, JobsList
 from syft_job.job_runner import SyftJobRunner
 from syft_job import SyftJobConfig
 from syft_datasets.config import SyftBoxConfig
@@ -623,6 +623,10 @@ class SyftboxManager(BaseModel):
             peers = self.connection_router.get_peers_as_ds()
 
         self.peers = PeerList(peers)
+
+    @property
+    def jobs(self) -> JobsList:
+        return self.job_client.jobs
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
