@@ -54,6 +54,10 @@ def get_jupyter_default_syftbox_folder(email: str):
     return Path.home() / f"SyftBox_{email}"
 
 
+def get_colab_default_syftbox_folder(email: str):
+    return Path("/") / f"SyftBox_{email}"
+
+
 class SyftboxManagerConfig(BaseModel):
     email: str
     syftbox_folder: Path
@@ -78,7 +82,7 @@ class SyftboxManagerConfig(BaseModel):
                 "At least one of only_ds or only_datasite_owner must be True"
             )
 
-        syftbox_folder = COLAB_DEFAULT_SYFTBOX_FOLDER
+        syftbox_folder = get_colab_default_syftbox_folder(email)
         use_in_memory_cache = False
         connection_configs = [GdriveConnectionConfig(email=email, token_path=None)]
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
