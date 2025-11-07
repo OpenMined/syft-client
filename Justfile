@@ -11,3 +11,7 @@ test-integration:
     pytest -s ./tests/integration
 
 
+delete-syftboxes:
+    #!/bin/bash
+    python ./scripts/delete_syftboxes.py
+

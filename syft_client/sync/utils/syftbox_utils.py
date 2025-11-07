@@ -2,7 +2,6 @@ import random
 import io
 import tarfile
 import time
-import subprocess
 from syft_client.sync.environments.environment import Environment
 from hashlib import sha256
 from pathlib import Path
@@ -18,21 +17,15 @@ def check_env() -> Environment:
         return Environment.JUPYTER
 
 
-def get_email_colab() -> str:
-    email = (
-        subprocess.check_output(
-            [
-                "gcloud",
-                "auth",
-                "list",
-                "--filter=status:ACTIVE",
-                "--format=value(account)",
-            ]
-        )
-        .decode("utf-8")
-        .strip()
-    )
-    return email
+def get_email_colab() -> str | None:
+    from google.colab import auth
+    from googleapiclient.discovery import build
+
+    auth.authenticate_user()
+
+    oauth2 = build("oauth2", "v2")
+    userinfo = oauth2.userinfo().get().execute()
+    return userinfo.get("email")
 
 
 def get_event_hash_from_content(content: str) -> str:

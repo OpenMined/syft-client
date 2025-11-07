@@ -1,6 +1,6 @@
 from pathlib import Path
 from pydantic import ConfigDict
-from syft_job.client import JobClient
+from syft_job.client import JobClient, JobsList
 from syft_job.job_runner import SyftJobRunner
 from syft_job import SyftJobConfig
 from syft_datasets.config import SyftBoxConfig
@@ -54,6 +54,10 @@ def get_jupyter_default_syftbox_folder(email: str):
     return Path.home() / f"SyftBox_{email}"
 
 
+def get_colab_default_syftbox_folder(email: str):
+    return Path("/content") / f"SyftBox_{email}"
+
+
 class SyftboxManagerConfig(BaseModel):
     email: str
     syftbox_folder: Path
@@ -78,7 +82,7 @@ class SyftboxManagerConfig(BaseModel):
                 "At least one of only_ds or only_datasite_owner must be True"
             )
 
-        syftbox_folder = COLAB_DEFAULT_SYFTBOX_FOLDER
+        syftbox_folder = get_colab_default_syftbox_folder(email)
         use_in_memory_cache = False
         connection_configs = [GdriveConnectionConfig(email=email, token_path=None)]
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
@@ -619,6 +623,10 @@ class SyftboxManager(BaseModel):
             peers = self.connection_router.get_peers_as_ds()
 
         self.peers = PeerList(peers)
+
+    @property
+    def jobs(self) -> JobsList:
+        return self.job_client.jobs
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
