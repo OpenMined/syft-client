@@ -241,6 +241,9 @@ class SyftDatasetManager:
             raise FileNotFoundError(f"Dataset {name} not found in {mock_dir}")
         return self._load_dataset_from_dir(mock_dir)
 
+    def __getitem__(self, key: str) -> Dataset:
+        return self.get(name=key)
+
     def get_all(
         self,
         datasite: str | None = None,

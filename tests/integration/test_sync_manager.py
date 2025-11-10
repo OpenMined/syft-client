@@ -1,3 +1,4 @@
+from syft_datasets.dataset import Dataset
 from syft_client.sync.syftbox_manager import SyftboxManager
 import os
 from pathlib import Path
@@ -76,8 +77,9 @@ def test_google_drive_connection_syncing():
     # this is just for timing purposes, you can ignore it
     # continuing with the test
 
-    manager_do.proposed_file_change_handler.pull_and_process_next_proposed_filechange(
-        sender_email=EMAIL_DS
+    manager_do.proposed_file_change_handler.sync(peer_emails=[EMAIL_DS])
+    assert (
+        len(manager_do.proposed_file_change_handler.event_cache.get_cached_events()) > 0
     )
 
     manager_ds.sync()
@@ -164,25 +166,28 @@ def test_google_drive_files():
         use_in_memory_cache=False,
     )
 
-    syftbox_dir_do = (
+    # syftbox_dir / EMAIL_DO
+    datasite_dir_do = (
         manager_do.proposed_file_change_handler.event_cache.file_connection.base_dir
     )
 
+    # syftbox_dir (ds)
     syftbox_dir_ds = manager_ds.datasite_outbox_puller.datasite_watcher_cache.file_connection.base_dir
 
-    assert syftbox_dir_do != syftbox_dir_ds
+    assert datasite_dir_do != syftbox_dir_ds
 
-    job_path = f"{EMAIL_DO}/test.job"
+    job_path = "test.job"
+    job_send_path = f"{EMAIL_DO}/{job_path}"
 
-    manager_ds.send_file_change(job_path, "This is a job")
+    manager_ds.send_file_change(job_send_path, "This is a job")
     sleep(1)
 
     manager_do.sync()
 
-    assert (syftbox_dir_do / job_path).exists()
+    assert (datasite_dir_do / job_path).exists()
 
-    result_rel_path = f"{EMAIL_DO}/test_result.job"
-    result_path = syftbox_dir_do / result_rel_path
+    result_rel_path = "test_result.result"
+    result_path = datasite_dir_do / result_rel_path
     result_path.parent.mkdir(parents=True, exist_ok=True)
     with open(result_path, "w") as f:
         f.write("I am a result")
@@ -192,21 +197,17 @@ def test_google_drive_files():
 
     manager_ds.sync()
 
-    assert (syftbox_dir_ds / result_rel_path).exists()
+    assert (syftbox_dir_ds / EMAIL_DO / result_rel_path).exists()
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_datasets():
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
         ds_token_path=token_path_ds,
         use_in_memory_cache=False,
-    )
-
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
-        use_in_memory_cache=False
     )
 
     mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
@@ -221,6 +222,10 @@ def test_datasets():
 
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
+
+    # Retrieve dataset by name
+    dataset_do = do_manager.datasets["my dataset"]
+    assert isinstance(dataset_do, Dataset)
 
     ds_manager.sync()
 

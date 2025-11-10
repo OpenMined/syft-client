@@ -11,3 +11,7 @@ test-integration:
     uv run pytest -s ./tests/integration
 
 
+delete-syftboxes:
+    #!/bin/bash
+    python ./scripts/delete_syftboxes.py
+

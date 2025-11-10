@@ -19,8 +19,8 @@ from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
 )
 from syft_client.sync.events.file_change_event import (
-    FileChangeEvent,
-    FileChangeEventFileName,
+    FileChangeEventsMessageFileName,
+    FileChangeEventsMessage,
 )
 from syft_client.sync.messages.proposed_filechange import (
     MessageFileName,
@@ -214,9 +214,9 @@ class GDriveConnection(SyftboxPlatformConnection):
                 continue
         return list(peers)
 
-    def get_events_for_datasite_watcher(
+    def get_events_messages_for_datasite_watcher(
         self, peer_email: str, since_timestamp: float | None
-    ) -> List[FileChangeEvent]:
+    ) -> List[FileChangeEventsMessage]:
         folder_id = self._get_ds_inbox_folder_id(peer_email)
         # folder_id = self._find_folder_by_name(peer_email, owner_email=peer_email)
         if folder_id is None:
@@ -238,19 +238,19 @@ class GDriveConnection(SyftboxPlatformConnection):
             res = []
             for _id in relevant_drive_ids:
                 file_data = self.download_file(_id)
-                res.append(FileChangeEvent.from_compressed_data(file_data))
+                res.append(FileChangeEventsMessage.from_compressed_data(file_data))
             return res
 
-    def write_event_to_syftbox(self, event: FileChangeEvent):
+    def write_events_message_to_syftbox(self, event_message: FileChangeEventsMessage):
         """Writes to /SyftBox/myemail"""
         personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
-        filename = event.event_filepath.as_string()
-        event_data = event.as_compressed_data()
+        filename = event_message.message_filepath.as_string()
+        message_data = event_message.as_compressed_data()
         file_metadata = {
             "name": filename,
             "parents": [personal_syftbox_folder_id],
         }
-        file_payload, _ = self.create_file_payload(event_data)
+        file_payload, _ = self.create_file_payload(message_data)
 
         res = (
             self.drive_service.files()
@@ -261,7 +261,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.personal_syftbox_event_id_cache[filename] = gdrive_id
         return gdrive_id
 
-    def get_all_events_do(self) -> List[FileChangeEvent]:
+    def get_all_events_messages_do(self) -> List[FileChangeEventsMessage]:
         """Reads from /SyftBox/myemail"""
         personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
         file_metadatas = self.get_file_metadatas_from_folder(personal_syftbox_folder_id)
@@ -277,20 +277,22 @@ class GDriveConnection(SyftboxPlatformConnection):
             except Exception as e:
                 print(e)
                 continue
-            event = FileChangeEvent.from_compressed_data(file_data)
+            event = FileChangeEventsMessage.from_compressed_data(file_data)
             result.append(event)
         return result
 
-    def write_event_to_outbox_do(self, recipient: str, event: FileChangeEvent):
-        fname = event.event_filepath.as_string()
-        event_data = event.as_compressed_data()
+    def write_event_messages_to_outbox_do(
+        self, recipient: str, events_message: FileChangeEventsMessage
+    ):
+        fname = events_message.message_filepath.as_string()
+        message_data = events_message.as_compressed_data()
 
         outbox_folder_id = self._get_do_outbox_folder_id(recipient)
 
         if outbox_folder_id is None:
             raise ValueError(f"Outbox folder for {recipient} not found")
 
-        file_payload, _ = self.create_file_payload(event_data)
+        file_payload, _ = self.create_file_payload(message_data)
 
         file_metadata = {
             "name": fname,
@@ -428,13 +430,15 @@ class GDriveConnection(SyftboxPlatformConnection):
     @staticmethod
     def _get_valid_events_from_file_metadatas(
         file_metadatas: List[Dict],
-    ) -> List[FileChangeEventFileName]:
+    ) -> List[FileChangeEventsMessageFileName]:
         res = []
         for file_metadata in file_metadatas:
+            fname = file_metadata["name"]
             try:
-                event = FileChangeEventFileName.from_string(file_metadata["name"])
-                res.append(event)
+                message_filename = FileChangeEventsMessageFileName.from_string(fname)
+                res.append(message_filename)
             except Exception:
+                print("Warning, invalid file name: ", fname)
                 continue
         return res
 
@@ -455,6 +459,8 @@ class GDriveConnection(SyftboxPlatformConnection):
         self, sender_email: str
     ) -> ProposedFileChangesMessage | None:
         inbox_folder_id = self._get_do_inbox_folder_id(sender_email)
+        if inbox_folder_id is None:
+            raise ValueError(f"Inbox folder for {sender_email} not found")
         file_metadatas = self.get_file_metadatas_from_folder(inbox_folder_id)
         valid_file_names = self._get_valid_messages_from_file_metadatas(file_metadatas)
         if len(valid_file_names) == 0:
@@ -467,11 +473,11 @@ class GDriveConnection(SyftboxPlatformConnection):
                 x for x in file_metadatas if x["name"] == first_file_name.as_string()
             ][0]["id"]
             file_data = self.download_file(first_file_id)
-            return ProposedFileChangesMessage.from_compressed_data(file_data)
+            res = ProposedFileChangesMessage.from_compressed_data(file_data)
+            return res
 
     def _get_do_inbox_folder_id(self, sender_email: str) -> str | None:
         if sender_email in self.do_inbox_folder_id_cache:
-            print(f"Using cached inbox folder id for {sender_email}")
             return self.do_inbox_folder_id_cache[sender_email]
 
         recipient_email = self.email
