@@ -642,6 +642,9 @@ class SyftboxManager(BaseModel):
 
     @property
     def jobs(self) -> JobsList:
+        # pre sync
+        if os.environ.get("PRE_SYNC"):
+            self.sync()
         return self.job_client.jobs
 
     def add_connection(self, connection: SyftboxPlatformConnection):
@@ -684,6 +687,9 @@ class SyftboxManager(BaseModel):
     def datasets(self) -> SyftDatasetManager:
         if self.dataset_manager is None:
             raise ValueError("Dataset manager is not set")
+        if os.environ.get("PRE_SYNC"):
+            self.sync()
+
         return self.dataset_manager
 
     @property
