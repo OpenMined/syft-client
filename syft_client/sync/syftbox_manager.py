@@ -7,7 +7,7 @@ from syft_datasets.config import SyftBoxConfig
 from syft_datasets.dataset_manager import SyftDatasetManager
 from syft_client.sync.utils.print_utils import print_peer_added
 from syft_client.sync.platforms.base_platform import BasePlatform
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, PrivateAttr
 from typing import List
 from syft_client.sync.sync.caches.datasite_watcher_cache import (
     DataSiteWatcherCacheConfig,
@@ -45,6 +45,7 @@ from syft_client.sync.sync.proposed_file_change_pusher import (
     ProposedFileChangePusherConfig,
 )
 from syft_client.sync.sync.datasite_outbox_puller import DatasiteOutboxPullerConfig
+import os
 
 COLAB_DEFAULT_SYFTBOX_FOLDER = Path("/")
 JUPYTER_DEFAULT_SYFTBOX_FOLDER = Path.home() / "SyftBox"
@@ -342,7 +343,22 @@ class SyftboxManager(BaseModel):
     job_client: JobClient | None = None
     job_runner: SyftJobRunner | None = None
 
-    peers: PeerList = Field(default_factory=PeerList)
+    _peers: PeerList = PrivateAttr(default_factory=PeerList)
+
+    @property
+    def peers(self) -> PeerList:
+        """
+        Get the list of peers. If PRE_SYNC environment variable is set,
+        automatically call sync() before returning the peers.
+        """
+        if os.environ.get("PRE_SYNC"):
+            self.sync()
+        return self._peers
+
+    @peers.setter
+    def peers(self, value: PeerList):
+        """Set the peers list."""
+        self._peers = value
 
     @classmethod
     def from_config(cls, config: SyftboxManagerConfig):
@@ -570,7 +586,7 @@ class SyftboxManager(BaseModel):
         return ds_manager, do_manager
 
     def add_peer(self, peer_email: str, force: bool = False):
-        existing_emails = [p.email for p in self.peers]
+        existing_emails = [p.email for p in self._peers]
         if peer_email in existing_emails and not force:
             print(f"Peer {peer_email} already exists, skipping")
         else:
@@ -578,7 +594,7 @@ class SyftboxManager(BaseModel):
                 peer = self.connection_router.add_peer_as_do(peer_email=peer_email)
             else:
                 peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
-            self.peers.append(peer)
+            self._peers.append(peer)
             print_peer_added(peer)
 
     def submit_bash_job(self, *args, sync=True, **kwargs):
@@ -609,7 +625,7 @@ class SyftboxManager(BaseModel):
 
     def sync(self):
         self.load_peers()
-        peer_emails = [peer.email for peer in self.peers]
+        peer_emails = [peer.email for peer in self._peers]
         if self.is_do:
             self.proposed_file_change_handler.sync(peer_emails)
         else:
@@ -691,5 +707,5 @@ class SyftboxManager(BaseModel):
         self.connection_router.delete_syftbox()
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
-        all_platforms = set([plat for p in self.peers for plat in p.platforms])
+        all_platforms = set([plat for p in self._peers for plat in p.platforms])
         return list(all_platforms)
