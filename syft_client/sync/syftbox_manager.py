@@ -665,8 +665,8 @@ class SyftboxManager(BaseModel):
         To disable auto-sync, set: PRE_SYNC=false
         """
         self.job_runner.process_approved_jobs()
-        # if os.environ.get("PRE_SYNC", "true").lower() == "true":
-        #     self.sync()
+        if os.environ.get("PRE_SYNC", "true").lower() == "true":
+            self.sync()
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
