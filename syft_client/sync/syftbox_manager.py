@@ -348,10 +348,13 @@ class SyftboxManager(BaseModel):
     @property
     def peers(self) -> PeerList:
         """
-        Get the list of peers. If PRE_SYNC environment variable is set,
-        automatically call sync() before returning the peers.
+        Get the list of peers. Automatically calls sync() before returning peers
+        if PRE_SYNC environment variable is set to "true" (case-insensitive).
+
+        PRE_SYNC defaults to "true", so auto-sync is enabled by default.
+        To disable auto-sync, set: PRE_SYNC=false
         """
-        if os.environ.get("PRE_SYNC"):
+        if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
         return self._peers
 
@@ -642,8 +645,14 @@ class SyftboxManager(BaseModel):
 
     @property
     def jobs(self) -> JobsList:
-        # pre sync
-        if os.environ.get("PRE_SYNC"):
+        """
+        Get the list of jobs. Automatically calls sync() before returning jobs
+        if PRE_SYNC environment variable is set to "true" (case-insensitive).
+
+        PRE_SYNC defaults to "true", so auto-sync is enabled by default.
+        To disable auto-sync, set: PRE_SYNC=false
+        """
+        if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
         return self.job_client.jobs
 
@@ -685,9 +694,17 @@ class SyftboxManager(BaseModel):
 
     @property
     def datasets(self) -> SyftDatasetManager:
+        """
+        Get the dataset manager. Automatically calls sync() before returning datasets
+        if PRE_SYNC environment variable is set to "true" (case-insensitive).
+
+        PRE_SYNC defaults to "true", so auto-sync is enabled by default.
+        To disable auto-sync, set: PRE_SYNC=false
+        """
         if self.dataset_manager is None:
             raise ValueError("Dataset manager is not set")
-        if os.environ.get("PRE_SYNC"):
+
+        if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
 
         return self.dataset_manager
