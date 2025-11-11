@@ -656,7 +656,7 @@ class SyftboxManager(BaseModel):
         if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
         return self.job_client.jobs
-    
+
     def process_approved_jobs(self) -> None:
         """
         Process approved jobs. Automatically calls sync() after processing
