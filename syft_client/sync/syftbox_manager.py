@@ -655,6 +655,18 @@ class SyftboxManager(BaseModel):
         if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
         return self.job_client.jobs
+    
+    @property
+    def process_approved_jobs(self) -> None:
+        """
+        Process approved jobs. Automatically calls sync() after processing
+
+        PRE_SYNC defaults to "true", so auto-sync is enabled by default.
+        To disable auto-sync, set: PRE_SYNC=false
+        """
+        self.job_runner.process_approved_jobs()
+        if os.environ.get("PRE_SYNC", "true").lower() == "true":
+            self.sync()
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
