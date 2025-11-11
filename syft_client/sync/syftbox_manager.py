@@ -7,7 +7,7 @@ from syft_datasets.config import SyftBoxConfig
 from syft_datasets.dataset_manager import SyftDatasetManager
 from syft_client.sync.utils.print_utils import print_peer_added
 from syft_client.sync.platforms.base_platform import BasePlatform
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, PrivateAttr
 from typing import List
 from syft_client.sync.sync.caches.datasite_watcher_cache import (
     DataSiteWatcherCacheConfig,
@@ -45,6 +45,7 @@ from syft_client.sync.sync.proposed_file_change_pusher import (
     ProposedFileChangePusherConfig,
 )
 from syft_client.sync.sync.datasite_outbox_puller import DatasiteOutboxPullerConfig
+import os
 
 COLAB_DEFAULT_SYFTBOX_FOLDER = Path("/")
 JUPYTER_DEFAULT_SYFTBOX_FOLDER = Path.home() / "SyftBox"
@@ -342,7 +343,25 @@ class SyftboxManager(BaseModel):
     job_client: JobClient | None = None
     job_runner: SyftJobRunner | None = None
 
-    peers: PeerList = Field(default_factory=PeerList)
+    _peers: PeerList = PrivateAttr(default_factory=PeerList)
+
+    @property
+    def peers(self) -> PeerList:
+        """
+        Get the list of peers. Automatically calls sync() before returning peers
+        if PRE_SYNC environment variable is set to "true" (case-insensitive).
+
+        PRE_SYNC defaults to "true", so auto-sync is enabled by default.
+        To disable auto-sync, set: PRE_SYNC=false
+        """
+        if os.environ.get("PRE_SYNC", "true").lower() == "true":
+            self.sync()
+        return self._peers
+
+    @peers.setter
+    def peers(self, value: PeerList):
+        """Set the peers list."""
+        self._peers = value
 
     @classmethod
     def from_config(cls, config: SyftboxManagerConfig):
@@ -570,7 +589,7 @@ class SyftboxManager(BaseModel):
         return ds_manager, do_manager
 
     def add_peer(self, peer_email: str, force: bool = False):
-        existing_emails = [p.email for p in self.peers]
+        existing_emails = [p.email for p in self._peers]
         if peer_email in existing_emails and not force:
             print(f"Peer {peer_email} already exists, skipping")
         else:
@@ -578,7 +597,7 @@ class SyftboxManager(BaseModel):
                 peer = self.connection_router.add_peer_as_do(peer_email=peer_email)
             else:
                 peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
-            self.peers.append(peer)
+            self._peers.append(peer)
             print_peer_added(peer)
 
     def submit_bash_job(self, *args, sync=True, **kwargs):
@@ -588,6 +607,7 @@ class SyftboxManager(BaseModel):
     def submit_python_job(self, *args, sync=True, **kwargs):
         job_dir = self.job_client.submit_python_job(*args, **kwargs)
         self.push_job_files(job_dir)
+        print(f"Submitted python job, job files are in {job_dir}")
 
     def push_job_files(self, job_dir: Path):
         file_paths = [Path(p) for p in job_dir.rglob("*")]
@@ -609,7 +629,7 @@ class SyftboxManager(BaseModel):
 
     def sync(self):
         self.load_peers()
-        peer_emails = [peer.email for peer in self.peers]
+        peer_emails = [peer.email for peer in self._peers]
         if self.is_do:
             self.proposed_file_change_handler.sync(peer_emails)
         else:
@@ -626,7 +646,27 @@ class SyftboxManager(BaseModel):
 
     @property
     def jobs(self) -> JobsList:
+        """
+        Get the list of jobs. Automatically calls sync() before returning jobs
+        if PRE_SYNC environment variable is set to "true" (case-insensitive).
+
+        PRE_SYNC defaults to "true", so auto-sync is enabled by default.
+        To disable auto-sync, set: PRE_SYNC=false
+        """
+        if os.environ.get("PRE_SYNC", "true").lower() == "true":
+            self.sync()
         return self.job_client.jobs
+
+    def process_approved_jobs(self) -> None:
+        """
+        Process approved jobs. Automatically calls sync() after processing
+
+        PRE_SYNC defaults to "true", so auto-sync is enabled by default.
+        To disable auto-sync, set: PRE_SYNC=false
+        """
+        self.job_runner.process_approved_jobs()
+        if os.environ.get("PRE_SYNC", "true").lower() == "true":
+            self.sync()
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
@@ -666,8 +706,19 @@ class SyftboxManager(BaseModel):
 
     @property
     def datasets(self) -> SyftDatasetManager:
+        """
+        Get the dataset manager. Automatically calls sync() before returning datasets
+        if PRE_SYNC environment variable is set to "true" (case-insensitive).
+
+        PRE_SYNC defaults to "true", so auto-sync is enabled by default.
+        To disable auto-sync, set: PRE_SYNC=false
+        """
         if self.dataset_manager is None:
             raise ValueError("Dataset manager is not set")
+
+        if os.environ.get("PRE_SYNC", "true").lower() == "true":
+            self.sync()
+
         return self.dataset_manager
 
     @property
@@ -691,5 +742,5 @@ class SyftboxManager(BaseModel):
         self.connection_router.delete_syftbox()
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
-        all_platforms = set([plat for p in self.peers for plat in p.platforms])
+        all_platforms = set([plat for p in self._peers for plat in p.platforms])
         return list(all_platforms)
