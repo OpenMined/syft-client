@@ -46,11 +46,13 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
         )
 
     def get_proposed_file_change_object(
-        self, relative_path: Path, content: str
+        self, relative_path: Path, content: str, datasite_email: str | None = None
     ) -> ProposedFileChange:
+        if datasite_email is None:
+            datasite_email = self.email
         old_hash = self.datasite_watcher_cache.current_hash_for_file(relative_path)
         return ProposedFileChange(
-            datasite_email=self.email,
+            datasite_email=datasite_email,
             path_in_datasite=relative_path,
             content=content,
             old_hash=old_hash,
@@ -80,7 +82,7 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
             path_in_datasite = path_in_datasite
 
             file_change = self.get_proposed_file_change_object(
-                path_in_datasite, content
+                path_in_datasite, content, datasite_email=recipient
             )
             file_changes.append(file_change)
 
