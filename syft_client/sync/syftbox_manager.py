@@ -607,6 +607,7 @@ class SyftboxManager(BaseModel):
     def submit_python_job(self, *args, sync=True, **kwargs):
         job_dir = self.job_client.submit_python_job(*args, **kwargs)
         self.push_job_files(job_dir)
+        print(f"Submitted python job, job files are in {job_dir}")
 
     def push_job_files(self, job_dir: Path):
         file_paths = [Path(p) for p in job_dir.rglob("*")]
@@ -665,8 +666,8 @@ class SyftboxManager(BaseModel):
         To disable auto-sync, set: PRE_SYNC=false
         """
         self.job_runner.process_approved_jobs()
-        if os.environ.get("PRE_SYNC", "true").lower() == "true":
-            self.sync()
+        # if os.environ.get("PRE_SYNC", "true").lower() == "true":
+        #     self.sync()
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
