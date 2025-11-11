@@ -657,7 +657,6 @@ class SyftboxManager(BaseModel):
             self.sync()
         return self.job_client.jobs
     
-    @property
     def process_approved_jobs(self) -> None:
         """
         Process approved jobs. Automatically calls sync() after processing
