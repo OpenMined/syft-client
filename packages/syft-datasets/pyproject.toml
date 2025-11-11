@@ -1,5 +1,5 @@
 [project]
-name = "syft-datasets"
+name = "syft-dataset"
 version = "0.1.0"
 description = "Syft Datasets"
 authors = [{ name = "OpenMined", email = "info@openmined.org" }]

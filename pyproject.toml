@@ -44,7 +44,7 @@ job = [
     "syft-job"
 ]
 datasets = [
-    "syft-datasets"
+    "syft-dataset"
 ]
 test = [
     "pytest>=7.0.0",
@@ -75,7 +75,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 "syft-job" = { workspace = true }
 "syft-notebook-ui" = { workspace = true }
-"syft-datasets" = { workspace = true }
+"syft-dataset" = { workspace = true }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"
