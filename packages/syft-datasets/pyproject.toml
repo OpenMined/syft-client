@@ -8,7 +8,7 @@ requires-python = ">=3.12"
 
 dependencies = [
     "pyyaml>=6.0.3",
-    "syft-notebook-ui @ git+https://github.com/OpenMined/syft-client.git@main#subdirectory=packages/syft-notebook-ui",
+    "syft-notebook-ui",
 ]
 
 
