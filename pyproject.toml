@@ -41,10 +41,10 @@ dependencies = [
 
 [project.optional-dependencies]
 job = [
-    "syft-job"
+    "syft-job @ git+https://github.com/OpenMined/syft-client.git@main#subdirectory=packages/syft-job"
 ]
 datasets = [
-    "syft-datasets"
+    "syft-datasets @ git+https://github.com/OpenMined/syft-client.git@main#subdirectory=packages/syft-datasets"
 ]
 test = [
     "pytest>=7.0.0",
