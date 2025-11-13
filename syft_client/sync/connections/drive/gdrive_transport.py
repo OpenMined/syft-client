@@ -407,16 +407,29 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     def get_file_metadatas_from_folder(self, folder_id: str) -> List[Dict]:
         query = f"'{folder_id}' in parents and trashed=false"
-        results = (
-            self.drive_service.files()
-            .list(
-                q=query,
-                fields="files(id, name, size, mimeType, modifiedTime)",
-                pageSize=100,
+        all_files = []
+        page_token = None
+
+        while True:
+            results = (
+                self.drive_service.files()
+                .list(
+                    q=query,
+                    fields="files(id, name, size, mimeType, modifiedTime), nextPageToken",
+                    pageSize=100,
+                    pageToken=page_token,
+                )
+                .execute()
             )
-            .execute()
-        )
-        return results.get("files", [])
+
+            page_files = results.get("files", [])
+            all_files.extend(page_files)
+
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+
+        return all_files
 
     @staticmethod
     def is_message_file(file_metadata: Dict) -> bool:
