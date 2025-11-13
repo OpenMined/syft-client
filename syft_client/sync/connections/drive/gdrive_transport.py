@@ -224,22 +224,27 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         file_metadatas = self.get_file_metadatas_from_folder(folder_id)
         valid_fname_objs = self._get_valid_events_from_file_metadatas(file_metadatas)
-        valid_file_names_sorted = [
-            x.as_string()
+
+        name_to_id = {f["name"]: f["id"] for f in file_metadatas}
+
+        sorted_fname_objs = [
+            x
             for x in sorted(valid_fname_objs, key=lambda x: x.timestamp)
             if since_timestamp is None or x.timestamp > since_timestamp
         ]
-        if len(valid_fname_objs) == 0:
+
+        if len(sorted_fname_objs) == 0:
             return []
-        else:
-            relevant_drive_ids = [
-                f["id"] for f in file_metadatas if f["name"] in valid_file_names_sorted
-            ]
-            res = []
-            for _id in relevant_drive_ids:
-                file_data = self.download_file(_id)
+
+        res = []
+        for fname_obj in sorted_fname_objs:
+            file_name = fname_obj.as_string()
+            if file_name in name_to_id:
+                file_id = name_to_id[file_name]
+                file_data = self.download_file(file_id)
                 res.append(FileChangeEventsMessage.from_compressed_data(file_data))
-            return res
+
+        return res
 
     def write_events_message_to_syftbox(self, event_message: FileChangeEventsMessage):
         """Writes to /SyftBox/myemail"""

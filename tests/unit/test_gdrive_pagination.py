@@ -1,5 +1,10 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from uuid import uuid4
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
+from syft_client.sync.events.file_change_event import (
+    FileChangeEventsMessage,
+    FileChangeEventsMessageFileName,
+)
 
 
 def create_mock_connection():
@@ -47,3 +52,55 @@ def test_empty_folder():
     files = conn.get_file_metadatas_from_folder("folder_id")
 
     assert files == []
+
+
+@patch(
+    "syft_client.sync.connections.drive.gdrive_transport.GDriveConnection._get_ds_inbox_folder_id"
+)
+@patch(
+    "syft_client.sync.connections.drive.gdrive_transport.GDriveConnection.download_file"
+)
+def test_events_returned_in_chronological_order(mock_download_file, mock_get_folder_id):
+    """Events should be returned in chronological order by timestamp"""
+    conn = create_mock_connection()
+
+    # Create valid filenames with proper UUIDs
+    uuid1 = uuid4()
+    uuid2 = uuid4()
+    uuid3 = uuid4()
+
+    # Mock Drive returns files in REVERSE chronological order (3.0, 2.0, 1.0)
+    conn.drive_service.files().list().execute.return_value = {
+        "files": [
+            {"id": "id3", "name": f"syfteventsmessagev3_3.0_{uuid3}.tar.gz"},
+            {"id": "id2", "name": f"syfteventsmessagev3_2.0_{uuid2}.tar.gz"},
+            {"id": "id1", "name": f"syfteventsmessagev3_1.0_{uuid1}.tar.gz"},
+        ]
+    }
+
+    # Mock _get_ds_inbox_folder_id
+    mock_get_folder_id.return_value = "folder_id"
+
+    # Mock download_file to return events with matching timestamps
+    def mock_download(file_id):
+        timestamp_map = {
+            "id1": 1.0,
+            "id2": 2.0,
+            "id3": 3.0,
+        }
+        timestamp = timestamp_map[file_id]
+        fname = FileChangeEventsMessageFileName(id=uuid4(), timestamp=timestamp)
+        event_msg = FileChangeEventsMessage(events=[], message_filepath=fname)
+        return event_msg.as_compressed_data()
+
+    mock_download_file.side_effect = mock_download
+
+    events = conn.get_events_messages_for_datasite_watcher("peer@test.com", None)
+
+    # Should return in chronological order (1.0, 2.0, 3.0)
+    timestamps = [e.timestamp for e in events]
+    assert timestamps == [
+        1.0,
+        2.0,
+        3.0,
+    ], f"Got {timestamps}, expected [1.0, 2.0, 3.0]"
