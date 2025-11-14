@@ -80,11 +80,19 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
 
     def process_local_file_changes(self) -> FileChangeEventsMessage | None:
         new_events = []
+
+        # Get current files on disk - normalize paths to Path objects
+        current_files = {}
         for path, content in self.file_connection.get_items():
+            path = Path(path)  # Normalize to Path
             if str(path).startswith("private"):
                 continue
             if ".venv" in str(path):
                 continue
+            current_files[path] = content
+
+        # Detect modifications and additions
+        for path, content in current_files.items():
             current_hash = get_event_hash_from_content(content)
             if current_hash != self.file_hashes.get(path, None):
                 timestamp = create_event_timestamp()
@@ -93,11 +101,33 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                     path_in_datasite=path,
                     content=content,
                     new_hash=current_hash,
+                    old_hash=self.file_hashes.get(path),
                     submitted_timestamp=timestamp,
                     timestamp=timestamp,
                     datasite_email=self.email,
+                    is_deleted=False,
                 )
                 new_events.append(event)
+
+        # Detect deletions
+        current_paths = set(current_files.keys())
+        cached_paths = set(self.file_hashes.keys())
+        deleted_paths = cached_paths - current_paths
+
+        for deleted_path in deleted_paths:
+            timestamp = create_event_timestamp()
+            deletion_event = FileChangeEvent(
+                id=uuid4(),
+                path_in_datasite=deleted_path,
+                content=None,
+                old_hash=self.file_hashes[deleted_path],
+                new_hash=None,
+                submitted_timestamp=timestamp,
+                timestamp=timestamp,
+                datasite_email=self.email,
+                is_deleted=True,
+            )
+            new_events.append(deletion_event)
 
         if new_events:
             events_message = FileChangeEventsMessage(events=new_events)
@@ -163,19 +193,36 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         )
 
         for accepted_event in accepted_events_message.events:
-            self.file_hashes[accepted_event.path_in_datasite] = accepted_event.new_hash
+            if accepted_event.is_deleted:
+                # Handle deletion
+                if accepted_event.path_in_datasite in self.file_hashes:
+                    del self.file_hashes[accepted_event.path_in_datasite]
 
-            if write_file:
-                self.file_connection.write_file(
-                    accepted_event.path_in_datasite,
-                    accepted_event.content,
+                if write_file:
+                    self.file_connection.delete_file(accepted_event.path_in_datasite)
+
+                for callback in self.callbacks.get("on_event_local_write", []):
+                    callback(
+                        accepted_event.path_in_datasite,
+                        None,  # No content for deletions
+                    )
+            else:
+                # Handle create/update
+                self.file_hashes[accepted_event.path_in_datasite] = (
+                    accepted_event.new_hash
                 )
 
-            for callback in self.callbacks.get("on_event_local_write", []):
-                callback(
-                    accepted_event.path_in_datasite,
-                    accepted_event.content,
-                )
+                if write_file:
+                    self.file_connection.write_file(
+                        accepted_event.path_in_datasite,
+                        accepted_event.content,
+                    )
+
+                for callback in self.callbacks.get("on_event_local_write", []):
+                    callback(
+                        accepted_event.path_in_datasite,
+                        accepted_event.content,
+                    )
 
     def get_cached_events(self) -> List[FileChangeEvent]:
         events_messages = self.events_messages_connection.get_all()

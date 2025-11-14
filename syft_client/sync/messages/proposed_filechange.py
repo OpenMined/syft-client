@@ -17,18 +17,20 @@ MESSAGE_FILENAME_EXTENSION = ".tar.gz"
 class ProposedFileChange(BaseModel):
     id: UUID = Field(default_factory=lambda: uuid4())
     old_hash: str | None = None
-    new_hash: str
+    new_hash: str | None = None  # None for deletions
     # Use UNIX timestamp (seconds since epoch)
     submitted_timestamp: float = Field(default_factory=lambda: create_event_timestamp())
     path_in_datasite: Path
-    content: str
+    content: str | None = None  # None for deletions
     datasite_email: str
+    is_deleted: bool = False
 
     @model_validator(mode="before")
     def pre_init(cls, data):
-        if "new_hash" not in data:
+        if "new_hash" not in data and not data.get("is_deleted", False):
             content = data.get("content")
-            data["new_hash"] = get_event_hash_from_content(content)
+            if content is not None:
+                data["new_hash"] = get_event_hash_from_content(content)
 
         return data
 
