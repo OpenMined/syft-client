@@ -65,11 +65,14 @@ def test_early_termination_with_since_timestamp():
     # Use the latest processed event as the checkpoint so we only fetch truly new events
     checkpoint_timestamp = initial_events[-1].timestamp
 
+    # Add buffer time to ensure new events have timestamps clearly after checkpoint
+    sleep(2)
+
     for i in range(5, 8):
         manager_ds.send_file_change(f"{EMAIL_DO}/job_{i}.job", f"Job {i}")
-        sleep(0.3)
+        sleep(0.5)
 
-    sleep(1)
+    sleep(2)
     # Ensure DO processes the newly submitted jobs to emit events before DS pulls
     manager_do.sync()
 
