@@ -222,7 +222,9 @@ class GDriveConnection(SyftboxPlatformConnection):
         if folder_id is None:
             raise ValueError(f"Folder for peer {peer_email} not found")
 
-        file_metadatas = self.get_file_metadatas_from_folder(folder_id)
+        file_metadatas = self.get_file_metadatas_from_folder(
+            folder_id, since_timestamp=since_timestamp
+        )
         valid_fname_objs = self._get_valid_events_from_file_metadatas(file_metadatas)
 
         name_to_id = {f["name"]: f["id"] for f in file_metadatas}
@@ -410,7 +412,53 @@ class GDriveConnection(SyftboxPlatformConnection):
             else:
                 return self.create_archive_folder(sender_email)
 
-    def get_file_metadatas_from_folder(self, folder_id: str) -> List[Dict]:
+    @staticmethod
+    def _extract_timestamp_from_filename(filename: str) -> float | None:
+        """
+        Extract timestamp from filename.
+
+        Supports multiple filename formats:
+        - Event files: syfteventsmessagev3_<timestamp>_<uuid>.tar.gz
+        - Job files: msgv2_<timestamp>_<uid>.tar.gz
+
+        Args:
+            filename: The filename to parse
+
+        Returns:
+            Timestamp as float, or None if can't parse
+        """
+        try:
+            # Try event file format first
+            if filename.startswith("syfteventsmessagev3_"):
+                parts = filename.split("_")
+                if len(parts) >= 2:
+                    return float(parts[1])
+
+            # Try job file format
+            if filename.startswith("msgv2_"):
+                parts = filename.split("_")
+                if len(parts) >= 2:
+                    return float(parts[1])
+
+            return None
+        except (ValueError, IndexError):
+            return None
+
+    def get_file_metadatas_from_folder(
+        self, folder_id: str, since_timestamp: float | None = None
+    ) -> List[Dict]:
+        """
+        Get file metadatas from folder with early termination.
+
+        Args:
+            folder_id: Google Drive folder ID
+            since_timestamp: Optional timestamp. If provided, stops pagination
+                           when encountering files with timestamp <= this value.
+                           Enables early termination optimization.
+
+        Returns:
+            List of file metadata dicts, sorted by name descending (newest first)
+        """
         query = f"'{folder_id}' in parents and trashed=false"
         all_files = []
         page_token = None
@@ -423,13 +471,40 @@ class GDriveConnection(SyftboxPlatformConnection):
                     fields="files(id, name, size, mimeType, modifiedTime), nextPageToken",
                     pageSize=100,
                     pageToken=page_token,
+                    orderBy="name desc",
                 )
                 .execute()
             )
 
             page_files = results.get("files", [])
-            all_files.extend(page_files)
 
+            # Early termination: Check if this page contains old files
+            if since_timestamp is not None and page_files:
+                should_stop = False
+
+                for file in page_files:
+                    timestamp = self._extract_timestamp_from_filename(file["name"])
+
+                    if timestamp is not None and timestamp <= since_timestamp:
+                        # Found a file we already have! Stop pagination
+                        should_stop = True
+                        if self.verbose:
+                            print(
+                                f"[Early Stop] Found file with timestamp {timestamp} <= {since_timestamp}, stopping pagination"
+                            )
+                        break
+
+                # Add files from this page (caller will filter exact timestamps)
+                all_files.extend(page_files)
+
+                if should_stop:
+                    # Don't fetch more pages
+                    break
+            else:
+                # No early termination check, add all files
+                all_files.extend(page_files)
+
+            # Check for next page
             page_token = results.get("nextPageToken")
             if not page_token:
                 break

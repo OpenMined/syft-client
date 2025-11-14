@@ -104,3 +104,141 @@ def test_events_returned_in_chronological_order(mock_download_file, mock_get_fol
         2.0,
         3.0,
     ], f"Got {timestamps}, expected [1.0, 2.0, 3.0]"
+
+
+def test_orderby_name_desc_applied():
+    """Drive API should be called with orderBy='name desc'"""
+    conn = create_mock_connection()
+
+    conn.drive_service.files().list().execute.return_value = {"files": []}
+
+    conn.get_file_metadatas_from_folder("folder_id")
+
+    # Check that orderBy was passed to Drive API
+    call_kwargs = conn.drive_service.files().list.call_args[1]
+    assert call_kwargs["orderBy"] == "name desc"
+
+
+def test_extract_timestamp_from_event_filename():
+    """Should extract timestamp from event filename"""
+    timestamp = GDriveConnection._extract_timestamp_from_filename(
+        "syfteventsmessagev3_1731506400.123_uuid.tar.gz"
+    )
+    assert timestamp == 1731506400.123
+
+
+def test_extract_timestamp_from_job_filename():
+    """Should extract timestamp from job/message filename"""
+    timestamp = GDriveConnection._extract_timestamp_from_filename(
+        "msgv2_1731506400.123_uuid.tar.gz"
+    )
+    assert timestamp == 1731506400.123
+
+
+def test_extract_timestamp_returns_none_for_invalid():
+    """Should return None for non-parseable filenames"""
+    timestamp = GDriveConnection._extract_timestamp_from_filename("invalid_file.txt")
+    assert timestamp is None
+
+
+def test_early_termination_stops_pagination():
+    """Should stop fetching pages when encountering old file"""
+    conn = create_mock_connection()
+
+    # Mock returns 3 potential pages, but should stop after page 2
+    conn.drive_service.files().list().execute.side_effect = [
+        {
+            "files": [
+                {
+                    "name": "syfteventsmessagev3_1731506450.0_uuid1.tar.gz",
+                    "id": "id1",
+                },
+                {
+                    "name": "syfteventsmessagev3_1731506440.0_uuid2.tar.gz",
+                    "id": "id2",
+                },
+            ],
+            "nextPageToken": "token1",
+        },
+        {
+            "files": [
+                {
+                    "name": "syfteventsmessagev3_1731506430.0_uuid3.tar.gz",
+                    "id": "id3",
+                },
+                {
+                    "name": "syfteventsmessagev3_1731506400.0_uuid4.tar.gz",
+                    "id": "id4",
+                },  # <= since_timestamp, should stop here
+            ],
+            "nextPageToken": "token2",
+        },
+        {
+            "files": [
+                {
+                    "name": "syfteventsmessagev3_1731506390.0_uuid5.tar.gz",
+                    "id": "id5",
+                }
+            ],
+            "nextPageToken": None,
+        },
+    ]
+
+    files = conn.get_file_metadatas_from_folder(
+        "folder_id", since_timestamp=1731506400.0
+    )
+
+    # Should stop after 2nd page (when it finds timestamp <= 1731506400.0)
+    assert conn.drive_service.files().list().execute.call_count == 2
+    assert len(files) == 4  # 2 files from page 1 + 2 files from page 2
+    # Page 3 should NOT be fetched
+
+
+def test_no_early_termination_when_all_files_new():
+    """Should fetch all pages when all files are newer than since_timestamp"""
+    conn = create_mock_connection()
+
+    conn.drive_service.files().list().execute.side_effect = [
+        {
+            "files": [
+                {"name": "syfteventsmessagev3_1731506450.0_uuid1.tar.gz", "id": "id1"}
+            ],
+            "nextPageToken": "token1",
+        },
+        {
+            "files": [
+                {"name": "syfteventsmessagev3_1731506440.0_uuid2.tar.gz", "id": "id2"}
+            ],
+            "nextPageToken": None,
+        },
+    ]
+
+    files = conn.get_file_metadatas_from_folder(
+        "folder_id", since_timestamp=1731506400.0
+    )
+
+    # Should fetch all pages (both files are > since_timestamp)
+    assert conn.drive_service.files().list().execute.call_count == 2
+    assert len(files) == 2
+
+
+def test_no_early_termination_when_since_timestamp_none():
+    """Should fetch all pages when since_timestamp is None"""
+    conn = create_mock_connection()
+
+    conn.drive_service.files().list().execute.side_effect = [
+        {
+            "files": [{"name": "file1.txt", "id": "id1"}],
+            "nextPageToken": "token1",
+        },
+        {
+            "files": [{"name": "file2.txt", "id": "id2"}],
+            "nextPageToken": None,
+        },
+    ]
+
+    files = conn.get_file_metadatas_from_folder("folder_id", since_timestamp=None)
+
+    # Should fetch all pages (no early termination)
+    assert conn.drive_service.files().list().execute.call_count == 2
+    assert len(files) == 2
