@@ -445,7 +445,10 @@ class GDriveConnection(SyftboxPlatformConnection):
             return None
 
     def get_file_metadatas_from_folder(
-        self, folder_id: str, since_timestamp: float | None = None
+        self,
+        folder_id: str,
+        since_timestamp: float | None = None,
+        page_size: int = 100,
     ) -> List[Dict]:
         """
         Get file metadatas from folder with early termination.
@@ -455,6 +458,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             since_timestamp: Optional timestamp. If provided, stops pagination
                            when encountering files with timestamp <= this value.
                            Enables early termination optimization.
+            page_size: Number of files to fetch per API call. Default 100.
 
         Returns:
             List of file metadata dicts, sorted by name descending (newest first)
@@ -469,7 +473,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                 .list(
                     q=query,
                     fields="files(id, name, size, mimeType, modifiedTime), nextPageToken",
-                    pageSize=100,
+                    pageSize=page_size,
                     pageToken=page_token,
                     orderBy="name desc",
                 )
