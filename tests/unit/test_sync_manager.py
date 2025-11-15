@@ -441,3 +441,90 @@ with open("outputs/result.json", "w") as f:
         json_content = json.loads(f.read())
 
     assert json_content["result"] == "Hello, world!"
+
+
+def test_file_deletion_do_to_ds():
+    """Test that DO can delete a file and it syncs to DS"""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    datasite_dir_do = (
+        do_manager.proposed_file_change_handler.event_cache.file_connection.base_dir
+    )
+    syftbox_dir_ds = ds_manager.datasite_outbox_puller.datasite_watcher_cache.file_connection.base_dir
+
+    # DO creates a file
+    result_rel_path = "test_file.txt"
+    result_path = datasite_dir_do / result_rel_path
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(result_path, "w") as f:
+        f.write("This is a test file")
+
+    # DO syncs (sends file to DS)
+    do_manager.sync()
+
+    # DS syncs (receives file from DO)
+    ds_manager.sync()
+
+    # Verify file exists on DS side
+    ds_file_path = syftbox_dir_ds / do_manager.email / result_rel_path
+    assert ds_file_path.exists(), "File should exist on DS side after sync"
+
+    # DO deletes the file
+    result_path.unlink()
+    assert not result_path.exists(), "File should be deleted on DO side"
+
+    # DO syncs (propagates deletion)
+    do_manager.sync()
+
+    # DS syncs (receives deletion)
+    ds_manager.sync()
+
+    # Verify file is deleted on DS side
+    assert not ds_file_path.exists(), (
+        "File should be deleted on DS side after DO deletes and both sync"
+    )
+
+    # Verify hash is removed from caches
+    do_cache = do_manager.proposed_file_change_handler.event_cache
+    assert result_rel_path not in do_cache.file_hashes, (
+        "Hash should be removed from DO cache"
+    )
+
+    ds_cache = ds_manager.datasite_outbox_puller.datasite_watcher_cache
+    expected_path = Path(do_manager.email) / result_rel_path
+    assert expected_path not in ds_cache.file_hashes, (
+        "Hash should be removed from DS cache"
+    )
+
+
+def test_in_memory_deletion():
+    """Test deletion works with in-memory cache"""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=True
+    )
+
+    # Create file via send_file_change
+    job_path = "email@email.com/test.job"
+    job_path_in_datasite = job_path.split("/")[-1]
+
+    ds_manager.send_file_change(job_path, "Hello, world!")
+
+    # Verify file exists in DO cache
+    do_cache = do_manager.proposed_file_change_handler.event_cache
+    assert job_path_in_datasite in [
+        str(p) for p, _ in do_cache.file_connection.get_items()
+    ]
+
+    # Simulate deletion by removing from DO cache
+    do_cache.file_connection.delete_file(job_path_in_datasite)
+
+    # Process deletion
+    do_manager.sync()
+    ds_manager.sync()
+
+    # Verify deletion propagated
+    ds_cache = ds_manager.datasite_outbox_puller.datasite_watcher_cache
+    ds_path = Path(do_manager.email) / job_path_in_datasite
+    assert str(ds_path) not in [str(p) for p, _ in ds_cache.file_connection.get_items()]

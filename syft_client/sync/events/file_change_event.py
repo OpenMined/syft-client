@@ -42,9 +42,10 @@ class FileChangeEvent(BaseModel):
     id: UUID
     path_in_datasite: Path
     datasite_email: str
-    content: str
+    content: str | None = None  # None for deletions
     old_hash: str | None = None
-    new_hash: str
+    new_hash: str | None = None  # None for deletions
+    is_deleted: bool = False
     submitted_timestamp: float
     timestamp: float
 

@@ -88,6 +88,11 @@ class InMemoryCacheFileConnection(CacheFileConnection[T]):
         path = Path(path)
         return self.sorted_files[path]
 
+    def delete_file(self, path: str | Path) -> None:
+        path = Path(path)
+        if path in self.sorted_files:
+            del self.sorted_files[path]
+
     def __len__(self) -> int:
         return len(self.sorted_files)
 
@@ -158,6 +163,11 @@ class FSFileConnection(CacheFileConnection[T]):
     def read_file(self, path: str) -> T:
         full_path = self._resolve_full_path(path)
         return self._read_file_full_path(full_path)
+
+    def delete_file(self, path: str) -> None:
+        full_path = self._resolve_full_path(path)
+        if full_path.exists():
+            full_path.unlink()
 
     def _read_file_full_path(self, full_path: Path) -> T:
         with open(full_path, "rb") as f:
