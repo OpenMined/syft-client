@@ -661,6 +661,15 @@ class GDriveConnection(SyftboxPlatformConnection):
         syftbox_folder_id = self.get_syftbox_folder_id()
         if syftbox_folder_id is not None:
             delete_folder_recursive(self.drive_service, syftbox_folder_id, verbose=True)
+            # Clear all cached folder IDs after deletion
+            self._syftbox_folder_id = None
+            self._personal_syftbox_folder_id = None
+            self.do_inbox_folder_id_cache.clear()
+            self.do_outbox_folder_id_cache.clear()
+            self.ds_inbox_folder_id_cache.clear()
+            self.ds_outbox_folder_id_cache.clear()
+            self.archive_folder_id_cache.clear()
+            self.personal_syftbox_event_id_cache.clear()
 
     def create_file_payload(self, data: Any) -> Tuple[MediaIoBaseUpload, str]:
         """Create a file payload for the GDrive"""
