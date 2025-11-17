@@ -109,8 +109,20 @@ class DataSiteWatcherCache(BaseModel):
         )
 
         for event in event_message.events:
-            self.file_connection.write_file(event.path_in_syftbox, event.content)
-            self.file_hashes[event.path_in_syftbox] = event.new_hash
+            # Normalize path to Path object for consistency in file_hashes dict
+            path_key = Path(event.path_in_syftbox)
+
+            if event.is_deleted:
+                # Handle deletion
+                self.file_connection.delete_file(str(event.path_in_syftbox))
+                if path_key in self.file_hashes:
+                    del self.file_hashes[path_key]
+            else:
+                # Handle create/update
+                self.file_connection.write_file(
+                    str(event.path_in_syftbox), event.content
+                )
+                self.file_hashes[path_key] = event.new_hash
 
     def get_cached_events(self) -> List[FileChangeEvent]:
         messages = self.events_connection.get_all()
