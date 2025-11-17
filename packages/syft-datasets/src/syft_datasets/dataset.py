@@ -85,6 +85,7 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
     location: str | None = None
 
     mock_url: SyftBoxURL
+    private_url: SyftBoxURL
     readme_url: SyftBoxURL | None = None
 
     @property
