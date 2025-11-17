@@ -29,12 +29,7 @@ dependencies = [
     "google-api-python-client>=2.95.0",
     "google-auth>=2.22.0",
     "google-auth-oauthlib>=1.0.0",
-    "dnspython>=2.3.0",
-    "cryptography>=41.0.0",
     "rich>=13.0.0",
-    "watchdog>=3.0.0",
-    "syft-serve>=0.3.11",
-    "requests>=2.32.4",
     "pandas",
     "pydantic-settings>=2.11.0",
 ]
