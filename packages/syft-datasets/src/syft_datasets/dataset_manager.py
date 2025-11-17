@@ -325,6 +325,8 @@ class SyftDatasetManager:
                 f"Private metadata: {dataset._private_metadata_dir}\n"
             )
             if (
+                dataset._private_metadata_dir.exists()
+                and
                 dataset.private_dir.resolve().absolute()
                 == dataset._private_metadata_dir.resolve().absolute()
             ):
