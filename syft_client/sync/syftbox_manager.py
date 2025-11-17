@@ -703,6 +703,13 @@ class SyftboxManager(BaseModel):
         self.dataset_manager.create(*args, **kwargs)
         if sync:
             self.sync()
+    
+    def delete_dataset(self, *args , sync=True , **kwargs):
+        if self.dataset_manager is None:
+            raise ValueError("Dataset manager is not set")
+        self.dataset_manager.delete(*args, **kwargs)
+        if sync:
+            self.sync()
 
     @property
     def datasets(self) -> SyftDatasetManager:
