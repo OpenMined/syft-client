@@ -285,3 +285,63 @@ with open("outputs/result.json", "w") as f:
         json_content = json.loads(f.read())
 
     assert json_content["result"] == 1
+
+
+def test_file_deletion_do_to_ds():
+    """Test that DO can delete a file and it syncs to DS"""
+    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
+        do_email=EMAIL_DO,
+        ds_email=EMAIL_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
+        use_in_memory_cache=False,
+    )
+
+    datasite_dir_do = (
+        do_manager.syftbox_folder
+    )
+    syftbox_dir_ds = ds_manager.syftbox_folder
+
+    # DO creates a file
+    result_rel_path = "test_file.txt"
+    result_path = datasite_dir_do / result_rel_path
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(result_path, "w") as f:
+        f.write("This is a test file")
+
+    # DO syncs (sends file to DS)
+    do_manager.sync()
+
+    # DS syncs (receives file from DO)
+    ds_manager.sync()
+
+    # Verify file exists on DS side
+    ds_file_path = syftbox_dir_ds / do_manager.email / result_rel_path
+    assert ds_file_path.exists(), "File should exist on DS side after sync"
+
+    # DO deletes the file
+    result_path.unlink()
+    assert not result_path.exists(), "File should be deleted on DO side"
+
+    # DO syncs (propagates deletion)
+    do_manager.sync()
+
+    # DS syncs (receives deletion)
+    ds_manager.sync()
+
+    # Verify file is deleted on DS side
+    assert not ds_file_path.exists(), (
+        "File should be deleted on DS side after DO deletes and both sync"
+    )
+
+    # Verify hash is removed from caches
+    do_cache = do_manager.proposed_file_change_handler.event_cache
+    assert result_rel_path not in do_cache.file_hashes, (
+        "Hash should be removed from DO cache"
+    )
+
+    ds_cache = ds_manager.datasite_outbox_puller.datasite_watcher_cache
+    expected_path = Path(do_manager.email) / result_rel_path
+    assert expected_path not in ds_cache.file_hashes, (
+        "Hash should be removed from DS cache"
+    )
