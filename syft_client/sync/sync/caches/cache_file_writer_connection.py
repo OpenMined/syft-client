@@ -164,7 +164,8 @@ class FSFileConnection(CacheFileConnection[T]):
         full_path = self._resolve_full_path(path)
         return self._read_file_full_path(full_path)
 
-    def delete_file(self, path: str) -> None:
+    def delete_file(self, path: str | Path) -> None:
+        path = Path(path)
         full_path = self._resolve_full_path(path)
         if full_path.exists():
             full_path.unlink()
