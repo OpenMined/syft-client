@@ -10,7 +10,7 @@ resolution-markers = [
 [manifest]
 members = [
     "syft-client",
-    "syft-datasets",
+    "syft-dataset",
     "syft-job",
     "syft-notebook-ui",
 ]
@@ -2467,7 +2467,7 @@ wheels = [
 
 [[package]]
 name = "syft-client"
-version = "0.1.87"
+version = "0.1.88"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -2479,6 +2479,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "requests" },
     { name = "rich" },
+    { name = "syft-job" },
     { name = "syft-serve" },
     { name = "watchdog" },
 ]
@@ -2502,7 +2503,7 @@ all = [
     { name = "tqdm" },
 ]
 datasets = [
-    { name = "syft-datasets" },
+    { name = "syft-dataset" },
 ]
 dev = [
     { name = "ipython" },
@@ -2556,7 +2557,8 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32.4" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "syft-client", extras = ["test", "dev", "job"], marker = "extra == 'all'" },
-    { name = "syft-datasets", marker = "extra == 'datasets'", editable = "packages/syft-datasets" },
+    { name = "syft-dataset", marker = "extra == 'datasets'", editable = "packages/syft-datasets" },
+    { name = "syft-job", editable = "packages/syft-job" },
     { name = "syft-job", marker = "extra == 'job'", editable = "packages/syft-job" },
     { name = "syft-serve", specifier = ">=0.3.11" },
     { name = "tqdm", marker = "extra == 'dev'", specifier = ">=4.64.0" },
@@ -2568,7 +2570,7 @@ provides-extras = ["job", "datasets", "test", "dev", "all"]
 dev = [{ name = "pre-commit", specifier = ">=4.3.0" }]
 
 [[package]]
-name = "syft-datasets"
+name = "syft-dataset"
 version = "0.1.0"
 source = { editable = "packages/syft-datasets" }
 dependencies = [
@@ -2592,7 +2594,7 @@ dev = [{ name = "ipykernel", specifier = ">=7.1.0" }]
 
 [[package]]
 name = "syft-job"
-version = "0.1.21"
+version = "0.1.22"
 source = { editable = "packages/syft-job" }
 dependencies = [
     { name = "pandas" },

@@ -37,15 +37,11 @@ dependencies = [
     "requests>=2.32.4",
     "pandas",
     "pydantic-settings>=2.11.0",
+    "syft-job",
+    "syft-dataset" # Shift back to optional-dependencies after adding lazy imports
 ]
 
 [project.optional-dependencies]
-job = [
-    "syft-job"
-]
-datasets = [
-    "syft-dataset"
-]
 test = [
     "pytest>=7.0.0",
     "pytest-mock>=3.10.0",
