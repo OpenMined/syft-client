@@ -302,7 +302,7 @@ def test_file_deletion_do_to_ds():
 
     # DO creates a file
     result_rel_path = "test_file.txt"
-    result_path = datasite_dir_do / result_rel_path
+    result_path = datasite_dir_do / do_manager.email / result_rel_path
     result_path.parent.mkdir(parents=True, exist_ok=True)
     with open(result_path, "w") as f:
         f.write("This is a test file")

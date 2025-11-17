@@ -449,14 +449,12 @@ def test_file_deletion_do_to_ds():
         use_in_memory_cache=False
     )
 
-    datasite_dir_do = (
-        do_manager.proposed_file_change_handler.event_cache.file_connection.base_dir
-    )
-    syftbox_dir_ds = ds_manager.datasite_outbox_puller.datasite_watcher_cache.file_connection.base_dir
+    datasite_dir_do = do_manager.syftbox_folder
+    syftbox_dir_ds = ds_manager.syftbox_folder
 
     # DO creates a file
     result_rel_path = "test_file.txt"
-    result_path = datasite_dir_do / result_rel_path
+    result_path = datasite_dir_do / do_manager.email / result_rel_path
     result_path.parent.mkdir(parents=True, exist_ok=True)
     with open(result_path, "w") as f:
         f.write("This is a test file")
