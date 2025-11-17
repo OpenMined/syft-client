@@ -297,9 +297,7 @@ def test_file_deletion_do_to_ds():
         use_in_memory_cache=False,
     )
 
-    datasite_dir_do = (
-        do_manager.syftbox_folder
-    )
+    datasite_dir_do = do_manager.syftbox_folder
     syftbox_dir_ds = ds_manager.syftbox_folder
 
     # DO creates a file

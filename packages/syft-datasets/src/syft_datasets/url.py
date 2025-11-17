@@ -28,7 +28,9 @@ class SyftBoxURL(str):
         2. Simple path: syft://path (for private/local data)
         """
         # Pattern for email-based URLs (e.g., syft://user@domain.com/path)
-        email_pattern = r"^syft://([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)(/.*)?$"
+        email_pattern = (
+            r"^syft://([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)(/.*)?$"
+        )
         # Pattern for simple path URLs (e.g., syft://private/path)
         simple_pattern = r"^syft://([a-zA-Z0-9_.-]+)(/.*)?$"
 
