@@ -120,7 +120,6 @@ class SyftDatasetManager:
         private_config = PrivateDatasetConfig(
             uid=dataset.uid,
             data_dir=private_data_dir,
-            location=location,
         )
 
         private_config_path = dataset.private_config_path
@@ -186,9 +185,16 @@ class SyftDatasetManager:
                 syftbox_folder=self.syftbox_config.syftbox_folder,
             )
 
+        # Generate private_url for the dataset
+        # Private URLs use a simple path format
+        private_url = SyftBoxURL(
+            f"syft://private/syft_datasets/{name}",
+        )
+
         dataset = Dataset(
             name=name,
             mock_url=mock_url,
+            private_url=private_url,
             readme_url=readme_url,
             summary=summary,
             location=location,

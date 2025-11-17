@@ -21,9 +21,18 @@ class SyftBoxURL(str):
 
     @classmethod
     def is_valid(cls, url: str) -> bool:
-        """Validates the given URL matches the syft:// protocol and email-based schema."""
-        pattern = r"^syft://([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)(/.*)?$"
-        return bool(re.match(pattern, url))
+        """Validates the given URL matches the syft:// protocol.
+
+        Supports two formats:
+        1. Email-based: syft://user@domain.com/path (for public data)
+        2. Simple path: syft://path (for private/local data)
+        """
+        # Pattern for email-based URLs (e.g., syft://user@domain.com/path)
+        email_pattern = r"^syft://([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)(/.*)?$"
+        # Pattern for simple path URLs (e.g., syft://private/path)
+        simple_pattern = r"^syft://([a-zA-Z0-9_.-]+)(/.*)?$"
+
+        return bool(re.match(email_pattern, url)) or bool(re.match(simple_pattern, url))
 
     @property
     def query(self) -> Dict[str, str]:

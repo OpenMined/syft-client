@@ -222,24 +222,31 @@ class GDriveConnection(SyftboxPlatformConnection):
         if folder_id is None:
             raise ValueError(f"Folder for peer {peer_email} not found")
 
-        file_metadatas = self.get_file_metadatas_from_folder(folder_id)
+        file_metadatas = self.get_file_metadatas_from_folder(
+            folder_id, since_timestamp=since_timestamp
+        )
         valid_fname_objs = self._get_valid_events_from_file_metadatas(file_metadatas)
-        valid_file_names_sorted = [
-            x.as_string()
+
+        name_to_id = {f["name"]: f["id"] for f in file_metadatas}
+
+        sorted_fname_objs = [
+            x
             for x in sorted(valid_fname_objs, key=lambda x: x.timestamp)
             if since_timestamp is None or x.timestamp > since_timestamp
         ]
-        if len(valid_fname_objs) == 0:
+
+        if len(sorted_fname_objs) == 0:
             return []
-        else:
-            relevant_drive_ids = [
-                f["id"] for f in file_metadatas if f["name"] in valid_file_names_sorted
-            ]
-            res = []
-            for _id in relevant_drive_ids:
-                file_data = self.download_file(_id)
+
+        res = []
+        for fname_obj in sorted_fname_objs:
+            file_name = fname_obj.as_string()
+            if file_name in name_to_id:
+                file_id = name_to_id[file_name]
+                file_data = self.download_file(file_id)
                 res.append(FileChangeEventsMessage.from_compressed_data(file_data))
-            return res
+
+        return res
 
     def write_events_message_to_syftbox(self, event_message: FileChangeEventsMessage):
         """Writes to /SyftBox/myemail"""
@@ -405,18 +412,108 @@ class GDriveConnection(SyftboxPlatformConnection):
             else:
                 return self.create_archive_folder(sender_email)
 
-    def get_file_metadatas_from_folder(self, folder_id: str) -> List[Dict]:
+    @staticmethod
+    def _extract_timestamp_from_filename(filename: str) -> float | None:
+        """
+        Extract timestamp from filename.
+
+        Supports multiple filename formats:
+        - Event files: syfteventsmessagev3_<timestamp>_<uuid>.tar.gz
+        - Job files: msgv2_<timestamp>_<uid>.tar.gz
+
+        Args:
+            filename: The filename to parse
+
+        Returns:
+            Timestamp as float, or None if can't parse
+        """
+        try:
+            # Try event file format first
+            if filename.startswith("syfteventsmessagev3_"):
+                parts = filename.split("_")
+                if len(parts) >= 2:
+                    return float(parts[1])
+
+            # Try job file format
+            if filename.startswith("msgv2_"):
+                parts = filename.split("_")
+                if len(parts) >= 2:
+                    return float(parts[1])
+
+            return None
+        except (ValueError, IndexError):
+            return None
+
+    def get_file_metadatas_from_folder(
+        self,
+        folder_id: str,
+        since_timestamp: float | None = None,
+        page_size: int = 100,
+    ) -> List[Dict]:
+        """
+        Get file metadatas from folder with early termination.
+
+        Args:
+            folder_id: Google Drive folder ID
+            since_timestamp: Optional timestamp. If provided, stops pagination
+                           when encountering files with timestamp <= this value.
+                           Enables early termination optimization.
+            page_size: Number of files to fetch per API call. Default 100.
+
+        Returns:
+            List of file metadata dicts, sorted by name descending (newest first)
+        """
         query = f"'{folder_id}' in parents and trashed=false"
-        results = (
-            self.drive_service.files()
-            .list(
-                q=query,
-                fields="files(id, name, size, mimeType, modifiedTime)",
-                pageSize=100,
+        all_files = []
+        page_token = None
+
+        while True:
+            results = (
+                self.drive_service.files()
+                .list(
+                    q=query,
+                    fields="files(id, name, size, mimeType, modifiedTime), nextPageToken",
+                    pageSize=page_size,
+                    pageToken=page_token,
+                    orderBy="name desc",
+                )
+                .execute()
             )
-            .execute()
-        )
-        return results.get("files", [])
+
+            page_files = results.get("files", [])
+
+            # Early termination: Check if this page contains old files
+            if since_timestamp is not None and page_files:
+                should_stop = False
+
+                for file in page_files:
+                    timestamp = self._extract_timestamp_from_filename(file["name"])
+
+                    if timestamp is not None and timestamp <= since_timestamp:
+                        # Found a file we already have! Stop pagination
+                        should_stop = True
+                        if self.verbose:
+                            print(
+                                f"[Early Stop] Found file with timestamp {timestamp} <= {since_timestamp}, stopping pagination"
+                            )
+                        break
+
+                # Add files from this page (caller will filter exact timestamps)
+                all_files.extend(page_files)
+
+                if should_stop:
+                    # Don't fetch more pages
+                    break
+            else:
+                # No early termination check, add all files
+                all_files.extend(page_files)
+
+            # Check for next page
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+
+        return all_files
 
     @staticmethod
     def is_message_file(file_metadata: Dict) -> bool:
