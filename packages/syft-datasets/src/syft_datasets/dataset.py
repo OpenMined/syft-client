@@ -88,8 +88,8 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
     private_url: SyftBoxURL
     readme_url: SyftBoxURL | None = None
 
-    # Absolute paths to uploaded files (excluding metadata files)
-    mock_files_paths: list[Path] = Field(default_factory=list)
+    # URLs to uploaded files (excluding metadata files)
+    mock_files_urls: list[SyftBoxURL] = Field(default_factory=list)
     private_files_paths: list[Path] = Field(default_factory=list)
 
     @property
@@ -168,7 +168,10 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
         Get absolute paths to all mock files uploaded during dataset.create.
         Excludes dataset.yaml and readme.md files.
         """
-        return self.mock_files_paths
+        return [
+            self._url_to_path(url)
+            for url in self.mock_files_urls
+        ]
 
     @property
     def private_files(self) -> list[Path]:

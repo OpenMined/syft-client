@@ -316,6 +316,8 @@ def test_datasets():
 
     dataset_ds = ds_manager.datasets.get("my dataset", datasite=do_manager.email)
 
+    assert dataset_ds.mock_files[0].exists()
+
     mock_content_ds = (dataset_ds.mock_dir / "mock.txt").read_text()
     assert len(mock_content_ds) > 0
 

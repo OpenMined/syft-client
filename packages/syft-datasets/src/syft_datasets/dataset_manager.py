@@ -240,10 +240,18 @@ class SyftDatasetManager:
         private_metadata_path = dataset.private_config_path.absolute()
 
         # Mock files exclude dataset.yaml and readme.md
-        dataset.mock_files_paths = [
+        # Convert absolute paths to SyftBoxURLs
+        mock_file_paths = [
             f
             for f in mock_data_files
             if f != dataset_yaml_path and f not in readme_files
+        ]
+        dataset.mock_files_urls = [
+            SyftBoxURL.from_path(
+                path=file_path,
+                syftbox_folder=self.syftbox_config.syftbox_folder,
+            )
+            for file_path in mock_file_paths
         ]
 
         # Private files exclude private_metadata.yaml
