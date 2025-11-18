@@ -162,7 +162,6 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
         return private_datasets_dir / self.name
 
-    
     @property
     def mock_files(self) -> list[Path]:
         """

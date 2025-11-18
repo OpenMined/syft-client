@@ -241,14 +241,14 @@ class SyftDatasetManager:
 
         # Mock files exclude dataset.yaml and readme.md
         dataset.mock_files_paths = [
-            f for f in mock_data_files
+            f
+            for f in mock_data_files
             if f != dataset_yaml_path and f not in readme_files
         ]
 
         # Private files exclude private_metadata.yaml
         dataset.private_files_paths = [
-            f for f in private_data_files
-            if f != private_metadata_path
+            f for f in private_data_files if f != private_metadata_path
         ]
 
         # Save dataset metadata
@@ -355,8 +355,7 @@ class SyftDatasetManager:
             )
             if (
                 dataset._private_metadata_dir.exists()
-                and
-                dataset.private_dir.resolve().absolute()
+                and dataset.private_dir.resolve().absolute()
                 == dataset._private_metadata_dir.resolve().absolute()
             ):
                 msg += (
