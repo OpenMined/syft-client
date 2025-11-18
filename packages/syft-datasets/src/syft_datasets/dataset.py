@@ -158,8 +158,7 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
         return private_datasets_dir / self.name
 
-    def describe(self) -> None:
-        from IPython.display import HTML, display
+    def _generate_description_html(self) -> str:
         from syft_notebook_ui.pydantic_html_repr import create_html_repr
 
         fields_to_include = ["name", "created_at", "summary", "tags", "location"]
@@ -190,4 +189,13 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
             display_paths=paths_to_include,
         )
 
+        return description
+
+    def describe(self) -> None:
+        from IPython.display import HTML, display
+
+        description = self._generate_description_html()
         display(HTML(description))
+
+    def _repr_html_(self) -> str:
+        return self._generate_description_html()
