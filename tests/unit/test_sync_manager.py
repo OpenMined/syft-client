@@ -307,6 +307,8 @@ def test_datasets():
     # Retrieve dataset by name
     dataset_do = do_manager.datasets["my dataset"]
     assert isinstance(dataset_do, Dataset)
+    assert len(dataset_do.private_files) > 0
+    assert len(dataset_do.mock_files) > 0
 
     ds_manager.sync()
 
