@@ -492,10 +492,6 @@ class GDriveConnection(SyftboxPlatformConnection):
                     if timestamp is not None and timestamp <= since_timestamp:
                         # Found a file we already have! Stop pagination
                         should_stop = True
-                        if self.verbose:
-                            print(
-                                f"[Early Stop] Found file with timestamp {timestamp} <= {since_timestamp}, stopping pagination"
-                            )
                         break
 
                 # Add files from this page (caller will filter exact timestamps)
