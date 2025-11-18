@@ -2341,7 +2341,7 @@ wheels = [
 
 [[package]]
 name = "syft-client"
-version = "0.1.89"
+version = "0.1.92"
 source = { editable = "." }
 dependencies = [
     { name = "google-api-python-client" },
@@ -2428,7 +2428,7 @@ dev = [{ name = "pre-commit", specifier = ">=4.3.0" }]
 
 [[package]]
 name = "syft-dataset"
-version = "0.1.0"
+version = "0.1.2"
 source = { editable = "packages/syft-datasets" }
 dependencies = [
     { name = "pyyaml" },
