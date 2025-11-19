@@ -70,3 +70,34 @@ def create_tmp_dataset_files():
     private_path.write_text("Hello, world!")
     readme_path.write_text("Hello, world!")
     return mock_path, private_path, readme_path
+
+
+def create_tmp_dataset_files_with_parquet():
+    """Create temporary dataset files with parquet files (binary format)."""
+    import pandas as pd
+    
+    tmp_dir = Path("/tmp/syft-datasets-testing") / str(random.randint(1, 1000000))
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create parquet files (binary format)
+    mock_df = pd.DataFrame({
+        "id": [1, 2, 3, 4, 5],
+        "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+        "age": [25, 30, 35, 28, 32],
+        "score": [85.5, 90.0, 88.5, 92.0, 87.5]
+    })
+    mock_path = tmp_dir / "mock_data.parquet"
+    mock_df.to_parquet(mock_path, index=False)
+    
+    private_df = pd.DataFrame({
+        "id": [1, 2, 3],
+        "sensitive_data": ["secret1", "secret2", "secret3"],
+        "value": [100, 200, 300]
+    })
+    private_path = tmp_dir / "private_data.parquet"
+    private_df.to_parquet(private_path, index=False)
+    
+    readme_path = tmp_dir / "readme.md"
+    readme_path.write_text("# Dataset with Parquet Files\n\nThis dataset contains parquet files.")
+    
+    return mock_path, private_path, readme_path
