@@ -28,9 +28,16 @@ def get_email_colab() -> str | None:
     return userinfo.get("email")
 
 
-def get_event_hash_from_content(content: str) -> str:
-    return sha256(content.encode("utf-8")).hexdigest()
-
+def get_event_hash_from_content(content: str | bytes) -> str:
+    # Check if content is a string (has encode method)
+    if isinstance(content, str):
+        return sha256(content.encode("utf-8")).hexdigest()
+    # Otherwise, treat as bytes or bytes-like object
+    else:
+        # Ensure we have bytes for sha256
+        if not isinstance(content, bytes):
+            content = bytes(content)
+        return sha256(content).hexdigest()
 
 def create_event_timestamp() -> float:
     return time.time()
