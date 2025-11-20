@@ -6,7 +6,10 @@ from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlat
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_datasets.dataset import Dataset
 import pytest
-from tests.unit.utils import create_tmp_dataset_files, create_tmp_dataset_files_with_parquet
+from tests.unit.utils import (
+    create_tmp_dataset_files,
+    create_tmp_dataset_files_with_parquet,
+)
 
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     ProposedEventFileOutdatedException,
@@ -329,13 +332,15 @@ def test_datasets():
 def test_datasets_with_parquet():
     """Test dataset creation and sync with parquet files (binary format)."""
     import pandas as pd
-    
+
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
         use_in_memory_cache=False
     )
 
-    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files_with_parquet()
-    
+    mock_dset_path, private_dset_path, readme_path = (
+        create_tmp_dataset_files_with_parquet()
+    )
+
     # This should work without errors even though parquet files are binary
     do_manager.create_dataset(
         name="parquet dataset",
@@ -369,11 +374,11 @@ def test_datasets_with_parquet():
     assert isinstance(dataset_do, Dataset)
     assert len(dataset_do.private_files) > 0
     assert len(dataset_do.mock_files) > 0
-    
+
     # Verify parquet files are present
     mock_files = [f.name for f in dataset_do.mock_files]
     assert "mock_data.parquet" in mock_files
-    
+
     private_files = [f.name for f in dataset_do.private_files]
     assert "private_data.parquet" in private_files
 
@@ -387,7 +392,7 @@ def test_datasets_with_parquet():
     # Verify the parquet file exists and can be read
     mock_parquet_path = dataset_ds.mock_dir / "mock_data.parquet"
     assert mock_parquet_path.exists()
-    
+
     # Verify we can read the parquet file back
     df = pd.read_parquet(mock_parquet_path)
     assert len(df) == 5

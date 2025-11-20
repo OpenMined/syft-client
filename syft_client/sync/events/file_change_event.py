@@ -2,7 +2,13 @@ from typing import Any
 from pathlib import Path
 from uuid import UUID, uuid4
 import base64
-from pydantic import BaseModel, Field, model_validator, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    model_validator,
+    field_serializer,
+    field_validator,
+)
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_client.sync.utils.syftbox_utils import create_event_timestamp
 from syft_client.sync.utils.syftbox_utils import compress_data
@@ -43,23 +49,25 @@ class FileChangeEvent(BaseModel):
     id: UUID
     path_in_datasite: Path
     datasite_email: str
-    content: str | bytes | None = None  # None for deletions, can be str or bytes for binary files
+    content: str | bytes | None = (
+        None  # None for deletions, can be str or bytes for binary files
+    )
     old_hash: str | None = None
     new_hash: str | None = None  # None for deletions
     is_deleted: bool = False
     submitted_timestamp: float
     timestamp: float
 
-    @field_serializer('content', when_used='json')
+    @field_serializer("content", when_used="json")
     def serialize_content(self, value: str | bytes | None) -> str | None:
         """Serialize bytes as base64-encoded string for JSON."""
         if value is None:
             return None
         if isinstance(value, bytes):
-            return base64.b64encode(value).decode('utf-8')
+            return base64.b64encode(value).decode("utf-8")
         return value
 
-    @field_validator('content', mode='before')
+    @field_validator("content", mode="before")
     @classmethod
     def deserialize_content(cls, value: Any) -> str | bytes | None:
         """Deserialize base64-encoded string back to bytes if needed."""
@@ -73,7 +81,7 @@ class FileChangeEvent(BaseModel):
                 # Only use decoded bytes if the original string was actually base64
                 # (not just a regular string that happens to be valid base64)
                 # A simple check: if decoded bytes are different from the string's bytes
-                if decoded != value.encode('utf-8'):
+                if decoded != value.encode("utf-8"):
                     return decoded
             except Exception:
                 pass

@@ -22,20 +22,22 @@ class ProposedFileChange(BaseModel):
     # Use UNIX timestamp (seconds since epoch)
     submitted_timestamp: float = Field(default_factory=lambda: create_event_timestamp())
     path_in_datasite: Path
-    content: str | bytes | None = None  # None for deletions, can be str or bytes for binary files
+    content: str | bytes | None = (
+        None  # None for deletions, can be str or bytes for binary files
+    )
     datasite_email: str
     is_deleted: bool = False
 
-    @field_serializer('content', when_used='json')
+    @field_serializer("content", when_used="json")
     def serialize_content(self, value: str | bytes | None) -> str | None:
         """Serialize bytes as base64-encoded string for JSON."""
         if value is None:
             return None
         if isinstance(value, bytes):
-            return base64.b64encode(value).decode('utf-8')
+            return base64.b64encode(value).decode("utf-8")
         return value
 
-    @field_validator('content', mode='before')
+    @field_validator("content", mode="before")
     @classmethod
     def deserialize_content(cls, value: Any) -> str | bytes | None:
         """Deserialize base64-encoded string back to bytes if needed."""
@@ -46,7 +48,7 @@ class ProposedFileChange(BaseModel):
             try:
                 decoded = base64.b64decode(value, validate=True)
                 # Only use decoded bytes if the original string was actually base64
-                if decoded != value.encode('utf-8'):
+                if decoded != value.encode("utf-8"):
                     return decoded
             except Exception:
                 pass

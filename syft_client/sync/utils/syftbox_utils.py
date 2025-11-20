@@ -39,6 +39,7 @@ def get_event_hash_from_content(content: str | bytes) -> str:
             content = bytes(content)
         return sha256(content).hexdigest()
 
+
 def create_event_timestamp() -> float:
     return time.time()
 
