@@ -1,9 +1,10 @@
-from typing import List
+from typing import List, Any
 from uuid import UUID, uuid4
 from pathlib import Path
 import uuid
 import time
-from pydantic import Field, model_validator
+import base64
+from pydantic import Field, model_validator, field_serializer, field_validator
 from pydantic.main import BaseModel
 from syft_client.sync.utils.syftbox_utils import compress_data, uncompress_data
 from syft_client.sync.utils.syftbox_utils import create_event_timestamp
@@ -21,9 +22,38 @@ class ProposedFileChange(BaseModel):
     # Use UNIX timestamp (seconds since epoch)
     submitted_timestamp: float = Field(default_factory=lambda: create_event_timestamp())
     path_in_datasite: Path
-    content: str | None = None  # None for deletions
+    content: str | bytes | None = (
+        None  # None for deletions, can be str or bytes for binary files
+    )
     datasite_email: str
     is_deleted: bool = False
+
+    @field_serializer("content", when_used="json")
+    def serialize_content(self, value: str | bytes | None) -> str | None:
+        """Serialize bytes as base64-encoded string for JSON."""
+        if value is None:
+            return None
+        if isinstance(value, bytes):
+            return base64.b64encode(value).decode("utf-8")
+        return value
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def deserialize_content(cls, value: Any) -> str | bytes | None:
+        """Deserialize base64-encoded string back to bytes if needed."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            # Try to decode as base64 if it looks like base64
+            try:
+                decoded = base64.b64decode(value, validate=True)
+                # Only use decoded bytes if the original string was actually base64
+                if decoded != value.encode("utf-8"):
+                    return decoded
+            except Exception:
+                pass
+            return value
+        return value
 
     @model_validator(mode="before")
     def pre_init(cls, data):
