@@ -12,6 +12,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 import tempfile
 import importlib.util
+import types
+
+base_path = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(base_path))
 
 
 def load_module_directly(module_name, file_path):
@@ -23,10 +27,104 @@ def load_module_directly(module_name, file_path):
     return module
 
 
-base_path = Path(__file__).parent.parent.parent
+notifications_base = load_module_directly(
+    "notifications_base", base_path / "syft_client/notifications/base.py"
+)
+
+fake_package = types.ModuleType("fake_package")
+fake_package.base = notifications_base
+sys.modules[".base"] = notifications_base
+sys.modules["base"] = notifications_base
+
 gmail_auth = load_module_directly(
     "gmail_auth", base_path / "syft_client/notifications/gmail_auth.py"
 )
+gmail_sender_module = load_module_directly(
+    "gmail_sender", base_path / "syft_client/notifications/gmail_sender.py"
+)
+json_state_manager_module = load_module_directly(
+    "json_state_manager", base_path / "syft_client/notifications/json_state_manager.py"
+)
+
+GmailSender = gmail_sender_module.GmailSender
+JsonStateManager = json_state_manager_module.JsonStateManager
+
+
+class Phase3Tests:
+    """Phase 3: Notification State Manager"""
+
+    @staticmethod
+    def test_state_init_creates_file():
+        """State file creation with proper structure"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+
+            JsonStateManager(state_file)
+
+            assert state_file.exists()
+
+            with open(state_file, "r") as f:
+                data = json.load(f)
+                assert "notified_jobs" in data
+                assert data["notified_jobs"] == {}
+
+            return True
+
+    @staticmethod
+    def test_mark_and_check_notified():
+        """Track job notification types"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+
+            state = JsonStateManager(state_file)
+
+            state.mark_notified("job_123", "new")
+
+            assert state.was_notified("job_123", "new") is True
+            assert state.was_notified("job_123", "approved") is False
+            assert state.was_notified("job_456", "new") is False
+
+            return True
+
+    @staticmethod
+    def test_state_persistence():
+        """State survives restart"""
+        load_module_directly(
+            "json_state_manager",
+            base_path / "syft_client/notifications/json_state_manager.py",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+
+            state1 = JsonStateManager(state_file)
+            state1.mark_notified("job_abc", "new")
+            state1.mark_notified("job_xyz", "approved")
+
+            state2 = JsonStateManager(state_file)
+
+            assert state2.was_notified("job_abc", "new") is True
+            assert state2.was_notified("job_xyz", "approved") is True
+
+            return True
+
+    @staticmethod
+    def test_multiple_notification_types():
+        """Track multiple event types per job"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+
+            state = JsonStateManager(state_file)
+
+            state.mark_notified("job_123", "new")
+            state.mark_notified("job_123", "approved")
+            state.mark_notified("job_123", "executed")
+
+            assert state.was_notified("job_123", "new") is True
+            assert state.was_notified("job_123", "approved") is True
+            assert state.was_notified("job_123", "executed") is True
+
+            return True
 
 
 class Phase2Tests:
@@ -35,10 +133,6 @@ class Phase2Tests:
     @staticmethod
     def test_send_email_creates_message_and_calls_api():
         """Should create MIME message and call Gmail API"""
-        gmail_sender = load_module_directly(
-            "gmail_sender", base_path / "syft_client/notifications/gmail_sender.py"
-        )
-
         mock_creds = MagicMock()
 
         with patch("gmail_sender.build") as mock_build:
@@ -48,7 +142,7 @@ class Phase2Tests:
                 "id": "msg123"
             }
 
-            sender = gmail_sender.GmailSender(mock_creds)
+            sender = GmailSender(mock_creds)
             result = sender.send_email(
                 to_email="test@example.com", subject="Test", body="Test body"
             )
@@ -60,10 +154,6 @@ class Phase2Tests:
     @staticmethod
     def test_send_email_handles_api_error():
         """Should return False on API error, not crash"""
-        gmail_sender = load_module_directly(
-            "gmail_sender", base_path / "syft_client/notifications/gmail_sender.py"
-        )
-
         mock_creds = MagicMock()
 
         with patch("gmail_sender.build") as mock_build:
@@ -73,7 +163,7 @@ class Phase2Tests:
                 "API Error"
             )
 
-            sender = gmail_sender.GmailSender(mock_creds)
+            sender = GmailSender(mock_creds)
             result = sender.send_email(
                 to_email="test@example.com", subject="Test", body="Test body"
             )
@@ -84,10 +174,6 @@ class Phase2Tests:
     @staticmethod
     def test_notify_new_job_creates_correct_message():
         """Job notification should contain job name and submitter"""
-        gmail_sender = load_module_directly(
-            "gmail_sender", base_path / "syft_client/notifications/gmail_sender.py"
-        )
-
         mock_creds = MagicMock()
 
         with patch("gmail_sender.build") as mock_build:
@@ -97,7 +183,7 @@ class Phase2Tests:
                 "id": "msg123"
             }
 
-            sender = gmail_sender.GmailSender(mock_creds)
+            sender = GmailSender(mock_creds)
             sender.notify_new_job(
                 do_email="do@example.com",
                 job_name="test_job_123",
@@ -118,10 +204,6 @@ class Phase2Tests:
     @staticmethod
     def test_notify_new_job_sends_to_correct_recipient():
         """Notification should be sent to DO email"""
-        gmail_sender = load_module_directly(
-            "gmail_sender", base_path / "syft_client/notifications/gmail_sender.py"
-        )
-
         mock_creds = MagicMock()
 
         with patch("gmail_sender.build") as mock_build:
@@ -131,7 +213,7 @@ class Phase2Tests:
                 "id": "msg123"
             }
 
-            sender = gmail_sender.GmailSender(mock_creds)
+            sender = GmailSender(mock_creds)
             sender.notify_new_job(
                 do_email="dataowner@example.com",
                 job_name="test_job",
@@ -292,6 +374,7 @@ def main():
     phases = {
         1: (Phase1Tests, "Phase 1: Gmail OAuth Authentication"),
         2: (Phase2Tests, "Phase 2: Gmail Sender"),
+        3: (Phase3Tests, "Phase 3: Notification State Manager"),
     }
 
     if args.phase:
