@@ -40,6 +40,8 @@ class JobMonitor(Monitor):
 
     def _check_all_entities(self):
         """Check all jobs for notification events"""
+        # TODO: Add logging for monitoring activity
+        # logger.debug(f"Checking job directory: {self.job_dir}")
         if not self.job_dir.exists():
             return
 
@@ -49,6 +51,9 @@ class JobMonitor(Monitor):
             try:
                 self._check_job(job_path)
             except Exception:
+                # TODO: Add logging for error tracking
+                # except Exception as e:
+                #     logger.error(f"Error checking job {job_path}: {e}")
                 pass
 
     def _check_job(self, job_path: Path):
@@ -137,6 +142,14 @@ class JobMonitor(Monitor):
 
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
+
+        required_keys = ["token_file", "state_file", "syftbox_root", "do_email"]
+        missing = [k for k in required_keys if k not in config]
+        if missing:
+            raise ValueError(
+                f"Configuration missing required keys: {missing}\n"
+                f"Config file: {config_path}"
+            )
 
         from .gmail_auth import GmailAuth
 

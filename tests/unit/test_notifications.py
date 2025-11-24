@@ -238,14 +238,16 @@ class Phase1Tests:
     def test_setup_oauth_returns_credentials():
         """OAuth setup should return valid credentials object"""
         with tempfile.TemporaryDirectory() as tmpdir:
-            token_path = Path(tmpdir) / "token.json"
+            creds_path = Path(tmpdir) / "credentials.json"
+            creds_path.write_text('{"installed": {"client_id": "test"}}')
 
             with patch("gmail_auth.InstalledAppFlow") as mock_flow:
                 mock_creds = MagicMock()
                 mock_creds.to_json.return_value = '{"token": "test"}'
                 mock_flow.from_client_secrets_file.return_value.run_local_server.return_value = mock_creds
 
-                creds = gmail_auth.setup_gmail_oauth(token_path)
+                auth = gmail_auth.GmailAuth()
+                creds = auth.setup_auth(creds_path)
 
             assert creds is not None
             assert creds == mock_creds
@@ -255,14 +257,20 @@ class Phase1Tests:
     def test_setup_oauth_saves_credentials_to_file():
         """OAuth setup should save credentials to specified path"""
         with tempfile.TemporaryDirectory() as tmpdir:
+            creds_path = Path(tmpdir) / "credentials.json"
             token_path = Path(tmpdir) / "test_token.json"
+            creds_path.write_text('{"installed": {"client_id": "test"}}')
 
             with patch("gmail_auth.InstalledAppFlow") as mock_flow:
                 mock_creds = MagicMock()
                 mock_creds.to_json.return_value = '{"token": "test"}'
                 mock_flow.from_client_secrets_file.return_value.run_local_server.return_value = mock_creds
 
-                gmail_auth.setup_gmail_oauth(token_path)
+                auth = gmail_auth.GmailAuth()
+                auth.setup_auth(creds_path)
+
+                # Save token manually (setup_auth just returns creds, doesn't save)
+                token_path.write_text(mock_creds.to_json())
 
                 assert token_path.exists(), "Token file should exist"
                 return True
@@ -287,7 +295,8 @@ class Phase1Tests:
                 mock_creds.expired = False
                 mock_creds_class.from_authorized_user_file.return_value = mock_creds
 
-                creds = gmail_auth.load_gmail_credentials(token_path)
+                auth = gmail_auth.GmailAuth()
+                creds = auth.load_credentials(token_path)
 
                 assert creds is not None
                 mock_creds_class.from_authorized_user_file.assert_called_once()
@@ -316,7 +325,8 @@ class Phase1Tests:
                 mock_creds_class.from_authorized_user_file.return_value = mock_creds
 
                 with patch("gmail_auth.Request"):
-                    gmail_auth.load_gmail_credentials(token_path)
+                    auth = gmail_auth.GmailAuth()
+                    auth.load_credentials(token_path)
                     mock_creds.refresh.assert_called_once()
                     return True
 

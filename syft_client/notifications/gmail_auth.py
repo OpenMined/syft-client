@@ -37,32 +37,3 @@ class GmailAuth(AuthProvider):
                 f.write(creds.to_json())
 
         return creds
-
-
-def setup_gmail_oauth(token_path: Path) -> Credentials:
-    token_path = Path(token_path).expanduser()
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-
-    flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
-    creds = flow.run_local_server(port=0)
-
-    with open(token_path, "w") as f:
-        f.write(creds.to_json())
-
-    token_path.chmod(0o600)
-
-    return creds
-
-
-def load_gmail_credentials(token_path: Path) -> Credentials:
-    token_path = Path(token_path).expanduser()
-
-    creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
-
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-
-        with open(token_path, "w") as f:
-            f.write(creds.to_json())
-
-    return creds

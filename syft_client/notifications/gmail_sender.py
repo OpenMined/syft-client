@@ -25,6 +25,8 @@ class GmailSender(NotificationSender):
         Returns:
             True if sent successfully, False on error
         """
+        # TODO: Add logging for debugging
+        # logger.info(f"Sending email to {to_email}: {subject}")
         try:
             message = MIMEText(body)
             message["to"] = to_email
@@ -39,6 +41,9 @@ class GmailSender(NotificationSender):
             return True
 
         except Exception:
+            # TODO: Add logging for error tracking
+            # except Exception as e:
+            #     logger.error(f"Failed to send email to {to_email}: {e}")
             return False
 
     def notify_new_job(self, do_email: str, job_name: str, submitter: str) -> bool:
