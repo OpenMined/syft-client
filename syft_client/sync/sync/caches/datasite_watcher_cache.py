@@ -140,7 +140,7 @@ class DataSiteWatcherCache(BaseModel):
 
         time_since_last_sync = datetime.now() - self.last_sync
         if time_since_last_sync > timedelta(seconds=SECONDS_BEFORE_SYNCING_DOWN):
-            self.sync_down()
+            self.sync_down(peer_email)
 
     def current_hash_for_file(self, path: str) -> int | None:
         for peer in self.peers:
