@@ -47,6 +47,7 @@ class DataSiteWatcherCache(BaseModel):
     last_sync: datetime | None = None
     seconds_before_syncing_down: int = SECONDS_BEFORE_SYNCING_DOWN
     peers: List[str] = []
+    last_event_timestamp_per_peer: Dict[str, float] = {}
 
     @classmethod
     def from_config(cls, config: DataSiteWatcherCacheConfig):
@@ -84,6 +85,7 @@ class DataSiteWatcherCache(BaseModel):
         self.last_sync = None
         self.peers = []
         self.current_check_point = None
+        self.last_event_timestamp_per_peer = {}
 
     @property
     def last_event_timestamp(self) -> float | None:
@@ -92,14 +94,18 @@ class DataSiteWatcherCache(BaseModel):
         return self.events_connection.get_latest().timestamp
 
     def sync_down(self, peer_email: str):
+        # Use per-peer timestamp to avoid filtering out events from other peers
+        peer_timestamp = self.last_event_timestamp_per_peer.get(peer_email)
+
         new_event_messages = (
             self.connection_router.get_events_messages_for_datasite_watcher(
                 peer_email=peer_email,
-                since_timestamp=self.last_event_timestamp,
+                since_timestamp=peer_timestamp,
             )
         )
         for event_message in sorted(new_event_messages, key=lambda x: x.timestamp):
             self.apply_event_message(event_message)
+            self.last_event_timestamp_per_peer[peer_email] = event_message.timestamp
 
         self.last_sync = datetime.now()
 
