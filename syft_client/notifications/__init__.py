@@ -64,6 +64,7 @@ from .gmail_auth import GmailAuth
 from .gmail_sender import GmailSender
 from .json_state_manager import JsonStateManager
 from .job_monitor import JobMonitor
+from .peer_monitor import PeerMonitor
 
 # Abstract base classes (for extensions)
 from .base import Monitor, NotificationSender, StateManager, AuthProvider
@@ -77,6 +78,7 @@ __all__ = [
     "GmailSender",
     "JsonStateManager",
     "JobMonitor",
+    "PeerMonitor",
     # Abstract bases
     "Monitor",
     "NotificationSender",

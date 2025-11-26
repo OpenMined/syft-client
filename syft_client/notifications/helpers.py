@@ -15,6 +15,12 @@ except ImportError:
     from job_monitor import JobMonitor
 
 
+# Default paths for package-managed files
+DEFAULT_NOTIFICATION_DIR = Path.home() / ".syft-notifications"
+DEFAULT_TOKEN_FILE = DEFAULT_NOTIFICATION_DIR / "gmail_token.json"
+DEFAULT_STATE_FILE = DEFAULT_NOTIFICATION_DIR / "state.json"
+
+
 def setup_oauth(config_path: str) -> None:
     """
     One-time OAuth setup helper.
@@ -49,16 +55,22 @@ def setup_oauth(config_path: str) -> None:
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    required_keys = ["credentials_file", "token_file"]
-    missing = [k for k in required_keys if k not in config]
-    if missing:
+    # Only credentials_file is required from user
+    if "credentials_file" not in config:
         raise ValueError(
-            f"Configuration missing required keys for OAuth: {missing}\n"
-            f"Config file: {config_path}"
+            f"Configuration missing required key: 'credentials_file'\n"
+            f"Config file: {config_path}\n"
+            "Please specify path to your Google OAuth credentials.json file"
         )
 
     credentials_file = Path(config["credentials_file"]).expanduser()
-    token_file = Path(config["token_file"]).expanduser()
+
+    # Use default token_file if not specified
+    if "token_file" in config:
+        token_file = Path(config["token_file"]).expanduser()
+    else:
+        token_file = DEFAULT_TOKEN_FILE
+        print(f"ℹ️  Using default token location: {token_file}")
 
     if not credentials_file.exists():
         raise FileNotFoundError(
@@ -136,12 +148,11 @@ def start_monitoring(config_path: str) -> JobMonitor:
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    if "token_file" not in config:
-        raise ValueError(
-            f"Configuration missing 'token_file' key\nConfig file: {config_path}"
-        )
-
-    token_file = Path(config["token_file"]).expanduser()
+    # Use default token_file if not specified
+    if "token_file" in config:
+        token_file = Path(config["token_file"]).expanduser()
+    else:
+        token_file = DEFAULT_TOKEN_FILE
 
     if not token_file.exists():
         raise FileNotFoundError(
@@ -151,5 +162,11 @@ def start_monitoring(config_path: str) -> JobMonitor:
             f'  setup_oauth("{config_path}")\n\n'
             "This will open a browser for Gmail authentication."
         )
+
+    # Inject default paths into config if not present
+    if "token_file" not in config:
+        config["token_file"] = str(token_file)
+    if "state_file" not in config:
+        config["state_file"] = str(DEFAULT_STATE_FILE)
 
     return JobMonitor.from_config(str(config_path))

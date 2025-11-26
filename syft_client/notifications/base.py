@@ -81,6 +81,31 @@ class StateManager(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_data(self, key: str, default: Any = None) -> Any:
+        """
+        Get arbitrary data from state storage.
+
+        Args:
+            key: Data key
+            default: Default value if key doesn't exist
+
+        Returns:
+            Stored value or default
+        """
+        pass
+
+    @abstractmethod
+    def set_data(self, key: str, value: Any):
+        """
+        Set arbitrary data in state storage.
+
+        Args:
+            key: Data key
+            value: Data value (must be JSON-serializable)
+        """
+        pass
+
 
 class Monitor(ABC):
     """Abstract base for monitors (JobMonitor, PeerMonitor, etc.)"""

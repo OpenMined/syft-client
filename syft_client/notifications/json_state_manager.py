@@ -33,10 +33,25 @@ class JsonStateManager(StateManager):
         except Exception:
             return {}
 
+    def _load_all(self) -> Dict:
+        """Load complete state data from JSON file"""
+        if not self.state_file.exists():
+            return {"notified_jobs": {}}
+
+        try:
+            with open(self.state_file, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {"notified_jobs": {}}
+
     def _save(self):
         """Save state to JSON file"""
+        # Load all data first to preserve custom data
+        all_data = self._load_all()
+        all_data["notified_jobs"] = self.notified_jobs
+
         with open(self.state_file, "w") as f:
-            json.dump({"notified_jobs": self.notified_jobs}, f, indent=2)
+            json.dump(all_data, f, indent=2)
 
         self.state_file.chmod(0o600)
 
@@ -53,3 +68,18 @@ class JsonStateManager(StateManager):
             self.notified_jobs[job_id].append(notification_type)
 
         self._save()
+
+    def get_data(self, key: str, default=None):
+        """Get arbitrary data from state storage"""
+        all_data = self._load_all()
+        return all_data.get(key, default)
+
+    def set_data(self, key: str, value):
+        """Set arbitrary data in state storage"""
+        all_data = self._load_all()
+        all_data[key] = value
+
+        with open(self.state_file, "w") as f:
+            json.dump(all_data, f, indent=2)
+
+        self.state_file.chmod(0o600)

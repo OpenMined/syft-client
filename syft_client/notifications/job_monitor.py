@@ -140,10 +140,16 @@ class JobMonitor(Monitor):
         import yaml
         from pathlib import Path
 
+        # Default paths for package-managed files
+        DEFAULT_NOTIFICATION_DIR = Path.home() / ".syft-notifications"
+        DEFAULT_TOKEN_FILE = DEFAULT_NOTIFICATION_DIR / "gmail_token.json"
+        DEFAULT_STATE_FILE = DEFAULT_NOTIFICATION_DIR / "state.json"
+
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
 
-        required_keys = ["token_file", "state_file", "syftbox_root", "do_email"]
+        # Only business config is required from user
+        required_keys = ["syftbox_root", "do_email"]
         missing = [k for k in required_keys if k not in config]
         if missing:
             raise ValueError(
@@ -151,10 +157,21 @@ class JobMonitor(Monitor):
                 f"Config file: {config_path}"
             )
 
+        # Use defaults for token_file and state_file if not provided
+        token_path = (
+            Path(config["token_file"]).expanduser()
+            if "token_file" in config
+            else DEFAULT_TOKEN_FILE
+        )
+        state_path = (
+            Path(config["state_file"]).expanduser()
+            if "state_file" in config
+            else DEFAULT_STATE_FILE
+        )
+
         from .gmail_auth import GmailAuth
 
         auth = GmailAuth()
-        token_path = Path(config["token_file"]).expanduser()
         credentials = auth.load_credentials(token_path)
 
         from .gmail_sender import GmailSender
@@ -163,7 +180,6 @@ class JobMonitor(Monitor):
 
         from .json_state_manager import JsonStateManager
 
-        state_path = Path(config["state_file"]).expanduser()
         state = JsonStateManager(state_path)
 
         return cls(

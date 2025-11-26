@@ -128,3 +128,71 @@ Your job has completed successfully. Results are available.
             True if sent successfully
         """
         return self.send_email(to, subject, body)
+
+    def notify_new_peer_request_to_do(self, do_email: str, ds_email: str) -> bool:
+        """
+        Notify DO about new peer request from DS.
+
+        Args:
+            do_email: Data Owner email address
+            ds_email: Data Scientist email address
+
+        Returns:
+            True if notification sent successfully
+        """
+        subject = f"New Peer Request from {ds_email}"
+
+        body = f"""You have a new peer request in SyftBox!
+
+From: {ds_email}
+
+A data scientist wants to connect with you to collaborate on data projects.
+
+Log in to SyftBox to review this peer request.
+"""
+
+        return self.send_email(do_email, subject, body)
+
+    def notify_peer_added_to_ds(self, ds_email: str, do_email: str) -> bool:
+        """
+        Notify DS that they successfully added DO as peer.
+
+        Args:
+            ds_email: Data Scientist email address
+            do_email: Data Owner email address
+
+        Returns:
+            True if notification sent successfully
+        """
+        subject = f"Peer Added: {do_email}"
+
+        body = f"""You successfully added a peer in SyftBox!
+
+Peer: {do_email}
+
+You can now submit jobs and collaborate with this data owner.
+"""
+
+        return self.send_email(ds_email, subject, body)
+
+    def notify_peer_request_granted(self, ds_email: str, do_email: str) -> bool:
+        """
+        Notify DS that DO accepted their peer request.
+
+        Args:
+            ds_email: Data Scientist email address
+            do_email: Data Owner email address
+
+        Returns:
+            True if notification sent successfully
+        """
+        subject = f"Peer Request Accepted: {do_email}"
+
+        body = f"""Your peer request has been accepted!
+
+Peer: {do_email}
+
+The data owner has accepted your request. You can now collaborate with them.
+"""
+
+        return self.send_email(ds_email, subject, body)
