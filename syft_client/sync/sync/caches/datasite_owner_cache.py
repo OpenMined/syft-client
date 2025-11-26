@@ -51,8 +51,6 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
 
     # file path to the hash of the filecontent
     file_hashes: Dict[str, int] = {}
-    # file path to modification time (for optimization)
-    file_mtimes: Dict[str, float] = {}
     email: str
 
     @classmethod
@@ -83,64 +81,36 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     def process_local_file_changes(self) -> FileChangeEventsMessage | None:
         new_events = []
 
-        # OPTIMIZATION: Get file paths with mtimes first (fast - no file reading!)
-        paths_with_mtime = self.file_connection.get_paths_with_mtime()
-
-        # Normalize paths
-        current_files_data = {}  # path -> (mtime, needs_hash_check)
-        for path_str, mtime in paths_with_mtime:
-            path = Path(path_str)
-            # Skip private files and .venv
-            if str(path).startswith("private") or ".venv" in str(path):
+        # Get current files on disk - normalize paths to Path objects
+        current_files = {}
+        for path, content in self.file_connection.get_items():
+            path = Path(path)  # Normalize to Path
+            if str(path).startswith("private"):
                 continue
-            current_files_data[path] = (mtime, True)  # Default: needs hash check
-
-        # OPTIMIZATION: Check mtimes first to avoid reading unchanged files
-        paths_needing_hash_check = []
-        for path, (current_mtime, _) in current_files_data.items():
-            cached_mtime = self.file_mtimes.get(path)
-
-            if cached_mtime is None:
-                # New file - need to hash it
-                paths_needing_hash_check.append(path)
-            elif current_mtime != cached_mtime:
-                # File modified - need to re-hash it
-                paths_needing_hash_check.append(path)
-            # else: mtime unchanged, skip this file (huge time saver!)
-
-        # Now read and hash ONLY the files that actually changed
-        for path in paths_needing_hash_check:
-            try:
-                content = self.file_connection.read_file(str(path))
-                current_hash = get_event_hash_from_content(content)
-                current_mtime = current_files_data[path][0]
-
-                if current_hash != self.file_hashes.get(path, None):
-                    # Hash changed - create event
-                    timestamp = create_event_timestamp()
-                    event = FileChangeEvent(
-                        id=uuid4(),
-                        path_in_datasite=path,
-                        content=content,
-                        new_hash=current_hash,
-                        old_hash=self.file_hashes.get(path),
-                        submitted_timestamp=timestamp,
-                        timestamp=timestamp,
-                        datasite_email=self.email,
-                        is_deleted=False,
-                    )
-                    new_events.append(event)
-
-                # Update mtime cache even if hash didn't change
-                # (e.g., file was touched but content is the same)
-                self.file_mtimes[path] = current_mtime
-
-            except Exception:
-                # Skip files that can't be read
+            if ".venv" in str(path):
                 continue
+            current_files[path] = content
+
+        # Detect modifications and additions
+        for path, content in current_files.items():
+            current_hash = get_event_hash_from_content(content)
+            if current_hash != self.file_hashes.get(path, None):
+                timestamp = create_event_timestamp()
+                event = FileChangeEvent(
+                    id=uuid4(),
+                    path_in_datasite=path,
+                    content=content,
+                    new_hash=current_hash,
+                    old_hash=self.file_hashes.get(path),
+                    submitted_timestamp=timestamp,
+                    timestamp=timestamp,
+                    datasite_email=self.email,
+                    is_deleted=False,
+                )
+                new_events.append(event)
 
         # Detect deletions
-        current_paths = set(current_files_data.keys())
+        current_paths = set(current_files.keys())
         cached_paths = set(self.file_hashes.keys())
         deleted_paths = cached_paths - current_paths
 
@@ -158,10 +128,6 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 is_deleted=True,
             )
             new_events.append(deletion_event)
-
-            # Clean up mtime cache for deleted files
-            if deleted_path in self.file_mtimes:
-                del self.file_mtimes[deleted_path]
 
         if new_events:
             events_message = FileChangeEventsMessage(events=new_events)

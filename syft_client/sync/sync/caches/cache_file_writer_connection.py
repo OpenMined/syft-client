@@ -77,13 +77,6 @@ class InMemoryCacheFileConnection(CacheFileConnection[T]):
     def get_items(self) -> List[Tuple[Path, T]]:
         return list(self.sorted_files.items())
 
-    def get_paths_with_mtime(self) -> List[Tuple[Path, float]]:
-        """
-        Get list of (path, mtime) tuples. For in-memory connection,
-        mtime is always 0.0 since files aren't on disk.
-        """
-        return [(path, 0.0) for path in self.sorted_files.keys()]
-
     def clear_cache(self):
         self.sorted_files = KeySortedDict()
 
@@ -138,22 +131,6 @@ class FSFileConnection(CacheFileConnection[T]):
 
     def get_keys(self) -> List[str]:
         return [str(f.relative_to(self.base_dir)) for f in self._iter_files()]
-
-    def get_paths_with_mtime(self) -> List[Tuple[str, float]]:
-        """
-        Get list of (path, mtime) tuples for all files.
-        Returns relative paths and modification times.
-        """
-        result = []
-        for f in self._iter_files():
-            try:
-                mtime = f.stat().st_mtime
-                rel_path = str(f.relative_to(self.base_dir))
-                result.append((rel_path, mtime))
-            except Exception:
-                # Skip files that can't be accessed
-                continue
-        return result
 
     def model_post_init(self, context):
         super().model_post_init(context)
