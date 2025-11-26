@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List
@@ -13,6 +14,28 @@ from syft_client.sync.sync.caches.datasite_watcher_cache import (
     DataSiteWatcherCache,
     DataSiteWatcherCacheConfig,
 )
+
+# Binary file extensions that should be base64 encoded for sync
+BINARY_EXTENSIONS = {
+    ".gz",
+    ".zip",
+    ".tar",
+    ".bin",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".pdf",
+}
+
+
+def _is_binary_file(path: Path) -> bool:
+    """Check if a file should be treated as binary based on its extension."""
+    name = path.name.lower()
+    # Handle compound extensions like .tar.gz
+    if name.endswith(".tar.gz"):
+        return True
+    return path.suffix.lower() in BINARY_EXTENSIONS
 
 
 class ProposedFileChangePusherConfig(BaseModel):
@@ -65,8 +88,14 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
 
             # for in memory connection we pass content directly
             if content is None:
-                with open(self.syftbox_folder / relative_path, "r") as f:
-                    content = f.read()
+                file_path = self.syftbox_folder / relative_path
+                if _is_binary_file(file_path):
+                    with open(file_path, "rb") as f:
+                        data = f.read()
+                    content = "base64:" + base64.b64encode(data).decode("ascii")
+                else:
+                    with open(file_path, "r") as f:
+                        content = f.read()
 
             # splitted = relative_path.split("/")
 

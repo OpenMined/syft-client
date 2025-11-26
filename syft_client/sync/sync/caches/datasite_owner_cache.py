@@ -85,9 +85,21 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         current_files = {}
         for path, content in self.file_connection.get_items():
             path = Path(path)  # Normalize to Path
-            if str(path).startswith("private"):
+            path_str = str(path)
+            # Skip private data
+            if path_str.startswith("private"):
                 continue
-            if ".venv" in str(path):
+            # Skip virtual environments
+            if ".venv" in path_str:
+                continue
+            # Skip macOS metadata
+            if path.name == ".DS_Store":
+                continue
+            # Skip Python cache/bytecode files
+            if "__pycache__" in path_str or path_str.endswith(".pyc"):
+                continue
+            # Skip binary files that were already synced (they don't need re-syncing)
+            if path_str.endswith(".tar.gz"):
                 continue
             current_files[path] = content
 

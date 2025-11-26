@@ -1,3 +1,4 @@
+import base64
 from typing import Generic, List, TypeVar
 from pydantic import BaseModel, Field
 from pathlib import Path
@@ -15,6 +16,9 @@ def _serialize(self, content: T) -> bytes:
     if isinstance(content, bytes):
         return content
     elif isinstance(content, str):
+        # Check for base64-encoded binary content
+        if content.startswith("base64:"):
+            return base64.b64decode(content[7:])
         return content.encode("utf-8")
     elif isinstance(content, BaseModel):
         return content.model_dump_json().encode("utf-8")

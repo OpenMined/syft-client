@@ -1,8 +1,12 @@
+import fnmatch
 import os
 import re
 import shutil
+import tarfile
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
+from uuid import uuid4
 
 import yaml
 
@@ -1771,6 +1775,28 @@ class JobsList:
 class JobClient:
     """Client for submitting jobs to SyftBox."""
 
+    # Job submission constants
+    DEFAULT_PYTHON_ENTRY_FILE = "main.py"
+    REQUIRED_DEPENDENCY = "syft-client"
+    RUN_SCRIPT_NAME = "run.sh"
+    CONFIG_FILE_NAME = "config.yaml"
+
+    # items to exclude from tarball when compressing project folder submissions
+    TARBALL_EXCLUDE_PATTERNS = frozenset(
+        [
+            "__pycache__",
+            "*.pyc",
+            ".git",
+            ".venv",
+            "venv",
+            ".env",
+            "*.egg-info",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+        ]
+    )
+
     def __init__(self, config: SyftJobConfig, user_email: Optional[str] = None):
         """Initialize JobClient with configuration and optional user email for job views."""
         self.config = config
@@ -1799,6 +1825,237 @@ class JobClient:
         # Create job directory if it doesn't exist
         job_dir.mkdir(parents=True, exist_ok=True)
 
+    def _parse_pyproject_deps(self, project_dir: Path) -> List[str]:
+        """Parse dependencies from pyproject.toml if exists.
+
+        Args:
+            project_dir: Path to the project directory
+
+        Returns:
+            List of dependency strings from [project.dependencies]
+        """
+        pyproject_path = project_dir / "pyproject.toml"
+        if not pyproject_path.exists():
+            return []
+
+        try:
+            import tomli
+
+            with open(pyproject_path, "rb") as f:
+                data = tomli.load(f)
+
+            # Get dependencies from [project.dependencies]
+            deps = data.get("project", {}).get("dependencies", [])
+            return [str(d) for d in deps]
+        except Exception as e:
+            print(f"Warning: Failed to parse dependencies from {pyproject_path}: {e}")
+            return []
+
+    def _build_dependencies(self, dependencies: Optional[List[str]]) -> List[str]:
+        """Prepend required dependency to user dependencies list."""
+        return [self.REQUIRED_DEPENDENCY] + (dependencies or [])
+
+    def _resolve_python_entry_file(
+        self, project_dir: Path, entry_python_file: Optional[str]
+    ) -> str:
+        """Resolve and validate the entry point file for folder submissions."""
+        if entry_python_file:
+            entry_path = project_dir / entry_python_file
+            if not entry_path.exists():
+                raise FileNotFoundError(
+                    f"Entry point '{entry_python_file}' not found in {project_dir}"
+                )
+            return entry_python_file
+
+        default_entry = project_dir / self.DEFAULT_PYTHON_ENTRY_FILE
+        if default_entry.exists():
+            return self.DEFAULT_PYTHON_ENTRY_FILE
+
+        raise ValueError(
+            f"No entry point found. Provide entry_python_file parameter or add {self.DEFAULT_PYTHON_ENTRY_FILE} to {project_dir}"
+        )
+
+    def _create_tar_filter(
+        self,
+    ) -> Callable[[tarfile.TarInfo], Optional[tarfile.TarInfo]]:
+        """Create a tar filter that excludes unwanted files/directories."""
+        patterns = self.TARBALL_EXCLUDE_PATTERNS
+
+        def tar_filter(tarinfo: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
+            for part in tarinfo.name.split("/"):
+                for pattern in patterns:
+                    if fnmatch.fnmatch(part, pattern):
+                        return None
+            return tarinfo
+
+        return tar_filter
+
+    def _create_project_tarball(
+        self, source_dir: Path, tarball_path: Path, arcname: str
+    ) -> None:
+        """Create a gzipped tarball of the project directory."""
+        tar_filter = self._create_tar_filter()
+        with tarfile.open(tarball_path, "w:gz") as tar:
+            tar.add(str(source_dir), arcname=arcname, filter=tar_filter)
+
+    def _build_base_config(self, job_name: str, code_path: Path) -> dict:
+        """Build common job configuration fields."""
+        return {
+            "name": job_name,
+            "submitted_by": self.root_email,
+            "submitted_at": None,  # Set later
+            "type": "python",
+            "code_path": str(code_path),
+        }
+
+    def _write_job_files(
+        self, job_dir: Path, bash_script: str, job_config: dict
+    ) -> None:
+        """Write run.sh and config.yaml to job directory."""
+        # Write run.sh
+        run_script_path = job_dir / self.RUN_SCRIPT_NAME
+        with open(run_script_path, "w") as f:
+            f.write(bash_script)
+        os.chmod(run_script_path, 0o755)
+
+        # Write config.yaml
+        config_path = job_dir / self.CONFIG_FILE_NAME
+        job_config["submitted_at"] = datetime.now(timezone.utc).isoformat()
+        with open(config_path, "w") as f:
+            yaml.dump(job_config, f, default_flow_style=False)
+
+    def _prepare_folder_job(
+        self,
+        source_dir: Path,
+        job_dir: Path,
+        entry_python_file: Optional[str],
+        dependencies: Optional[List[str]],
+    ) -> tuple[dict, str]:
+        """Prepare a folder-based Python job submission.
+
+        Returns:
+            Tuple of (job_config dict, bash_script str)
+        """
+        project_name = source_dir.name
+        tarball_name = f"{project_name}.tar.gz"
+
+        # Create tarball
+        self._create_project_tarball(source_dir, job_dir / tarball_name, project_name)
+
+        # Resolve entry point (validates existence)
+        python_entry_file = self._resolve_python_entry_file(
+            source_dir, entry_python_file
+        )
+
+        # Build dependencies
+        if dependencies is None:
+            dependencies = self._parse_pyproject_deps(source_dir)
+        all_deps = self._build_dependencies(dependencies)
+
+        # Generate run script
+        bash_script = self._generate_folder_run_script(
+            project_name, python_entry_file, all_deps, tarball_name
+        )
+
+        # Build config
+        config = self._build_base_config(source_dir.name, source_dir)
+        config.update(
+            {
+                "is_folder": True,
+                "project_name": project_name,
+                "tarball_name": tarball_name,
+                "entry_point": python_entry_file,
+                "dependencies": all_deps,
+            }
+        )
+
+        return config, bash_script
+
+    def _prepare_single_file_job(
+        self,
+        source_file: Path,
+        job_dir: Path,
+        dependencies: Optional[List[str]],
+    ) -> tuple[dict, str]:
+        """Prepare a single-file Python job submission.
+
+        Returns:
+            Tuple of (job_config dict, bash_script str)
+        """
+        # Copy file to job directory
+        destination = job_dir / source_file.name
+        shutil.copy2(str(source_file), str(destination))
+
+        # Build dependencies
+        all_deps = self._build_dependencies(dependencies)
+
+        # Generate run script
+        bash_script = self._generate_single_file_run_script(source_file.name, all_deps)
+
+        # Build config
+        config = self._build_base_config(source_file.name, source_file)
+        config.update(
+            {
+                "is_folder": False,
+                "entry_point": source_file.name,  # keep "entry_point" key for backward compatibility
+                "dependencies": all_deps,
+            }
+        )
+
+        return config, bash_script
+
+    def _generate_single_file_run_script(
+        self, filename: str, all_dependencies: List[str]
+    ) -> str:
+        """Generate run.sh for single-file Python job."""
+        deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
+
+        return f"""#!/bin/bash
+export UV_SYSTEM_PYTHON=false
+
+# Create isolated uv virtual environment
+uv venv
+
+# Activate the virtual environment
+source .venv/bin/activate
+
+# Install dependencies
+uv pip install {deps_str}
+
+# Execute the Python file
+python {filename}
+"""
+
+    def _generate_folder_run_script(
+        self,
+        project_name: str,
+        entry_file: str,
+        all_dependencies: List[str],
+        tarball_name: str,
+    ) -> str:
+        """Generate run.sh for folder-based Python job."""
+        deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
+
+        return f"""#!/bin/bash
+export UV_SYSTEM_PYTHON=false
+
+# Extract project tarball
+tar -xzf {tarball_name}
+
+# Create isolated uv virtual environment
+uv venv
+
+# Activate the virtual environment
+source .venv/bin/activate
+
+# Install dependencies
+uv pip install {deps_str}
+
+# Change to project directory and execute entry point
+cd {project_name}
+python {entry_file}
+"""
+
     def submit_bash_job(self, user: str, script: str, job_name: str = "") -> Path:
         """
         Submit a bash job for a user.
@@ -1817,10 +2074,9 @@ class JobClient:
         """
         # Generate default job name if not provided
         if not job_name.strip():
-            from uuid import uuid4
-
             random_id = str(uuid4())[0:8]
             job_name = f"Job - {random_id}"
+
         # Ensure user directory exists (create if it doesn't)
         user_dir = self.config.get_user_dir(user)
         if not user_dir.exists():
@@ -1848,8 +2104,6 @@ class JobClient:
 
         # Create config.yaml file
         config_yaml_path = job_dir / "config.yaml"
-        from datetime import datetime, timezone
-
         job_config = {
             "name": job_name,
             "submitted_by": self.root_email,
@@ -1867,28 +2121,30 @@ class JobClient:
         code_path: str,
         job_name: Optional[str] = "",
         dependencies: Optional[List[str]] = None,
+        entry_python_file: Optional[str] = None,
     ) -> Path:
         """
-        Submit a Python job for a user (single file only).
+        Submit a Python job for a user (single file or folder).
 
         Args:
             user: Email address of the user to submit job for
             job_name: Name of the job (will be used as directory name)
-            code_path: Path to Python file (folders are temporarily disabled)
-            dependencies: List of Python packages to install (e.g., ["numpy", "pandas==1.5.0"])
+            code_path: Path to Python file or project folder
+            dependencies: List of Python packages to install (e.g., ["numpy", "pandas==1.5.0"]).
+                        If not provided for folders, will be parsed from pyproject.toml.
+            entry_python_file: Entry point file for folder submissions (default: "main.py").
+                        Ignored for single file submissions.
 
         Returns:
             Path to the created job directory
 
         Raises:
             FileExistsError: If job with same name already exists
-            ValueError: If code_path is not a single Python file
+            ValueError: If code_path is not a Python file or valid folder
             FileNotFoundError: If code_path doesn't exist
         """
         # Generate default job name if not provided
         if not job_name:
-            from uuid import uuid4
-
             random_id = str(uuid4())[0:8]
             job_name = f"Job - {random_id}"
 
@@ -1897,86 +2153,38 @@ class JobClient:
         if not code_path_obj.exists():
             raise FileNotFoundError(f"Code path does not exist: {code_path}")
 
-        # Only accept single Python files (folders temporarily disabled)
-        if not code_path_obj.is_file():
-            raise ValueError(
-                f"Code path must be a single Python file. Folders are temporarily disabled: {code_path}"
-            )
+        is_folder = code_path_obj.is_dir()
 
-        if not code_path_obj.suffix == ".py":
+        # Validate single file is a .py file
+        if not is_folder and code_path_obj.suffix != ".py":
             raise ValueError(f"Code path must be a Python file (.py): {code_path}")
 
-        # Ensure user directory exists (create if it doesn't)
+        # Ensure user and job directories exist
         user_dir = self.config.get_user_dir(user)
         if not user_dir.exists():
             user_dir.mkdir(parents=True, exist_ok=True)
             print(f"Created user directory: {user_dir}")
 
-        # Ensure job directory structure exists
         self._ensure_job_directories(user)
 
-        # Create job directory directly in job directory
+        # Create job directory
         job_dir = self.config.get_job_dir(user) / job_name
-
         if job_dir.exists():
             raise FileExistsError(f"Job '{job_name}' already exists for user '{user}'")
-
         job_dir.mkdir(parents=True)
 
-        # Copy Python file directly to job root directory
-        destination = job_dir / code_path_obj.name
-        shutil.copy2(str(code_path_obj), str(destination))
+        # Prepare job based on type
+        if is_folder:
+            job_config, bash_script = self._prepare_folder_job(
+                code_path_obj, job_dir, entry_python_file, dependencies
+            )
+        else:
+            job_config, bash_script = self._prepare_single_file_job(
+                code_path_obj, job_dir, dependencies
+            )
 
-        # Generate bash script for Python execution with uv
-        dependencies = dependencies or []
-
-        # Always include syft-client as a default dependency
-        all_dependencies = ["syft-client"] + dependencies
-
-        # Create dependency installation commands
-        deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
-        install_commands = f"""
-# Install syft-client and custom dependencies
-uv pip install {deps_str}
-"""
-
-        bash_script = f"""#!/bin/bash
-export UV_SYSTEM_PYTHON=false
-
-# Create isolated uv virtual environment
-uv venv
-
-# Activate the virtual environment
-source .venv/bin/activate
-{install_commands}
-# Execute the Python file directly from job root
-python {code_path_obj.name}
-"""
-
-        # Create run.sh file
-        run_script_path = job_dir / "run.sh"
-        with open(run_script_path, "w") as f:
-            f.write(bash_script)
-
-        # Make run.sh executable
-        os.chmod(run_script_path, 0o755)
-
-        # Create config.yaml file
-        config_yaml_path = job_dir / "config.yaml"
-        from datetime import datetime, timezone
-
-        job_config = {
-            "name": job_name,
-            "submitted_by": self.root_email,
-            "submitted_at": datetime.now(timezone.utc).isoformat(),
-            "type": "python",
-            "code_path": str(code_path_obj),
-            "entry_point": code_path_obj.name,
-            "dependencies": all_dependencies,
-        }
-
-        with open(config_yaml_path, "w") as f:
-            yaml.dump(job_config, f, default_flow_style=False)
+        # Finalize: write run.sh and config.yaml
+        self._write_job_files(job_dir, bash_script, job_config)
 
         return job_dir
 
