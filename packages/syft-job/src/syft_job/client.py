@@ -1890,6 +1890,26 @@ class JobClient:
 
         return tar_filter
 
+    def _run_uv_lock(self, project_dir: Path) -> None:
+        """Run uv lock to generate uv.lock file if it doesn't exist.
+
+        This resolves all dependencies including [tool.uv.sources] local paths
+        at lock time on the DS side, so the DO can use uv sync with the exact
+        same versions without needing access to local paths.
+        """
+        import subprocess
+
+        print(f"Running uv lock in {project_dir}...")
+        result = subprocess.run(
+            ["uv", "lock"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"uv lock failed: {result.stderr}")
+        print("uv.lock created successfully")
+
     def _create_tarball(self, source: Path, tarball_path: Path, arcname: str) -> None:
         """Create a gzipped tarball of a file or directory.
 
@@ -1956,13 +1976,21 @@ class JobClient:
         if source.is_file():
             source_name = source.stem  # "my_script" from "my_script.py"
             entry_file = source.name  # "my_script.py"
+            has_pyproject = False
         else:
             source_name = source.name  # folder name
             entry_file = self._resolve_python_entry_file(source, entry_python_file)
+            has_pyproject = (source / "pyproject.toml").exists()
 
         tarball_name = f"{source_name}.tar.gz"
 
+        # For projects with pyproject.toml but no uv.lock, run uv lock
+        # This resolves [tool.uv.sources] local paths on DS side
+        if has_pyproject and not (source / "uv.lock").exists():
+            self._run_uv_lock(source)
+
         # Always create tarball (works for file or folder)
+        # If uv.lock exists, it will be included in the tarball
         self._create_tarball(source, job_dir / tarball_name, source_name)
 
         # Build dependencies (parse from pyproject.toml for folders if not provided)
@@ -1970,9 +1998,9 @@ class JobClient:
             dependencies = self._parse_pyproject_deps(source)
         all_deps = self._build_dependencies(dependencies)
 
-        # Generate run script (single template for all jobs)
+        # Generate run script
         bash_script = self._generate_run_script(
-            source_name, entry_file, all_deps, tarball_name
+            source_name, entry_file, all_deps, tarball_name, has_pyproject
         )
 
         # Build config
@@ -1982,6 +2010,7 @@ class JobClient:
                 "tarball_name": tarball_name,
                 "entry_point": entry_file,
                 "dependencies": all_deps,
+                "has_pyproject": has_pyproject,
             }
         )
 
@@ -1993,26 +2022,34 @@ class JobClient:
         entry_file: str,
         all_dependencies: List[str],
         tarball_name: str,
+        has_pyproject: bool = False,
     ) -> str:
-        """Generate run.sh for any Python job (single file or folder)."""
-        deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
+        """Generate run.sh for any Python job (single file or folder).
 
-        return f"""#!/bin/bash
-export UV_SYSTEM_PYTHON=false
+        If the project has a pyproject.toml (and uv.lock), uses `uv sync` which
+        installs exactly what's in the lock file - ensuring reproducible builds.
+        Otherwise, falls back to `uv pip install` with explicit dependencies.
 
-# Extract job tarball
+        In both cases, .venv is created at job level (outside the project folder)
+        for consistency.
+        """
+        if has_pyproject:
+            # Use uv sync for projects with pyproject.toml + uv.lock
+            # --project flag tells uv to use pyproject.toml from source_name
+            # but creates .venv at current dir (job level)
+            return f"""#!/bin/bash
 tar -xzf {tarball_name}
-
-# Create isolated uv virtual environment
+uv sync --project {source_name}
+uv run --project {source_name} python {source_name}/{entry_file}
+"""
+        else:
+            # Fallback for single files without pyproject.toml
+            deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
+            return f"""#!/bin/bash
+tar -xzf {tarball_name}
 uv venv
-
-# Activate the virtual environment
 source .venv/bin/activate
-
-# Install dependencies
 uv pip install {deps_str}
-
-# Execute the Python file (run from job directory, outputs stay at job level)
 python {source_name}/{entry_file}
 """
 
