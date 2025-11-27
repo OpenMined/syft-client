@@ -1890,13 +1890,27 @@ class JobClient:
 
         return tar_filter
 
-    def _create_project_tarball(
-        self, source_dir: Path, tarball_path: Path, arcname: str
-    ) -> None:
-        """Create a gzipped tarball of the project directory."""
+    def _create_tarball(self, source: Path, tarball_path: Path, arcname: str) -> None:
+        """Create a gzipped tarball of a file or directory.
+
+        Both single files and directories are packaged consistently:
+        - Single file: test.py → tarball extracts to {arcname}/test.py
+        - Directory: project/ → tarball extracts to {arcname}/...
+
+        This ensures run.sh can always execute: python {arcname}/{entry_file}
+        """
         tar_filter = self._create_tar_filter()
         with tarfile.open(tarball_path, "w:gz") as tar:
-            tar.add(str(source_dir), arcname=arcname, filter=tar_filter)
+            if source.is_file():
+                # Single file: wrap in a directory so extraction matches folder behavior
+                # e.g., test.py → test/test.py in the tarball
+                tar.add(
+                    str(source), arcname=f"{arcname}/{source.name}", filter=tar_filter
+                )
+            else:
+                # Directory: add as-is with the arcname as the root
+                # e.g., project/ → project/... in the tarball
+                tar.add(str(source), arcname=arcname, filter=tar_filter)
 
     def _build_base_config(self, job_name: str, code_path: Path) -> dict:
         """Build common job configuration fields."""
@@ -1924,122 +1938,69 @@ class JobClient:
         with open(config_path, "w") as f:
             yaml.dump(job_config, f, default_flow_style=False)
 
-    def _prepare_folder_job(
+    def _prepare_job(
         self,
-        source_dir: Path,
+        source: Path,
         job_dir: Path,
         entry_python_file: Optional[str],
         dependencies: Optional[List[str]],
     ) -> tuple[dict, str]:
-        """Prepare a folder-based Python job submission.
+        """Prepare a Python job submission (works for single file or folder).
+
+        Both single files and folders are compressed into a tarball for consistent handling.
 
         Returns:
             Tuple of (job_config dict, bash_script str)
         """
-        project_name = source_dir.name
-        tarball_name = f"{project_name}.tar.gz"
+        # Determine source name and entry file
+        if source.is_file():
+            source_name = source.stem  # "my_script" from "my_script.py"
+            entry_file = source.name  # "my_script.py"
+        else:
+            source_name = source.name  # folder name
+            entry_file = self._resolve_python_entry_file(source, entry_python_file)
 
-        # Create tarball
-        self._create_project_tarball(source_dir, job_dir / tarball_name, project_name)
+        tarball_name = f"{source_name}.tar.gz"
 
-        # Resolve entry point (validates existence)
-        python_entry_file = self._resolve_python_entry_file(
-            source_dir, entry_python_file
-        )
+        # Always create tarball (works for file or folder)
+        self._create_tarball(source, job_dir / tarball_name, source_name)
 
-        # Build dependencies
-        if dependencies is None:
-            dependencies = self._parse_pyproject_deps(source_dir)
+        # Build dependencies (parse from pyproject.toml for folders if not provided)
+        if dependencies is None and source.is_dir():
+            dependencies = self._parse_pyproject_deps(source)
         all_deps = self._build_dependencies(dependencies)
 
-        # Generate run script
-        bash_script = self._generate_folder_run_script(
-            project_name, python_entry_file, all_deps, tarball_name
+        # Generate run script (single template for all jobs)
+        bash_script = self._generate_run_script(
+            source_name, entry_file, all_deps, tarball_name
         )
 
         # Build config
-        config = self._build_base_config(source_dir.name, source_dir)
+        config = self._build_base_config(source.name, source)
         config.update(
             {
-                "is_folder": True,
-                "project_name": project_name,
                 "tarball_name": tarball_name,
-                "entry_point": python_entry_file,
+                "entry_point": entry_file,
                 "dependencies": all_deps,
             }
         )
 
         return config, bash_script
 
-    def _prepare_single_file_job(
+    def _generate_run_script(
         self,
-        source_file: Path,
-        job_dir: Path,
-        dependencies: Optional[List[str]],
-    ) -> tuple[dict, str]:
-        """Prepare a single-file Python job submission.
-
-        Returns:
-            Tuple of (job_config dict, bash_script str)
-        """
-        # Copy file to job directory
-        destination = job_dir / source_file.name
-        shutil.copy2(str(source_file), str(destination))
-
-        # Build dependencies
-        all_deps = self._build_dependencies(dependencies)
-
-        # Generate run script
-        bash_script = self._generate_single_file_run_script(source_file.name, all_deps)
-
-        # Build config
-        config = self._build_base_config(source_file.name, source_file)
-        config.update(
-            {
-                "is_folder": False,
-                "entry_point": source_file.name,  # keep "entry_point" key for backward compatibility
-                "dependencies": all_deps,
-            }
-        )
-
-        return config, bash_script
-
-    def _generate_single_file_run_script(
-        self, filename: str, all_dependencies: List[str]
-    ) -> str:
-        """Generate run.sh for single-file Python job."""
-        deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
-
-        return f"""#!/bin/bash
-export UV_SYSTEM_PYTHON=false
-
-# Create isolated uv virtual environment
-uv venv
-
-# Activate the virtual environment
-source .venv/bin/activate
-
-# Install dependencies
-uv pip install {deps_str}
-
-# Execute the Python file
-python {filename}
-"""
-
-    def _generate_folder_run_script(
-        self,
-        project_name: str,
+        source_name: str,
         entry_file: str,
         all_dependencies: List[str],
         tarball_name: str,
     ) -> str:
-        """Generate run.sh for folder-based Python job."""
+        """Generate run.sh for any Python job (single file or folder)."""
         deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
 
         return f"""#!/bin/bash
 export UV_SYSTEM_PYTHON=false
 
-# Extract project tarball
+# Extract job tarball
 tar -xzf {tarball_name}
 
 # Create isolated uv virtual environment
@@ -2051,9 +2012,8 @@ source .venv/bin/activate
 # Install dependencies
 uv pip install {deps_str}
 
-# Change to project directory and execute entry point
-cd {project_name}
-python {entry_file}
+# Execute the Python file (run from job directory, outputs stay at job level)
+python {source_name}/{entry_file}
 """
 
     def submit_bash_job(self, user: str, script: str, job_name: str = "") -> Path:
@@ -2153,10 +2113,8 @@ python {entry_file}
         if not code_path_obj.exists():
             raise FileNotFoundError(f"Code path does not exist: {code_path}")
 
-        is_folder = code_path_obj.is_dir()
-
         # Validate single file is a .py file
-        if not is_folder and code_path_obj.suffix != ".py":
+        if code_path_obj.is_file() and code_path_obj.suffix != ".py":
             raise ValueError(f"Code path must be a Python file (.py): {code_path}")
 
         # Ensure user and job directories exist
@@ -2173,15 +2131,10 @@ python {entry_file}
             raise FileExistsError(f"Job '{job_name}' already exists for user '{user}'")
         job_dir.mkdir(parents=True)
 
-        # Prepare job based on type
-        if is_folder:
-            job_config, bash_script = self._prepare_folder_job(
-                code_path_obj, job_dir, entry_python_file, dependencies
-            )
-        else:
-            job_config, bash_script = self._prepare_single_file_job(
-                code_path_obj, job_dir, dependencies
-            )
+        # Prepare job (always creates tarball for both single file and folder)
+        job_config, bash_script = self._prepare_job(
+            code_path_obj, job_dir, entry_python_file, dependencies
+        )
 
         # Finalize: write run.sh and config.yaml
         self._write_job_files(job_dir, bash_script, job_config)
