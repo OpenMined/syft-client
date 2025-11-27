@@ -6,7 +6,10 @@ from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlat
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_datasets.dataset import Dataset
 import pytest
-from tests.unit.utils import create_tmp_dataset_files
+from tests.unit.utils import (
+    create_tmp_dataset_files,
+    create_tmp_dataset_files_with_parquet,
+)
 
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     ProposedEventFileOutdatedException,
@@ -326,6 +329,83 @@ def test_datasets():
 
     assert has_file(ds_manager.syftbox_folder, "mock.txt")
     assert not has_file(ds_manager.syftbox_folder, "private.txt")
+
+
+def test_datasets_with_parquet():
+    """Test dataset creation and sync with parquet files (binary format)."""
+    import pandas as pd
+
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = (
+        create_tmp_dataset_files_with_parquet()
+    )
+
+    # This should work without errors even though parquet files are binary
+    do_manager.create_dataset(
+        name="parquet dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="This is a dataset with parquet files",
+        readme_path=readme_path,
+        tags=["parquet", "binary"],
+    )
+
+    backing_store = (
+        do_manager.proposed_file_change_handler.connection_router.connections[
+            0
+        ].backing_store
+    )
+
+    syftbox_events = backing_store.syftbox_events_message_log
+    assert len(syftbox_events) == 1
+
+    outbox_events_messages = backing_store.outboxes["all"]
+    outbox_events = [
+        event for message in outbox_events_messages for event in message.events
+    ]
+    assert not any("private" in str(event.path_in_datasite) for event in outbox_events)
+
+    datasets = do_manager.datasets.get_all()
+    assert len(datasets) == 1
+
+    # Retrieve dataset by name
+    dataset_do = do_manager.datasets["parquet dataset"]
+    assert isinstance(dataset_do, Dataset)
+    assert len(dataset_do.private_files) > 0
+    assert len(dataset_do.mock_files) > 0
+
+    # Verify parquet files are present
+    mock_files = [f.name for f in dataset_do.mock_files]
+    assert "mock_data.parquet" in mock_files
+
+    private_files = [f.name for f in dataset_do.private_files]
+    assert "private_data.parquet" in private_files
+
+    # Sync to datasite
+    ds_manager.sync()
+
+    assert len(ds_manager.datasets.get_all()) == 1
+
+    dataset_ds = ds_manager.datasets.get("parquet dataset", datasite=do_manager.email)
+
+    # Verify the parquet file exists and can be read
+    mock_parquet_path = dataset_ds.mock_dir / "mock_data.parquet"
+    assert mock_parquet_path.exists()
+
+    # Verify we can read the parquet file back
+    df = pd.read_parquet(mock_parquet_path)
+    assert len(df) == 5
+    assert "name" in df.columns
+    assert "age" in df.columns
+
+    def has_file(root_dir, filename):
+        return any(p.name == filename for p in Path(root_dir).rglob("*"))
+
+    assert has_file(ds_manager.syftbox_folder, "mock_data.parquet")
+    assert not has_file(ds_manager.syftbox_folder, "private_data.parquet")
 
 
 def test_jobs():
