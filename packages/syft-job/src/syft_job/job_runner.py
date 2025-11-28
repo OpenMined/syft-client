@@ -225,6 +225,7 @@ class SyftJobRunner:
             # Prepare environment variables
             env = os.environ.copy()
             env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
+            env["SYFTBOX_EMAIL"] = self.config.email
 
             # Execute run.sh and capture output
             result = subprocess.run(

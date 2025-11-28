@@ -168,10 +168,7 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
         Get absolute paths to all mock files uploaded during dataset.create.
         Excludes dataset.yaml and readme.md files.
         """
-        return [
-            self._url_to_path(url)
-            for url in self.mock_files_urls
-        ]
+        return [self._url_to_path(url) for url in self.mock_files_urls]
 
     @property
     def private_files(self) -> list[Path]:
