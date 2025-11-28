@@ -1949,33 +1949,37 @@ class JobClient:
         """Prepare a Python job submission (works for single file or folder).
 
         Both single files and folders are compressed into a tarball for consistent handling.
-        Uses uv pip install for dependency management to avoid issues with local paths
-        in uv.lock files.
+        - For projects with pyproject.toml: uses `uv sync`
+        - For single files or folders without pyproject.toml: uses `uv pip install`
 
         Returns:
             Tuple of (job_config dict, bash_script str)
         """
-        # Determine source name and entry file
+        # Determine source name, entry file, and whether project has pyproject.toml
         if source.is_file():
             source_name = source.stem  # "my_script" from "my_script.py"
             entry_file = source.name  # "my_script.py"
+            has_pyproject = False
         else:
             source_name = source.name  # folder name
             entry_file = self._resolve_python_entry_file(source, entry_python_file)
+            has_pyproject = (source / "pyproject.toml").exists()
 
         tarball_name = f"{source_name}.tar.gz"
 
         # Create tarball (uv.lock is excluded via TARBALL_EXCLUDE_PATTERNS)
         self._create_tarball(source, job_dir / tarball_name, source_name)
 
-        # Build dependencies (parse from pyproject.toml for folders if not provided)
-        if dependencies is None and source.is_dir():
-            dependencies = self._parse_pyproject_deps(source)
-        all_deps = self._build_dependencies(dependencies)
+        # Build dependencies (only needed for projects without pyproject.toml)
+        all_deps: List[str] = []
+        if not has_pyproject:
+            if dependencies is None and source.is_dir():
+                dependencies = self._parse_pyproject_deps(source)
+            all_deps = self._build_dependencies(dependencies)
 
-        # Generate run script (always uses uv pip install for consistency)
+        # Generate run script
         bash_script = self._generate_run_script(
-            source_name, entry_file, all_deps, tarball_name
+            source_name, entry_file, all_deps, tarball_name, has_pyproject
         )
 
         # Build config
@@ -1985,6 +1989,7 @@ class JobClient:
                 "tarball_name": tarball_name,
                 "entry_point": entry_file,
                 "dependencies": all_deps,
+                "has_pyproject": has_pyproject,
             }
         )
 
@@ -1996,10 +2001,22 @@ class JobClient:
         entry_file: str,
         all_dependencies: List[str],
         tarball_name: str,
+        has_pyproject: bool = False,
     ) -> str:
-        """Generate run.sh for any Python job (single file or folder)."""
-        deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
-        return f"""#!/bin/bash
+        """Generate run.sh for Python jobs"""
+        if has_pyproject:
+            # Use uv sync for projects with pyproject.toml
+            # uv sync will create uv.lock from pyproject.toml if it doesn't exist
+            return f"""#!/bin/bash
+tar -xzf {tarball_name}
+cd {source_name}
+uv sync
+uv run python {entry_file}
+"""
+        else:
+            # Use uv pip install for single files or folders without pyproject.toml
+            deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
+            return f"""#!/bin/bash
 tar -xzf {tarball_name}
 uv venv
 source .venv/bin/activate
