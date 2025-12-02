@@ -1,63 +1,47 @@
 """
 SyftBox Notification System
 
-Email notifications for SyftBox job events using Gmail.
+Email notifications for SyftBox events using Gmail.
 
 Quick Start
 -----------
-    from syft_client.notifications import setup_oauth, start_monitoring
+    from syft_client.notifications import NotificationMonitor
 
-    # One-time setup (opens browser for authentication)
-    setup_oauth("notification_config.yaml")
+    # Start monitoring (requires Gmail token at ~/.syft-notifications/gmail_token.json)
+    monitor = NotificationMonitor.from_client(client_do)
+    monitor.start()        # Start all (jobs + peers)
+    monitor.start("jobs")  # Only job notifications
+    monitor.start("peers") # Only peer notifications
+    monitor.stop()         # Stop all
 
-    # Start monitoring
-    monitor = start_monitoring("notification_config.yaml")
-    monitor.check(interval=10)  # Check every 10 seconds
+Gmail Setup (one-time)
+----------------------
+    from syft_client.notifications import GmailAuth
+
+    auth = GmailAuth()
+    creds = auth.setup_auth("path/to/credentials.json")
+
+    # Save token
+    from pathlib import Path
+    token_path = Path.home() / ".syft-notifications" / "gmail_token.json"
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text(creds.to_json())
 
 Notification Types
 ------------------
-1. New Job → Email to Data Owner when job arrives
-2. Job Approved → Email to Data Scientist when job approved
-3. Job Executed → Email to Data Scientist when job completes
+Jobs:
+- New Job → Email to Data Owner when job arrives
+- Job Approved → Email to Data Scientist when approved
+- Job Executed → Email to Data Scientist when complete
 
-Architecture
-------------
-The system uses abstract base classes for extensibility:
-- Monitor(ABC) - Base for job/peer monitoring
-- NotificationSender(ABC) - Base for email/slack/discord senders
-- StateManager(ABC) - Base for JSON/SQLite/Redis state tracking
-- AuthProvider(ABC) - Base for OAuth/API key authentication
-
-Advanced Usage
---------------
-For direct control over components:
-
-    from syft_client.notifications import (
-        GmailAuth, GmailSender, JsonStateManager, JobMonitor
-    )
-
-    # Manual setup
-    auth = GmailAuth()
-    credentials = auth.load_credentials("token.json")
-    sender = GmailSender(credentials)
-    state = JsonStateManager("state.json")
-
-    monitor = JobMonitor(
-        syftbox_root="~/SyftBox",
-        do_email="owner@example.com",
-        sender=sender,
-        state=state,
-        config={"notify_on_new_job": True}
-    )
-
-See Also
---------
-- README.md in this directory for detailed documentation
-- notification_config.yaml for configuration example
+Peers:
+- New Peer Request → Email to Data Owner when DS adds them
+- Peer Added → Email to DS when DO adds them back
+- Peer Granted → Email to DS when mutual peering established
 """
 
 # High-level API (recommended)
-from .helpers import setup_oauth, start_monitoring
+from .monitor import NotificationMonitor
 
 # Core components (advanced usage)
 from .gmail_auth import GmailAuth
@@ -65,20 +49,21 @@ from .gmail_sender import GmailSender
 from .json_state_manager import JsonStateManager
 from .job_monitor import JobMonitor
 from .peer_monitor import PeerMonitor
+from .template_renderer import TemplateRenderer
 
 # Abstract base classes (for extensions)
 from .base import Monitor, NotificationSender, StateManager, AuthProvider
 
 __all__ = [
     # High-level API
-    "setup_oauth",
-    "start_monitoring",
+    "NotificationMonitor",
     # Core components
     "GmailAuth",
     "GmailSender",
     "JsonStateManager",
     "JobMonitor",
     "PeerMonitor",
+    "TemplateRenderer",
     # Abstract bases
     "Monitor",
     "NotificationSender",

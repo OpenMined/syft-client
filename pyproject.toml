@@ -33,6 +33,7 @@ dependencies = [
     "pandas",
     "pydantic-settings>=2.11.0",
     "pyyaml>=6.0",
+    "jinja2>=3.1.0",
     "syft-job",
     "syft-dataset" # Shift back to optional-dependencies after adding lazy imports
 ]

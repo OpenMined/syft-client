@@ -4,12 +4,15 @@ Job Monitor: Detects and notifies about job events in SyftBox.
 
 import yaml
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 
 try:
     from .base import Monitor, NotificationSender, StateManager
 except ImportError:
     from notifications_base import Monitor, NotificationSender, StateManager
+
+if TYPE_CHECKING:
+    from syft_client.sync.syftbox_manager import SyftboxManager
 
 
 class JobMonitor(Monitor):
@@ -176,7 +179,10 @@ class JobMonitor(Monitor):
 
         from .gmail_sender import GmailSender
 
-        sender = GmailSender(credentials)
+        # email_format: "html" (default), "text", or "both"
+        email_format = config.get("email_format", "html")
+        use_html = email_format in ["html", "both"]
+        sender = GmailSender(credentials, use_html=use_html)
 
         from .json_state_manager import JsonStateManager
 
@@ -185,6 +191,82 @@ class JobMonitor(Monitor):
         return cls(
             syftbox_root=Path(config["syftbox_root"]),
             do_email=config["do_email"],
+            sender=sender,
+            state=state,
+            config=config,
+        )
+
+    @classmethod
+    def from_client(
+        cls,
+        client: "SyftboxManager",
+        gmail_token_path: Optional[str] = None,
+        notifications: bool = True,
+    ):
+        """
+        Factory method: create monitor from syft-client.
+
+        This is the recommended way to create a JobMonitor when working
+        in a notebook with an existing client.
+
+        Args:
+            client: SyftboxManager from sc.login_do()
+            gmail_token_path: Path to Gmail token (default: ~/.syft-notifications/gmail_token.json)
+            notifications: Enable/disable notifications (default True)
+
+        Returns:
+            Configured JobMonitor instance
+
+        Example:
+            client_do = sc.login_do(email=email_do, token_path=token_path_do)
+            monitor = JobMonitor.from_client(client_do)
+            monitor.start(interval=5)
+        """
+        if not client.is_do:
+            raise ValueError(
+                "JobMonitor should only run on Data Owner (DO) side. "
+                "Use sc.login_do() instead of sc.login()."
+            )
+
+        # Default paths
+        DEFAULT_NOTIFICATION_DIR = Path.home() / ".syft-notifications"
+        DEFAULT_TOKEN_FILE = DEFAULT_NOTIFICATION_DIR / "gmail_token.json"
+        DEFAULT_STATE_FILE = DEFAULT_NOTIFICATION_DIR / "state.json"
+
+        token_path = (
+            Path(gmail_token_path).expanduser()
+            if gmail_token_path
+            else DEFAULT_TOKEN_FILE
+        )
+
+        if not token_path.exists():
+            raise FileNotFoundError(
+                f"Gmail token not found at: {token_path}\n\n"
+                "Run OAuth setup first:\n"
+                "  from syft_client.notifications import GmailAuth\n"
+                "  auth = GmailAuth()\n"
+                "  creds = auth.setup_auth('path/to/credentials.json')\n"
+                "  # Save token to ~/.syft-notifications/gmail_token.json"
+            )
+
+        from .gmail_auth import GmailAuth
+        from .gmail_sender import GmailSender
+        from .json_state_manager import JsonStateManager
+
+        auth = GmailAuth()
+        credentials = auth.load_credentials(token_path)
+        sender = GmailSender(credentials, use_html=True)
+        state = JsonStateManager(DEFAULT_STATE_FILE)
+
+        config = {
+            "notify_on_new_job": notifications,
+            "notify_on_approved": notifications,
+            "notify_on_executed": notifications,
+        }
+
+        return cls(
+            syftbox_root=client.syftbox_folder,
+            do_email=client.email,
             sender=sender,
             state=state,
             config=config,

@@ -144,7 +144,7 @@ class Phase2Tests:
 
             sender = GmailSender(mock_creds)
             result = sender.send_email(
-                to_email="test@example.com", subject="Test", body="Test body"
+                to_email="test@example.com", subject="Test", body_text="Test body"
             )
 
             assert result is True
@@ -165,7 +165,7 @@ class Phase2Tests:
 
             sender = GmailSender(mock_creds)
             result = sender.send_email(
-                to_email="test@example.com", subject="Test", body="Test body"
+                to_email="test@example.com", subject="Test", body_text="Test body"
             )
 
             assert result is False

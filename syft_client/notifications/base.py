@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Dict, Any
 import time
+import threading
 
 
 class NotificationSender(ABC):
@@ -174,3 +175,44 @@ class Monitor(ABC):
         except KeyboardInterrupt:
             elapsed = time.time() - start_time
             print(f"\n⏹️  Monitoring stopped ({elapsed:.0f}s elapsed)")
+
+    def start(self, interval: int = 10) -> threading.Thread:
+        """
+        Start monitoring in background thread.
+
+        Args:
+            interval: Check interval in seconds (default 10)
+
+        Returns:
+            The background thread (can be used to check if alive)
+
+        Example:
+            monitor = JobMonitor.from_config("config.yaml")
+            thread = monitor.start(interval=5)
+
+            # Continue with other work...
+            # Monitor runs in background
+
+            # Check if still running
+            print(thread.is_alive())
+        """
+        self._stop_event = threading.Event()
+
+        def run():
+            print(f"🔔 {self.__class__.__name__} started (interval: {interval}s)")
+            while not self._stop_event.is_set():
+                try:
+                    self._check_all_entities()
+                except Exception as e:
+                    print(f"⚠️  {self.__class__.__name__} error: {e}")
+                self._stop_event.wait(interval)
+            print(f"⏹️  {self.__class__.__name__} stopped")
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        return thread
+
+    def stop(self):
+        """Stop background monitoring."""
+        if hasattr(self, "_stop_event"):
+            self._stop_event.set()

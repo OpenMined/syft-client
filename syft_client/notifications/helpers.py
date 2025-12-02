@@ -7,12 +7,19 @@ Provides high-level API for quick setup of the notification system.
 import yaml
 from pathlib import Path
 
+from typing import TYPE_CHECKING, Optional, Tuple
+
 try:
     from .gmail_auth import GmailAuth
     from .job_monitor import JobMonitor
+    from .peer_monitor import PeerMonitor
 except ImportError:
     from gmail_auth import GmailAuth
     from job_monitor import JobMonitor
+    from peer_monitor import PeerMonitor
+
+if TYPE_CHECKING:
+    from syft_client.sync.syftbox_manager import SyftboxManager
 
 
 # Default paths for package-managed files
@@ -170,3 +177,54 @@ def start_monitoring(config_path: str) -> JobMonitor:
         config["state_file"] = str(DEFAULT_STATE_FILE)
 
     return JobMonitor.from_config(str(config_path))
+
+
+def start_monitors(
+    client: "SyftboxManager",
+    interval: int = 10,
+    gmail_token_path: Optional[str] = None,
+) -> Tuple[JobMonitor, PeerMonitor]:
+    """
+    Start both job and peer monitors in the background.
+
+    This is the recommended way to enable notifications when working
+    with a syft-client in a notebook.
+
+    Args:
+        client: SyftboxManager from sc.login_do()
+        interval: Check interval in seconds (default 10)
+        gmail_token_path: Path to Gmail token (default: ~/.syft-notifications/gmail_token.json)
+
+    Returns:
+        Tuple of (JobMonitor, PeerMonitor) - both already running in background
+
+    Example:
+        >>> client_do = sc.login_do(email=email_do, token_path=token_path_do)
+        >>> job_monitor, peer_monitor = start_monitors(client_do)
+        >>> # ... do work, monitors run in background ...
+        >>> job_monitor.stop()
+        >>> peer_monitor.stop()
+    """
+    job_monitor = JobMonitor.from_client(client, gmail_token_path=gmail_token_path)
+    peer_monitor = PeerMonitor.from_client(client, gmail_token_path=gmail_token_path)
+
+    job_monitor.start(interval=interval)
+    peer_monitor.start(interval=interval)
+
+    return job_monitor, peer_monitor
+
+
+def stop_monitors(*monitors) -> None:
+    """
+    Stop one or more monitors.
+
+    Args:
+        *monitors: Monitor instances to stop
+
+    Example:
+        >>> job_monitor, peer_monitor = start_monitors(client_do)
+        >>> # ... do work ...
+        >>> stop_monitors(job_monitor, peer_monitor)
+    """
+    for monitor in monitors:
+        monitor.stop()
