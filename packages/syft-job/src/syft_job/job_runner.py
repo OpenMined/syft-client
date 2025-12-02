@@ -1,11 +1,16 @@
 import os
+import selectors
 import shutil
 import subprocess
+import sys
 import time
 from typing import List, Set
 
 from . import __version__
 from .config import SyftJobConfig
+
+# Default timeout for job execution (5 minutes)
+DEFAULT_JOB_TIMEOUT_SECONDS = 300
 
 
 class SyftJobRunner:
@@ -227,52 +232,100 @@ class SyftJobRunner:
             env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
             env["SYFTBOX_EMAIL"] = self.config.email
 
-            # Execute run.sh and capture output
-            result = subprocess.run(
-                ["bash", str(run_script)],
-                cwd=job_dir,
-                capture_output=True,
-                text=True,
-                timeout=300,  # 5 minute timeout
-                env=env,
-            )
+            # Prepare log files for streaming output
+            stdout_file = job_dir / "stdout.txt"
+            stderr_file = job_dir / "stderr.txt"
+
+            # Execute run.sh with streaming output
+            with open(stdout_file, "w") as stdout_f, open(stderr_file, "w") as stderr_f:
+                process = subprocess.Popen(
+                    ["bash", str(run_script)],
+                    cwd=job_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=env,
+                )
+
+                # Use selectors for cross-platform non-blocking I/O
+                sel = selectors.DefaultSelector()
+                sel.register(process.stdout, selectors.EVENT_READ, data="stdout")
+                sel.register(process.stderr, selectors.EVENT_READ, data="stderr")
+
+                start_time = time.time()
+                timed_out = False
+
+                try:
+                    while process.poll() is None:
+                        # Check for timeout
+                        if time.time() - start_time > DEFAULT_JOB_TIMEOUT_SECONDS:
+                            process.kill()
+                            process.wait()  # Ensure process is fully terminated
+                            timed_out = True
+                            print(f"⏰ Job {job_name} timed out after 5 minutes")
+                            stdout_f.write("\n--- PROCESS TIMED OUT ---\n")
+                            stderr_f.write("\n--- PROCESS TIMED OUT ---\n")
+                            break
+
+                        # Check for available output (non-blocking)
+                        events = sel.select(timeout=0.1)
+                        for key, _ in events:
+                            line = key.fileobj.readline()
+                            if line:
+                                if key.data == "stdout":
+                                    print(f"[{job_name}] {line}", end="")
+                                    sys.stdout.flush()
+                                    stdout_f.write(line)
+                                    stdout_f.flush()
+                                else:
+                                    print(
+                                        f"[{job_name}] ERR: {line}",
+                                        end="",
+                                        file=sys.stderr,
+                                    )
+                                    sys.stderr.flush()
+                                    stderr_f.write(line)
+                                    stderr_f.flush()
+                finally:
+                    sel.unregister(process.stdout)
+                    sel.unregister(process.stderr)
+                    sel.close()
+
+                # Read any remaining output after process ends
+                remaining_stdout, remaining_stderr = process.communicate()
+                if remaining_stdout:
+                    print(f"[{job_name}] {remaining_stdout}", end="")
+                    stdout_f.write(remaining_stdout)
+                if remaining_stderr:
+                    print(
+                        f"[{job_name}] ERR: {remaining_stderr}", end="", file=sys.stderr
+                    )
+                    stderr_f.write(remaining_stderr)
+
+                returncode = process.returncode if not timed_out else -1
 
             # Create done marker file to mark job as completed
             self.config.create_done_marker(job_dir)
 
-            # Write log files directly to job root directory (flat structure)
-            # Write stdout to stdout.txt
-            stdout_file = job_dir / "stdout.txt"
-            with open(stdout_file, "w") as f:
-                f.write(result.stdout)
-
-            # Also write stderr if there is any
-            if result.stderr:
-                stderr_file = job_dir / "stderr.txt"
-                with open(stderr_file, "w") as f:
-                    f.write(result.stderr)
-
             # Write return code
             returncode_file = job_dir / "returncode.txt"
             with open(returncode_file, "w") as f:
-                f.write(str(result.returncode))
+                f.write(str(returncode))
 
-            if result.returncode == 0:
+            if returncode == 0:
                 print(f"✅ Job {job_name} completed successfully")
                 print(f"📄 Output written to {stdout_file}")
             else:
-                print(
-                    f"⚠️  Job {job_name} completed with return code {result.returncode}"
-                )
+                print(f"⚠️  Job {job_name} completed with return code {returncode}")
                 print(f"📄 Output written to {stdout_file}")
-                if result.stderr:
-                    print(f"📄 Error output written to {job_dir / 'stderr.txt'}")
+                try:
+                    if stderr_file.exists() and stderr_file.stat().st_size > 0:
+                        print(f"📄 Error output written to {stderr_file}")
+                except OSError:
+                    pass  # File stat failed, skip this message
 
             return True
 
-        except subprocess.TimeoutExpired:
-            print(f"⏰ Job {job_name} timed out after 5 minutes")
-            return False
         except Exception as e:
             print(f"❌ Error executing job {job_name}: {e}")
             return False
