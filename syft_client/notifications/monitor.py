@@ -299,13 +299,15 @@ class NotificationMonitor:
             "notify_on_peer_granted": True,
         }
 
-        # Create JobMonitor - reads local filesystem (no API calls needed)
+        # Create JobMonitor - polls Drive directly for new jobs, checks local for status
         self._job_monitor = JobMonitor(
             syftbox_root=self.syftbox_root,
             do_email=self.do_email,
             sender=sender,
             state=state,
             config=config,
+            drive_token_path=self.drive_token_path,
+            client=self.client,
         )
 
         # Create PeerMonitor - gets its own Drive connection (thread-safe)
