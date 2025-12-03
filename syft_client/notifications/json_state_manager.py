@@ -57,10 +57,15 @@ class JsonStateManager(StateManager):
 
     def was_notified(self, job_id: str, notification_type: str) -> bool:
         """Check if job was notified for specific type"""
+        # Reload from disk to catch external state changes
+        self.notified_jobs = self._load()
         return notification_type in self.notified_jobs.get(job_id, [])
 
     def mark_notified(self, job_id: str, notification_type: str):
         """Mark job as notified for specific type"""
+        # Reload from disk to catch external state changes
+        self.notified_jobs = self._load()
+
         if job_id not in self.notified_jobs:
             self.notified_jobs[job_id] = []
 

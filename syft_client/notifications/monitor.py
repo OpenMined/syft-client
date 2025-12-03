@@ -1,7 +1,7 @@
 """
 Unified NotificationMonitor - Simple API for all notification monitoring.
 
-Usage:
+Usage (Notebook):
     from syft_client.notifications import NotificationMonitor
 
     # One-time setup (creates gmail_token.json from credentials.json)
@@ -13,6 +13,16 @@ Usage:
     monitor.start("jobs")  # Only job notifications
     monitor.start("peers") # Only peer notifications
     monitor.stop()         # Stop all
+
+Usage (CLI Daemon):
+    # Create config file (~/.syft-creds/daemon.yaml):
+    #   do_email: "dataowner@example.com"
+    #   syftbox_root: "~/SyftBox_dataowner@example.com"
+    #   drive_token_path: "~/.syft-creds/token_do.json"
+    #   gmail_token_path: "~/.syft-creds/gmail_token.json"
+
+    # Run daemon:
+    syft-notify --config ~/.syft-creds/daemon.yaml
 """
 
 import threading
@@ -83,29 +93,41 @@ class NotificationMonitor:
 
     def __init__(
         self,
-        client: "SyftboxManager",
+        do_email: str,
+        syftbox_root: Path,
         drive_token_path: Optional[Path] = None,
         gmail_token_path: Optional[Path] = None,
         state_path: Optional[Path] = None,
         interval: int = 10,
+        client: Optional["SyftboxManager"] = None,
     ):
         """
         Initialize NotificationMonitor.
 
         Args:
-            client: SyftboxManager instance (from sc.login_do())
+            do_email: Data Owner email address
+            syftbox_root: Path to SyftBox root directory
             drive_token_path: Path to Google Drive OAuth token (for peer monitoring)
             gmail_token_path: Path to Gmail OAuth token (auto-detected)
             state_path: Path to notification state file (auto-detected)
             interval: Check interval in seconds (default: 10)
+            client: Optional SyftboxManager instance (for fallback sync)
         """
-        self.client = client
-        self.syftbox_root = client.syftbox_folder
-        self.do_email = client.email
-        self.drive_token_path = drive_token_path
-        self.gmail_token_path = gmail_token_path or get_gmail_token_path()
-        self.state_path = state_path or get_state_path()
+        self.do_email = do_email
+        self.syftbox_root = Path(syftbox_root).expanduser()
+        self.drive_token_path = (
+            Path(drive_token_path).expanduser() if drive_token_path else None
+        )
+        self.gmail_token_path = (
+            Path(gmail_token_path).expanduser()
+            if gmail_token_path
+            else get_gmail_token_path()
+        )
+        self.state_path = (
+            Path(state_path).expanduser() if state_path else get_state_path()
+        )
         self.interval = interval
+        self.client = client
 
         self._job_monitor = None
         self._peer_monitor = None
@@ -240,10 +262,73 @@ class NotificationMonitor:
                 )
 
         return cls(
-            client=client,
+            do_email=client.email,
+            syftbox_root=client.syftbox_folder,
             drive_token_path=Path(drive_token_path) if drive_token_path else None,
             gmail_token_path=Path(gmail_token_path) if gmail_token_path else None,
             interval=interval,
+            client=client,
+        )
+
+    @classmethod
+    def from_config(
+        cls,
+        config_path: str,
+        interval: Optional[int] = None,
+    ) -> "NotificationMonitor":
+        """
+        Create NotificationMonitor from YAML config file.
+
+        This is the recommended way to create a monitor for CLI/daemon usage
+        without requiring a full SyftboxManager client.
+
+        Args:
+            config_path: Path to YAML configuration file
+            interval: Override interval from config (optional)
+
+        Config file format:
+            do_email: "dataowner@example.com"        # Required
+            syftbox_root: "~/SyftBox_dataowner"      # Required
+            drive_token_path: "~/.syft-creds/token_do.json"  # Required for Drive polling
+            gmail_token_path: "~/.syft-creds/gmail_token.json"  # Optional (auto-detected)
+            state_path: "~/.syft-creds/notification_state.json"  # Optional
+            interval: 30  # Optional, seconds between checks
+
+        Returns:
+            Configured NotificationMonitor
+
+        Example:
+            >>> monitor = NotificationMonitor.from_config("~/.syft-creds/daemon.yaml")
+            >>> monitor.run()  # Blocking
+        """
+        import yaml
+
+        config_path = Path(config_path).expanduser()
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+
+        # Validate required fields
+        required = ["do_email", "syftbox_root"]
+        missing = [k for k in required if k not in config]
+        if missing:
+            raise ValueError(
+                f"Config file missing required fields: {missing}\n"
+                f"Config file: {config_path}"
+            )
+
+        # Use interval from parameter, config, or default
+        check_interval = interval or config.get("interval", 30)
+
+        return cls(
+            do_email=config["do_email"],
+            syftbox_root=config["syftbox_root"],
+            drive_token_path=config.get("drive_token_path"),
+            gmail_token_path=config.get("gmail_token_path"),
+            state_path=config.get("state_path"),
+            interval=check_interval,
         )
 
     @staticmethod
@@ -400,6 +485,74 @@ class NotificationMonitor:
     def is_running(self) -> bool:
         """Check if any monitors are running."""
         return any(t.is_alive() for t in self._threads)
+
+    def run(self, monitor_type: Optional[MonitorType] = None) -> None:
+        """
+        Run monitoring in foreground (blocking).
+
+        This is the main entry point for CLI/daemon usage. It runs until
+        interrupted with Ctrl+C or SIGTERM.
+
+        Args:
+            monitor_type: What to monitor - "jobs", "peers", or None for both
+
+        Example:
+            >>> monitor = NotificationMonitor.from_config("daemon.yaml")
+            >>> monitor.run()  # Blocks until Ctrl+C
+        """
+        self._ensure_monitors_initialized()
+        self._stop_event.clear()
+
+        print("🔔 Starting notification daemon...")
+        print(f"   DO: {self.do_email}")
+        print(f"   SyftBox: {self.syftbox_root}")
+        print(f"   Interval: {self.interval}s")
+        print("   Press Ctrl+C to stop")
+        print()
+
+        monitors_started = []
+        if monitor_type is None or monitor_type == "jobs":
+            if self._job_monitor:
+                monitors_started.append("JobMonitor")
+                print("🔔 JobMonitor started")
+        if monitor_type is None or monitor_type == "peers":
+            if self._peer_monitor:
+                monitors_started.append("PeerMonitor")
+                print("🔔 PeerMonitor started")
+            elif monitor_type == "peers":
+                print("⚠️  PeerMonitor not available (Drive token not found)")
+
+        if not monitors_started:
+            print("❌ No monitors could be started. Check your configuration.")
+            return
+
+        print()
+
+        try:
+            while not self._stop_event.is_set():
+                # Run checks
+                if monitor_type is None or monitor_type == "jobs":
+                    if self._job_monitor:
+                        try:
+                            self._job_monitor._check_all_entities()
+                        except Exception as e:
+                            print(f"⚠️  JobMonitor error: {e}")
+
+                if monitor_type is None or monitor_type == "peers":
+                    if self._peer_monitor:
+                        try:
+                            self._peer_monitor._check_all_entities()
+                        except Exception as e:
+                            print(f"⚠️  PeerMonitor error: {e}")
+
+                # Wait for next interval
+                self._stop_event.wait(self.interval)
+
+        except KeyboardInterrupt:
+            print("\n⏹️  Shutting down...")
+
+        self._stop_event.set()
+        print("✅ Notification daemon stopped")
 
     @staticmethod
     def get_creds_dir() -> Path:

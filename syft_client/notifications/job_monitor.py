@@ -238,7 +238,7 @@ class JobMonitor(Monitor):
             return
 
         print(
-            f"📧 Notifying DO ({self.do_email}) about new job: {job_name} from {submitter}"
+            f"📧 Sending new job notification to DO ({self.do_email}): {job_name} from {submitter}"
         )
 
         if hasattr(self.sender, "notify_new_job"):
@@ -252,6 +252,9 @@ class JobMonitor(Monitor):
 
         if success:
             self.state.mark_notified(job_name, "new")
+            print("   ✅ Sent and marked as notified")
+        else:
+            print("   ❌ Failed to send")
 
     def _sync_from_drive(self):
         """
@@ -302,7 +305,9 @@ class JobMonitor(Monitor):
         """
         Check single job for status change events (approved, executed).
 
-        Also handles new job detection for jobs already synced locally.
+        NOTE: This method ONLY checks for approved/executed status.
+        New job detection happens via Drive polling (_poll_drive_for_new_jobs).
+        This prevents sending "new" notifications for old jobs that exist locally.
         """
         config = self._load_job_config(job_path)
         if not config:
@@ -314,26 +319,23 @@ class JobMonitor(Monitor):
         if not ds_email:
             return
 
-        # Check for new job (in case it wasn't detected via Drive polling)
-        if self.config.get("notify_on_new_job", True):
-            if not self.state.was_notified(job_name, "new"):
-                if hasattr(self.sender, "notify_new_job"):
-                    success = self.sender.notify_new_job(
-                        self.do_email, job_name, ds_email
-                    )
-                else:
-                    success = self.sender.send_notification(
-                        self.do_email,
-                        f"New Job: {job_name}",
-                        f"New job from {ds_email}",
-                    )
-                if success:
-                    self.state.mark_notified(job_name, "new")
+        # NOTE: We do NOT check for "new" jobs here.
+        # New job detection is handled by _poll_drive_for_new_jobs() via Drive API.
+        # This prevents false notifications for old jobs that already exist locally.
+
+        # Only send approved/executed notifications for jobs we've tracked as "new"
+        # This prevents sending status emails for old jobs we never notified about
+        if not self.state.was_notified(job_name, "new"):
+            # Job wasn't detected via Drive polling, skip status notifications
+            return
 
         # Check for approved
         if self.config.get("notify_on_approved", True):
             if (job_path / "approved").exists():
                 if not self.state.was_notified(job_name, "approved"):
+                    print(
+                        f"📧 Sending job approved notification to DS ({ds_email}): {job_name}"
+                    )
                     if hasattr(self.sender, "notify_job_approved"):
                         success = self.sender.notify_job_approved(ds_email, job_name)
                     else:
@@ -344,11 +346,17 @@ class JobMonitor(Monitor):
                         )
                     if success:
                         self.state.mark_notified(job_name, "approved")
+                        print("   ✅ Sent and marked as notified")
+                    else:
+                        print("   ❌ Failed to send")
 
         # Check for executed (done)
         if self.config.get("notify_on_executed", True):
             if (job_path / "done").exists():
                 if not self.state.was_notified(job_name, "executed"):
+                    print(
+                        f"📧 Sending job executed notification to DS ({ds_email}): {job_name}"
+                    )
                     if hasattr(self.sender, "notify_job_executed"):
                         success = self.sender.notify_job_executed(ds_email, job_name)
                     else:
@@ -359,6 +367,9 @@ class JobMonitor(Monitor):
                         )
                     if success:
                         self.state.mark_notified(job_name, "executed")
+                        print("   ✅ Sent and marked as notified")
+                    else:
+                        print("   ❌ Failed to send")
 
     def _load_job_config(self, job_path: Path) -> Optional[Dict]:
         """Load job config.yaml"""

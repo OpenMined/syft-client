@@ -87,8 +87,12 @@ class PeerMonitor(Monitor):
                 parts = name.split("_")
                 if len(parts) >= 6:
                     sender_email = parts[3]
-                    # Only include peers where someone else sent to us
-                    if sender_email != self.do_email:
+                    recipient_email = parts[5] if len(parts) > 5 else None
+                    # Only include peers where someone else sent TO us
+                    if (
+                        sender_email != self.do_email
+                        and recipient_email == self.do_email
+                    ):
                         peers.add(sender_email)
 
             return peers
@@ -100,20 +104,29 @@ class PeerMonitor(Monitor):
 
     def _check_all_entities(self):
         """Check peers for notification events."""
+        # Detect new peer requests (DS added DO)
         current_peer_emails = self._load_peers_from_drive()
-
-        # Get previous peers from state (empty list if first run)
         previous_peer_emails = set(self.state.get_data("peer_snapshot", []))
-
-        # Detect new peers (DS added DO)
         new_peer_emails = current_peer_emails - previous_peer_emails
 
-        # Handle new peer requests
+        if new_peer_emails:
+            print(
+                f"🔍 PeerMonitor: Detected {len(new_peer_emails)} new peer request(s): {new_peer_emails}"
+            )
+
         for peer_email in new_peer_emails:
             self._handle_new_peer(peer_email)
 
-        # Save current peer snapshot
         self.state.set_data("peer_snapshot", list(current_peer_emails))
+
+        # NOTE: Peer grant detection cannot be done via folder polling because:
+        # - When DS adds DO, DS creates BOTH folders (DS_to_DO and DO_to_DS)
+        # - DO's add_peer_as_do() is a no-op and doesn't create any folders
+        # - So we can't tell from folders alone when DO accepted the request
+        #
+        # Peer grant notifications must be triggered manually via:
+        #   monitor.notify_peer_granted(ds_email)
+        # This should be called from the notebook when DO runs add_peer()
 
     def _handle_new_peer(self, ds_email: str):
         """
