@@ -8,7 +8,7 @@ from syft_client.sync.utils.syftbox_utils import check_env
 from typing import Any, Dict, List, Optional, Tuple
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, PrivateAttr
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from google.oauth2.credentials import Credentials as GoogleCredentials
@@ -74,29 +74,31 @@ class GDriveConnection(SyftboxPlatformConnection):
     credentials: GoogleCredentials | None = None
     verbose: bool = True
     email: str
-    _is_setup: bool = False
+
+    # Private instance attributes (using PrivateAttr to ensure per-instance state)
+    _is_setup: bool = PrivateAttr(default=False)
 
     # /SyftBox
     # this is the toplevel folder with inboxes, outboxes and personal syftbox
-    _syftbox_folder_id: str | None = None
+    _syftbox_folder_id: str | None = PrivateAttr(default=None)
 
     # /SyftBox/myemail
     # this is where we store the personal data
-    _personal_syftbox_folder_id: str | None = None
+    _personal_syftbox_folder_id: str | None = PrivateAttr(default=None)
+
+    # email -> inbox folder id (using Field with default_factory for per-instance dicts)
+    do_inbox_folder_id_cache: Dict[str, str] = Field(default_factory=dict)
+    do_outbox_folder_id_cache: Dict[str, str] = Field(default_factory=dict)
 
     # email -> inbox folder id
-    do_inbox_folder_id_cache: Dict[str, str] = {}
-    do_outbox_folder_id_cache: Dict[str, str] = {}
-
-    # email -> inbox folder id
-    ds_inbox_folder_id_cache: Dict[str, str] = {}
-    ds_outbox_folder_id_cache: Dict[str, str] = {}
+    ds_inbox_folder_id_cache: Dict[str, str] = Field(default_factory=dict)
+    ds_outbox_folder_id_cache: Dict[str, str] = Field(default_factory=dict)
 
     # sender email -> archive folder id
-    archive_folder_id_cache: Dict[str, str] = {}
+    archive_folder_id_cache: Dict[str, str] = Field(default_factory=dict)
 
     # fname -> gdrive id
-    personal_syftbox_event_id_cache: Dict[str, str] = {}
+    personal_syftbox_event_id_cache: Dict[str, str] = Field(default_factory=dict)
 
     @classmethod
     def from_config(cls, config: "GdriveConnectionConfig") -> "GDriveConnection":
