@@ -262,7 +262,9 @@ class SyftJobRunner:
                             process.kill()
                             process.wait()  # Ensure process is fully terminated
                             timed_out = True
-                            print(f"⏰ Job {job_name} timed out after 5 minutes")
+                            print(
+                                f"⏰ Job {job_name} timed out after {DEFAULT_JOB_TIMEOUT_SECONDS // 60} minutes"
+                            )
                             stdout_f.write("\n--- PROCESS TIMED OUT ---\n")
                             stderr_f.write("\n--- PROCESS TIMED OUT ---\n")
                             break
