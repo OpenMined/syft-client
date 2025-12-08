@@ -3,13 +3,18 @@ CLI for SyftBox Notification Daemon.
 
 Usage:
     # First time setup (creates config + tokens)
-    syft-notify --init
+    syft-notify init
 
-    # Run daemon (uses existing config)
-    syft-notify
+    # Background daemon commands
+    syft-notify start            # Start daemon in background
+    syft-notify stop             # Stop daemon
+    syft-notify restart          # Restart daemon
+    syft-notify status           # Check daemon status
+    syft-notify logs             # View logs
+    syft-notify logs --follow    # Follow logs (tail -f)
 
-    # Run with custom config
-    syft-notify --config /path/to/config.yaml
+    # Foreground mode (for debugging)
+    syft-notify run [--config PATH] [--interval SECONDS]
 """
 
 import signal
@@ -117,8 +122,40 @@ def run_drive_oauth(credentials_path: Path, token_path: Path) -> bool:
         return False
 
 
-def do_init():
-    """Interactive setup: create config and tokens."""
+def _resolve_config_path(config: Optional[str]) -> Path:
+    """Resolve config path, check if exists."""
+    config_path = Path(config).expanduser() if config else DEFAULT_CONFIG_PATH
+
+    if not config_path.exists():
+        click.echo(f"❌ Config file not found: {config_path}", err=True)
+        click.echo()
+        click.echo("Run setup first:")
+        click.echo("    syft-notify init")
+        sys.exit(1)
+
+    return config_path
+
+
+@click.group()
+def main():
+    """
+    SyftBox Notification Daemon.
+
+    Monitors Google Drive for job/peer events and sends email notifications.
+    """
+    pass
+
+
+@main.command()
+def init():
+    """
+    Interactive setup to create config and OAuth tokens.
+
+    Creates:
+      - ~/.syft-creds/daemon.yaml (config)
+      - ~/.syft-creds/gmail_token.json (Gmail OAuth)
+      - ~/.syft-creds/token_do.json (Drive OAuth)
+    """
     click.echo("🔧 SyftBox Notification Daemon Setup")
     click.echo("=" * 50)
     click.echo()
@@ -202,24 +239,113 @@ def do_init():
     click.echo("=" * 50)
     click.echo("🎉 Setup complete!")
     click.echo()
-    click.echo("To start the notification daemon, run:")
+    click.echo("To start the notification daemon in background, run:")
     click.echo()
-    click.echo("    syft-notify")
+    click.echo("    syft-notify start")
     click.echo()
 
 
-@click.command()
-@click.option(
-    "--init",
-    is_flag=True,
-    help="Run interactive setup to create config and tokens",
-)
+@main.command()
 @click.option(
     "--config",
     "-c",
     type=click.Path(),
     default=None,
-    help=f"Path to YAML config file (default: {DEFAULT_CONFIG_PATH})",
+    help=f"Path to config file (default: {DEFAULT_CONFIG_PATH})",
+)
+@click.option(
+    "--interval",
+    "-i",
+    type=int,
+    default=None,
+    help="Check interval in seconds (overrides config)",
+)
+def start(config: Optional[str], interval: Optional[int]):
+    """
+    Start daemon in background.
+
+    The daemon will continue running even after you close the terminal.
+    """
+    config_path = _resolve_config_path(config)
+
+    from .daemon_manager import DaemonManager
+
+    manager = DaemonManager(config_path)
+    manager.start(interval)
+
+
+@main.command()
+def stop():
+    """Stop the running daemon."""
+    from .daemon_manager import DaemonManager
+
+    manager = DaemonManager(DEFAULT_CONFIG_PATH)
+    manager.stop()
+
+
+@main.command()
+def status():
+    """Check if daemon is running and show recent activity."""
+    from .daemon_manager import DaemonManager
+
+    manager = DaemonManager(DEFAULT_CONFIG_PATH)
+    manager.status()
+
+
+@main.command()
+@click.option(
+    "--config",
+    "-c",
+    type=click.Path(),
+    default=None,
+    help=f"Path to config file (default: {DEFAULT_CONFIG_PATH})",
+)
+@click.option(
+    "--interval",
+    "-i",
+    type=int,
+    default=None,
+    help="Check interval in seconds (overrides config)",
+)
+def restart(config: Optional[str], interval: Optional[int]):
+    """Restart the daemon."""
+    config_path = _resolve_config_path(config)
+
+    from .daemon_manager import DaemonManager
+
+    manager = DaemonManager(config_path)
+    manager.restart(interval)
+
+
+@main.command()
+@click.option(
+    "--follow",
+    "-f",
+    is_flag=True,
+    help="Follow log output (like tail -f)",
+)
+@click.option(
+    "--lines",
+    "-n",
+    type=int,
+    default=50,
+    help="Number of lines to show (default: 50)",
+)
+def logs(follow: bool, lines: int):
+    """View daemon logs."""
+    from .daemon_manager import DaemonManager
+
+    manager = DaemonManager(DEFAULT_CONFIG_PATH)
+    manager.logs(follow=follow, lines=lines)
+
+
+@main.command()
+@click.option(
+    "--config",
+    "-c",
+    type=click.Path(),
+    default=None,
+    help=f"Path to config file (default: {DEFAULT_CONFIG_PATH})",
 )
 @click.option(
     "--interval",
@@ -243,8 +369,7 @@ def do_init():
     is_flag=True,
     help="Run a single check and exit",
 )
-def main(
-    init: bool,
+def run(
     config: Optional[str],
     interval: Optional[int],
     jobs_only: bool,
@@ -252,36 +377,12 @@ def main(
     once: bool,
 ):
     """
-    SyftBox Notification Daemon.
+    Run daemon in foreground (for debugging).
 
-    Monitors Google Drive for new jobs and peer requests, sending email
-    notifications to the Data Owner.
-
-    \b
-    First time setup:
-        syft-notify --init
-
-    \b
-    Run daemon (after setup):
-        syft-notify
-        syft-notify --interval 60
-        syft-notify --jobs-only
+    Unlike 'start', this keeps the daemon attached to your terminal.
+    Press Ctrl+C to stop.
     """
-    # Handle --init flag
-    if init:
-        do_init()
-        return
-
-    # Determine config path
-    config_path = Path(config).expanduser() if config else DEFAULT_CONFIG_PATH
-
-    # Check if config exists
-    if not config_path.exists():
-        click.echo(f"❌ Config file not found: {config_path}", err=True)
-        click.echo()
-        click.echo("Run setup first:")
-        click.echo("    syft-notify --init")
-        sys.exit(1)
+    config_path = _resolve_config_path(config)
 
     from .monitor import NotificationMonitor
 

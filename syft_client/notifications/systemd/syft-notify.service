@@ -1,0 +1,37 @@
+[Unit]
+Description=SyftBox Notification Daemon
+Documentation=https://github.com/OpenMined/syft-client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=%i
+Group=%i
+WorkingDirectory=/home/%i
+
+# Path to syft-notify command (adjust if using virtualenv)
+ExecStart=/usr/local/bin/syft-notify start
+ExecStop=/usr/local/bin/syft-notify stop
+ExecReload=/usr/local/bin/syft-notify restart
+
+# PID file location
+PIDFile=/home/%i/.syft-creds/syft-notify.pid
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+
+# Logging
+StandardOutput=append:/home/%i/.syft-creds/syft-notify.log
+StandardError=append:/home/%i/.syft-creds/syft-notify.error.log
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/%i/.syft-creds /home/%i/SyftBox_%i
+
+[Install]
+WantedBy=multi-user.target
