@@ -141,7 +141,8 @@ Log in to SyftBox to review and approve this job.
                     },
                 )
             except Exception:
-                pass  # Fall back to plain text
+                # Template rendering failed, fall back to plain text email
+                pass
 
         return self.send_email(do_email, subject, body_text, body_html)
 
@@ -183,6 +184,7 @@ Your job will be executed soon.
                     },
                 )
             except Exception:
+                # Template rendering failed, fall back to plain text email
                 pass
 
         return self.send_email(ds_email, subject, body_text, body_html)
@@ -227,6 +229,7 @@ Your job has completed successfully. Results are available.
                     },
                 )
             except Exception:
+                # Template rendering failed, fall back to plain text email
                 pass
 
         return self.send_email(ds_email, subject, body_text, body_html)
@@ -284,6 +287,7 @@ Log in to SyftBox to review this peer request.
                     },
                 )
             except Exception:
+                # Template rendering failed, fall back to plain text email
                 pass
 
         return self.send_email(do_email, subject, body_text, body_html)
@@ -323,6 +327,7 @@ You will be notified when they accept your request.
                     },
                 )
             except Exception:
+                # Template rendering failed, fall back to plain text email
                 pass
 
         return self.send_email(ds_email, subject, body_text, body_html)
@@ -361,6 +366,7 @@ You can now submit jobs and collaborate with this data owner.
                     },
                 )
             except Exception:
+                # Template rendering failed, fall back to plain text email
                 pass
 
         return self.send_email(ds_email, subject, body_text, body_html)
@@ -399,6 +405,7 @@ The data owner has accepted your request. You can now collaborate with them.
                     },
                 )
             except Exception:
+                # Template rendering failed, fall back to plain text email
                 pass
 
         return self.send_email(ds_email, subject, body_text, body_html)

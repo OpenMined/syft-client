@@ -83,7 +83,7 @@ class StateManager(ABC):
         pass
 
     @abstractmethod
-    def get_data(self, key: str, default: Any = None) -> Any:
+    def get_data(self, key: str, default: Optional[Any] = None) -> Any:
         """
         Get arbitrary data from state storage.
 

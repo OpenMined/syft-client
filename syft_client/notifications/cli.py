@@ -61,6 +61,7 @@ def find_drive_token() -> Optional[Path]:
         locations.append(CREDENTIALS_DIR / "token_do.json")
         locations.append(CREDENTIALS_DIR / "token.json")
     except ImportError:
+        # syft_client may not be installed, skip adding its credential locations
         pass
 
     for loc in locations:

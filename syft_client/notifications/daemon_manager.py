@@ -59,27 +59,38 @@ class DaemonManager:
         print(f"   PID file: {self.pid_file}")
         print(f"   Logs: {self.log_file}")
 
-        # Setup logging for daemon process
-        self._setup_logging()
+        # Print before forking (parent will exit inside the context)
+        print()
+        print("✅ Daemon starting in background...")
+        print("   Use 'syft-notify status' to check status")
+        print("   Use 'syft-notify logs' to view logs")
+        sys.stdout.flush()
 
-        # Create daemon context
-        context = daemon.DaemonContext(
-            working_directory=str(Path.home()),
-            pidfile=daemon.pidfile.PIDLockFile(str(self.pid_file)),
-            umask=0o002,
-            signal_map={
-                signal.SIGTERM: self._shutdown_handler,
-                signal.SIGHUP: self._reload_handler,
-            },
-            # Redirect stdout/stderr to log files
-            stdout=open(self.log_file, "a"),
-            stderr=open(self.error_log_file, "a"),
-        )
+        # Open log files with context managers to ensure proper closure
+        # NOTE: Logging setup happens INSIDE the daemon context (_run_monitor)
+        # because python-daemon closes all file descriptors when daemonizing
+        with (
+            open(self.log_file, "a") as log_file,
+            open(self.error_log_file, "a") as error_log_file,
+        ):
+            context = daemon.DaemonContext(
+                working_directory=str(Path.home()),
+                pidfile=daemon.pidfile.PIDLockFile(str(self.pid_file)),
+                umask=0o002,
+                signal_map={
+                    signal.SIGTERM: self._shutdown_handler,
+                    signal.SIGHUP: self._reload_handler,
+                },
+                # Redirect stdout/stderr to log files
+                stdout=log_file,
+                stderr=error_log_file,
+            )
 
-        # Start daemon
-        with context:
-            self._run_monitor(interval)
+            # Fork into background - parent exits, child runs monitor
+            with context:
+                self._run_monitor(interval)
 
+        # This is never reached (parent exits in context, child runs forever)
         return True
 
     def stop(self):
@@ -232,7 +243,13 @@ class DaemonManager:
 
     def _setup_logging(self):
         """Setup rotating log file handler."""
-        # This runs in the daemon process, not the parent
+        # Suppress noisy oauth2client deprecation warnings
+        import warnings
+
+        warnings.filterwarnings("ignore", module="oauth2client")
+        logging.getLogger("oauth2client").setLevel(logging.ERROR)
+        logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
+
         # Configure Python's logging module for use within the monitor
         logger = logging.getLogger()
         logger.setLevel(logging.INFO)
@@ -258,6 +275,17 @@ class DaemonManager:
         Args:
             interval: Check interval in seconds
         """
+        # Setup logging INSIDE daemon context
+        # (python-daemon closes all file descriptors before this point)
+        self._setup_logging()
+
+        # Ensure stdout is line-buffered (not block-buffered) for daemon logs
+        # Without this, print() output may not appear in log files immediately
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(line_buffering=True)
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(line_buffering=True)
+
         from .monitor import NotificationMonitor
 
         # This runs in daemon context - stdout/stderr redirected to logs

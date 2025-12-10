@@ -59,8 +59,21 @@ def setup_oauth(config_path: str) -> None:
             "See: syft_client/notifications/README.md for example"
         )
 
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
+    try:
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ValueError(
+            f"Invalid YAML in configuration file: {config_path}\n"
+            f"YAML error: {e}\n"
+            "Please check the file for syntax errors."
+        ) from e
+    except UnicodeDecodeError as e:
+        raise ValueError(
+            f"Could not decode configuration file: {config_path}\n"
+            f"Encoding error: {e}\n"
+            "Please ensure the file is UTF-8 encoded."
+        ) from e
 
     # Only credentials_file is required from user
     if "credentials_file" not in config:
@@ -96,8 +109,8 @@ def setup_oauth(config_path: str) -> None:
         print("   Delete this file to re-authenticate")
         return
 
-    # TODO: Replace print statements with proper logging
-    # logger.info("Starting OAuth flow...")
+    # NOTE: Using print() intentionally for interactive CLI setup flow
+    # (logging is used in daemon mode, print for user-facing setup messages)
     print("🔐 Starting OAuth flow...")
     print("   Browser will open shortly")
     print("   Sign in and grant Gmail send permissions")

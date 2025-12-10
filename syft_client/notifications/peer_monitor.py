@@ -316,6 +316,7 @@ class PeerMonitor(Monitor):
                 # This is a bit hacky but necessary
                 pass
         except (AttributeError, IndexError):
+            # Connection or credentials not available, fall back to standard directory below
             pass
 
         # Fallback: use standard credentials directory

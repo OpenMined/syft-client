@@ -194,9 +194,9 @@ class JobMonitor(Monitor):
 
             return None
 
-        except Exception:
-            # Silently skip messages that fail to parse
-            # (could be non-job messages or corrupted data)
+        except Exception as e:
+            # Skip messages that fail to parse (non-job messages or corrupted data)
+            print(f"⚠️  JobMonitor: Error parsing message {file_id}: {e}")
             return None
 
     def _poll_drive_for_new_jobs(self):
@@ -297,9 +297,8 @@ class JobMonitor(Monitor):
                 continue
             try:
                 self._check_job_status(job_path)
-            except Exception:
-                # Silently continue on individual job errors
-                pass
+            except Exception as e:
+                print(f"⚠️  JobMonitor: Error checking job {job_path.name}: {e}")
 
     def _check_job_status(self, job_path: Path):
         """
@@ -380,7 +379,8 @@ class JobMonitor(Monitor):
         try:
             with open(config_file, "r") as f:
                 return yaml.safe_load(f)
-        except Exception:
+        except (yaml.YAMLError, OSError, IOError) as e:
+            print(f"⚠️  JobMonitor: Error reading job config {config_file}: {e}")
             return None
 
     @classmethod
@@ -561,5 +561,6 @@ class JobMonitor(Monitor):
                 if token_path.exists():
                     return token_path
         except ImportError:
+            # CREDENTIALS_DIR not available, skip token search in this location
             pass
         return None

@@ -17,6 +17,12 @@ import types
 base_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(base_path))
 
+# Module names used for dynamic loading and patching
+# These constants ensure patch targets stay in sync with loaded module names
+GMAIL_AUTH_MODULE = "gmail_auth"
+GMAIL_SENDER_MODULE = "gmail_sender"
+JSON_STATE_MANAGER_MODULE = "json_state_manager"
+
 
 def load_module_directly(module_name, file_path):
     """Load Python module directly from file path"""
@@ -37,13 +43,14 @@ sys.modules[".base"] = notifications_base
 sys.modules["base"] = notifications_base
 
 gmail_auth = load_module_directly(
-    "gmail_auth", base_path / "syft_client/notifications/gmail_auth.py"
+    GMAIL_AUTH_MODULE, base_path / "syft_client/notifications/gmail_auth.py"
 )
 gmail_sender_module = load_module_directly(
-    "gmail_sender", base_path / "syft_client/notifications/gmail_sender.py"
+    GMAIL_SENDER_MODULE, base_path / "syft_client/notifications/gmail_sender.py"
 )
 json_state_manager_module = load_module_directly(
-    "json_state_manager", base_path / "syft_client/notifications/json_state_manager.py"
+    JSON_STATE_MANAGER_MODULE,
+    base_path / "syft_client/notifications/json_state_manager.py",
 )
 
 GmailSender = gmail_sender_module.GmailSender
@@ -135,7 +142,7 @@ class Phase2Tests:
         """Should create MIME message and call Gmail API"""
         mock_creds = MagicMock()
 
-        with patch("gmail_sender.build") as mock_build:
+        with patch(f"{GMAIL_SENDER_MODULE}.build") as mock_build:
             mock_service = MagicMock()
             mock_build.return_value = mock_service
             mock_service.users().messages().send().execute.return_value = {
@@ -156,7 +163,7 @@ class Phase2Tests:
         """Should return False on API error, not crash"""
         mock_creds = MagicMock()
 
-        with patch("gmail_sender.build") as mock_build:
+        with patch(f"{GMAIL_SENDER_MODULE}.build") as mock_build:
             mock_service = MagicMock()
             mock_build.return_value = mock_service
             mock_service.users().messages().send().execute.side_effect = Exception(
@@ -176,7 +183,7 @@ class Phase2Tests:
         """Job notification should contain job name and submitter"""
         mock_creds = MagicMock()
 
-        with patch("gmail_sender.build") as mock_build:
+        with patch(f"{GMAIL_SENDER_MODULE}.build") as mock_build:
             mock_service = MagicMock()
             mock_build.return_value = mock_service
             mock_service.users().messages().send().execute.return_value = {
@@ -206,7 +213,7 @@ class Phase2Tests:
         """Notification should be sent to DO email"""
         mock_creds = MagicMock()
 
-        with patch("gmail_sender.build") as mock_build:
+        with patch(f"{GMAIL_SENDER_MODULE}.build") as mock_build:
             mock_service = MagicMock()
             mock_build.return_value = mock_service
             mock_service.users().messages().send().execute.return_value = {
@@ -241,7 +248,7 @@ class Phase1Tests:
             creds_path = Path(tmpdir) / "credentials.json"
             creds_path.write_text('{"installed": {"client_id": "test"}}')
 
-            with patch("gmail_auth.InstalledAppFlow") as mock_flow:
+            with patch(f"{GMAIL_AUTH_MODULE}.InstalledAppFlow") as mock_flow:
                 mock_creds = MagicMock()
                 mock_creds.to_json.return_value = '{"token": "test"}'
                 mock_flow.from_client_secrets_file.return_value.run_local_server.return_value = mock_creds
@@ -261,7 +268,7 @@ class Phase1Tests:
             token_path = Path(tmpdir) / "test_token.json"
             creds_path.write_text('{"installed": {"client_id": "test"}}')
 
-            with patch("gmail_auth.InstalledAppFlow") as mock_flow:
+            with patch(f"{GMAIL_AUTH_MODULE}.InstalledAppFlow") as mock_flow:
                 mock_creds = MagicMock()
                 mock_creds.to_json.return_value = '{"token": "test"}'
                 mock_flow.from_client_secrets_file.return_value.run_local_server.return_value = mock_creds
@@ -290,7 +297,7 @@ class Phase1Tests:
             }
             token_path.write_text(json.dumps(token_data))
 
-            with patch("gmail_auth.Credentials") as mock_creds_class:
+            with patch(f"{GMAIL_AUTH_MODULE}.Credentials") as mock_creds_class:
                 mock_creds = MagicMock()
                 mock_creds.expired = False
                 mock_creds_class.from_authorized_user_file.return_value = mock_creds
@@ -317,14 +324,14 @@ class Phase1Tests:
             }
             token_path.write_text(json.dumps(token_data))
 
-            with patch("gmail_auth.Credentials") as mock_creds_class:
+            with patch(f"{GMAIL_AUTH_MODULE}.Credentials") as mock_creds_class:
                 mock_creds = MagicMock()
                 mock_creds.expired = True
                 mock_creds.refresh_token = "refresh"
                 mock_creds.to_json.return_value = json.dumps(token_data)
                 mock_creds_class.from_authorized_user_file.return_value = mock_creds
 
-                with patch("gmail_auth.Request"):
+                with patch(f"{GMAIL_AUTH_MODULE}.Request"):
                     auth = gmail_auth.GmailAuth()
                     auth.load_credentials(token_path)
                     mock_creds.refresh.assert_called_once()

@@ -342,6 +342,7 @@ class NotificationMonitor:
                 if token_path.exists():
                     return token_path
         except ImportError:
+            # CREDENTIALS_DIR not available, skip token search in this location
             pass
         return None
 
