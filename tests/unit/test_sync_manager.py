@@ -424,7 +424,7 @@ def test_jobs():
     with open(test_py_path, "w") as f:
         f.write("""
 import os
-os.mkdir("outputs")
+os.makedirs("outputs", exist_ok=True)
 with open("outputs/result.json", "w") as f:
     f.write('{"result": 1}')
 """)
@@ -504,7 +504,7 @@ with open(resolved_path, "r") as data_file:
 
 result = {"result": data}
 
-os.mkdir("outputs")
+os.makedirs("outputs", exist_ok=True)
 with open("outputs/result.json", "w") as f:
     f.write(json.dumps(result))
 """)
@@ -649,13 +649,12 @@ def get_message():
     )
 
     # Write main.py that imports from helper
-    # Note: outputs must be written to ../outputs/ because run.sh does `cd test-project`
     (project_dir / "main.py").write_text(
         """import os
 from helper import get_message
 
-os.makedirs("../outputs", exist_ok=True)
-with open("../outputs/result.json", "w") as f:
+os.makedirs("outputs", exist_ok=True)
+with open("outputs/result.json", "w") as f:
     f.write(f'{{"result": "{get_message()}"}}')
 """
     )
@@ -684,8 +683,9 @@ with open("../outputs/result.json", "w") as f:
         assert "test-project/helper.py" in names
         assert "test-project/pyproject.toml" in names
 
-    # Verify run.sh uses uv sync (for pyproject.toml projects)
+    # Verify run.sh creates outputs symlink and uses uv sync (for pyproject.toml projects)
     run_sh = (job.location / "run.sh").read_text()
+    assert "ln -s ../outputs outputs" in run_sh
     assert "uv sync" in run_sh
     assert "uv run python main.py" in run_sh
 
@@ -762,8 +762,10 @@ with open("outputs/result.json", "w") as f:
         assert "simple-project/main.py" in names
         assert "simple-project/utils.py" in names
 
-    # Verify run.sh uses uv pip install (no pyproject.toml)
+    # Verify run.sh creates outputs symlink, cds into folder, and uses uv pip install
     run_sh = (job.location / "run.sh").read_text()
+    assert "ln -s ../outputs outputs" in run_sh
+    assert "cd simple-project" in run_sh
     assert "uv venv" in run_sh
     assert "uv pip install" in run_sh
     assert "syft-client" in run_sh  # Required dependency always added

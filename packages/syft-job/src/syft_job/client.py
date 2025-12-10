@@ -2009,7 +2009,9 @@ class JobClient:
             # uv sync will create uv.lock from pyproject.toml if it doesn't exist
             return f"""#!/bin/bash
 tar -xzf {tarball_name}
+mkdir -p outputs
 cd {source_name}
+ln -s ../outputs outputs
 uv sync
 uv run python {entry_file}
 """
@@ -2018,10 +2020,13 @@ uv run python {entry_file}
             deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
             return f"""#!/bin/bash
 tar -xzf {tarball_name}
+mkdir -p outputs
+cd {source_name}
+ln -s ../outputs outputs
 uv venv
 source .venv/bin/activate
 uv pip install {deps_str}
-uv run python {source_name}/{entry_file}
+uv run python {entry_file}
 """
 
     def submit_bash_job(self, user: str, script: str, job_name: str = "") -> Path:
