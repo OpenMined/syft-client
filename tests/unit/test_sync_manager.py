@@ -1,11 +1,16 @@
 from pathlib import Path
 import json
+import tarfile
+import tempfile
+
+import pytest
+import yaml
+
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlatform
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_datasets.dataset import Dataset
-import pytest
 from tests.unit.utils import (
     create_tmp_dataset_files,
     create_tmp_dataset_files_with_parquet,
@@ -37,12 +42,13 @@ def test_sync_to_syftbox_eventlog():
     file_path = "email@email.com/my.job"
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
 
+    # no events initially
     events_in_backing_platform = do_manager.get_all_accepted_events_do()
     assert len(events_in_backing_platform) == 0
 
     ds_manager.send_file_change(file_path, "Hello, world!")
 
-    # second event is present
+    # first event is present
     events_in_backing_platform = do_manager.get_all_accepted_events_do()
     assert len(events_in_backing_platform) > 0
 
@@ -610,3 +616,174 @@ def test_in_memory_deletion():
     ds_cache = ds_manager.datasite_outbox_puller.datasite_watcher_cache
     ds_path = Path(do_manager.email) / job_path_in_datasite
     assert str(ds_path) not in [str(p) for p, _ in ds_cache.file_connection.get_items()]
+
+
+def test_folder_job_submission():
+    """Test folder job submission with pyproject.toml and multiple files (uses uv sync)."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    # Create a test project folder with pyproject.toml and multiple Python files
+    project_dir = Path(tempfile.mkdtemp()) / "test-project"
+    project_dir.mkdir()
+
+    # Write pyproject.toml with a dependency
+    (project_dir / "pyproject.toml").write_text(
+        """[project]
+name = "test-project"
+version = "0.1.0"
+dependencies = ["cowsay"]
+"""
+    )
+
+    # Write helper module that uses the dependency
+    (project_dir / "helper.py").write_text(
+        """import cowsay
+
+def get_message():
+    # Verify cowsay is installed by using it
+    return f"folder_job_success_with_{cowsay.__name__}"
+"""
+    )
+
+    # Write main.py that imports from helper
+    # Note: outputs must be written to ../outputs/ because run.sh does `cd test-project`
+    (project_dir / "main.py").write_text(
+        """import os
+from helper import get_message
+
+os.makedirs("../outputs", exist_ok=True)
+with open("../outputs/result.json", "w") as f:
+    f.write(f'{{"result": "{get_message()}"}}')
+"""
+    )
+
+    # Submit folder job
+    ds_manager.submit_python_job(
+        user=do_manager.email,
+        code_path=str(project_dir),
+        job_name="folder-test-job",
+    )
+
+    do_manager.sync()
+
+    # Verify job received
+    assert len(do_manager.job_client.jobs) == 1
+    job = do_manager.job_client.jobs[0]
+
+    # Verify tarball exists
+    tarball_path = job.location / "test-project.tar.gz"
+    assert tarball_path.exists()
+
+    # Verify tarball contains expected files (including helper module)
+    with tarfile.open(tarball_path, "r:gz") as tar:
+        names = tar.getnames()
+        assert "test-project/main.py" in names
+        assert "test-project/helper.py" in names
+        assert "test-project/pyproject.toml" in names
+
+    # Verify run.sh uses uv sync (for pyproject.toml projects)
+    run_sh = (job.location / "run.sh").read_text()
+    assert "uv sync" in run_sh
+    assert "uv run python main.py" in run_sh
+
+    # Verify config.yaml has correct fields
+    with open(job.location / "config.yaml") as f:
+        config = yaml.safe_load(f)
+    assert config["type"] == "python"
+    assert config["has_pyproject"] is True
+    assert config["entry_point"] == "main.py"
+
+    # Approve and execute
+    job.approve()
+    do_manager.job_runner.process_approved_jobs()
+
+    do_manager.sync()
+    ds_manager.sync()
+
+    # Verify output (includes cowsay module name proving dependency was installed)
+    output_path = ds_manager.job_client.jobs[-1].output_paths[0]
+    with open(output_path, "r") as f:
+        result = json.loads(f.read())
+    assert result["result"] == "folder_job_success_with_cowsay"
+
+
+def test_folder_job_submission_no_pyproject():
+    """Test folder job submission without pyproject.toml (uses uv pip install)."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    # Create a test project folder WITHOUT pyproject.toml but with multiple files
+    project_dir = Path(tempfile.mkdtemp()) / "simple-project"
+    project_dir.mkdir()
+
+    # Write utils module
+    (project_dir / "utils.py").write_text(
+        """def compute_value():
+    return 42
+"""
+    )
+
+    # Write main.py that imports from utils
+    (project_dir / "main.py").write_text(
+        """import os
+from utils import compute_value
+
+os.makedirs("outputs", exist_ok=True)
+with open("outputs/result.json", "w") as f:
+    f.write(f'{{"result": "no_pyproject_success", "value": {compute_value()}}}')
+"""
+    )
+
+    # Submit folder job
+    ds_manager.submit_python_job(
+        user=do_manager.email,
+        code_path=str(project_dir),
+        job_name="simple-folder-job",
+    )
+
+    do_manager.sync()
+
+    # Verify job received
+    assert len(do_manager.job_client.jobs) == 1
+    job = do_manager.job_client.jobs[0]
+
+    # Verify tarball exists
+    tarball_path = job.location / "simple-project.tar.gz"
+    assert tarball_path.exists()
+
+    # Verify tarball contains expected files (main.py and utils.py)
+    with tarfile.open(tarball_path, "r:gz") as tar:
+        names = tar.getnames()
+        assert "simple-project/main.py" in names
+        assert "simple-project/utils.py" in names
+
+    # Verify run.sh uses uv pip install (no pyproject.toml)
+    run_sh = (job.location / "run.sh").read_text()
+    assert "uv venv" in run_sh
+    assert "uv pip install" in run_sh
+    assert "syft-client" in run_sh  # Required dependency always added
+
+    # Verify config.yaml has correct fields
+    with open(job.location / "config.yaml") as f:
+        config = yaml.safe_load(f)
+    assert config["type"] == "python"
+    assert config["has_pyproject"] is False
+
+    # Approve and execute
+    job.approve()
+    do_manager.job_runner.process_approved_jobs()
+
+    do_manager.sync()
+    ds_manager.sync()
+
+    # Verify output (includes value from utils.py proving import worked)
+    output_path = ds_manager.job_client.jobs[-1].output_paths[0]
+    with open(output_path, "r") as f:
+        result = json.loads(f.read())
+    assert result["result"] == "no_pyproject_success"
+    assert result["value"] == 42
