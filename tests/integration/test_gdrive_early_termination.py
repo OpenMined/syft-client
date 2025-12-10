@@ -4,9 +4,19 @@ from pathlib import Path
 from time import sleep
 import pytest
 from unittest.mock import patch
+from dotenv import load_dotenv
 
 SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
+
+# inside credentials directory
+# create .env and set the following variables:
+# BEACH_EMAIL_DO=your_do_email
+# BEACH_EMAIL_DS=your_ds_email
+ENV_FILE = CREDENTIALS_DIR / ".env"
+
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE)
 
 FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
 EMAIL_DO = os.environ["BEACH_EMAIL_DO"]

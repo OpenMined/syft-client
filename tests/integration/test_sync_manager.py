@@ -9,6 +9,7 @@ import json
 from time import sleep
 import pytest
 import yaml
+from dotenv import load_dotenv
 from tests.unit.utils import create_tmp_dataset_files
 
 # from tests.integration.utils import get_mock_events
@@ -18,11 +19,19 @@ SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent
 # These are in gitignore, create yourself
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
 
-# koen gmail
+# inside credentials directory
+# create .env and set the following variables:
+# BEACH_EMAIL_DO=your_do_email
+# BEACH_EMAIL_DS=your_ds_email
+ENV_FILE = CREDENTIALS_DIR / ".env"
+
+# Load environment variables from .env file if it exists
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE)
+
 FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
 EMAIL_DO = os.environ["BEACH_EMAIL_DO"]
 
-# koen openmined mail
 FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
 EMAIL_DS = os.environ["BEACH_EMAIL_DS"]
 
