@@ -1777,7 +1777,6 @@ class JobClient:
 
     # Job submission constants
     DEFAULT_PYTHON_ENTRY_FILE = "main.py"
-    REQUIRED_DEPENDENCY = "syft-client"
     RUN_SCRIPT_NAME = "run.sh"
     CONFIG_FILE_NAME = "config.yaml"
 
@@ -1794,7 +1793,6 @@ class JobClient:
             ".pytest_cache",
             ".mypy_cache",
             ".ruff_cache",
-            "uv.lock",  # Exclude lock files - they may contain local paths
         ]
     )
 
@@ -1853,8 +1851,8 @@ class JobClient:
             return []
 
     def _build_dependencies(self, dependencies: Optional[List[str]]) -> List[str]:
-        """Prepend required dependency to user dependencies list."""
-        return [self.REQUIRED_DEPENDENCY] + (dependencies or [])
+        """Return user dependencies list."""
+        return dependencies or []
 
     def _resolve_python_entry_file(
         self, project_dir: Path, entry_python_file: Optional[str]

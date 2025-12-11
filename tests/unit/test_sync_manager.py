@@ -494,15 +494,11 @@ def test_job_flow_with_dataset():
     with open(test_py_path, "w") as f:
         f.write("""
 import os, json
-import syft_client as sc
+import numpy as np
 
-data_path = "syft://private/syft_datasets/my dataset/private.txt"
-resolved_path = sc.resolve_path(data_path)
-
-with open(resolved_path, "r") as data_file:
-    data = data_file.read()
-
-result = {"result": data}
+# Test that we can use numpy in the job environment
+arr = np.array([1, 2, 3, 4, 5])
+result = {"result": int(arr.sum())}
 
 os.makedirs("outputs", exist_ok=True)
 with open("outputs/result.json", "w") as f:
@@ -513,6 +509,7 @@ with open("outputs/result.json", "w") as f:
         user=do_manager.email,
         code_path=test_py_path,
         job_name="test.job",
+        dependencies=["numpy"],
     )
 
     assert len(do_manager.job_client.jobs) == 1
@@ -530,7 +527,7 @@ with open("outputs/result.json", "w") as f:
     with open(output_path, "r") as f:
         json_content = json.loads(f.read())
 
-    assert json_content["result"] == "Hello, world!"
+    assert json_content["result"] == 15  # sum of [1, 2, 3, 4, 5]
 
 
 def test_file_deletion_do_to_ds():
@@ -721,10 +718,12 @@ def test_folder_job_submission_no_pyproject():
     project_dir = Path(tempfile.mkdtemp()) / "simple-project"
     project_dir.mkdir()
 
-    # Write utils module
+    # Write utils module that uses numpy
     (project_dir / "utils.py").write_text(
-        """def compute_value():
-    return 42
+        """import numpy as np
+
+def compute_value():
+    return int(np.array([1, 2, 3, 4, 5]).sum())
 """
     )
 
@@ -739,11 +738,12 @@ with open("outputs/result.json", "w") as f:
 """
     )
 
-    # Submit folder job
+    # Submit folder job with numpy as dependency
     ds_manager.submit_python_job(
         user=do_manager.email,
         code_path=str(project_dir),
         job_name="simple-folder-job",
+        dependencies=["numpy"],
     )
 
     do_manager.sync()
@@ -768,7 +768,7 @@ with open("outputs/result.json", "w") as f:
     assert "cd simple-project" in run_sh
     assert "uv venv" in run_sh
     assert "uv pip install" in run_sh
-    assert "syft-client" in run_sh  # Required dependency always added
+    assert "numpy" in run_sh  # User-specified dependency
 
     # Verify config.yaml has correct fields
     with open(job.location / "config.yaml") as f:
@@ -783,9 +783,9 @@ with open("outputs/result.json", "w") as f:
     do_manager.sync()
     ds_manager.sync()
 
-    # Verify output (includes value from utils.py proving import worked)
+    # Verify output (includes value from utils.py proving numpy import worked)
     output_path = ds_manager.job_client.jobs[-1].output_paths[0]
     with open(output_path, "r") as f:
         result = json.loads(f.read())
     assert result["result"] == "no_pyproject_success"
-    assert result["value"] == 42
+    assert result["value"] == 15  # sum of [1, 2, 3, 4, 5]

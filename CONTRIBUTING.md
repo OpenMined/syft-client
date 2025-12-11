@@ -233,7 +233,10 @@ mkdir -p credentials
    - Choose "External" (or "Internal" for Google Workspace)
    - Add scopes: `https://www.googleapis.com/auth/drive`
    - Add your test user emails
-5. Create **OAuth Credentials**:
+5. Add audience:
+   - "APIs & Services" -> "OAuth Consent Screen" -> "Audience"
+   - Add your email as a "Test users" by clicking "Add users"
+6. Create **OAuth Credentials**:
    - Go to "APIs & Services" -> "Credentials"
    - Click "Create Credentials" -> "OAuth client ID"
    - Application type: **Desktop app**
