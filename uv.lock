@@ -1116,6 +1116,15 @@ wheels = [
 ]
 
 [[package]]
+name = "lockfile"
+version = "0.12.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/17/47/72cb04a58a35ec495f96984dddb48232b551aafb95bde614605b754fe6f7/lockfile-0.12.2.tar.gz", hash = "sha256:6aed02de03cba24efabcd600b30540140634fc06cfa603822d508d5361e9f799", size = 20874, upload-time = "2015-11-25T18:29:58.279Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c8/22/9460e311f340cb62d26a38c419b1381b8593b0bb6b5d1f056938b086d362/lockfile-0.12.2-py2.py3-none-any.whl", hash = "sha256:6c3cb24f344923d30b2785d5ad75182c8ea7ac1b6171b08657258ec7429d50fa", size = 13564, upload-time = "2015-11-25T18:29:51.462Z" },
+]
+
+[[package]]
 name = "loguru"
 version = "0.7.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1993,6 +2002,18 @@ wheels = [
 ]
 
 [[package]]
+name = "python-daemon"
+version = "3.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lockfile" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3d/37/4f10e37bdabc058a32989da2daf29e57dc59dbc5395497f3d36d5f5e2694/python_daemon-3.1.2.tar.gz", hash = "sha256:f7b04335adc473de877f5117e26d5f1142f4c9f7cd765408f0877757be5afbf4", size = 71576, upload-time = "2024-12-03T08:41:07.843Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/45/3c/b88167e2d6785c0e781ee5d498b07472aeb9b6765da3b19e7cc9e0813841/python_daemon-3.1.2-py3-none-any.whl", hash = "sha256:b906833cef63502994ad48e2eab213259ed9bb18d54fa8774dcba2ff7864cec6", size = 30872, upload-time = "2024-12-03T08:41:03.322Z" },
+]
+
+[[package]]
 name = "python-dateutil"
 version = "2.9.0.post0"
 source = { registry = "https://pypi.org/simple" }
@@ -2387,12 +2408,16 @@ name = "syft-client"
 version = "0.1.93"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
+    { name = "jinja2" },
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "pydantic-settings" },
+    { name = "python-daemon" },
+    { name = "pyyaml" },
     { name = "rich" },
     { name = "syft-dataset" },
     { name = "syft-job" },
@@ -2442,6 +2467,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'test'", specifier = ">=23.0.0" },
+    { name = "click", specifier = ">=8.0.0" },
     { name = "coverage", marker = "extra == 'test'", specifier = ">=7.0.0" },
     { name = "flake8", marker = "extra == 'test'", specifier = ">=6.0.0" },
     { name = "google-api-python-client", specifier = ">=2.95.0" },
@@ -2449,6 +2475,7 @@ requires-dist = [
     { name = "google-auth-oauthlib", specifier = ">=1.0.0" },
     { name = "ipython", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "isort", marker = "extra == 'test'", specifier = ">=5.12.0" },
+    { name = "jinja2", specifier = ">=3.1.0" },
     { name = "jupyter", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "mypy", marker = "extra == 'test'", specifier = ">=1.0.0" },
     { name = "notebook", marker = "extra == 'dev'", specifier = ">=6.5.0" },
@@ -2460,6 +2487,8 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.0.0" },
     { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.10.0" },
     { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.0.0" },
+    { name = "python-daemon", specifier = ">=3.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "syft-client", extras = ["test", "dev", "job"], marker = "extra == 'all'" },
     { name = "syft-dataset", editable = "packages/syft-datasets" },
