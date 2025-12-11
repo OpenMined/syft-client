@@ -241,6 +241,7 @@ def test_datasets():
     assert len(dataset_do.private_files) > 0
     assert len(dataset_do.mock_files) > 0
 
+    do_manager.sync()
     ds_manager.sync()
 
     assert len(ds_manager.datasets.get_all(datasite=do_manager.email)) == 1
