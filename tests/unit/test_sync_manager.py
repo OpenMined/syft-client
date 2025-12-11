@@ -321,7 +321,7 @@ def test_datasets():
 
     ds_manager.sync()
 
-    assert len(ds_manager.datasets.get_all()) == 1
+    assert len(ds_manager.datasets.get_all(datasite=do_manager.email)) == 1
 
     dataset_ds = ds_manager.datasets.get("my dataset", datasite=do_manager.email)
 
@@ -393,7 +393,7 @@ def test_datasets_with_parquet():
     # Sync to datasite
     ds_manager.sync()
 
-    assert len(ds_manager.datasets.get_all()) == 1
+    assert len(ds_manager.datasets.get_all(datasite=do_manager.email)) == 1
 
     dataset_ds = ds_manager.datasets.get("parquet dataset", datasite=do_manager.email)
 
@@ -488,7 +488,7 @@ def test_job_flow_with_dataset():
 
     ds_manager.sync()
 
-    assert len(ds_manager.datasets.get_all()) == 1
+    assert len(ds_manager.datasets.get_all(datasite=do_manager.email)) == 1
 
     test_py_path = "/tmp/test.py"
     with open(test_py_path, "w") as f:

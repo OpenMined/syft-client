@@ -243,7 +243,7 @@ def test_datasets():
 
     ds_manager.sync()
 
-    assert len(ds_manager.datasets.get_all()) == 1
+    assert len(ds_manager.datasets.get_all(datasite=do_manager.email)) == 1
 
     dataset_ds = ds_manager.datasets.get("my dataset", datasite=do_manager.email)
     assert dataset_ds.mock_files[0].exists()
