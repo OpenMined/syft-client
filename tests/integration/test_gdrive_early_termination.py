@@ -1,53 +1,28 @@
 from syft_client.sync.syftbox_manager import SyftboxManager
-import os
-from pathlib import Path
 from time import sleep
 import pytest
 from unittest.mock import patch
 
-SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent
-CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
-
-FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
-EMAIL_DO = os.environ["BEACH_EMAIL_DO"]
-
-FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
-EMAIL_DS = os.environ["BEACH_EMAIL_DS"]
-
-token_path_do = CREDENTIALS_DIR / FILE_DO
-token_path_ds = CREDENTIALS_DIR / FILE_DS
-
-
-def remove_syftboxes_from_drive():
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-    )
-    manager_ds.delete_syftbox()
-    manager_do.delete_syftbox()
-
-
-@pytest.fixture()
-def setup_delete_syftboxes():
-    tokens_exist = token_path_do.exists() and token_path_ds.exists()
-    if not tokens_exist:
-        raise ValueError("Credentials not found")
-    remove_syftboxes_from_drive()
-    yield
+from tests.integration.conftest import (
+    get_email_do,
+    get_email_ds,
+    TOKEN_PATH_DO,
+    TOKEN_PATH_DS,
+)
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_early_termination_with_since_timestamp():
     from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 
+    EMAIL_DO = get_email_do()
+    EMAIL_DS = get_email_ds()
+
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
+        do_token_path=TOKEN_PATH_DO,
+        ds_token_path=TOKEN_PATH_DS,
     )
 
     for i in range(5):

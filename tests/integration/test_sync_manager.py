@@ -1,6 +1,5 @@
 from syft_datasets.dataset import Dataset
 from syft_client.sync.syftbox_manager import SyftboxManager
-import os
 from pathlib import Path
 import time
 import json
@@ -8,60 +7,24 @@ from time import sleep
 import pytest
 from tests.unit.utils import create_tmp_dataset_files
 
-# from tests.integration.utils import get_mock_events
-
-
-SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent
-# These are in gitignore, create yourself
-CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
-
-# koen gmail
-FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
-EMAIL_DO = os.environ["BEACH_EMAIL_DO"]
-
-# koen openmined mail
-FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
-EMAIL_DS = os.environ["BEACH_EMAIL_DS"]
-
-
-token_path_do = CREDENTIALS_DIR / FILE_DO
-token_path_ds = CREDENTIALS_DIR / FILE_DS
-
-
-def remove_syftboxes_from_drive():
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-    )
-    manager_ds.delete_syftbox()
-    manager_do.delete_syftbox()
-
-
-@pytest.fixture()
-def setup_delete_syftboxes():
-    print("\nCleaning up syftboxes from drive for integration tests")
-    tokens_exist = token_path_do.exists() and token_path_ds.exists()
-    if not tokens_exist:
-        raise ValueError(
-            """"Credentials not found, create them using scripts/create_token.py and store them in /credentials
-            as token_do.json and token_ds.json. Also set the environment variables BEACH_EMAIL_DO and BEACH_EMAIL_DS to the email addresses of the DO and DS."""
-        )
-    remove_syftboxes_from_drive()
-    print("Syftboxes deleted from drive, starting tests")
-    yield
-    print("Tearing down")
+from tests.integration.conftest import (
+    get_email_do,
+    get_email_ds,
+    TOKEN_PATH_DO,
+    TOKEN_PATH_DS,
+)
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_google_drive_connection_syncing():
+    EMAIL_DO = get_email_do()
+    EMAIL_DS = get_email_ds()
+
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
+        do_token_path=TOKEN_PATH_DO,
+        ds_token_path=TOKEN_PATH_DS,
     )
 
     # this calls connection.send_propose_file_change_message via callbacks
@@ -92,14 +55,17 @@ def test_google_drive_connection_syncing():
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_google_drive_connection_load_state():
+    EMAIL_DO = get_email_do()
+    EMAIL_DS = get_email_ds()
+
     # create the state
 
     # load the clients and add the peers
     manager_ds1, manager_do1 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
+        do_token_path=TOKEN_PATH_DO,
+        ds_token_path=TOKEN_PATH_DS,
         add_peers=True,
         load_peers=False,
     )
@@ -112,8 +78,8 @@ def test_google_drive_connection_load_state():
     manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
+        do_token_path=TOKEN_PATH_DO,
+        ds_token_path=TOKEN_PATH_DS,
         add_peers=False,
         load_peers=False,
     )
@@ -136,8 +102,8 @@ def test_google_drive_connection_load_state():
     manager_ds3, manager_do3 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
+        do_token_path=TOKEN_PATH_DO,
+        ds_token_path=TOKEN_PATH_DS,
         add_peers=False,
         load_peers=True,
     )
@@ -158,11 +124,14 @@ def test_google_drive_connection_load_state():
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_google_drive_files():
+    EMAIL_DO = get_email_do()
+    EMAIL_DS = get_email_ds()
+
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
+        do_token_path=TOKEN_PATH_DO,
+        ds_token_path=TOKEN_PATH_DS,
         use_in_memory_cache=False,
     )
 
@@ -202,11 +171,14 @@ def test_google_drive_files():
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_datasets():
+    EMAIL_DO = get_email_do()
+    EMAIL_DS = get_email_ds()
+
     ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
+        do_token_path=TOKEN_PATH_DO,
+        ds_token_path=TOKEN_PATH_DS,
         use_in_memory_cache=False,
     )
 
@@ -248,11 +220,14 @@ def test_datasets():
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_jobs():
+    EMAIL_DO = get_email_do()
+    EMAIL_DS = get_email_ds()
+
     ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
+        do_token_path=TOKEN_PATH_DO,
+        ds_token_path=TOKEN_PATH_DS,
         use_in_memory_cache=False,
     )
 
@@ -292,11 +267,14 @@ with open("outputs/result.json", "w") as f:
 
 def test_file_deletion_do_to_ds():
     """Test that DO can delete a file and it syncs to DS"""
+    EMAIL_DO = get_email_do()
+    EMAIL_DS = get_email_ds()
+
     ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
+        do_token_path=TOKEN_PATH_DO,
+        ds_token_path=TOKEN_PATH_DS,
         use_in_memory_cache=False,
     )
 
