@@ -7,6 +7,7 @@ from syft_client.sync.connections.base_connection import (
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessage,
 )
+from syft_client.sync.checkpoints.checkpoint import Checkpoint
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
 from syft_client.sync.peers.peer import Peer
@@ -141,3 +142,31 @@ class ConnectionRouter(BaseModel):
         return connection.get_events_messages_for_datasite_watcher(
             peer_email=peer_email, since_timestamp=since_timestamp
         )
+
+    # =========================================================================
+    # CHECKPOINT METHODS
+    # =========================================================================
+
+    def upload_checkpoint(self, checkpoint: Checkpoint) -> str:
+        """Upload a checkpoint to the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        return connection.upload_checkpoint(checkpoint)
+
+    def get_latest_checkpoint(self) -> Checkpoint | None:
+        """Get the latest checkpoint from the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        return connection.get_latest_checkpoint()
+
+    def get_events_count_since_checkpoint(
+        self, checkpoint_timestamp: float | None
+    ) -> int:
+        """Count events created after the checkpoint timestamp."""
+        connection = self.connection_for_eventlog()
+        return connection.get_events_count_since_checkpoint(checkpoint_timestamp)
+
+    def get_events_messages_since_timestamp(
+        self, since_timestamp: float
+    ) -> List[FileChangeEventsMessage]:
+        """Get events created after a specific timestamp."""
+        connection = self.connection_for_eventlog()
+        return connection.get_events_messages_since_timestamp(since_timestamp)
