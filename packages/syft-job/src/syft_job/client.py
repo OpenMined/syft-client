@@ -1838,9 +1838,6 @@ class JobClient:
 
         job_dir.mkdir(parents=True)
 
-        # Create /data directory for consistency (optional for bash jobs)
-        data_dir = job_dir / "data"
-        data_dir.mkdir(parents=True)
 
         # Create run.sh file
         run_script_path = job_dir / "run.sh"
@@ -1946,11 +1943,9 @@ class JobClient:
 
         job_dir.mkdir(parents=True)
 
-        # Create /code and /data directories in job directory
+        # Create /code directory in job directory
         code_dir = job_dir / "code"
-        data_dir = job_dir / "data"
         code_dir.mkdir(parents=True)
-        data_dir.mkdir(parents=True)
 
         # Copy code to /code directory
         if is_folder_submission:
