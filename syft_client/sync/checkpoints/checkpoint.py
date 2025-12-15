@@ -23,7 +23,7 @@ class CheckpointFile(BaseModel):
     """Represents a single file in the checkpoint."""
 
     path: str  # Relative path in datasite (e.g., "public/syft_datasets/data.csv")
-    hash: int  # Hash of the content
+    hash: str  # Hash of the content (SHA256 hex string)
     content: str  # File content
 
 
@@ -64,7 +64,7 @@ class Checkpoint(BaseModel):
     def from_file_hashes_and_contents(
         cls,
         email: str,
-        file_hashes: Dict[str, int],
+        file_hashes: Dict[str, str],
         file_contents: Dict[str, str],
         last_event_timestamp: float | None = None,
     ) -> "Checkpoint":
@@ -95,7 +95,7 @@ class Checkpoint(BaseModel):
             last_event_timestamp=last_event_timestamp,
         )
 
-    def to_file_hashes(self) -> Dict[Path, int]:
+    def to_file_hashes(self) -> Dict[Path, str]:
         """Convert checkpoint files to file_hashes dict."""
         return {Path(f.path): f.hash for f in self.files}
 
