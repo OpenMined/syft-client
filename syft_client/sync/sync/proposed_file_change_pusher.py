@@ -1,7 +1,6 @@
-import base64
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Literal
 from queue import Queue
 from syft_client.sync.connections.base_connection import ConnectionConfig
 from syft_client.sync.connections.connection_router import ConnectionRouter
@@ -69,7 +68,11 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
         )
 
     def get_proposed_file_change_object(
-        self, relative_path: Path, content: str, datasite_email: str | None = None
+        self,
+        relative_path: Path,
+        content: str | bytes,
+        content_type: Literal["text", "binary"] = "text",
+        datasite_email: str | None = None,
     ) -> ProposedFileChange:
         if datasite_email is None:
             datasite_email = self.email
@@ -78,26 +81,26 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
             datasite_email=datasite_email,
             path_in_datasite=relative_path,
             content=content,
+            content_type=content_type,
             old_hash=old_hash,
         )
 
     def process_file_changes_queue(self):
         file_changes = []
         while not self.queue.empty():
-            relative_path, content = self.queue.get()
+            relative_path, content, content_type = self.queue.get()
 
             # for in memory connection we pass content directly
             if content is None:
                 file_path = self.syftbox_folder / relative_path
                 if _is_binary_file(file_path):
                     with open(file_path, "rb") as f:
-                        data = f.read()
-                    content = "base64:" + base64.b64encode(data).decode("ascii")
+                        content = f.read()
+                    content_type = "binary"
                 else:
                     with open(file_path, "r") as f:
                         content = f.read()
-
-            # splitted = relative_path.split("/")
+                    content_type = "text"
 
             datasite_email = relative_path.parts[0]
             path_in_datasite = (
@@ -106,12 +109,13 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
                 else Path()
             )
 
-            # TODO: add some better parsing logic here
             recipient = datasite_email
-            path_in_datasite = path_in_datasite
 
             file_change = self.get_proposed_file_change_object(
-                path_in_datasite, content, datasite_email=recipient
+                path_in_datasite,
+                content,
+                content_type=content_type,
+                datasite_email=recipient,
             )
             file_changes.append(file_change)
 
@@ -121,9 +125,13 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
         self.connection_router.send_proposed_file_changes_message(recipient, message)
 
     def on_file_change(
-        self, relative_path: Path | str, content: str | None = None, process_now=True
+        self,
+        relative_path: Path | str,
+        content: str | bytes | None = None,
+        content_type: Literal["text", "binary"] = "text",
+        process_now: bool = True,
     ):
         relative_path = Path(relative_path)
-        self.queue.put((relative_path, content))
+        self.queue.put((relative_path, content, content_type))
         if process_now:
             self.process_file_changes_queue()

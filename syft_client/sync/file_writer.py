@@ -1,4 +1,3 @@
-import base64
 from pydantic import BaseModel
 from typing import Dict, List, Callable
 from pathlib import Path
@@ -14,15 +13,12 @@ class FileWriter(BaseModel):
             self.callbacks[on] = []
         self.callbacks[on].append(callback)
 
-    def write_file(self, path: str, content: str):
+    def write_file(self, path: str, content: str | bytes):
         if self.write_files:
-            if content.startswith("base64:"):
-                # Binary content: decode base64 and write as bytes
-                binary_data = base64.b64decode(content[7:])
+            if isinstance(content, bytes):
                 with open(path, "wb") as f:
-                    f.write(binary_data)
+                    f.write(content)
             else:
-                # Text content: write as-is
                 with open(path, "w") as f:
                     f.write(content)
 

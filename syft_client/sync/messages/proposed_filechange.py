@@ -1,10 +1,10 @@
-from typing import List, Any
+from typing import List, Literal
 from uuid import UUID, uuid4
 from pathlib import Path
 import uuid
 import time
 import base64
-from pydantic import Field, model_validator, field_serializer, field_validator
+from pydantic import Field, model_validator, field_serializer
 from pydantic.main import BaseModel
 from syft_client.sync.utils.syftbox_utils import compress_data, uncompress_data
 from syft_client.sync.utils.syftbox_utils import create_event_timestamp
@@ -25,6 +25,7 @@ class ProposedFileChange(BaseModel):
     content: str | bytes | None = (
         None  # None for deletions, can be str or bytes for binary files
     )
+    content_type: Literal["text", "binary"] = "text"
     datasite_email: str
     is_deleted: bool = False
 
@@ -37,26 +38,16 @@ class ProposedFileChange(BaseModel):
             return base64.b64encode(value).decode("utf-8")
         return value
 
-    @field_validator("content", mode="before")
-    @classmethod
-    def deserialize_content(cls, value: Any) -> str | bytes | None:
-        """Deserialize base64-encoded string back to bytes if needed."""
-        if value is None:
-            return None
-        if isinstance(value, str):
-            # Try to decode as base64 if it looks like base64
-            try:
-                decoded = base64.b64decode(value, validate=True)
-                # Only use decoded bytes if the original string was actually base64
-                if decoded != value.encode("utf-8"):
-                    return decoded
-            except Exception:
-                pass
-            return value
-        return value
-
     @model_validator(mode="before")
+    @classmethod
     def pre_init(cls, data):
+        # Decode base64 content if content_type is binary
+        if data.get("content_type") == "binary" and isinstance(
+            data.get("content"), str
+        ):
+            data["content"] = base64.b64decode(data["content"])
+
+        # Compute new_hash if not provided
         if "new_hash" not in data and not data.get("is_deleted", False):
             content = data.get("content")
             if content is not None:

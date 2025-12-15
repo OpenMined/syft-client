@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List, Literal
 from pathlib import Path
 from uuid import UUID, uuid4
 import base64
@@ -7,13 +7,11 @@ from pydantic import (
     Field,
     model_validator,
     field_serializer,
-    field_validator,
 )
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_client.sync.utils.syftbox_utils import create_event_timestamp
 from syft_client.sync.utils.syftbox_utils import compress_data
 from syft_client.sync.utils.syftbox_utils import uncompress_data
-from typing import List
 
 
 FILE_CHANGE_FILENAME_PREFIX = "syfteventsmessagev3"
@@ -52,6 +50,7 @@ class FileChangeEvent(BaseModel):
     content: str | bytes | None = (
         None  # None for deletions, can be str or bytes for binary files
     )
+    content_type: Literal["text", "binary"] = "text"
     old_hash: str | None = None
     new_hash: str | None = None  # None for deletions
     is_deleted: bool = False
@@ -67,40 +66,19 @@ class FileChangeEvent(BaseModel):
             return base64.b64encode(value).decode("utf-8")
         return value
 
-    @field_validator("content", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def deserialize_content(cls, value: Any) -> str | bytes | None:
-        """Deserialize base64-encoded string back to bytes if needed."""
-        if value is None:
-            return None
-        if isinstance(value, str):
-            # Try to decode as base64 if it looks like base64
-            # We'll use a simple heuristic: if it's a valid base64 string and not plain text
-            try:
-                decoded = base64.b64decode(value, validate=True)
-                # Only use decoded bytes if the original string was actually base64
-                # (not just a regular string that happens to be valid base64)
-                # A simple check: if decoded bytes are different from the string's bytes
-                if decoded != value.encode("utf-8"):
-                    return decoded
-            except Exception:
-                pass
-            return value
-        return value
+    def pre_init(cls, data):
+        # Decode base64 content if content_type is binary
+        if data.get("content_type") == "binary" and isinstance(
+            data.get("content"), str
+        ):
+            data["content"] = base64.b64decode(data["content"])
+        return data
 
     @property
     def path_in_syftbox(self) -> Path:
         return Path(self.datasite_email) / self.path_in_datasite
-
-    @model_validator(mode="before")
-    def pre_init(cls, data):
-        # if "event_filepath" not in data:
-        #     data["event_filepath"] = FileChangeEventsMessageFileName(
-        #         id=data["id"],
-        #         file_path_in_datasite=data["path_in_datasite"],
-        #         timestamp=data["timestamp"],
-        #     )
-        return data
 
     def eventfile_filepath(self) -> str:
         # TODO: remove
@@ -114,6 +92,7 @@ class FileChangeEvent(BaseModel):
         return cls(
             path_in_datasite=proposed_filechange.path_in_datasite,
             content=proposed_filechange.content,
+            content_type=proposed_filechange.content_type,
             id=proposed_filechange.id,
             old_hash=proposed_filechange.old_hash,
             new_hash=proposed_filechange.new_hash,
