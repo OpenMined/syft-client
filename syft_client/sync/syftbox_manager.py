@@ -761,10 +761,6 @@ class SyftboxManager(BaseModel):
         # Clear local peer list since we just deleted the syftbox
         self._peers = PeerList()
 
-    def clear_peers(self):
-        """Clear the local peer list without deleting the syftbox."""
-        self._peers = PeerList()
-
     # =========================================================================
     # CHECKPOINT METHODS
     # =========================================================================
