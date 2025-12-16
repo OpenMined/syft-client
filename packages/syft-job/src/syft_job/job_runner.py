@@ -12,9 +12,6 @@ from .config import SyftJobConfig
 # Default timeout for job execution (5 minutes)
 DEFAULT_JOB_TIMEOUT_SECONDS = 300
 
-# Enable streaming output (real-time) via environment variable (default: false)
-STREAM_OUTPUT = os.environ.get("SYFT_JOB_STREAM_OUTPUT", "false").lower() == "true"
-
 
 class SyftJobRunner:
     """Job runner that monitors inbox folder for new jobs."""
@@ -331,12 +328,14 @@ class SyftJobRunner:
 
         return result.returncode
 
-    def _execute_job(self, job_name: str) -> bool:
+    def _execute_job(self, job_name: str, stream_output: bool = False) -> bool:
         """
         Execute run.sh for a job in the approved directory.
 
         Args:
             job_name: Name of the job to execute
+            stream_output: If True, stream output in real-time.
+                        If False (default), capture output at end.
 
         Returns:
             bool: True if execution was successful, False otherwise
@@ -352,8 +351,8 @@ class SyftJobRunner:
         print(f"📁 Job directory: {job_dir}")
 
         try:
-            # Execute with streaming or captured output based on env var
-            if STREAM_OUTPUT:
+            # Execute with streaming or captured output
+            if stream_output:
                 returncode = self._execute_job_streaming(job_name)
             else:
                 returncode = self._execute_job_captured(job_name)
@@ -393,8 +392,13 @@ class SyftJobRunner:
             print(f"❌ Error executing job {job_name}: {e}")
             return False
 
-    def process_approved_jobs(self) -> None:
-        """Process all jobs in the approved directory."""
+    def process_approved_jobs(self, stream_output: bool = False) -> None:
+        """Process all jobs in the approved directory.
+
+        Args:
+            stream_output: If True, stream output in real-time.
+                        If False (default), capture output at end.
+        """
         approved_jobs = self._get_jobs_in_approved()
 
         if not approved_jobs:
@@ -404,7 +408,7 @@ class SyftJobRunner:
 
         for job_name in approved_jobs:
             print(f"\n{'=' * 50}")
-            self._execute_job(job_name)
+            self._execute_job(job_name, stream_output=stream_output)
             print(f"{'=' * 50}")
 
         if approved_jobs:
@@ -419,7 +423,6 @@ class SyftJobRunner:
         print(f"👤 Monitoring jobs for: {root_email}")
         print(f"📂 Job directory: {job_dir}")
         print(f"⏱️  Poll interval: {self.poll_interval} seconds")
-        print(f"📺 Streaming output: {STREAM_OUTPUT}")
         print("⏹️  Press Ctrl+C to stop")
         print("=" * 50)
 
