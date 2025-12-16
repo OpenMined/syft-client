@@ -334,6 +334,14 @@ class NotificationMonitor:
     @staticmethod
     def _find_drive_token() -> Optional[Path]:
         """Auto-detect Drive token from standard locations."""
+        # First check the shared creds dir (supports Colab Drive mount)
+        creds_dir = get_creds_dir()
+        for token_name in ["token_do.json", "token.json"]:
+            token_path = creds_dir / token_name
+            if token_path.exists():
+                return token_path
+
+        # Fallback to CREDENTIALS_DIR
         try:
             from syft_client import CREDENTIALS_DIR
 
