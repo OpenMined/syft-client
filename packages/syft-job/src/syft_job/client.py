@@ -1867,22 +1867,24 @@ class JobClient:
         code_path: str,
         job_name: Optional[str] = "",
         dependencies: Optional[List[str]] = None,
+        entrypoint: Optional[str] = None,
     ) -> Path:
         """
-        Submit a Python job for a user (single file only).
+        Submit a Python job for a user (supports both files and folders).
 
         Args:
             user: Email address of the user to submit job for
             job_name: Name of the job (will be used as directory name)
-            code_path: Path to Python file (folders are temporarily disabled)
+            code_path: Path to Python file or folder containing Python code
             dependencies: List of Python packages to install (e.g., ["numpy", "pandas==1.5.0"])
+            entrypoint: Entry point file name for folder submissions (mandatory for folders, auto-detected for files)
 
         Returns:
             Path to the created job directory
 
         Raises:
             FileExistsError: If job with same name already exists
-            ValueError: If code_path is not a single Python file
+            ValueError: If code_path validation fails or entrypoint is missing for folders
             FileNotFoundError: If code_path doesn't exist
         """
         # Generate default job name if not provided
@@ -1897,14 +1899,35 @@ class JobClient:
         if not code_path_obj.exists():
             raise FileNotFoundError(f"Code path does not exist: {code_path}")
 
-        # Only accept single Python files (folders temporarily disabled)
-        if not code_path_obj.is_file():
-            raise ValueError(
-                f"Code path must be a single Python file. Folders are temporarily disabled: {code_path}"
-            )
+        # Determine if it's a file or folder submission
+        is_folder_submission = code_path_obj.is_dir()
 
-        if not code_path_obj.suffix == ".py":
-            raise ValueError(f"Code path must be a Python file (.py): {code_path}")
+        if is_folder_submission:
+            # For folder submissions, entrypoint is mandatory
+            if not entrypoint:
+                raise ValueError(
+                    "Entrypoint file name is mandatory for folder submissions. "
+                    "Please specify the main Python file to execute (e.g., 'main.py')."
+                )
+
+            # Validate entrypoint file exists in the folder
+            entrypoint_path = code_path_obj / entrypoint
+            if not entrypoint_path.exists() or not entrypoint_path.is_file():
+                raise ValueError(
+                    f"Entrypoint file '{entrypoint}' not found in folder: {code_path}"
+                )
+
+            if not entrypoint_path.suffix == ".py":
+                raise ValueError(
+                    f"Entrypoint file must be a Python file (.py): {entrypoint}"
+                )
+        else:
+            # For single file submissions
+            if not code_path_obj.suffix == ".py":
+                raise ValueError(f"Code path must be a Python file (.py): {code_path}")
+
+            # Auto-detect entrypoint for file submissions
+            entrypoint = code_path_obj.name
 
         # Ensure user directory exists (create if it doesn't)
         user_dir = self.config.get_user_dir(user)
@@ -1923,9 +1946,21 @@ class JobClient:
 
         job_dir.mkdir(parents=True)
 
-        # Copy Python file directly to job root directory
-        destination = job_dir / code_path_obj.name
-        shutil.copy2(str(code_path_obj), str(destination))
+        # Create /code directory in job directory
+        code_dir = job_dir / "code"
+        code_dir.mkdir(parents=True)
+
+        # Copy code to /code directory
+        if is_folder_submission:
+            # Copy entire folder contents to /code
+            for item in code_path_obj.iterdir():
+                if item.is_file():
+                    shutil.copy2(str(item), str(code_dir / item.name))
+                elif item.is_dir():
+                    shutil.copytree(str(item), str(code_dir / item.name))
+        else:
+            # Copy single Python file to /code directory
+            shutil.copy2(str(code_path_obj), str(code_dir / code_path_obj.name))
 
         # Generate bash script for Python execution with uv
         dependencies = dependencies or []
@@ -1949,8 +1984,8 @@ uv venv
 # Activate the virtual environment
 source .venv/bin/activate
 {install_commands}
-# Execute the Python file directly from job root
-python {code_path_obj.name}
+# Execute the entrypoint file from code directory
+python code/{entrypoint}
 """
 
         # Create run.sh file
@@ -1971,8 +2006,9 @@ python {code_path_obj.name}
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "type": "python",
             "code_path": str(code_path_obj),
-            "entry_point": code_path_obj.name,
+            "entry_point": entrypoint,
             "dependencies": all_dependencies,
+            "is_folder_submission": is_folder_submission,
         }
 
         with open(config_yaml_path, "w") as f:
