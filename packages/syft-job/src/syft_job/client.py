@@ -8,6 +8,9 @@ import yaml
 
 from .config import SyftJobConfig
 
+# Python version used when creating virtual environments for job execution
+RUN_SCRIPT_PYTHON_VERSION = "3.12"
+
 
 class StdoutViewer:
     """A viewer for stdout content with scrollable display in Jupyter notebooks."""
@@ -1983,7 +1986,7 @@ class JobClient:
 
             bash_script = f"""#!/bin/bash
 export UV_SYSTEM_PYTHON=false
-cd code && uv sync --python 3.12 && cd ..
+cd code && uv sync --python {RUN_SCRIPT_PYTHON_VERSION} && cd ..
 {extra_deps}
 source code/.venv/bin/activate
 export PYTHONPATH="${{PYTHONPATH}}:$(pwd)/code"
@@ -1998,7 +2001,7 @@ uv pip install {deps_str}
 
             bash_script = f"""#!/bin/bash
 export UV_SYSTEM_PYTHON=false
-uv venv --python 3.12
+uv venv --python {RUN_SCRIPT_PYTHON_VERSION}
 source .venv/bin/activate
 {install_commands}
 export PYTHONPATH="${{PYTHONPATH}}:$(pwd)/code"
