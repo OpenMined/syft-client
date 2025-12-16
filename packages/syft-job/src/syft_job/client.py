@@ -1968,14 +1968,40 @@ class JobClient:
         # Always include syft-client as a default dependency
         all_dependencies = ["syft-client"] + dependencies
 
-        # Create dependency installation commands
-        deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
-        install_commands = f"""
+        # Check if pyproject.toml exists in the code directory (for folder submissions)
+        has_pyproject = is_folder_submission and (code_dir / "pyproject.toml").exists()
+
+        if has_pyproject:
+            # Use uv sync for projects with pyproject.toml
+            # Also install additional dependencies if specified
+            extra_deps = ""
+            if dependencies:
+                deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
+                extra_deps = (
+                    f"\n# Install additional dependencies\nuv pip install {deps_str}"
+                )
+
+            bash_script = f"""#!/bin/bash
+export UV_SYSTEM_PYTHON=false
+
+# Change to code directory
+cd code
+
+# Sync dependencies from pyproject.toml
+uv sync
+{extra_deps}
+# Execute the entrypoint file
+uv run {entrypoint}
+"""
+        else:
+            # Create dependency installation commands for single files or folders without pyproject.toml
+            deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
+            install_commands = f"""
 # Install syft-client and custom dependencies
 uv pip install {deps_str}
 """
 
-        bash_script = f"""#!/bin/bash
+            bash_script = f"""#!/bin/bash
 export UV_SYSTEM_PYTHON=false
 
 # Create isolated uv virtual environment
@@ -1984,8 +2010,9 @@ uv venv
 # Activate the virtual environment
 source .venv/bin/activate
 {install_commands}
-# Execute the entrypoint file from code directory
-python code/{entrypoint}
+# Change to code directory and execute the entrypoint file
+cd code
+python {entrypoint}
 """
 
         # Create run.sh file

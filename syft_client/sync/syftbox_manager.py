@@ -610,7 +610,7 @@ class SyftboxManager(BaseModel):
         print(f"Submitted python job, job files are in {job_dir}")
 
     def push_job_files(self, job_dir: Path):
-        file_paths = [Path(p) for p in job_dir.rglob("*")]
+        file_paths = [Path(p) for p in job_dir.rglob("*") if p.is_file()]
         relative_file_paths = [p.relative_to(self.syftbox_folder) for p in file_paths]
 
         last_file = False
