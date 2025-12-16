@@ -20,6 +20,8 @@ from logging.handlers import RotatingFileHandler
 import daemon
 import daemon.pidfile
 
+from .monitor import get_creds_dir
+
 
 class DaemonManager:
     """Manages the syft-notify background daemon process."""
@@ -33,8 +35,8 @@ class DaemonManager:
         """
         self.config_path = Path(config_path).expanduser()
 
-        # File paths
-        creds_dir = Path.home() / ".syft-creds"
+        # File paths - use shared creds dir (supports Colab Drive mount)
+        creds_dir = get_creds_dir()
         creds_dir.mkdir(parents=True, exist_ok=True)
 
         self.pid_file = creds_dir / "syft-notify.pid"
