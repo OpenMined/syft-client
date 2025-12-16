@@ -2000,11 +2000,9 @@ uv pip install {deps_str}
             bash_script = f"""#!/bin/bash
 export UV_SYSTEM_PYTHON=false
 uv venv  # Create .venv in job root
-
 source .venv/bin/activate  # Activate the virtual environment
 {install_commands}  # Install deps
 export PYTHONPATH="${{PYTHONPATH}}:$(pwd)/code"  # Add code dir to PYTHONPATH for local imports
-
 python code/{entrypoint}  # Run from job root so outputs can be saved there
 """
 
