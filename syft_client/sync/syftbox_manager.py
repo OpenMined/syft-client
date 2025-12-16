@@ -495,8 +495,8 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
-            sender_manager.add_peer(receiver_manager.email)
-            receiver_manager.add_peer(sender_manager.email)
+            sender_manager.add_peer(receiver_manager.email, sync=False)
+            receiver_manager.add_peer(sender_manager.email, sync=False)
         if load_peers:
             receiver_manager.load_peers()
             sender_manager.load_peers()
@@ -583,22 +583,28 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
-            ds_manager.add_peer(do_manager.email)
-            do_manager.add_peer(ds_manager.email)
+            ds_manager.add_peer(do_manager.email, sync=False)
+            do_manager.add_peer(ds_manager.email, sync=False)
 
         return ds_manager, do_manager
 
-    def add_peer(self, peer_email: str, force: bool = False):
+    def add_peer(self, peer_email: str, force: bool = False, sync: bool = True):
         existing_emails = [p.email for p in self._peers]
         if peer_email in existing_emails and not force:
             print(f"Peer {peer_email} already exists, skipping")
         else:
             if self.is_do:
                 peer = self.connection_router.add_peer_as_do(peer_email=peer_email)
+                # Clear file hash cache so all existing files are re-synced to the new peer
+                if self.proposed_file_change_handler is not None:
+                    self.proposed_file_change_handler.event_cache.file_hashes = {}
             else:
                 peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
             self._peers.append(peer)
             print_peer_added(peer)
+            # Sync files to the new peer
+            if sync:
+                self.sync()
 
     def submit_bash_job(self, *args, sync=True, **kwargs):
         job_dir = self.job_client.submit_bash_job(*args, **kwargs)
