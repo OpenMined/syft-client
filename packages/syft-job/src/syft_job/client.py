@@ -1983,13 +1983,11 @@ class JobClient:
 
             bash_script = f"""#!/bin/bash
 export UV_SYSTEM_PYTHON=false
-
-# Sync dependencies from pyproject.toml
-cd code && uv sync && cd ..
-{extra_deps}
-
-# Execute the entrypoint file
-uv run code/{entrypoint}
+cd code && uv sync && cd ..  # Creates code/.venv and install deps from pyproject.toml
+{extra_deps}  # Install any extra dependencies
+source code/.venv/bin/activate  # Activate the project's virtual environment
+export PYTHONPATH="${{PYTHONPATH}}:$(pwd)/code"  # Add code dir to PYTHONPATH for local imports
+python code/{entrypoint}  # Run from job root so outputs can be saved there
 """
         else:
             # Create dependency installation commands for single files or folders without pyproject.toml
@@ -2001,16 +1999,13 @@ uv pip install {deps_str}
 
             bash_script = f"""#!/bin/bash
 export UV_SYSTEM_PYTHON=false
+uv venv  # Create .venv in job root
 
-# Create isolated uv virtual environment
-uv venv
+source .venv/bin/activate  # Activate the virtual environment
+{install_commands}  # Install deps
+export PYTHONPATH="${{PYTHONPATH}}:$(pwd)/code"  # Add code dir to PYTHONPATH for local imports
 
-# Activate the virtual environment
-source .venv/bin/activate
-{install_commands}
-
-# Execute the entrypoint file (working dir stays at job root for outputs)
-uv run code/{entrypoint}
+python code/{entrypoint}  # Run from job root so outputs can be saved there
 """
 
         # Create run.sh file
