@@ -516,11 +516,29 @@ with open("outputs/result.json", "w") as f:
 
     do_manager.job_runner.process_approved_jobs()
 
+    # Debug: Print job logs if job failed
+    job_dir = do_manager.job_client.jobs[0].location
+    stderr_file = job_dir / "stderr.txt"
+    stdout_file = job_dir / "stdout.txt"
+    returncode_file = job_dir / "returncode.txt"
+
+    if returncode_file.exists():
+        with open(returncode_file) as f:
+            returncode = f.read().strip()
+        if returncode != "0":
+            print(f"\n=== JOB FAILED (returncode={returncode}) ===")
+            if stdout_file.exists():
+                print(f"--- stdout.txt ---\n{stdout_file.read_text()}")
+            if stderr_file.exists():
+                print(f"--- stderr.txt ---\n{stderr_file.read_text()}")
+            print("=== END JOB LOGS ===\n")
+
     do_manager.sync()
 
     ds_manager.sync()
 
     output_path = ds_manager.job_client.jobs[-1].output_paths[0]
+    print(f"{ds_manager.job_client.jobs[-1].output_paths = }")
     with open(output_path, "r") as f:
         json_content = json.loads(f.read())
 
