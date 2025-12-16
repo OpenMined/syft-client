@@ -1984,14 +1984,12 @@ class JobClient:
             bash_script = f"""#!/bin/bash
 export UV_SYSTEM_PYTHON=false
 
-# Change to code directory
-cd code
-
 # Sync dependencies from pyproject.toml
-uv sync
+cd code && uv sync && cd ..
 {extra_deps}
+
 # Execute the entrypoint file
-uv run {entrypoint}
+uv run code/{entrypoint}
 """
         else:
             # Create dependency installation commands for single files or folders without pyproject.toml
@@ -2010,9 +2008,9 @@ uv venv
 # Activate the virtual environment
 source .venv/bin/activate
 {install_commands}
-# Change to code directory and execute the entrypoint file
-cd code
-python {entrypoint}
+
+# Execute the entrypoint file (working dir stays at job root for outputs)
+uv run code/{entrypoint}
 """
 
         # Create run.sh file

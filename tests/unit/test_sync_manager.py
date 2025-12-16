@@ -527,6 +527,135 @@ with open("outputs/result.json", "w") as f:
     assert json_content["result"] == "Hello, world!"
 
 
+def test_folder_job_flow_with_dataset():
+    """Test job submission with a folder containing multiple Python files.
+
+    Tests folder structure:
+        project_dir/
+        ├── main.py              # entrypoint, imports from helpers.helper
+        └── helpers/
+            ├── __init__.py      # package marker
+            └── helper.py        # helper functions
+
+    Verifies:
+        - Folder submission with entrypoint parameter works
+        - Nested package imports work (from helpers.helper import ...)
+        - Outputs created at job root (not inside code/)
+        - End-to-end flow: submit → approve → run → sync → verify output
+    """
+    import tempfile
+    import shutil
+
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+    do_manager.create_dataset(
+        name="my dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="This is a summary",
+        readme_path=readme_path,
+        tags=["tag1", "tag2"],
+    )
+
+    datasets = do_manager.datasets.get_all()
+    assert len(datasets) == 1
+
+    ds_manager.sync()
+
+    assert len(ds_manager.datasets.get_all()) == 1
+
+    # Create a temporary folder with multiple Python files
+    project_dir = tempfile.mkdtemp(prefix="test_project_")
+
+    try:
+        # Create nested helpers package
+        helpers_dir = Path(project_dir) / "helpers"
+        helpers_dir.mkdir(parents=True)
+
+        # Create __init__.py to make it a package
+        init_path = helpers_dir / "__init__.py"
+        with open(init_path, "w") as f:
+            f.write("# helpers package\n")
+
+        # Create helper module in nested directory
+        helper_path = helpers_dir / "helper.py"
+        with open(helper_path, "w") as f:
+            f.write("""
+def process_data(data):
+    \"\"\"Helper function to process data.\"\"\"
+    return f"Processed: {data}"
+
+def get_multiplier():
+    return 2
+""")
+
+        # Create main.py that imports from nested helpers package
+        main_path = Path(project_dir) / "main.py"
+        with open(main_path, "w") as f:
+            f.write("""
+import os
+import json
+import syft_client as sc
+from helpers.helper import process_data, get_multiplier
+
+# Read data from dataset
+data_path = "syft://private/syft_datasets/my dataset/private.txt"
+resolved_path = sc.resolve_path(data_path)
+
+with open(resolved_path, "r") as data_file:
+    data = data_file.read()
+
+# Use helper functions
+processed = process_data(data)
+multiplier = get_multiplier()
+
+result = {
+    "original": data,
+    "processed": processed,
+    "multiplier": multiplier
+}
+
+os.mkdir("outputs")
+with open("outputs/result.json", "w") as f:
+    f.write(json.dumps(result))
+""")
+
+        # Submit the folder as a job
+        ds_manager.submit_python_job(
+            user=do_manager.email,
+            code_path=project_dir,
+            job_name="test.folder.job",
+            entrypoint="main.py",
+        )
+
+        assert len(do_manager.job_client.jobs) == 1
+        job = do_manager.job_client.jobs[0]
+
+        job.approve()
+
+        do_manager.job_runner.process_approved_jobs()
+
+        do_manager.sync()
+        ds_manager.sync()
+
+        # Verify the job completed and produced output
+        output_path = ds_manager.job_client.jobs[-1].output_paths[0]
+        with open(output_path, "r") as f:
+            json_content = json.loads(f.read())
+
+        # Verify the helper module was imported and used correctly
+        assert json_content["original"] == "Hello, world!"
+        assert json_content["processed"] == "Processed: Hello, world!"
+        assert json_content["multiplier"] == 2
+
+    finally:
+        # Cleanup
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+
 def test_file_deletion_do_to_ds():
     """Test that DO can delete a file and it syncs to DS"""
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
