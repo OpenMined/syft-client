@@ -1966,7 +1966,9 @@ class JobClient:
         dependencies = dependencies or []
 
         # Always include syft-client as a default dependency
-        all_dependencies = ["syft-client"] + dependencies
+        # Use SYFT_CLIENT_INSTALL_SOURCE env var to override (e.g., for testing with local code)
+        syft_client_dep = os.environ.get("SYFT_CLIENT_INSTALL_SOURCE", "syft-client")
+        all_dependencies = [syft_client_dep] + dependencies
 
         # Check if pyproject.toml exists in the code directory (for folder submissions)
         has_pyproject = is_folder_submission and (code_dir / "pyproject.toml").exists()
