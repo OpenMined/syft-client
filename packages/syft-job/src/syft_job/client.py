@@ -1979,33 +1979,30 @@ class JobClient:
             extra_deps = ""
             if dependencies:
                 deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
-                extra_deps = (
-                    f"\n# Install additional dependencies\nuv pip install {deps_str}"
-                )
+                extra_deps = f"uv pip install {deps_str}"
 
             bash_script = f"""#!/bin/bash
 export UV_SYSTEM_PYTHON=false
-cd code && uv sync && cd ..  # Creates code/.venv and install deps from pyproject.toml
-{extra_deps}  # Install any extra dependencies
-source code/.venv/bin/activate  # Activate the project's virtual environment
-export PYTHONPATH="${{PYTHONPATH}}:$(pwd)/code"  # Add code dir to PYTHONPATH for local imports
-python code/{entrypoint}  # Run from job root so outputs can be saved there
+cd code && uv sync --python 3.12 && cd ..
+{extra_deps}
+source code/.venv/bin/activate
+export PYTHONPATH="${{PYTHONPATH}}:$(pwd)/code"
+python code/{entrypoint}
 """
         else:
             # Create dependency installation commands for single files or folders without pyproject.toml
             deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
             install_commands = f"""
-# Install syft-client and custom dependencies
 uv pip install {deps_str}
 """
 
             bash_script = f"""#!/bin/bash
 export UV_SYSTEM_PYTHON=false
-uv venv  # Create .venv in job root
-source .venv/bin/activate  # Activate the virtual environment
-{install_commands}  # Install deps
-export PYTHONPATH="${{PYTHONPATH}}:$(pwd)/code"  # Add code dir to PYTHONPATH for local imports
-python code/{entrypoint}  # Run from job root so outputs can be saved there
+uv venv --python 3.12
+source .venv/bin/activate
+{install_commands}
+export PYTHONPATH="${{PYTHONPATH}}:$(pwd)/code"
+python code/{entrypoint}
 """
 
         # Create run.sh file
