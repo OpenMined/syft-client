@@ -221,7 +221,11 @@ class SyftJobRunner:
         stderr_file = job_dir / "stderr.txt"
 
         # Execute run.sh with streaming output
-        with open(stdout_file, "w") as stdout_f, open(stderr_file, "w") as stderr_f:
+        # Use line buffering (buffering=1) to auto-flush on newlines instead of manual flush
+        with (
+            open(stdout_file, "w", buffering=1) as stdout_f,
+            open(stderr_file, "w", buffering=1) as stderr_f,
+        ):
             process = subprocess.Popen(
                 ["bash", str(run_script)],
                 cwd=job_dir,
@@ -260,19 +264,16 @@ class SyftJobRunner:
                         line = key.fileobj.readline()
                         if line:
                             if key.data == "stdout":
-                                print(f"[{job_name}] {line}", end="")
-                                sys.stdout.flush()
+                                print(f"[{job_name}] {line}", end="", flush=True)
                                 stdout_f.write(line)
-                                stdout_f.flush()
                             else:
                                 print(
                                     f"[{job_name}] ERR: {line}",
                                     end="",
                                     file=sys.stderr,
+                                    flush=True,
                                 )
-                                sys.stderr.flush()
                                 stderr_f.write(line)
-                                stderr_f.flush()
             finally:
                 sel.unregister(process.stdout)
                 sel.unregister(process.stderr)

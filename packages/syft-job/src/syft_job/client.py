@@ -1945,11 +1945,12 @@ class JobClient:
             install_deps_cmd = f"uv pip install {deps_str}"
 
             return f"""#!/bin/bash
+set -euo pipefail
 export UV_SYSTEM_PYTHON=false
 cd {code_folder} && uv sync --python {RUN_SCRIPT_PYTHON_VERSION} && cd ..
 source {code_folder}/.venv/bin/activate
 {install_deps_cmd}
-export PYTHONPATH={code_folder}:$PYTHONPATH
+export PYTHONPATH={code_folder}:${{PYTHONPATH:-}}
 python {entrypoint_path}
 """
         else:
@@ -1959,11 +1960,14 @@ python {entrypoint_path}
                 entrypoint_path.split("/")[0] if "/" in entrypoint_path else ""
             )
             pythonpath_cmd = (
-                f"export PYTHONPATH={code_folder}:$PYTHONPATH" if code_folder else ""
+                f"export PYTHONPATH={code_folder}:${{PYTHONPATH:-}}"
+                if code_folder
+                else ""
             )
 
             deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
             return f"""#!/bin/bash
+set -euo pipefail
 export UV_SYSTEM_PYTHON=false
 uv venv --python {RUN_SCRIPT_PYTHON_VERSION}
 source .venv/bin/activate
