@@ -657,13 +657,13 @@ class SyftboxManager(BaseModel):
             self.sync()
         return self.job_client.jobs
 
-    def process_approved_jobs(self, stream_output: bool = False) -> None:
+    def process_approved_jobs(self, stream_output: bool = True) -> None:
         """
         Process approved jobs. Automatically calls sync() after processing
 
         Args:
-            stream_output: If True, stream output in real-time.
-                           If False (default), capture output at end.
+            stream_output: If True (default), stream output in real-time.
+                        If False, capture output at end.
 
         PRE_SYNC defaults to "true", so auto-sync is enabled by default.
         To disable auto-sync, set: PRE_SYNC=false
