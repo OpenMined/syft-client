@@ -1898,12 +1898,13 @@ class JobClient:
             job_name = f"Job - {random_id}"
 
         # Validate code_path exists
-        code_path_obj = Path(code_path).expanduser().resolve()
-        if not code_path_obj.exists():
-            raise FileNotFoundError(f"Code path does not exist: {code_path}")
+        code_path_input = code_path  # Keep original for error messages
+        code_path = Path(code_path).expanduser().resolve()
+        if not code_path.exists():
+            raise FileNotFoundError(f"Code path does not exist: {code_path_input}")
 
         # Determine if it's a file or folder submission
-        is_folder_submission = code_path_obj.is_dir()
+        is_folder_submission = code_path.is_dir()
 
         if is_folder_submission:
             # For folder submissions, entrypoint is mandatory
@@ -1914,10 +1915,10 @@ class JobClient:
                 )
 
             # Validate entrypoint file exists in the folder
-            entrypoint_path = code_path_obj / entrypoint
+            entrypoint_path = code_path / entrypoint
             if not entrypoint_path.exists() or not entrypoint_path.is_file():
                 raise ValueError(
-                    f"Entrypoint file '{entrypoint}' not found in folder: {code_path}"
+                    f"Entrypoint file '{entrypoint}' not found in folder: {code_path_input}"
                 )
 
             if not entrypoint_path.suffix == ".py":
@@ -1926,11 +1927,13 @@ class JobClient:
                 )
         else:
             # For single file submissions
-            if not code_path_obj.suffix == ".py":
-                raise ValueError(f"Code path must be a Python file (.py): {code_path}")
+            if not code_path.suffix == ".py":
+                raise ValueError(
+                    f"Code path must be a Python file (.py): {code_path_input}"
+                )
 
             # Auto-detect entrypoint for file submissions
-            entrypoint = code_path_obj.name
+            entrypoint = code_path.name
 
         # Ensure user directory exists (create if it doesn't)
         user_dir = self.config.get_user_dir(user)
@@ -1956,14 +1959,10 @@ class JobClient:
         # Copy code to /code directory
         if is_folder_submission:
             # Copy entire folder contents to /code
-            for item in code_path_obj.iterdir():
-                if item.is_file():
-                    shutil.copy2(str(item), str(code_dir / item.name))
-                elif item.is_dir():
-                    shutil.copytree(str(item), str(code_dir / item.name))
+            shutil.copytree(code_path, code_dir, dirs_exist_ok=True)
         else:
             # Copy single Python file to /code directory
-            shutil.copy2(str(code_path_obj), str(code_dir / code_path_obj.name))
+            shutil.copy2(code_path, code_dir / code_path.name)
 
         # Generate bash script for Python execution with uv
         dependencies = dependencies or []
@@ -1979,15 +1978,15 @@ class JobClient:
         if has_pyproject:
             # Use uv sync for projects with pyproject.toml
             # Also install additional dependencies if specified
-            extra_deps = ""
+            install_deps_cmd = ""
             if dependencies:
                 deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
-                extra_deps = f"uv pip install {deps_str}"
+                install_deps_cmd = f"uv pip install {deps_str}"
 
             bash_script = f"""#!/bin/bash
 export UV_SYSTEM_PYTHON=false
 cd code && uv sync --python {RUN_SCRIPT_PYTHON_VERSION} && cd ..
-{extra_deps}
+{install_deps_cmd}
 source code/.venv/bin/activate
 export PYTHONPATH="${{PYTHONPATH}}:$(pwd)/code"
 python code/{entrypoint}
@@ -2025,7 +2024,7 @@ python code/{entrypoint}
             "submitted_by": self.root_email,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "type": "python",
-            "code_path": str(code_path_obj),
+            "code_path": str(code_path),
             "entry_point": entrypoint,
             "dependencies": all_dependencies,
             "is_folder_submission": is_folder_submission,
