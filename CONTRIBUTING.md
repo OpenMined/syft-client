@@ -203,9 +203,77 @@ These run automatically on every PR via GitHub Actions.
 - **Constants**: `UPPER_SNAKE_CASE`
 - **Private methods**: `_leading_underscore`
 
-## Testing (Coming Soon)
+## Testing
 
-Test infrastructure is being set up. Guidelines will be added here once ready.
+### Unit Tests
+
+```bash
+pytest tests/unit/ -v
+```
+
+### Integration Tests (Google Drive)
+
+Integration tests require Google OAuth credentials to test Google Drive synchronization.
+
+#### 1. Create credentials folder
+
+```bash
+mkdir -p credentials
+```
+
+#### 2. Get Google OAuth Credentials
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project (or select existing one)
+3. Enable the **Google Drive API**:
+   - Go to "APIs & Services" -> "Library"
+   - Search for "Google Drive API" and click "Enable"
+4. Configure **OAuth Consent Screen**:
+   - Go to "APIs & Services" -> "OAuth consent screen"
+   - Choose "External" (or "Internal" for Google Workspace)
+   - Add scopes: `https://www.googleapis.com/auth/drive`
+   - Add your test user emails
+5. Add audience:
+   - "APIs & Services" -> "OAuth Consent Screen" -> "Audience"
+   - Add your email as a "Test users" by clicking "Add users"
+6. Create **OAuth Credentials**:
+   - Go to "APIs & Services" -> "Credentials"
+   - Click "Create Credentials" -> "OAuth client ID"
+   - Application type: **Desktop app**
+   - Download the JSON files
+
+#### 3. Generate OAuth Tokens
+
+```bash
+python scripts/create_token.py --cred-path path/to/credentials.json --token-path credentials/token_do.json
+python scripts/create_token.py --cred-path path/to/credentials.json --token-path credentials/token_ds.json
+```
+
+A browser window will open for each user to authenticate.
+
+#### 4. Set Environment Variables
+
+```bash
+export BEACH_EMAIL_DO=your_do_email@gmail.com
+export BEACH_EMAIL_DS=your_ds_email@gmail.com
+```
+
+#### 5. Run Integration Tests
+
+```bash
+BEACH_EMAIL_DO=your_do_email@gmail.com BEACH_EMAIL_DS=your_ds_email@gmail.com pytest tests/integration/test_sync_manager.py -v -s
+```
+
+Or if you've already exported the variables:
+
+```bash
+pytest tests/integration/test_sync_manager.py -v -s
+```
+
+#### Security Notes
+
+- **Never commit** credential files or tokens to git (they're in `.gitignore`)
+- Tokens can be revoked at https://myaccount.google.com/permissions
 
 ## Getting Help
 

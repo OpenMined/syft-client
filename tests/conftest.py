@@ -5,7 +5,34 @@ This file is automatically loaded by pytest and configures the test environment.
 """
 
 import os
+from pathlib import Path
+
 import pytest
+
+
+@pytest.fixture(scope="session", autouse=True)
+def use_local_syft_client_for_jobs():
+    """
+    Use local syft-client code instead of PyPI for job submissions.
+
+    When jobs are submitted, they install syft-client as a dependency.
+    By default, this installs from PyPI, but for testing we want to use
+    the local code to test our latest changes.
+
+    This sets SYFT_CLIENT_INSTALL_SOURCE to the repo root path.
+    """
+    # Get repo root (tests/ -> syft-client/)
+    repo_root = Path(__file__).parent.parent.resolve()
+    original_value = os.environ.get("SYFT_CLIENT_INSTALL_SOURCE")
+    os.environ["SYFT_CLIENT_INSTALL_SOURCE"] = str(repo_root)
+
+    yield
+
+    # Restore original value after all tests
+    if original_value is not None:
+        os.environ["SYFT_CLIENT_INSTALL_SOURCE"] = original_value
+    else:
+        os.environ.pop("SYFT_CLIENT_INSTALL_SOURCE", None)
 
 
 @pytest.fixture(scope="session", autouse=True)

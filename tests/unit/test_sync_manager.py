@@ -9,7 +9,11 @@ import pytest
 from tests.unit.utils import (
     create_tmp_dataset_files,
     create_tmp_dataset_files_with_parquet,
+    create_test_project_folder,
 )
+import tempfile
+import shutil
+
 
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     ProposedEventFileOutdatedException,
@@ -462,7 +466,333 @@ with open("outputs/result.json", "w") as f:
     assert json_content["result"] == 1
 
 
-def test_job_flow_with_dataset():
+def test_single_file_job_submission_without_pyproject():
+    """Test that code files are copied directly to job_dir (not job_dir/code/).
+
+    Verifies backwards compatibility fix - code should be at:
+        job_dir/main.py  (not job_dir/code/main.py)
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    # Test with single file submission
+    test_py_path = "/tmp/test_direct_copy.py"
+    with open(test_py_path, "w") as f:
+        f.write('print("hello")')
+
+    ds_manager.submit_python_job(
+        user=do_manager.email,
+        code_path=test_py_path,
+        job_name="test.direct.copy",
+    )
+
+    do_manager.sync()
+
+    assert len(do_manager.job_client.jobs) == 1
+    job = do_manager.job_client.jobs[0]
+    job_dir = job.location
+
+    # Verify code is directly in job_dir, not in job_dir/code/
+    assert (job_dir / "test_direct_copy.py").exists(), (
+        "Code should be directly in job_dir"
+    )
+    assert (job_dir / "run.sh").exists(), "run.sh should exist"
+    assert (job_dir / "config.yaml").exists(), "config.yaml should exist"
+
+
+def test_folder_job_submission_without_pyproject():
+    """Test folder submission without pyproject.toml uses uv venv + uv pip install.
+
+    Verifies:
+        - Folder without pyproject.toml works
+        - Folder is preserved with its name (not dumped at root)
+        - Generated run.sh uses 'uv venv' (not 'uv sync')
+        - Entrypoint path includes folder name
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    # Create a folder without pyproject.toml
+    project_dir = tempfile.mkdtemp(prefix="test_no_pyproject_")
+    folder_name = Path(project_dir).name
+
+    try:
+        # Create main.py
+        main_path = Path(project_dir) / "main.py"
+        with open(main_path, "w") as f:
+            f.write("""
+import os
+os.mkdir("outputs")
+with open("outputs/result.txt", "w") as f:
+    f.write("success")
+""")
+
+        # Create a helper module
+        helper_path = Path(project_dir) / "helper.py"
+        with open(helper_path, "w") as f:
+            f.write("VALUE = 42\n")
+
+        # Submit folder (no pyproject.toml)
+        ds_manager.submit_python_job(
+            user=do_manager.email,
+            code_path=project_dir,
+            job_name="test.no.pyproject",
+            entrypoint="main.py",
+        )
+
+        do_manager.sync()
+
+        assert len(do_manager.job_client.jobs) == 1
+        job = do_manager.job_client.jobs[0]
+        job_dir = job.location
+
+        # Verify folder structure - folder preserved with its name
+        assert (job_dir / folder_name).exists(), (
+            f"Folder {folder_name} should exist in job_dir"
+        )
+        assert (job_dir / folder_name / "main.py").exists(), (
+            "main.py should be inside folder"
+        )
+        assert (job_dir / folder_name / "helper.py").exists(), (
+            "helper.py should be inside folder"
+        )
+        assert (job_dir / "run.sh").exists(), "run.sh should be at job_dir root"
+        assert (job_dir / "config.yaml").exists(), (
+            "config.yaml should be at job_dir root"
+        )
+
+        # Verify run.sh uses uv venv (not uv sync) and correct entrypoint path
+        run_script = (job_dir / "run.sh").read_text()
+        assert "uv venv" in run_script, (
+            "Should use 'uv venv' for folders without pyproject.toml"
+        )
+        assert "uv sync" not in run_script, (
+            "Should NOT use 'uv sync' without pyproject.toml"
+        )
+        assert f"python {folder_name}/main.py" in run_script, (
+            "Should run folder_name/main.py"
+        )
+
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+
+def test_folder_job_submission_with_pyproject():
+    """Test folder submission with pyproject.toml uses uv sync.
+
+    Verifies:
+        - Folder is preserved with its name inside job_dir
+        - pyproject.toml is inside the folder, not at job_dir root
+        - run.sh uses 'uv sync' inside the folder
+        - Entrypoint path includes folder name
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    # Create a folder with pyproject.toml
+    project_dir = tempfile.mkdtemp(prefix="test_with_pyproject_")
+    folder_name = Path(project_dir).name
+
+    try:
+        # Create pyproject.toml
+        pyproject_path = Path(project_dir) / "pyproject.toml"
+        with open(pyproject_path, "w") as f:
+            f.write("""
+[project]
+name = "test-project"
+version = "0.1.0"
+dependencies = []
+""")
+
+        # Create main.py
+        main_path = Path(project_dir) / "main.py"
+        with open(main_path, "w") as f:
+            f.write('print("hello from pyproject project")')
+
+        # Submit folder (with pyproject.toml)
+        ds_manager.submit_python_job(
+            user=do_manager.email,
+            code_path=project_dir,
+            job_name="test.with.pyproject",
+            entrypoint="main.py",
+        )
+
+        do_manager.sync()
+
+        assert len(do_manager.job_client.jobs) == 1
+        job = do_manager.job_client.jobs[0]
+        job_dir = job.location
+
+        # Verify folder structure - folder preserved with its name
+        assert (job_dir / folder_name).exists(), (
+            f"Folder {folder_name} should exist in job_dir"
+        )
+        assert (job_dir / folder_name / "main.py").exists(), (
+            "main.py should be inside folder"
+        )
+        assert (job_dir / folder_name / "pyproject.toml").exists(), (
+            "pyproject.toml should be inside folder"
+        )
+        assert (job_dir / "run.sh").exists(), "run.sh should be at job_dir root"
+        assert (job_dir / "config.yaml").exists(), (
+            "config.yaml should be at job_dir root"
+        )
+
+        # Verify run.sh uses uv sync inside folder and correct entrypoint path
+        run_script = (job_dir / "run.sh").read_text()
+        assert "uv sync" in run_script, (
+            "Should use 'uv sync' for folders with pyproject.toml"
+        )
+        assert f"cd {folder_name}" in run_script, "Should cd into folder for uv sync"
+        assert f"python {folder_name}/main.py" in run_script, (
+            "Should run folder_name/main.py"
+        )
+
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+
+def test_folder_job_auto_detect_main_py():
+    """Test that entrypoint is auto-detected when main.py exists."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    project_dir = tempfile.mkdtemp(prefix="test_auto_main_")
+    folder_name = Path(project_dir).name
+
+    try:
+        # Create main.py and another file
+        (Path(project_dir) / "main.py").write_text('print("main")')
+        (Path(project_dir) / "utils.py").write_text('print("utils")')
+
+        # Submit without entrypoint - should auto-detect main.py
+        ds_manager.submit_python_job(
+            user=do_manager.email,
+            code_path=project_dir,
+            job_name="test.auto.main",
+            # No entrypoint specified
+        )
+
+        do_manager.sync()
+        job = do_manager.job_client.jobs[0]
+        job_dir = job.location
+
+        # Verify main.py was auto-detected
+        run_script = (job_dir / "run.sh").read_text()
+        assert f"python {folder_name}/main.py" in run_script, (
+            "Should auto-detect main.py as entrypoint"
+        )
+
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+
+def test_folder_job_auto_detect_single_py():
+    """Test that entrypoint is auto-detected when only one .py file exists."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    project_dir = tempfile.mkdtemp(prefix="test_auto_single_")
+    folder_name = Path(project_dir).name
+
+    try:
+        # Create only one .py file (not named main.py)
+        (Path(project_dir) / "script.py").write_text('print("script")')
+        (Path(project_dir) / "README.md").write_text("# Readme")
+
+        # Submit without entrypoint - should auto-detect script.py
+        ds_manager.submit_python_job(
+            user=do_manager.email,
+            code_path=project_dir,
+            job_name="test.auto.single",
+        )
+
+        do_manager.sync()
+        job = do_manager.job_client.jobs[0]
+        job_dir = job.location
+
+        # Verify script.py was auto-detected
+        run_script = (job_dir / "run.sh").read_text()
+        assert f"python {folder_name}/script.py" in run_script, (
+            "Should auto-detect single .py file as entrypoint"
+        )
+
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+
+def test_folder_job_no_auto_detect_multiple_py():
+    """Test that auto-detection fails when multiple .py files and no main.py."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    project_dir = tempfile.mkdtemp(prefix="test_no_auto_")
+
+    try:
+        # Create multiple .py files (no main.py)
+        (Path(project_dir) / "script1.py").write_text('print("1")')
+        (Path(project_dir) / "script2.py").write_text('print("2")')
+
+        # Submit without entrypoint - should fail
+        with pytest.raises(ValueError, match="Could not auto-detect entrypoint"):
+            ds_manager.submit_python_job(
+                user=do_manager.email,
+                code_path=project_dir,
+                job_name="test.no.auto",
+            )
+
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+
+def test_single_file_job_flow_with_dataset():
+    """Test complete job submission flow with dataset access.
+
+    This test verifies the end-to-end flow of:
+    1. Data Owner (DO) creates a dataset with mock and private data
+    2. Data Scientist (DS) syncs and sees the dataset
+    3. DS submits a Python job that accesses the private dataset
+    4. DO approves and runs the job
+    5. Job reads private data using syft:// protocol
+    6. Results sync back to DS
+
+    Test flow:
+        DO: create_dataset("my dataset") with private.txt containing "Hello, world!"
+                ↓
+        DS: sync() → sees dataset
+                ↓
+        DS: submit_python_job() with code that reads syft://private/...
+                ↓
+        DO: sync() → receives job
+                ↓
+        DO: job.approve() + process_approved_jobs()
+                ↓
+        Job executes: reads private data → writes outputs/result.json
+                ↓
+        DO: sync() → sends results
+                ↓
+        DS: sync() → receives results
+                ↓
+        Assert: result.json contains {"result": "Hello, world!"}
+
+    Verifies:
+        - Dataset creation and sync between DO and DS
+        - Job submission with syft:// path resolution
+        - Job approval and execution workflow
+        - Output file sync back to DS
+    """
     ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
         use_in_memory_cache=False
     )
@@ -517,7 +847,6 @@ with open("outputs/result.json", "w") as f:
     do_manager.job_runner.process_approved_jobs()
 
     do_manager.sync()
-
     ds_manager.sync()
 
     output_path = ds_manager.job_client.jobs[-1].output_paths[0]
@@ -525,6 +854,174 @@ with open("outputs/result.json", "w") as f:
         json_content = json.loads(f.read())
 
     assert json_content["result"] == "Hello, world!"
+
+
+def test_folder_job_flow_with_dataset():
+    """Test job submission with a folder containing multiple Python files.
+
+    Tests folder structure:
+        project_dir/
+        ├── main.py              # entrypoint, imports from helpers.helper
+        └── helpers/
+            ├── __init__.py      # package marker
+            └── helper.py        # helper functions
+
+    Verifies:
+        - Folder submission with entrypoint parameter works
+        - Nested package imports work (from helpers.helper import ...)
+        - Outputs created at job root (not inside code/)
+        - End-to-end flow: submit → approve → run → sync → verify output
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+    do_manager.create_dataset(
+        name="my dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="This is a summary",
+        readme_path=readme_path,
+        tags=["tag1", "tag2"],
+    )
+
+    ds_manager.sync()
+    assert len(ds_manager.datasets.get_all()) == 1
+
+    # Create test project folder (no pyproject.toml, multiplier=2)
+    project_dir = create_test_project_folder(with_pyproject=False, multiplier=2)
+
+    try:
+        ds_manager.submit_python_job(
+            user=do_manager.email,
+            code_path=str(project_dir),
+            job_name="test.folder.job",
+            entrypoint="main.py",
+        )
+
+        assert len(do_manager.job_client.jobs) == 1
+        job = do_manager.job_client.jobs[0]
+
+        job.approve()
+        do_manager.job_runner.process_approved_jobs()
+
+        do_manager.sync()
+        ds_manager.sync()
+
+        # Verify the job completed and produced output
+        output_path = ds_manager.job_client.jobs[-1].output_paths[0]
+        with open(output_path, "r") as f:
+            json_content = json.loads(f.read())
+
+        # Verify the helper module was imported and used correctly
+        assert json_content["original"] == "Hello, world!"
+        assert json_content["processed"] == "Processed: Hello, world!"
+        assert json_content["multiplier"] == 2
+
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+
+def test_pyproject_folder_job_flow_with_dataset():
+    """Test job submission with a folder containing pyproject.toml.
+
+    Tests folder structure:
+        project_dir/
+        ├── pyproject.toml       # project config with dependencies
+        ├── main.py              # entrypoint, imports from helpers.helper
+        └── helpers/
+            ├── __init__.py      # package marker
+            └── helper.py        # helper functions
+
+    Verifies:
+        - Folder with pyproject.toml uses 'uv sync' (not 'uv venv')
+        - Folder is preserved with its name in job_dir
+        - .venv is created inside the code folder by uv sync
+        - Nested package imports work
+        - End-to-end flow: submit → approve → run → sync → verify output
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+    do_manager.create_dataset(
+        name="my dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="This is a summary",
+        readme_path=readme_path,
+        tags=["tag1", "tag2"],
+    )
+
+    ds_manager.sync()
+    assert len(ds_manager.datasets.get_all()) == 1
+
+    # Create test project folder with pyproject.toml, multiplier=3
+    project_dir = create_test_project_folder(
+        with_pyproject=True, multiplier=3, prefix="test_pyproject_"
+    )
+    folder_name = project_dir.name
+
+    try:
+        ds_manager.submit_python_job(
+            user=do_manager.email,
+            code_path=str(project_dir),
+            job_name="test.pyproject.job",
+            entrypoint="main.py",
+        )
+
+        assert len(do_manager.job_client.jobs) == 1
+        job = do_manager.job_client.jobs[0]
+        job_dir = job.location
+
+        # Verify folder structure before running
+        assert (job_dir / folder_name).exists(), (
+            f"Folder {folder_name} should exist in job_dir"
+        )
+        assert (job_dir / folder_name / "pyproject.toml").exists(), (
+            "pyproject.toml should be inside folder"
+        )
+        assert (job_dir / folder_name / "main.py").exists(), (
+            "main.py should be inside folder"
+        )
+        assert (job_dir / "run.sh").exists(), "run.sh should be at job_dir root"
+
+        # Verify run.sh uses uv sync (pyproject.toml case)
+        run_script = (job_dir / "run.sh").read_text()
+        assert "uv sync" in run_script, (
+            "Should use 'uv sync' for folders with pyproject.toml"
+        )
+        assert f"cd {folder_name}" in run_script, "Should cd into folder for uv sync"
+        assert f"python {folder_name}/main.py" in run_script, (
+            "Should run folder_name/main.py"
+        )
+
+        # Run the job
+        job.approve()
+        do_manager.job_runner.process_approved_jobs()
+
+        # Verify .venv was created inside the code folder (by uv sync)
+        assert (job_dir / folder_name / ".venv").exists(), (
+            ".venv should be created inside folder by uv sync"
+        )
+
+        do_manager.sync()
+        ds_manager.sync()
+
+        # Verify the job completed and produced output
+        output_path = ds_manager.job_client.jobs[-1].output_paths[0]
+        with open(output_path, "r") as f:
+            json_content = json.loads(f.read())
+
+        # Verify the helper module was imported and used correctly
+        assert json_content["original"] == "Hello, world!"
+        assert json_content["processed"] == "Processed: Hello, world!"
+        assert json_content["multiplier"] == 3
+
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
 
 
 def test_file_deletion_do_to_ds():

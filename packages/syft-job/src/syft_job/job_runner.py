@@ -1,11 +1,16 @@
 import os
+import selectors
 import shutil
 import subprocess
+import sys
 import time
 from typing import List, Set
 
 from . import __version__
 from .config import SyftJobConfig
+
+# Default timeout for job execution (5 minutes)
+DEFAULT_JOB_TIMEOUT_SECONDS = 300
 
 
 class SyftJobRunner:
@@ -198,12 +203,153 @@ class SyftJobRunner:
 
         return jobs
 
-    def _execute_job(self, job_name: str) -> bool:
+    def _execute_job_streaming(self, job_name: str) -> bool:
+        """Execute job with real-time streaming output."""
+        job_dir = self.config.get_job_dir(self.config.email) / job_name
+        run_script = job_dir / "run.sh"
+
+        # Log prefix for streaming output
+        log_prefix = f"[{self.config.email}][{job_name}]"
+
+        # Make run.sh executable
+        os.chmod(run_script, 0o755)
+
+        # Prepare environment variables
+        env = os.environ.copy()
+        env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
+        env["SYFTBOX_EMAIL"] = self.config.email
+        # Disable Python output buffering so streaming works in real-time
+        env["PYTHONUNBUFFERED"] = "1"
+
+        # Prepare log files for streaming output
+        stdout_file = job_dir / "stdout.txt"
+        stderr_file = job_dir / "stderr.txt"
+
+        # Execute run.sh with streaming output
+        # Use line buffering (buffering=1) for files to auto-flush on newlines
+        # Note: sys.stdout.flush() is still needed for console output in Jupyter/Colab
+        with (
+            open(stdout_file, "w", buffering=1) as stdout_f,
+            open(stderr_file, "w", buffering=1) as stderr_f,
+        ):
+            process = subprocess.Popen(
+                ["bash", str(run_script)],
+                cwd=job_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+
+            # Use selectors for cross-platform non-blocking I/O
+            sel = selectors.DefaultSelector()
+            sel.register(process.stdout, selectors.EVENT_READ, data="stdout")
+            sel.register(process.stderr, selectors.EVENT_READ, data="stderr")
+
+            start_time = time.time()
+            timed_out = False
+
+            try:
+                while process.poll() is None:
+                    # Check for timeout
+                    if time.time() - start_time > DEFAULT_JOB_TIMEOUT_SECONDS:
+                        process.kill()
+                        process.wait()
+                        timed_out = True
+                        print(
+                            f"⏰ Job {job_name} timed out after "
+                            f"{DEFAULT_JOB_TIMEOUT_SECONDS // 60} minutes"
+                        )
+                        stdout_f.write("\n--- PROCESS TIMED OUT ---\n")
+                        stderr_f.write("\n--- PROCESS TIMED OUT ---\n")
+                        break
+
+                    # Check for available output (non-blocking)
+                    events = sel.select(timeout=0.1)
+                    for key, _ in events:
+                        line = key.fileobj.readline()
+                        if line:
+                            if key.data == "stdout":
+                                print(f"{log_prefix} {line}", end="", flush=True)
+                                stdout_f.write(line)  # buffering=1 auto-flushes
+                            else:
+                                print(
+                                    f"{log_prefix} STDERR: {line}",
+                                    end="",
+                                    file=sys.stderr,
+                                )
+                                print(
+                                    f"{log_prefix} STDERR: {line}", end="", flush=True
+                                )
+                                stderr_f.write(line)  # buffering=1 auto-flushes
+            finally:
+                sel.unregister(process.stdout)
+                sel.unregister(process.stderr)
+                sel.close()
+
+            # Read any remaining output after process ends
+            remaining_stdout, remaining_stderr = process.communicate()
+            if remaining_stdout:
+                print(f"{log_prefix} {remaining_stdout}", end="", flush=True)
+                stdout_f.write(remaining_stdout)
+            if remaining_stderr:
+                print(
+                    f"{log_prefix} STDERR: {remaining_stderr}", end="", file=sys.stderr
+                )
+                print(f"{log_prefix} STDERR: {remaining_stderr}", end="", flush=True)
+                stderr_f.write(remaining_stderr)
+
+            returncode = process.returncode if not timed_out else -1
+
+        return returncode
+
+    def _execute_job_captured(self, job_name: str) -> int:
+        """Execute job with captured output (non-streaming).
+        Default, CI-friendly
+        """
+        job_dir = self.config.get_job_dir(self.config.email) / job_name
+        run_script = job_dir / "run.sh"
+
+        # Make run.sh executable
+        os.chmod(run_script, 0o755)
+
+        # Prepare environment variables
+        env = os.environ.copy()
+        env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
+        env["SYFTBOX_EMAIL"] = self.config.email
+        # Disable Python output buffering for consistency
+        env["PYTHONUNBUFFERED"] = "1"
+
+        # Execute run.sh and capture output
+        result = subprocess.run(
+            ["bash", str(run_script)],
+            cwd=job_dir,
+            capture_output=True,
+            text=True,
+            timeout=DEFAULT_JOB_TIMEOUT_SECONDS,
+            env=env,
+        )
+
+        # Write stdout to stdout.txt
+        stdout_file = job_dir / "stdout.txt"
+        with open(stdout_file, "w") as f:
+            f.write(result.stdout)
+
+        # Write stderr to stderr.txt
+        stderr_file = job_dir / "stderr.txt"
+        with open(stderr_file, "w") as f:
+            f.write(result.stderr)
+
+        return result.returncode
+
+    def _execute_job(self, job_name: str, stream_output: bool = True) -> bool:
         """
         Execute run.sh for a job in the approved directory.
 
         Args:
             job_name: Name of the job to execute
+            stream_output: If True (default), stream output in real-time.
+                        If False, capture output at end (CI-friendly).
 
         Returns:
             bool: True if execution was successful, False otherwise
@@ -219,65 +365,54 @@ class SyftJobRunner:
         print(f"📁 Job directory: {job_dir}")
 
         try:
-            # Make run.sh executable
-            os.chmod(run_script, 0o755)
-
-            # Prepare environment variables
-            env = os.environ.copy()
-            env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
-
-            # Execute run.sh and capture output
-            result = subprocess.run(
-                ["bash", str(run_script)],
-                cwd=job_dir,
-                capture_output=True,
-                text=True,
-                timeout=300,  # 5 minute timeout
-                env=env,
-            )
+            # Execute with streaming or captured output
+            if stream_output:
+                returncode = self._execute_job_streaming(job_name)
+            else:
+                returncode = self._execute_job_captured(job_name)
 
             # Create done marker file to mark job as completed
             self.config.create_done_marker(job_dir)
 
-            # Write log files directly to job root directory (flat structure)
-            # Write stdout to stdout.txt
-            stdout_file = job_dir / "stdout.txt"
-            with open(stdout_file, "w") as f:
-                f.write(result.stdout)
-
-            # Also write stderr if there is any
-            if result.stderr:
-                stderr_file = job_dir / "stderr.txt"
-                with open(stderr_file, "w") as f:
-                    f.write(result.stderr)
-
             # Write return code
             returncode_file = job_dir / "returncode.txt"
             with open(returncode_file, "w") as f:
-                f.write(str(result.returncode))
+                f.write(str(returncode))
 
-            if result.returncode == 0:
+            stdout_file = job_dir / "stdout.txt"
+            stderr_file = job_dir / "stderr.txt"
+
+            if returncode == 0:
                 print(f"✅ Job {job_name} completed successfully")
                 print(f"📄 Output written to {stdout_file}")
             else:
-                print(
-                    f"⚠️  Job {job_name} completed with return code {result.returncode}"
-                )
+                print(f"⚠️  Job {job_name} completed with return code {returncode}")
                 print(f"📄 Output written to {stdout_file}")
-                if result.stderr:
-                    print(f"📄 Error output written to {job_dir / 'stderr.txt'}")
+                try:
+                    if stderr_file.exists() and stderr_file.stat().st_size > 0:
+                        print(f"📄 Error output written to {stderr_file}")
+                except OSError:
+                    pass
 
             return True
 
         except subprocess.TimeoutExpired:
-            print(f"⏰ Job {job_name} timed out after 5 minutes")
+            print(
+                f"⏰ Job {job_name} timed out after "
+                f"{DEFAULT_JOB_TIMEOUT_SECONDS // 60} minutes"
+            )
             return False
         except Exception as e:
             print(f"❌ Error executing job {job_name}: {e}")
             return False
 
-    def process_approved_jobs(self) -> None:
-        """Process all jobs in the approved directory."""
+    def process_approved_jobs(self, stream_output: bool = True) -> None:
+        """Process all jobs in the approved directory.
+
+        Args:
+            stream_output: If True (default), stream output in real-time.
+                        If False, capture output at end (CI-friendly).
+        """
         approved_jobs = self._get_jobs_in_approved()
 
         if not approved_jobs:
@@ -287,7 +422,7 @@ class SyftJobRunner:
 
         for job_name in approved_jobs:
             print(f"\n{'=' * 50}")
-            self._execute_job(job_name)
+            self._execute_job(job_name, stream_output=stream_output)
             print(f"{'=' * 50}")
 
         if approved_jobs:
@@ -309,7 +444,8 @@ class SyftJobRunner:
         self.known_jobs = set(self._get_jobs_in_inbox())
         if self.known_jobs:
             print(
-                f"📋 Found {len(self.known_jobs)} existing jobs: {', '.join(self.known_jobs)}"
+                f"📋 Found {len(self.known_jobs)} existing jobs: "
+                f"{', '.join(self.known_jobs)}"
             )
         else:
             print("📭 No existing jobs found")

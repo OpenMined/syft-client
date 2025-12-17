@@ -610,7 +610,7 @@ class SyftboxManager(BaseModel):
         print(f"Submitted python job, job files are in {job_dir}")
 
     def push_job_files(self, job_dir: Path):
-        file_paths = [Path(p) for p in job_dir.rglob("*")]
+        file_paths = [Path(p) for p in job_dir.rglob("*") if p.is_file()]
         relative_file_paths = [p.relative_to(self.syftbox_folder) for p in file_paths]
 
         last_file = False
@@ -657,14 +657,18 @@ class SyftboxManager(BaseModel):
             self.sync()
         return self.job_client.jobs
 
-    def process_approved_jobs(self) -> None:
+    def process_approved_jobs(self, stream_output: bool = True) -> None:
         """
         Process approved jobs. Automatically calls sync() after processing
+
+        Args:
+            stream_output: If True (default), stream output in real-time.
+                        If False, capture output at end.
 
         PRE_SYNC defaults to "true", so auto-sync is enabled by default.
         To disable auto-sync, set: PRE_SYNC=false
         """
-        self.job_runner.process_approved_jobs()
+        self.job_runner.process_approved_jobs(stream_output=stream_output)
         if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
 

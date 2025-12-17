@@ -164,6 +164,8 @@ SyftBox/
 
 # Claude AI settings
 .claude/
+CLAUDE.md
+
 # CI test outputs
 test_outputs/
 test_suite_output.log

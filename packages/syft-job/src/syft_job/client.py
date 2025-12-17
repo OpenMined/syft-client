@@ -2,11 +2,18 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import yaml
 
 from .config import SyftJobConfig
+
+# Python version used when creating virtual environments for job execution
+RUN_SCRIPT_PYTHON_VERSION = "3.12"
+
+# Default syft-client dependency (can be overridden via env var for testing with
+# local syft-client code instead of the package on PyPI - https://pypi.org/project/syft-client/)
+SYFT_CLIENT_DEP = os.environ.get("SYFT_CLIENT_INSTALL_SOURCE", "syft-client")
 
 
 class StdoutViewer:
@@ -1861,28 +1868,167 @@ class JobClient:
 
         return job_dir
 
+    def _detect_entrypoint(self, folder_path: Path) -> Optional[str]:
+        """Auto-detect entrypoint for folder submissions.
+
+        Detection priority:
+        1. main.py - most common convention
+        2. Single .py file at root - if only one exists
+
+        Args:
+            folder_path: Path to the folder to search
+
+        Returns:
+            Detected entrypoint filename or None if not found
+        """
+        # Check main.py first (most common convention)
+        if (folder_path / "main.py").exists():
+            return "main.py"
+
+        # Check for single .py file at root
+        py_files = [
+            f for f in folder_path.iterdir() if f.is_file() and f.suffix == ".py"
+        ]
+        if len(py_files) == 1:
+            return py_files[0].name
+
+        return None
+
+    def _validate_code_path_and_entrypoint(
+        self, code_path: str, entrypoint: Optional[str]
+    ) -> Tuple[Path, bool, str]:
+        """
+        Validate code path and entrypoint for Python job submission.
+
+        Args:
+            code_path: Path to Python file or folder
+            entrypoint: Entry point file name (auto-detected if not provided)
+
+        Returns:
+            Tuple of (resolved_code_path, is_folder_submission, validated_entrypoint)
+
+        Raises:
+            FileNotFoundError: If code_path doesn't exist
+            ValueError: If validation fails
+        """
+        code_path_input = code_path  # Keep original for error messages
+        resolved_path = Path(code_path).expanduser().resolve()
+
+        if not resolved_path.exists():
+            raise FileNotFoundError(f"Code path does not exist: {code_path_input}")
+
+        is_folder_submission = resolved_path.is_dir()
+
+        if is_folder_submission:
+            if not entrypoint:
+                # Auto-detect entrypoint
+                entrypoint = self._detect_entrypoint(resolved_path)
+                if not entrypoint:
+                    raise ValueError(
+                        "Could not auto-detect entrypoint. No main.py or single .py file "
+                        "found at folder root. Please specify the entrypoint explicitly."
+                    )
+
+            entrypoint_path = resolved_path / entrypoint
+            if not entrypoint_path.exists() or not entrypoint_path.is_file():
+                raise ValueError(
+                    f"Entrypoint file '{entrypoint}' not found in folder: {code_path_input}"
+                )
+
+            if entrypoint_path.suffix != ".py":
+                raise ValueError(
+                    f"Entrypoint file must be a Python file (.py): {entrypoint}"
+                )
+        else:
+            if resolved_path.suffix != ".py":
+                raise ValueError(
+                    f"Code path must be a Python file (.py): {code_path_input}"
+                )
+            # Auto-detect entrypoint for file submissions
+            entrypoint = resolved_path.name
+
+        return resolved_path, is_folder_submission, entrypoint
+
+    def _generate_python_run_script(
+        self, entrypoint_path: str, dependencies: List[str], has_pyproject: bool
+    ) -> str:
+        """
+        Generate bash script for Python job execution.
+
+        Args:
+            entrypoint_path: Path to Python file to execute (e.g., "script.py" or "project_dir/main.py")
+            dependencies: List of dependencies to install
+            has_pyproject: Whether the code has a pyproject.toml
+
+        Returns:
+            Bash script content
+        """
+        all_dependencies = [SYFT_CLIENT_DEP] + dependencies
+
+        if has_pyproject:
+            # For projects with pyproject.toml, run uv sync inside the project folder
+            # entrypoint_path is like "project_dir/main.py", so folder is the first part
+            code_folder = entrypoint_path.split("/")[0]
+            # Always install syft_client (and any extra dependencies) after uv sync
+            deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
+            install_deps_cmd = f"uv pip install {deps_str}"
+
+            return f"""#!/bin/bash
+set -euo pipefail
+export UV_SYSTEM_PYTHON=false
+cd {code_folder} && uv sync --python {RUN_SCRIPT_PYTHON_VERSION} && cd ..
+source {code_folder}/.venv/bin/activate
+{install_deps_cmd}
+export PYTHONPATH={code_folder}:${{PYTHONPATH:-}}
+python {entrypoint_path}
+"""
+        else:
+            # For folder submissions without pyproject.toml, add code folder to PYTHONPATH
+            # entrypoint_path is like "project_dir/main.py" for folders, or "script.py" for single files
+            code_folder = (
+                entrypoint_path.split("/")[0] if "/" in entrypoint_path else ""
+            )
+            pythonpath_cmd = (
+                f"export PYTHONPATH={code_folder}:${{PYTHONPATH:-}}"
+                if code_folder
+                else ""
+            )
+
+            deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
+            return f"""#!/bin/bash
+set -euo pipefail
+export UV_SYSTEM_PYTHON=false
+uv venv --python {RUN_SCRIPT_PYTHON_VERSION}
+source .venv/bin/activate
+uv pip install {deps_str}
+{pythonpath_cmd}
+python {entrypoint_path}
+"""
+
     def submit_python_job(
         self,
         user: str,
         code_path: str,
         job_name: Optional[str] = "",
         dependencies: Optional[List[str]] = None,
+        entrypoint: Optional[str] = None,
     ) -> Path:
         """
-        Submit a Python job for a user (single file only).
+        Submit a Python job for a user (supports both files and folders).
 
         Args:
             user: Email address of the user to submit job for
             job_name: Name of the job (will be used as directory name)
-            code_path: Path to Python file (folders are temporarily disabled)
+            code_path: Path to Python file or folder containing Python code
             dependencies: List of Python packages to install (e.g., ["numpy", "pandas==1.5.0"])
+            entrypoint: Entry point file name for folder submissions (mandatory for folders, auto-detected for files)
 
         Returns:
             Path to the created job directory
 
         Raises:
             FileExistsError: If job with same name already exists
-            ValueError: If code_path is not a single Python file
+            ValueError: If code_path validation fails or entrypoint is missing for folders
             FileNotFoundError: If code_path doesn't exist
         """
         # Generate default job name if not provided
@@ -1892,19 +2038,10 @@ class JobClient:
             random_id = str(uuid4())[0:8]
             job_name = f"Job - {random_id}"
 
-        # Validate code_path exists
-        code_path_obj = Path(code_path).expanduser().resolve()
-        if not code_path_obj.exists():
-            raise FileNotFoundError(f"Code path does not exist: {code_path}")
-
-        # Only accept single Python files (folders temporarily disabled)
-        if not code_path_obj.is_file():
-            raise ValueError(
-                f"Code path must be a single Python file. Folders are temporarily disabled: {code_path}"
-            )
-
-        if not code_path_obj.suffix == ".py":
-            raise ValueError(f"Code path must be a Python file (.py): {code_path}")
+        # Validate code path and entrypoint
+        code_path, is_folder_submission, entrypoint = (
+            self._validate_code_path_and_entrypoint(code_path, entrypoint)
+        )
 
         # Ensure user directory exists (create if it doesn't)
         user_dir = self.config.get_user_dir(user)
@@ -1923,35 +2060,30 @@ class JobClient:
 
         job_dir.mkdir(parents=True)
 
-        # Copy Python file directly to job root directory
-        destination = job_dir / code_path_obj.name
-        shutil.copy2(str(code_path_obj), str(destination))
+        # Copy code to job directory
+        if is_folder_submission:
+            # Copy entire folder (preserving folder name) to job directory
+            # e.g., project_dir/ -> job_dir/project_dir/
+            code_folder_name = code_path.name
+            shutil.copytree(code_path, job_dir / code_folder_name)
+            # Entrypoint path includes folder name
+            entrypoint_path = f"{code_folder_name}/{entrypoint}"
+            pyproject_path = job_dir / code_folder_name / "pyproject.toml"
+        else:
+            # Copy single Python file to job directory
+            shutil.copy2(code_path, job_dir / code_path.name)
+            entrypoint_path = entrypoint
+            pyproject_path = None
 
-        # Generate bash script for Python execution with uv
+        # Generate bash script for Python execution
         dependencies = dependencies or []
+        has_pyproject = pyproject_path is not None and pyproject_path.exists()
+        bash_script = self._generate_python_run_script(
+            entrypoint_path, dependencies, has_pyproject
+        )
 
-        # Always include syft-client as a default dependency
-        all_dependencies = ["syft-client"] + dependencies
-
-        # Create dependency installation commands
-        deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
-        install_commands = f"""
-# Install syft-client and custom dependencies
-uv pip install {deps_str}
-"""
-
-        bash_script = f"""#!/bin/bash
-export UV_SYSTEM_PYTHON=false
-
-# Create isolated uv virtual environment
-uv venv
-
-# Activate the virtual environment
-source .venv/bin/activate
-{install_commands}
-# Execute the Python file directly from job root
-python {code_path_obj.name}
-"""
+        # Compute all_dependencies for config.yaml
+        all_dependencies = [SYFT_CLIENT_DEP] + dependencies
 
         # Create run.sh file
         run_script_path = job_dir / "run.sh"
@@ -1970,9 +2102,10 @@ python {code_path_obj.name}
             "submitted_by": self.root_email,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "type": "python",
-            "code_path": str(code_path_obj),
-            "entry_point": code_path_obj.name,
+            "code_path": str(code_path),
+            "entry_point": entrypoint,
             "dependencies": all_dependencies,
+            "is_folder_submission": is_folder_submission,
         }
 
         with open(config_yaml_path, "w") as f:
