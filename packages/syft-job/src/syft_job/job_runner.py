@@ -215,6 +215,8 @@ class SyftJobRunner:
         env = os.environ.copy()
         env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
         env["SYFTBOX_EMAIL"] = self.config.email
+        # Disable Python output buffering so streaming works in real-time
+        env["PYTHONUNBUFFERED"] = "1"
 
         # Prepare log files for streaming output
         stdout_file = job_dir / "stdout.txt"
@@ -306,6 +308,8 @@ class SyftJobRunner:
         env = os.environ.copy()
         env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
         env["SYFTBOX_EMAIL"] = self.config.email
+        # Disable Python output buffering for consistency
+        env["PYTHONUNBUFFERED"] = "1"
 
         # Execute run.sh and capture output
         result = subprocess.run(
