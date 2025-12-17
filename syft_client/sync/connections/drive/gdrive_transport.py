@@ -13,7 +13,9 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from google.oauth2.credentials import Credentials as GoogleCredentials
 
-from syft_client.sync.connections.drive.gdrive_utils import delete_folder_recursive
+from syft_client.sync.connections.drive.gdrive_utils import (
+    gather_all_file_and_folder_ids_recursive,
+)
 
 from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
@@ -665,19 +667,33 @@ class GDriveConnection(SyftboxPlatformConnection):
             body=file_metadata, media_body=payload, fields="id"
         ).execute()
 
-    def delete_syftbox(self):
+    def reset_caches(self):
+        self._syftbox_folder_id = None
+        self._personal_syftbox_folder_id = None
+        self.do_inbox_folder_id_cache.clear()
+        self.do_outbox_folder_id_cache.clear()
+        self.ds_inbox_folder_id_cache.clear()
+        self.ds_outbox_folder_id_cache.clear()
+        self.archive_folder_id_cache.clear()
+        self.personal_syftbox_event_id_cache.clear()
+
+    def gather_all_file_and_folder_ids(self) -> List[str]:
         syftbox_folder_id = self.get_syftbox_folder_id()
-        if syftbox_folder_id is not None:
-            delete_folder_recursive(self.drive_service, syftbox_folder_id, verbose=True)
-            # Clear all cached folder IDs after deletion
-            self._syftbox_folder_id = None
-            self._personal_syftbox_folder_id = None
-            self.do_inbox_folder_id_cache.clear()
-            self.do_outbox_folder_id_cache.clear()
-            self.ds_inbox_folder_id_cache.clear()
-            self.ds_outbox_folder_id_cache.clear()
-            self.archive_folder_id_cache.clear()
-            self.personal_syftbox_event_id_cache.clear()
+        return gather_all_file_and_folder_ids_recursive(
+            self.drive_service, syftbox_folder_id
+        )
+
+    def delete_file_by_id(
+        self, file_id: str, verbose: bool = False, raise_on_error: bool = False
+    ):
+        try:
+            self.drive_service.files().delete(fileId=file_id).execute()
+        except Exception as e:
+            if raise_on_error:
+                raise e
+            else:
+                if verbose:
+                    print(f"Error deleting file: {file_id}")
 
     def create_file_payload(self, data: Any) -> Tuple[MediaIoBaseUpload, str]:
         """Create a file payload for the GDrive"""

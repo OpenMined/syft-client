@@ -88,6 +88,18 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_own_syftbox()
         connection.delete_syftbox()
 
+    def gather_all_file_and_folder_ids(self) -> List[str]:
+        connection = self.connection_for_own_syftbox()
+        return connection.gather_all_file_and_folder_ids()
+
+    def reset_caches(self):
+        connection = self.connection_for_own_syftbox()
+        connection.reset_caches()
+
+    def delete_file_by_id(self, file_id: str):
+        connection = self.connection_for_own_syftbox()
+        connection.delete_file_by_id(file_id)
+
     def write_events_message_to_syftbox(self, events_message: FileChangeEventsMessage):
         connection = self.connection_for_eventlog()
         connection.write_events_message_to_syftbox(events_message)
