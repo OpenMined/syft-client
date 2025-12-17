@@ -17,7 +17,7 @@ def use_local_syft_client_for_jobs():
 
     When jobs are submitted, they install syft-client as a dependency.
     By default, this installs from PyPI, but for testing we want to use
-    the local code to test our changes.
+    the local code to test our latest changes.
 
     This sets SYFT_CLIENT_INSTALL_SOURCE to the repo root path.
     """
