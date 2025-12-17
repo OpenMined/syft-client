@@ -329,14 +329,14 @@ class SyftJobRunner:
 
         return result.returncode
 
-    def _execute_job(self, job_name: str, stream_output: bool = False) -> bool:
+    def _execute_job(self, job_name: str, stream_output: bool = True) -> bool:
         """
         Execute run.sh for a job in the approved directory.
 
         Args:
             job_name: Name of the job to execute
-            stream_output: If True, stream output in real-time.
-                        If False (default), capture output at end.
+            stream_output: If True (default), stream output in real-time.
+                        If False, capture output at end (CI-friendly).
 
         Returns:
             bool: True if execution was successful, False otherwise
@@ -393,12 +393,12 @@ class SyftJobRunner:
             print(f"❌ Error executing job {job_name}: {e}")
             return False
 
-    def process_approved_jobs(self, stream_output: bool = False) -> None:
+    def process_approved_jobs(self, stream_output: bool = True) -> None:
         """Process all jobs in the approved directory.
 
         Args:
-            stream_output: If True, stream output in real-time.
-                        If False (default), capture output at end.
+            stream_output: If True (default), stream output in real-time.
+                        If False, capture output at end (CI-friendly).
         """
         approved_jobs = self._get_jobs_in_approved()
 

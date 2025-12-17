@@ -1868,6 +1868,32 @@ class JobClient:
 
         return job_dir
 
+    def _detect_entrypoint(self, folder_path: Path) -> Optional[str]:
+        """Auto-detect entrypoint for folder submissions.
+
+        Detection priority:
+        1. main.py - most common convention
+        2. Single .py file at root - if only one exists
+
+        Args:
+            folder_path: Path to the folder to search
+
+        Returns:
+            Detected entrypoint filename or None if not found
+        """
+        # Check main.py first (most common convention)
+        if (folder_path / "main.py").exists():
+            return "main.py"
+
+        # Check for single .py file at root
+        py_files = [
+            f for f in folder_path.iterdir() if f.is_file() and f.suffix == ".py"
+        ]
+        if len(py_files) == 1:
+            return py_files[0].name
+
+        return None
+
     def _validate_code_path_and_entrypoint(
         self, code_path: str, entrypoint: Optional[str]
     ) -> Tuple[Path, bool, str]:
@@ -1876,7 +1902,7 @@ class JobClient:
 
         Args:
             code_path: Path to Python file or folder
-            entrypoint: Entry point file name (mandatory for folders, auto-detected for files)
+            entrypoint: Entry point file name (auto-detected if not provided)
 
         Returns:
             Tuple of (resolved_code_path, is_folder_submission, validated_entrypoint)
@@ -1895,10 +1921,13 @@ class JobClient:
 
         if is_folder_submission:
             if not entrypoint:
-                raise ValueError(
-                    "Entrypoint file name is mandatory for folder submissions. "
-                    "Please specify the main Python file to execute (e.g., 'main.py')."
-                )
+                # Auto-detect entrypoint
+                entrypoint = self._detect_entrypoint(resolved_path)
+                if not entrypoint:
+                    raise ValueError(
+                        "Could not auto-detect entrypoint. No main.py or single .py file "
+                        "found at folder root. Please specify the entrypoint explicitly."
+                    )
 
             entrypoint_path = resolved_path / entrypoint
             if not entrypoint_path.exists() or not entrypoint_path.is_file():

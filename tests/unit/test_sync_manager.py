@@ -658,6 +658,105 @@ dependencies = []
         shutil.rmtree(project_dir, ignore_errors=True)
 
 
+def test_folder_job_auto_detect_main_py():
+    """Test that entrypoint is auto-detected when main.py exists."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    project_dir = tempfile.mkdtemp(prefix="test_auto_main_")
+    folder_name = Path(project_dir).name
+
+    try:
+        # Create main.py and another file
+        (Path(project_dir) / "main.py").write_text('print("main")')
+        (Path(project_dir) / "utils.py").write_text('print("utils")')
+
+        # Submit without entrypoint - should auto-detect main.py
+        ds_manager.submit_python_job(
+            user=do_manager.email,
+            code_path=project_dir,
+            job_name="test.auto.main",
+            # No entrypoint specified
+        )
+
+        do_manager.sync()
+        job = do_manager.job_client.jobs[0]
+        job_dir = job.location
+
+        # Verify main.py was auto-detected
+        run_script = (job_dir / "run.sh").read_text()
+        assert f"python {folder_name}/main.py" in run_script, (
+            "Should auto-detect main.py as entrypoint"
+        )
+
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+
+def test_folder_job_auto_detect_single_py():
+    """Test that entrypoint is auto-detected when only one .py file exists."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    project_dir = tempfile.mkdtemp(prefix="test_auto_single_")
+    folder_name = Path(project_dir).name
+
+    try:
+        # Create only one .py file (not named main.py)
+        (Path(project_dir) / "script.py").write_text('print("script")')
+        (Path(project_dir) / "README.md").write_text("# Readme")
+
+        # Submit without entrypoint - should auto-detect script.py
+        ds_manager.submit_python_job(
+            user=do_manager.email,
+            code_path=project_dir,
+            job_name="test.auto.single",
+        )
+
+        do_manager.sync()
+        job = do_manager.job_client.jobs[0]
+        job_dir = job.location
+
+        # Verify script.py was auto-detected
+        run_script = (job_dir / "run.sh").read_text()
+        assert f"python {folder_name}/script.py" in run_script, (
+            "Should auto-detect single .py file as entrypoint"
+        )
+
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+
+def test_folder_job_no_auto_detect_multiple_py():
+    """Test that auto-detection fails when multiple .py files and no main.py."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    project_dir = tempfile.mkdtemp(prefix="test_no_auto_")
+
+    try:
+        # Create multiple .py files (no main.py)
+        (Path(project_dir) / "script1.py").write_text('print("1")')
+        (Path(project_dir) / "script2.py").write_text('print("2")')
+
+        # Submit without entrypoint - should fail
+        with pytest.raises(ValueError, match="Could not auto-detect entrypoint"):
+            ds_manager.submit_python_job(
+                user=do_manager.email,
+                code_path=project_dir,
+                job_name="test.no.auto",
+            )
+
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+
 def test_single_file_job_flow_with_dataset():
     """Test complete job submission flow with dataset access.
 
