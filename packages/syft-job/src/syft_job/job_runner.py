@@ -223,11 +223,7 @@ class SyftJobRunner:
         stderr_file = job_dir / "stderr.txt"
 
         # Execute run.sh with streaming output
-        # Use line buffering (buffering=1) to auto-flush on newlines instead of manual flush
-        with (
-            open(stdout_file, "w", buffering=1) as stdout_f,
-            open(stderr_file, "w", buffering=1) as stderr_f,
-        ):
+        with open(stdout_file, "w") as stdout_f, open(stderr_file, "w") as stderr_f:
             process = subprocess.Popen(
                 ["bash", str(run_script)],
                 cwd=job_dir,
@@ -266,16 +262,19 @@ class SyftJobRunner:
                         line = key.fileobj.readline()
                         if line:
                             if key.data == "stdout":
-                                print(f"[{job_name}] {line}", end="", flush=True)
+                                print(f"[{job_name}] {line}", end="")
+                                sys.stdout.flush()
                                 stdout_f.write(line)
+                                stdout_f.flush()
                             else:
                                 print(
                                     f"[{job_name}] ERR: {line}",
                                     end="",
                                     file=sys.stderr,
-                                    flush=True,
                                 )
+                                sys.stderr.flush()
                                 stderr_f.write(line)
+                                stderr_f.flush()
             finally:
                 sel.unregister(process.stdout)
                 sel.unregister(process.stderr)
@@ -285,10 +284,14 @@ class SyftJobRunner:
             remaining_stdout, remaining_stderr = process.communicate()
             if remaining_stdout:
                 print(f"[{job_name}] {remaining_stdout}", end="")
+                sys.stdout.flush()
                 stdout_f.write(remaining_stdout)
+                stdout_f.flush()
             if remaining_stderr:
                 print(f"[{job_name}] ERR: {remaining_stderr}", end="", file=sys.stderr)
+                sys.stderr.flush()
                 stderr_f.write(remaining_stderr)
+                stderr_f.flush()
 
             returncode = process.returncode if not timed_out else -1
 
