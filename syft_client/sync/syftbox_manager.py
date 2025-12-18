@@ -1,5 +1,6 @@
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor
+import time
 from pydantic import ConfigDict
 from syft_job.client import JobClient, JobsList
 from syft_job.job_runner import SyftJobRunner
@@ -754,16 +755,13 @@ class SyftboxManager(BaseModel):
         if self.proposed_file_change_pusher is not None:
             self.proposed_file_change_pusher.datasite_watcher_cache.clear_cache()
 
-    def delete_syftbox(self):
+    def delete_syftbox(self, verbose: bool = True):
         file_ids = self.connection_router.gather_all_file_and_folder_ids()
-
-        futures = []
-        for file_id in file_ids:
-            futures.append(
-                self._executor.submit(self.connection_router.delete_file_by_id, file_id)
-            )
-
-        wait(futures)
+        start = time.time()
+        self.connection_router.delete_multiple_files_by_ids(file_ids)
+        end = time.time()
+        if verbose:
+            print(f"Deleted {len(file_ids)} files and folders in {end - start}s")
         self.connection_router.reset_caches()
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:

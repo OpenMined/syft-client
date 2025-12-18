@@ -55,6 +55,7 @@ def benchmark_gdrive_load_state():
         manager_ds1.send_file_change(f"{EMAIL_DO}/myjob-{i}.job", "Hello, world!")
 
     time.sleep(3)
+    manager_do1.sync()
 
     # test loading the peers and loading the inbox
     print("initializing second manager")
