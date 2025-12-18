@@ -1,10 +1,10 @@
-from typing import List, Any
+from typing import List, Any, Literal
 from uuid import UUID, uuid4
 from pathlib import Path
 import uuid
 import time
 import base64
-from pydantic import Field, model_validator, field_serializer, field_validator
+from pydantic import Field, model_validator, field_serializer, computed_field
 from pydantic.main import BaseModel
 from syft_client.sync.utils.syftbox_utils import compress_data, uncompress_data
 from syft_client.sync.utils.syftbox_utils import create_event_timestamp
@@ -28,6 +28,17 @@ class ProposedFileChange(BaseModel):
     datasite_email: str
     is_deleted: bool = False
 
+    @computed_field
+    @property
+    def content_type(self) -> Literal["text", "binary"] | None:
+        """Computed field that stores the content type for proper deserialization."""
+        if self.content is None:
+            return None
+        elif isinstance(self.content, bytes):
+            return "binary"
+        else:
+            return "text"
+
     @field_serializer("content", when_used="json")
     def serialize_content(self, value: str | bytes | None) -> str | None:
         """Serialize bytes as base64-encoded string for JSON."""
@@ -37,26 +48,20 @@ class ProposedFileChange(BaseModel):
             return base64.b64encode(value).decode("utf-8")
         return value
 
-    @field_validator("content", mode="before")
-    @classmethod
-    def deserialize_content(cls, value: Any) -> str | bytes | None:
-        """Deserialize base64-encoded string back to bytes if needed."""
-        if value is None:
-            return None
-        if isinstance(value, str):
-            # Try to decode as base64 if it looks like base64
-            try:
-                decoded = base64.b64decode(value, validate=True)
-                # Only use decoded bytes if the original string was actually base64
-                if decoded != value.encode("utf-8"):
-                    return decoded
-            except Exception:
-                pass
-            return value
-        return value
-
     @model_validator(mode="before")
-    def pre_init(cls, data):
+    @classmethod
+    def pre_init(cls, data: dict[str, Any]) -> dict[str, Any]:
+        # Deserialize content based on content_type metadata
+        content_type = data.pop("content_type", None)
+        content = data.get("content")
+
+        if content is not None and isinstance(content, str):
+            if content_type == "binary":
+                # Definitively decode base64 since we know it was binary
+                data["content"] = base64.b64decode(content)
+            # If content_type is "text" or None (legacy), keep as string
+
+        # Generate hash if needed
         if "new_hash" not in data and not data.get("is_deleted", False):
             content = data.get("content")
             if content is not None:
