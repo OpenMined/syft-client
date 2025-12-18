@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List, Literal
 from pathlib import Path
 from uuid import UUID, uuid4
 import base64
@@ -7,13 +7,12 @@ from pydantic import (
     Field,
     model_validator,
     field_serializer,
-    field_validator,
+    computed_field,
 )
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_client.sync.utils.syftbox_utils import create_event_timestamp
 from syft_client.sync.utils.syftbox_utils import compress_data
 from syft_client.sync.utils.syftbox_utils import uncompress_data
-from typing import List
 
 
 FILE_CHANGE_FILENAME_PREFIX = "syfteventsmessagev3"
@@ -58,6 +57,17 @@ class FileChangeEvent(BaseModel):
     submitted_timestamp: float
     timestamp: float
 
+    @computed_field
+    @property
+    def content_type(self) -> Literal["text", "binary"] | None:
+        """Computed field that stores the content type for proper deserialization."""
+        if self.content is None:
+            return None
+        elif isinstance(self.content, bytes):
+            return "binary"
+        else:
+            return "text"
+
     @field_serializer("content", when_used="json")
     def serialize_content(self, value: str | bytes | None) -> str | None:
         """Serialize bytes as base64-encoded string for JSON."""
@@ -67,39 +77,23 @@ class FileChangeEvent(BaseModel):
             return base64.b64encode(value).decode("utf-8")
         return value
 
-    @field_validator("content", mode="before")
-    @classmethod
-    def deserialize_content(cls, value: Any) -> str | bytes | None:
-        """Deserialize base64-encoded string back to bytes if needed."""
-        if value is None:
-            return None
-        if isinstance(value, str):
-            # Try to decode as base64 if it looks like base64
-            # We'll use a simple heuristic: if it's a valid base64 string and not plain text
-            try:
-                decoded = base64.b64decode(value, validate=True)
-                # Only use decoded bytes if the original string was actually base64
-                # (not just a regular string that happens to be valid base64)
-                # A simple check: if decoded bytes are different from the string's bytes
-                if decoded != value.encode("utf-8"):
-                    return decoded
-            except Exception:
-                pass
-            return value
-        return value
-
     @property
     def path_in_syftbox(self) -> Path:
         return Path(self.datasite_email) / self.path_in_datasite
 
     @model_validator(mode="before")
-    def pre_init(cls, data):
-        # if "event_filepath" not in data:
-        #     data["event_filepath"] = FileChangeEventsMessageFileName(
-        #         id=data["id"],
-        #         file_path_in_datasite=data["path_in_datasite"],
-        #         timestamp=data["timestamp"],
-        #     )
+    @classmethod
+    def pre_init(cls, data: dict[str, Any]) -> dict[str, Any]:
+        # Deserialize content based on content_type metadata
+        content_type = data.pop("content_type", None)
+        content = data.get("content")
+
+        if content is not None and isinstance(content, str):
+            if content_type == "binary":
+                # Definitively decode base64 since we know it was binary
+                data["content"] = base64.b64decode(content)
+            # If content_type is "text" or None (legacy), keep as string
+
         return data
 
     def eventfile_filepath(self) -> str:
