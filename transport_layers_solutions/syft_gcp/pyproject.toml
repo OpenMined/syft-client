@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "syft-gcp"
+version = "0.1.0"
+description = "GCP Transport Layer for Syft Client"
+requires-python = ">=3.8"
+dependencies = [
+    "google-auth>=2.0.0",
+    "google-auth-oauthlib>=1.0.0",
+    "google-auth-httplib2>=0.2.0",
+    "google-api-python-client>=2.0.0",
+    "keyring>=24.0.0",
+]
+
+[tool.setuptools]
+packages = ["syft_gcp"]
