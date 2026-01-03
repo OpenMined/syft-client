@@ -701,17 +701,89 @@ class SyftboxManager(BaseModel):
     def get_all_accepted_events_do(self) -> List[FileChangeEvent]:
         return self.proposed_file_change_handler.connection_router.get_all_accepted_events_messages_do()
 
-    def create_dataset(self, *args, sync=True, **kwargs):
+    def create_dataset(
+        self, *args, users: list[str] | str | None = None, sync=True, **kwargs
+    ):
         if self.dataset_manager is None:
             raise ValueError("Dataset manager is not set")
-        self.dataset_manager.create(*args, **kwargs)
+
+        # Only DO can create datasets
+        if not self.is_do:
+            raise ValueError("Only dataset owners can create datasets")
+
+        # Convert None to empty list
+        if users is None:
+            users = []
+
+        # Create dataset locally
+        dataset = self.dataset_manager.create(*args, users=users, **kwargs)
+
+        # Upload to collection folder
+        self._upload_dataset_to_collection(dataset, users)
+
         if sync:
             self.sync()
+
+        return dataset
+
+    def _upload_dataset_to_collection(self, dataset, users: list[str] | str):
+        """Upload dataset files to collection folder."""
+        collection_tag = dataset.name
+
+        # Create collection folder
+        self.connection_router.create_dataset_collection_folder(
+            tag=collection_tag, owner_email=self.email
+        )
+
+        # Prepare files to upload
+        files = {}
+        for mock_file in dataset.mock_files:
+            if mock_file.exists():
+                files[mock_file.name] = mock_file.read_bytes()
+
+        metadata_path = dataset.mock_dir / "dataset.yaml"
+        if metadata_path.exists():
+            files["dataset.yaml"] = metadata_path.read_bytes()
+
+        if dataset.readme_path and dataset.readme_path.exists():
+            files[dataset.readme_path.name] = dataset.readme_path.read_bytes()
+
+        # Upload files
+        self.connection_router.upload_dataset_files(collection_tag, files)
+
+        # Share with users
+        self.connection_router.share_dataset_collection(collection_tag, users)
 
     def delete_dataset(self, *args, sync=True, **kwargs):
         if self.dataset_manager is None:
             raise ValueError("Dataset manager is not set")
         self.dataset_manager.delete(*args, **kwargs)
+        if sync:
+            self.sync()
+
+    def share_dataset(self, tag: str, users: list[str] | str, sync=True):
+        """
+        Share an existing dataset with additional users.
+
+        Args:
+            tag: Dataset name
+            users: List of email addresses or "any"
+            sync: Whether to sync after sharing
+        """
+        if self.dataset_manager is None:
+            raise ValueError("Dataset manager is not set")
+
+        if not self.is_do:
+            raise ValueError("Only dataset owners can share datasets")
+
+        # Verify dataset exists
+        dataset = self.dataset_manager.get(name=tag, datasite=self.email)
+        if dataset is None:
+            raise ValueError(f"Dataset {tag} not found")
+
+        # Share collection
+        self.connection_router.share_dataset_collection(tag, users)
+
         if sync:
             self.sync()
 

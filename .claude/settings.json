@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(git status:*)",
+      "Bash(just:*)",
+      "Bash(cat:*)",
+      "Bash(la:*)",
+      "Bash(ruff format:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}

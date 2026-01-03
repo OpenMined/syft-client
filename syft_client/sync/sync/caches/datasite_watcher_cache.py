@@ -146,3 +146,25 @@ class DataSiteWatcherCache(BaseModel):
         for peer in self.peers:
             self.sync_down_if_needed(peer)
         return self.file_hashes.get(path, None)
+
+    def sync_down_datasets(self, peer_email: str):
+        """
+        Sync dataset collections from peer.
+        Separate from message sync.
+        """
+        # Get list of collections shared with us
+        collections = self.connection_router.list_dataset_collections_as_ds()
+
+        # Filter by peer
+        peer_collections = [c for c in collections if c.startswith(f"{peer_email}/")]
+
+        for collection_str in peer_collections:
+            owner_email, tag = collection_str.split("/", 1)
+
+            # Download collection files
+            files = self.connection_router.download_dataset_collection(tag, owner_email)
+
+            # Write files to local cache
+            for file_name, content in files.items():
+                file_path = f"{owner_email}/public/syft_datasets/{tag}/{file_name}"
+                self.file_connection.write_file(file_path, content)

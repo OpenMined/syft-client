@@ -200,7 +200,6 @@ def test_google_drive_files():
     assert (syftbox_dir_ds / EMAIL_DO / result_rel_path).exists()
 
 
-@pytest.mark.skip(reason="Flaky test - Google Drive permission issues")
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_datasets():
     ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
@@ -219,6 +218,7 @@ def test_datasets():
         summary="This is a summary",
         readme_path=readme_path,
         tags=["tag1", "tag2"],
+        users=[ds_manager.email],
     )
 
     datasets = do_manager.datasets.get_all()

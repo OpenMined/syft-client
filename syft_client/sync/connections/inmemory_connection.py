@@ -11,10 +11,20 @@ from syft_client.sync.events.file_change_event import (
 from syft_client.sync.messages.proposed_filechange import (
     ProposedFileChangesMessage,
 )
+from syft_datasets.dataset_manager import SHARE_WITH_ANY
 
 
 class InMemoryPlatformConnectionConfig(ConnectionConfig):
     receiver_function: Callable | None = None
+
+
+class InMemoryDatasetsFolder(BaseModel):
+    """Represents a dataset collection with files and permissions."""
+
+    tag: str  # Dataset name
+    owner_email: str
+    allowed_users: List[str]  # List of emails or ["any"]. Empty list = no access
+    files: Dict[str, bytes] = Field(default_factory=dict)  # filename -> content
 
 
 class InMemoryBackingPlatform(BaseModel):
@@ -31,6 +41,9 @@ class InMemoryBackingPlatform(BaseModel):
             "all": [],
         }
     )
+
+    # Dataset collections storage
+    dataset_collections: List[InMemoryDatasetsFolder] = Field(default_factory=list)
 
 
 class InMemoryPlatformConnection(SyftboxPlatformConnection):
@@ -127,3 +140,104 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
 
     def get_all_events_messages_do(self) -> List[FileChangeEventsMessage]:
         return self.backing_store.syftbox_events_message_log
+
+    def create_dataset_collection_folder(self, tag: str, owner_email: str) -> str:
+        # Check if collection already exists
+        for collection in self.backing_store.dataset_collections:
+            if collection.tag == tag and collection.owner_email == owner_email:
+                return tag
+
+        # Create new collection
+        new_collection = InMemoryDatasetsFolder(
+            tag=tag, owner_email=owner_email, allowed_users=[]
+        )
+        self.backing_store.dataset_collections.append(new_collection)
+        return tag
+
+    def share_dataset_collection(self, tag: str, users: list[str] | str) -> None:
+        # Find collection
+        collection = None
+        for c in self.backing_store.dataset_collections:
+            if c.tag == tag and c.owner_email == self.owner_email:
+                collection = c
+                break
+
+        if collection is None:
+            raise ValueError(f"Collection {tag} not found for owner {self.owner_email}")
+
+        # Update permissions
+        if isinstance(users, str):
+            if users == SHARE_WITH_ANY:
+                collection.allowed_users = [SHARE_WITH_ANY]
+            else:
+                if users not in collection.allowed_users:
+                    collection.allowed_users.append(users)
+        else:
+            for user in users:
+                if user not in collection.allowed_users:
+                    collection.allowed_users.append(user)
+
+    def upload_dataset_files(self, tag: str, files: dict[str, bytes]) -> None:
+        # Find collection and upload files to backing store
+        collection = None
+        for c in self.backing_store.dataset_collections:
+            if c.tag == tag and c.owner_email == self.owner_email:
+                collection = c
+                break
+
+        if collection is None:
+            raise ValueError(f"Collection {tag} not found")
+
+        # Store files in backing store
+        collection.files.update(files)
+
+    def list_dataset_collections_as_do(self) -> list[str]:
+        result = []
+        for collection in self.backing_store.dataset_collections:
+            if collection.owner_email == self.owner_email:
+                result.append(collection.tag)
+        return result
+
+    def list_dataset_collections_as_ds(self) -> list[str]:
+        result = []
+        for collection in self.backing_store.dataset_collections:
+            if collection.owner_email == self.owner_email:
+                continue  # Skip own collections
+
+            # Check permissions - empty list means no access
+            if not collection.allowed_users:
+                continue
+
+            if (
+                SHARE_WITH_ANY in collection.allowed_users
+                or self.owner_email in collection.allowed_users
+            ):
+                result.append(f"{collection.owner_email}/{collection.tag}")
+
+        return result
+
+    def download_dataset_collection(
+        self, tag: str, owner_email: str
+    ) -> dict[str, bytes]:
+        # Find collection
+        collection = None
+        for c in self.backing_store.dataset_collections:
+            if c.tag == tag and c.owner_email == owner_email:
+                collection = c
+                break
+
+        if collection is None:
+            raise ValueError(f"Collection {tag} not found for owner {owner_email}")
+
+        # Check permissions - empty list means no access
+        if not collection.allowed_users:
+            raise PermissionError(f"No access granted to collection {tag}")
+
+        if (
+            SHARE_WITH_ANY not in collection.allowed_users
+            and self.owner_email not in collection.allowed_users
+        ):
+            raise PermissionError(f"Access denied to collection {tag}")
+
+        # Return copy of files from backing store
+        return collection.files.copy()
