@@ -52,7 +52,7 @@ class ProposedFileChange(BaseModel):
     @classmethod
     def pre_init(cls, data: dict[str, Any]) -> dict[str, Any]:
         # Deserialize content based on content_type metadata
-        content_type = data.pop("content_type", None)
+        content_type = data.get("content_type")
         content = data.get("content")
 
         if content is not None and isinstance(content, str):
