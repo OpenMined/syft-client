@@ -9,7 +9,7 @@ from syft_client.sync.events.file_change_event import (
 )
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
-from syft_client.sync.peers.peer import Peer
+from syft_client.sync.peers.peer import Peer, PeerState
 from syft_client.sync.utils.print_utils import (
     print_peer_adding_to_platform,
     print_peer_added_to_platform,
@@ -125,6 +125,37 @@ class ConnectionRouter(BaseModel):
             Peer(email=peer_email, platforms=[GdriveFilesPlatform()])
             for peer_email in peer_emails
         ]
+
+    def get_approved_peers_as_do(self) -> List[Peer]:
+        """Get approved peers for DO"""
+        connection = self.connection_for_send_message()
+        peer_emails = connection.get_approved_peers_as_do()
+        return [
+            Peer(
+                email=peer_email,
+                platforms=[GdriveFilesPlatform()],
+                state=PeerState.ACCEPTED,
+            )
+            for peer_email in peer_emails
+        ]
+
+    def get_peer_requests_as_do(self) -> List[Peer]:
+        """Get pending peer requests for DO"""
+        connection = self.connection_for_send_message()
+        peer_emails = connection.get_peer_requests_as_do()
+        return [
+            Peer(
+                email=peer_email,
+                platforms=[GdriveFilesPlatform()],
+                state=PeerState.PENDING,
+            )
+            for peer_email in peer_emails
+        ]
+
+    def update_peer_state(self, peer_email: str, state: str):
+        """Update peer state in storage"""
+        connection = self.connection_for_send_message()
+        connection._update_peer_state(peer_email, state)
 
     def remove_proposed_filechange_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage

@@ -16,6 +16,7 @@ from syft_client.sync.sync.caches.datasite_owner_cache import (
     DataSiteOwnerEventCacheConfig,
 )
 from syft_client.sync.peers.peer_list import PeerList
+from syft_client.sync.peers.peer import Peer, PeerState
 from syft_client.sync.sync.datasite_outbox_puller import DatasiteOutboxPuller
 from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
@@ -343,25 +344,34 @@ class SyftboxManager(BaseModel):
     job_client: JobClient | None = None
     job_runner: SyftJobRunner | None = None
 
-    _peers: PeerList = PrivateAttr(default_factory=PeerList)
+    _approved_peers: List[Peer] = PrivateAttr(default_factory=list)
+    _peer_requests: List[Peer] = PrivateAttr(default_factory=list)
 
     @property
     def peers(self) -> PeerList:
         """
-        Get the list of peers. Automatically calls sync() before returning peers
+        Get the combined list of peers (approved + requests).
+        Automatically calls sync() before returning peers
         if PRE_SYNC environment variable is set to "true" (case-insensitive).
 
         PRE_SYNC defaults to "true", so auto-sync is enabled by default.
         To disable auto-sync, set: PRE_SYNC=false
+
+        Returns PeerList with approved peers first, then requests.
         """
         if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
-        return self._peers
+
+        combined = PeerList(self._approved_peers + self._peer_requests)
+        return combined
 
     @peers.setter
     def peers(self, value: PeerList):
-        """Set the peers list."""
-        self._peers = value
+        """Set the peers list by splitting into approved and requests."""
+        approved = [p for p in value if p.state == PeerState.ACCEPTED]
+        requests = [p for p in value if p.state == PeerState.PENDING]
+        self._approved_peers = approved
+        self._peer_requests = requests
 
     @classmethod
     def from_config(cls, config: SyftboxManagerConfig):
@@ -583,22 +593,26 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
+            # DS creates peer request
             ds_manager.add_peer(do_manager.email)
-            do_manager.add_peer(ds_manager.email)
+            # DO approves the peer request automatically (for backward compatibility)
+            do_manager.load_peers()
+            do_manager.approve_peer_request(ds_manager.email)
 
         return ds_manager, do_manager
 
     def add_peer(self, peer_email: str, force: bool = False):
-        existing_emails = [p.email for p in self._peers]
+        existing_emails = [p.email for p in self._approved_peers]
         if peer_email in existing_emails and not force:
             print(f"Peer {peer_email} already exists, skipping")
         else:
             if self.is_do:
-                peer = self.connection_router.add_peer_as_do(peer_email=peer_email)
+                # this is a no-op for DOs
+                self.connection_router.add_peer_as_do(peer_email=peer_email)
             else:
                 peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
-            self._peers.append(peer)
-            print_peer_added(peer)
+                self._approved_peers.append(peer)
+                print_peer_added(peer)
 
     def submit_bash_job(self, *args, sync=True, **kwargs):
         job_dir = self.job_client.submit_bash_job(*args, **kwargs)
@@ -629,7 +643,7 @@ class SyftboxManager(BaseModel):
 
     def sync(self):
         self.load_peers()
-        peer_emails = [peer.email for peer in self._peers]
+        peer_emails = [peer.email for peer in self._approved_peers]
         if self.is_do:
             self.proposed_file_change_handler.sync(peer_emails)
         else:
@@ -638,11 +652,83 @@ class SyftboxManager(BaseModel):
 
     def load_peers(self):
         if self.is_do:
-            peers = self.connection_router.get_peers_as_do()
+            approved = self.connection_router.get_approved_peers_as_do()
+            requests = self.connection_router.get_peer_requests_as_do()
         else:
-            peers = self.connection_router.get_peers_as_ds()
+            # DS sees all peers as approved (no request concept for DS)
+            approved = self.connection_router.get_peers_as_ds()
+            requests = []
 
-        self.peers = PeerList(peers)
+        self._approved_peers = approved
+        self._peer_requests = requests
+
+    def approve_peer_request(self, email_or_peer: str | Peer):
+        """
+        Approve a pending peer request. DO only.
+
+        Args:
+            email_or_peer: Email string or Peer object to approve
+        """
+        if not self.is_do:
+            raise ValueError("Only Data Owners can approve peer requests")
+
+        email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
+
+        # Find peer in requests
+        peer = None
+        for p in self._peer_requests:
+            if p.email == email:
+                peer = p
+                break
+
+        if peer is None:
+            raise ValueError(
+                f"Peer {email} not found in pending requests. "
+                f"Use client.peers to see current requests."
+            )
+
+        # Update state in GDrive
+        self.connection_router.update_peer_state(email, PeerState.ACCEPTED.value)
+
+        # Move from requests to approved
+        self._peer_requests = [p for p in self._peer_requests if p.email != email]
+        peer.state = PeerState.ACCEPTED
+        self._approved_peers.append(peer)
+
+        print(f"✓ Approved peer request from {email}")
+
+    def reject_peer_request(self, email_or_peer: str | Peer):
+        """
+        Reject a pending peer request. DO only.
+
+        Args:
+            email_or_peer: Email string or Peer object to reject
+        """
+        if not self.is_do:
+            raise ValueError("Only Data Owners can reject peer requests")
+
+        email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
+
+        # Find peer in requests
+        peer = None
+        for p in self._peer_requests:
+            if p.email == email:
+                peer = p
+                break
+
+        if peer is None:
+            raise ValueError(
+                f"Peer {email} not found in pending requests. "
+                f"Use client.peers to see current requests."
+            )
+
+        # Update state in GDrive
+        self.connection_router.update_peer_state(email, PeerState.REJECTED.value)
+
+        # Remove from requests (don't add to approved)
+        self._peer_requests = [p for p in self._peer_requests if p.email != email]
+
+        print(f"✗ Rejected peer request from {email}")
 
     @property
     def jobs(self) -> JobsList:
