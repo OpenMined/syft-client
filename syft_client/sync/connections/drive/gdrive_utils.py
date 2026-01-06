@@ -1,5 +1,7 @@
 from typing import Any, List
 
+GDRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
+
 
 def listify(obj: Any) -> List[Any]:
     if isinstance(obj, list):
@@ -8,31 +10,16 @@ def listify(obj: Any) -> List[Any]:
         return [obj]
 
 
-def delete_folder_recursive(service, folder_id, raise_on_error=False, verbose=False):
+def gather_all_file_and_folder_ids_recursive(service, folder_id) -> List[str]:
+    res = set([folder_id])
     query = f"'{folder_id}' in parents"
     results = (
         service.files().list(q=query, fields="files(id, name, mimeType)").execute()
     )
     for item in results.get("files", []):
-        if item["mimeType"] == "application/vnd.google-apps.folder":
-            print(f"Deleting subfolder: {item['name']}")
-            try:
-                delete_folder_recursive(service, item["id"])
-            except Exception as e:
-                if raise_on_error:
-                    raise e
-                else:
-                    if verbose:
-                        print(f"Error deleting subfolder: {item['name']}")
+        if item["mimeType"] == GDRIVE_FOLDER_MIME_TYPE:
+            nested_ids = gather_all_file_and_folder_ids_recursive(service, item["id"])
+            res.update(nested_ids)
         else:
-            print(f"Deleting file: {item['name']}")
-            try:
-                service.files().delete(fileId=item["id"]).execute()
-            except Exception as e:
-                if raise_on_error:
-                    raise e
-                else:
-                    if verbose:
-                        print(f"Error deleting file: {item['name']}")
-
-    service.files().delete(fileId=folder_id).execute()
+            res.add(item["id"])
+    return list(res)

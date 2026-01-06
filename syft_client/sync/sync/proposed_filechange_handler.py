@@ -1,4 +1,5 @@
-from pydantic import ConfigDict, Field, BaseModel
+from pydantic import ConfigDict, Field, BaseModel, PrivateAttr
+from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from typing import Tuple
 from syft_client.sync.events.file_change_event import (
@@ -41,6 +42,10 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         default_factory=Queue
     )
 
+    _executor: ThreadPoolExecutor = PrivateAttr(
+        default_factory=lambda: ThreadPoolExecutor(max_workers=10)
+    )
+
     @classmethod
     def from_config(cls, config: ProposedFileChangeHandlerConfig):
         return cls(
@@ -68,11 +73,26 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
                     break
             self.process_syftbox_events_queue()
 
+    def download_events_message_by_id_with_connection(
+        self, events_message_id: str
+    ) -> FileChangeEventsMessage:
+        # we need a new connection object because gdrive connections are not thread safe
+        connection = self.connection_router.connection_for_eventlog(create_new=True)
+        return connection.download_events_message_by_id(events_message_id)
+
+    def get_all_accepted_events_messages_do(self) -> list[FileChangeEventsMessage]:
+        message_ids = self.connection_router.get_all_accepted_event_file_ids_do()
+        result_messages = self._executor.map(
+            self.download_events_message_by_id_with_connection, message_ids
+        )
+        return list(result_messages)
+
     def pull_initial_state(self):
         # pull all events from the syftbox
         events_messages: list[FileChangeEventsMessage] = (
-            self.connection_router.get_all_accepted_events_messages_do()
+            self.get_all_accepted_events_messages_do()
         )
+
         for events_message in events_messages:
             self.event_cache.add_events_message_to_local_cache(events_message)
         self.initial_sync_done = True
@@ -105,13 +125,6 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
             raise ValueError("No proposed file change to process")
         else:
             return None
-
-    # def on_proposed_filechange_receive(
-    #     self, proposed_file_change_message: ProposedFileChangesMessage
-    # ):
-    #     for proposed_file_change in proposed_file_change_message.proposed_file_changes:
-    #         for callback in self.callbacks.get("on_proposed_filechange_receive", []):
-    #             callback(proposed_file_change)
 
     def check_permissions(self, path: str):
         pass
