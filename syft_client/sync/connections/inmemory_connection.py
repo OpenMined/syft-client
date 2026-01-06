@@ -98,18 +98,13 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         if peer_email not in self.backing_store.peer_states[owner_email]:
             self.backing_store.peer_states[owner_email][peer_email] = "pending"
 
-    def add_peer_as_do(self, peer_email: str):
-        print(
-            f"INFO: add_peer_as_do called for {peer_email}. "
-            f"No action taken - DO relies on folders created by DS."
-        )
-
     def add_peer_as_ds(self, peer_email: str):
         """Add peer as DS - creates peer relationship that DO can discover"""
         # Reversed: add DS to DO's peer list so DO can discover it
         # self.owner_email is DS, peer_email is DO
         # We want peer_states[DO_email][DS_email] = "pending"
         self.create_pending_peer_state(peer_email, self.owner_email)
+        self.create_pending_peer_state(self.owner_email, peer_email)
 
     def _get_peer_states(self) -> Dict[str, str]:
         """Get peer states for this owner. Returns {peer_email: state}"""

@@ -161,22 +161,6 @@ class GDriveConnection(SyftboxPlatformConnection):
         syftbox_folder_id = self.get_syftbox_folder_id()
         return self.create_folder(archive_folder_name, syftbox_folder_id)
 
-    def add_peer_as_do(self, peer_email: str):
-        """Add peer knowing that self is do.
-
-        Note: This is intentionally a no-op. In the DS→DO workflow, DS creates
-        all the necessary infrastructure (inbox/outbox folders). DO relies on
-        finding folders created and shared by DS.
-
-        If you're seeing issues with DO not finding folders, ensure:
-        1. DS has added DO as a peer first (creates the folders)
-        2. Google Drive permission propagation has completed (can take a few seconds)
-        """
-        print(
-            f"INFO: add_peer_as_do called for {peer_email}. "
-            f"No action taken - DO relies on folders created by DS."
-        )
-
     def add_peer_as_ds(self, peer_email: str):
         """Add peer knowing that self is ds"""
         # create the DS outbox (DO inbox)

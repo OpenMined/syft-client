@@ -58,19 +58,6 @@ class ConnectionRouter(BaseModel):
             recipient, proposed_file_changes_message
         )
 
-    def add_peer_as_do(self, peer_email: str, verbose: bool = True) -> Peer:
-        connection = self.connection_for_send_message()
-        platform = GdriveFilesPlatform()
-
-        if verbose:
-            print_peer_adding_to_platform(peer_email, platform.module_path)
-
-        connection.add_peer_as_do(peer_email=peer_email)
-
-        if verbose:
-            print_peer_added_to_platform(peer_email, platform.module_path)
-        return Peer(email=peer_email, platforms=[platform])
-
     def add_peer_as_ds(self, peer_email: str, verbose: bool = True) -> Peer:
         connection = self.connection_for_receive_message()
         platform = GdriveFilesPlatform()
