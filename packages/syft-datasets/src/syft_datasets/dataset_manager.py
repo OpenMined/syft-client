@@ -15,6 +15,8 @@ from .config import SyftBoxConfig
 
 FOLDER_NAME = "syft_datasets"
 METADATA_FILENAME = "dataset.yaml"
+DATASET_COLLECTION_PREFIX = "syft_datasetcollection"
+SHARE_WITH_ANY = "any"
 
 
 class SyftDatasetManager:
@@ -155,6 +157,7 @@ class SyftDatasetManager:
         readme_path: Path | None = None,
         location: str | None = None,
         tags: list[str] | None = None,
+        users: list[str] | str | None = None,
         # copy_private_data: bool = True, # TODO
     ) -> Dataset:
         """_summary_
@@ -169,10 +172,13 @@ class SyftDatasetManager:
                 Only required for datasets that are hosted on a remote location and require manual syncing.
                 Defaults to None.
             tags (list[str] | None, optional): Optional tags for the dataset. Defaults to None.
+            users (list[str] | str | None, optional): Users to share dataset with. Can be list of emails, SHARE_WITH_ANY, or None (default, share with no one).
 
         Returns:
             Dataset: The created Dataset object.
         """
+        if users is None:
+            users = []
         mock_path = to_path(mock_path)
         private_path = to_path(private_path)
         readme_path = to_path(readme_path) if readme_path else None
@@ -383,3 +389,15 @@ class SyftDatasetManager:
             shutil.rmtree(dataset.mock_dir)
         if dataset._private_metadata_dir.exists():
             shutil.rmtree(dataset._private_metadata_dir)
+
+    def share_dataset(self, name: str, users: list[str] | str) -> None:
+        """
+        Share existing dataset with users. Actual sharing happens via SyftboxManager.
+
+        Args:
+            name: Dataset name
+            users: List of email addresses or "any"
+        """
+        dataset = self.get(name=name, datasite=self.syftbox_config.email)
+        if dataset is None:
+            raise ValueError(f"Dataset {name} not found")

@@ -163,7 +163,8 @@ SyftBox/
 *~
 
 # Claude AI settings
-.claude/
+.claude/*
+!.claude/settings.json
 CLAUDE.md
 
 # CI test outputs

@@ -184,3 +184,29 @@ class ConnectionRouter(BaseModel):
         return connection.get_events_messages_for_datasite_watcher(
             peer_email=peer_email, since_timestamp=since_timestamp
         )
+
+    def create_dataset_collection_folder(self, tag: str, owner_email: str) -> str:
+        connection = self.connection_for_send_message()
+        return connection.create_dataset_collection_folder(tag, owner_email)
+
+    def share_dataset_collection(self, tag: str, users: list[str] | str) -> None:
+        connection = self.connection_for_send_message()
+        connection.share_dataset_collection(tag, users)
+
+    def upload_dataset_files(self, tag: str, files: dict[str, bytes]) -> None:
+        connection = self.connection_for_send_message()
+        connection.upload_dataset_files(tag, files)
+
+    def list_dataset_collections_as_do(self) -> list[str]:
+        connection = self.connection_for_send_message()
+        return connection.list_dataset_collections_as_do()
+
+    def list_dataset_collections_as_ds(self) -> list[str]:
+        connection = self.connection_for_receive_message()
+        return connection.list_dataset_collections_as_ds()
+
+    def download_dataset_collection(
+        self, tag: str, owner_email: str
+    ) -> dict[str, bytes]:
+        connection = self.connection_for_datasite_watcher()
+        return connection.download_dataset_collection(tag, owner_email)

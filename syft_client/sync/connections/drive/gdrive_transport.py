@@ -20,6 +20,7 @@ from syft_client.sync.connections.drive.gdrive_utils import (
 from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
 )
+from syft_datasets.dataset_manager import SHARE_WITH_ANY, DATASET_COLLECTION_PREFIX
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessageFileName,
     FileChangeEventsMessage,
@@ -100,6 +101,9 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     # fname -> gdrive id
     personal_syftbox_event_id_cache: Dict[str, str] = {}
+
+    # tag -> dataset collection folder id
+    dataset_collection_folder_id_cache: Dict[str, str] = {}
 
     @classmethod
     def from_config(cls, config: "GdriveConnectionConfig") -> "GDriveConnection":
@@ -843,3 +847,131 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
         items = results.get("files", [])
         return items[0]["id"] if items else None
+
+    def create_dataset_collection_folder(self, tag: str, owner_email: str) -> str:
+        """Create /SyftBox/{DATASET_COLLECTION_PREFIX}_<TAG> folder."""
+        folder_name = f"{DATASET_COLLECTION_PREFIX}_{tag}"
+
+        # Check cache
+        if tag in self.dataset_collection_folder_id_cache:
+            return self.dataset_collection_folder_id_cache[tag]
+
+        syftbox_folder_id = self.get_syftbox_folder_id()
+
+        # Check if exists
+        folder_id = self._find_folder_by_name(folder_name, parent_id=syftbox_folder_id)
+        if folder_id:
+            self.dataset_collection_folder_id_cache[tag] = folder_id
+            return folder_id
+
+        # Create new folder
+        folder_id = self.create_folder(folder_name, syftbox_folder_id)
+        self.dataset_collection_folder_id_cache[tag] = folder_id
+        return folder_id
+
+    def share_dataset_collection(self, tag: str, users: list[str] | str) -> None:
+        """Share dataset collection folder with users."""
+        folder_id = self._get_dataset_collection_folder_id(tag)
+
+        share_with_any = False
+        if isinstance(users, str):
+            if users == SHARE_WITH_ANY:
+                share_with_any = True
+            else:
+                users_list = [users]
+        else:
+            users_list = users
+
+        if share_with_any:
+            # Public access - anyone with link can view
+            permission = {"type": "anyone", "role": "reader"}
+            self.drive_service.permissions().create(
+                fileId=folder_id, body=permission, sendNotificationEmail=False
+            ).execute()
+        else:
+            # Share with specific users (only if list is not empty)
+            for user_email in users_list:
+                self.add_permission(folder_id, user_email, write=False)
+        # else: empty list means no sharing - do nothing
+
+    def upload_dataset_files(self, tag: str, files: dict[str, bytes]) -> None:
+        """Upload dataset files to collection folder."""
+        folder_id = self._get_dataset_collection_folder_id(tag)
+
+        for file_path, content in files.items():
+            file_payload, _ = self.create_file_payload(content)
+            file_name = Path(file_path).name
+
+            file_metadata = {"name": file_name, "parents": [folder_id]}
+            self.drive_service.files().create(
+                body=file_metadata, media_body=file_payload, fields="id"
+            ).execute()
+
+    def list_dataset_collections_as_do(self) -> list[str]:
+        """List collections created by DO (owned by me)."""
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        query = (
+            f"name contains '{DATASET_COLLECTION_PREFIX}_' and '{syftbox_folder_id}' in parents "
+            f"and 'me' in owners and trashed=false and mimeType='{GOOGLE_FOLDER_MIME_TYPE}'"
+        )
+        results = (
+            self.drive_service.files().list(q=query, fields="files(name)").execute()
+        )
+
+        folders = results.get("files", [])
+        return [f["name"].replace(f"{DATASET_COLLECTION_PREFIX}_", "") for f in folders]
+
+    def list_dataset_collections_as_ds(self) -> list[str]:
+        """List collections shared with DS (not owned by me)."""
+        query = (
+            f"name contains '{DATASET_COLLECTION_PREFIX}_' and not 'me' in owners "
+            f"and trashed=false and mimeType='{GOOGLE_FOLDER_MIME_TYPE}'"
+        )
+        results = (
+            self.drive_service.files()
+            .list(q=query, fields="files(name, owners)")
+            .execute()
+        )
+
+        folders = results.get("files", [])
+        result = []
+        for folder in folders:
+            tag = folder["name"].replace(f"{DATASET_COLLECTION_PREFIX}_", "")
+            owner_email = folder.get("owners", [{}])[0].get("emailAddress", "unknown")
+            result.append(f"{owner_email}/{tag}")
+        return result
+
+    def download_dataset_collection(
+        self, tag: str, owner_email: str
+    ) -> dict[str, bytes]:
+        """Download all files from a dataset collection."""
+        folder_name = f"{DATASET_COLLECTION_PREFIX}_{tag}"
+        # Try to find folder by name (could be owned by someone else)
+        folder_id = self._find_folder_by_name(folder_name, owner_email=owner_email)
+
+        if not folder_id:
+            raise ValueError(f"Collection {tag} not found")
+
+        file_metadatas = self.get_file_metadatas_from_folder(folder_id)
+        files = {}
+        for file_meta in file_metadatas:
+            file_id = file_meta["id"]
+            file_name = file_meta["name"]
+            files[file_name] = self.download_file(file_id)
+
+        return files
+
+    def _get_dataset_collection_folder_id(self, tag: str) -> str:
+        """Get folder ID for dataset collection, with caching."""
+        if tag in self.dataset_collection_folder_id_cache:
+            return self.dataset_collection_folder_id_cache[tag]
+
+        folder_name = f"{DATASET_COLLECTION_PREFIX}_{tag}"
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        folder_id = self._find_folder_by_name(folder_name, parent_id=syftbox_folder_id)
+
+        if not folder_id:
+            raise ValueError(f"Collection folder {tag} not found")
+
+        self.dataset_collection_folder_id_cache[tag] = folder_id
+        return folder_id

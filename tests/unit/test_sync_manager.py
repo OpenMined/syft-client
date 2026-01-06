@@ -282,6 +282,8 @@ def test_datasets():
     )
 
     mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+
+    # Create dataset with specific users
     do_manager.create_dataset(
         name="my dataset",
         mock_path=mock_dset_path,
@@ -289,7 +291,12 @@ def test_datasets():
         summary="This is a summary",
         readme_path=readme_path,
         tags=["tag1", "tag2"],
+        users=[ds_manager.email],  # Share with specific user
     )
+
+    # Verify collection created
+    collections = do_manager.connection_router.list_dataset_collections_as_do()
+    assert "my dataset" in collections
 
     backing_store = (
         do_manager.proposed_file_change_handler.connection_router.connections[
@@ -299,8 +306,6 @@ def test_datasets():
 
     syftbox_events = backing_store.syftbox_events_message_log
     assert len(syftbox_events) == 1
-    # for message in syftbox_events:
-    #     for event in message.events:
 
     outbox_events_messages = backing_store.outboxes["all"]
     outbox_events = [
@@ -318,6 +323,10 @@ def test_datasets():
     assert len(dataset_do.mock_files) > 0
 
     ds_manager.sync()
+
+    # Verify DS can see collection
+    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    assert any("my dataset" in c for c in ds_collections)
 
     assert len(ds_manager.datasets.get_all()) == 1
 
@@ -355,6 +364,7 @@ def test_datasets_with_parquet():
         summary="This is a dataset with parquet files",
         readme_path=readme_path,
         tags=["parquet", "binary"],
+        users=[ds_manager.email],
     )
 
     backing_store = (
@@ -410,6 +420,100 @@ def test_datasets_with_parquet():
 
     assert has_file(ds_manager.syftbox_folder, "mock_data.parquet")
     assert not has_file(ds_manager.syftbox_folder, "private_data.parquet")
+
+
+def test_dataset_empty_permissions_no_access():
+    """Test that empty permissions list means no one can access the dataset collection."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+
+    # Create dataset with empty permissions list (share with no one)
+    do_manager.create_dataset(
+        name="private dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="This is a private summary",
+        readme_path=readme_path,
+        tags=["private"],
+        users=[],  # Empty list - no one has access
+    )
+
+    # Verify collection created
+    collections = do_manager.connection_router.list_dataset_collections_as_do()
+    assert "private dataset" in collections
+
+    # DO should be able to see their own dataset
+    datasets = do_manager.datasets.get_all()
+    assert len(datasets) == 1
+
+    # DS syncs
+    ds_manager.sync()
+
+    # DS should NOT see the collection (no permissions)
+    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    assert not any("private dataset" in c for c in ds_collections)
+
+    # DS should NOT be able to download the dataset collection (no permissions)
+    ds_manager.connection_router.connections[0].backing_store
+    try:
+        ds_manager.connection_router.download_dataset_collection(
+            "private dataset", do_manager.email
+        )
+        assert False, "Should have raised PermissionError"
+    except PermissionError:
+        pass  # Expected
+
+
+def test_dataset_only_mock_data_uploaded():
+    """Test that only mock data is uploaded to the collection, not private data."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+
+    do_manager.create_dataset(
+        name="test dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="Test summary",
+        readme_path=readme_path,
+        tags=["test"],
+        users=[ds_manager.email],
+    )
+
+    # Get the backing store
+    backing_store = (
+        do_manager.proposed_file_change_handler.connection_router.connections[
+            0
+        ].backing_store
+    )
+
+    # Find the dataset collection
+    collection = None
+    for c in backing_store.dataset_collections:
+        if c.tag == "test dataset" and c.owner_email == do_manager.email:
+            collection = c
+            break
+
+    assert collection is not None, "Dataset collection not found"
+
+    # Check files in the collection
+    file_names = list(collection.files.keys())
+
+    # Should have mock.txt and dataset.yaml, but NOT private.txt
+    assert "mock.txt" in file_names, "mock.txt should be in collection"
+    assert "dataset.yaml" in file_names, "dataset.yaml should be in collection"
+    assert "readme.md" in file_names, "readme.md should be in collection"
+    assert "private.txt" not in file_names, "private.txt should NOT be in collection"
+
+    # Verify the actual content of mock.txt is there
+    mock_content = collection.files["mock.txt"]
+    assert len(mock_content) > 0, "Mock file should have content"
+    assert b"Hello" in mock_content, "Mock file should contain expected data"
 
 
 def test_jobs():

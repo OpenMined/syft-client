@@ -31,4 +31,7 @@ class DatasiteOutboxPuller(BaseModelCallbackMixin):
 
     def sync_down(self, peer_emails: list[str]):
         for peer_email in peer_emails:
+            # Sync messages
             self.datasite_watcher_cache.sync_down(peer_email)
+            # Sync datasets
+            self.datasite_watcher_cache.sync_down_datasets(peer_email)
