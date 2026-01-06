@@ -7,13 +7,15 @@ import pickle
 from syft_client.sync.utils.syftbox_utils import check_env
 from typing import Any, Dict, List, Optional, Tuple
 from typing import TYPE_CHECKING
-
+from googleapiclient.http import BatchHttpRequest
 from pydantic import BaseModel
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from google.oauth2.credentials import Credentials as GoogleCredentials
 
-from syft_client.sync.connections.drive.gdrive_utils import delete_folder_recursive
+from syft_client.sync.connections.drive.gdrive_utils import (
+    gather_all_file_and_folder_ids_recursive,
+)
 
 from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
@@ -74,6 +76,7 @@ class GDriveConnection(SyftboxPlatformConnection):
     credentials: GoogleCredentials | None = None
     verbose: bool = True
     email: str
+    token_path: Path | None = None
     _is_setup: bool = False
 
     # /SyftBox
@@ -104,7 +107,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     @classmethod
     def from_token_path(cls, email: str, token_path: Path | None) -> "GDriveConnection":
-        res = cls(email=email)
+        res = cls(email=email, token_path=token_path)
         if token_path:
             credentials = GoogleCredentials.from_authorized_user_file(
                 token_path, SCOPES
@@ -279,6 +282,18 @@ class GDriveConnection(SyftboxPlatformConnection):
         gdrive_id = res.get("id")
         self.personal_syftbox_event_id_cache[filename] = gdrive_id
         return gdrive_id
+
+    def download_events_message_by_id(
+        self, events_message_id: str
+    ) -> FileChangeEventsMessage:
+        file_data = self.download_file(events_message_id)
+        return FileChangeEventsMessage.from_compressed_data(file_data)
+
+    def get_all_accepted_event_file_ids_do(self) -> List[str]:
+        personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
+        file_metadatas = self.get_file_metadatas_from_folder(personal_syftbox_folder_id)
+        valid_fname_objs = self._filter_valid_file_metadatas(file_metadatas)
+        return [f["id"] for f in valid_fname_objs]
 
     def get_all_events_messages_do(self) -> List[FileChangeEventsMessage]:
         """Reads from /SyftBox/myemail"""
@@ -533,6 +548,20 @@ class GDriveConnection(SyftboxPlatformConnection):
             return False
 
     @staticmethod
+    def _filter_valid_file_metadatas(
+        file_metadatas: List[Dict],
+    ) -> List[Dict]:
+        res = []
+        for file_metadata in file_metadatas:
+            fname = file_metadata["name"]
+            try:
+                _ = FileChangeEventsMessageFileName.from_string(fname)
+                res.append(file_metadata)
+            except Exception:
+                continue
+        return res
+
+    @staticmethod
     def _get_valid_events_from_file_metadatas(
         file_metadatas: List[Dict],
     ) -> List[FileChangeEventsMessageFileName]:
@@ -665,19 +694,63 @@ class GDriveConnection(SyftboxPlatformConnection):
             body=file_metadata, media_body=payload, fields="id"
         ).execute()
 
-    def delete_syftbox(self):
+    def reset_caches(self):
+        self._syftbox_folder_id = None
+        self._personal_syftbox_folder_id = None
+        self.do_inbox_folder_id_cache.clear()
+        self.do_outbox_folder_id_cache.clear()
+        self.ds_inbox_folder_id_cache.clear()
+        self.ds_outbox_folder_id_cache.clear()
+        self.archive_folder_id_cache.clear()
+        self.personal_syftbox_event_id_cache.clear()
+
+    def gather_all_file_and_folder_ids(self) -> List[str]:
         syftbox_folder_id = self.get_syftbox_folder_id()
-        if syftbox_folder_id is not None:
-            delete_folder_recursive(self.drive_service, syftbox_folder_id, verbose=True)
-            # Clear all cached folder IDs after deletion
-            self._syftbox_folder_id = None
-            self._personal_syftbox_folder_id = None
-            self.do_inbox_folder_id_cache.clear()
-            self.do_outbox_folder_id_cache.clear()
-            self.ds_inbox_folder_id_cache.clear()
-            self.ds_outbox_folder_id_cache.clear()
-            self.archive_folder_id_cache.clear()
-            self.personal_syftbox_event_id_cache.clear()
+        return gather_all_file_and_folder_ids_recursive(
+            self.drive_service, syftbox_folder_id
+        )
+
+    def delete_multiple_files_by_ids(
+        self, file_ids: List[str], ignore_permissions_errors: bool = True
+    ):
+        def callback(request_id, response, exception):
+            if exception:
+                # insufficientFilePermissions is a common error when deleting files that may already beed removed
+                # I think (!)
+                if ignore_permissions_errors and "insufficientFilePermissions" in str(
+                    exception
+                ):
+                    return
+                else:
+                    raise exception
+            if (
+                not isinstance(response, str)
+                and response.get("status")
+                and int(response.get("status")) >= 400
+            ):
+                raise Exception(
+                    f"Failed to delete {request_id}: error status {response.get('status')}"
+                )
+
+        batch = BatchHttpRequest(
+            callback=callback, batch_uri="https://www.googleapis.com/batch/drive/v3"
+        )
+
+        for file_id in file_ids:
+            batch.add(self.drive_service.files().delete(fileId=file_id))
+        batch.execute()
+
+    def delete_file_by_id(
+        self, file_id: str, verbose: bool = False, raise_on_error: bool = False
+    ):
+        try:
+            self.drive_service.files().delete(fileId=file_id).execute()
+        except Exception as e:
+            if raise_on_error:
+                raise e
+            else:
+                if verbose:
+                    print(f"Error deleting file: {file_id}")
 
     def create_file_payload(self, data: Any) -> Tuple[MediaIoBaseUpload, str]:
         """Create a file payload for the GDrive"""
@@ -724,11 +797,14 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     def download_file(self, file_id: str) -> bytes:
         # This is likely a message archive
-        request = self.drive_service.files().get_media(fileId=file_id)
+        drive_service = build("drive", "v3", credentials=self.credentials)
+        request = drive_service.files().get_media(fileId=file_id)
 
         # Download to memory
         file_buffer = io.BytesIO()
-        downloader = MediaIoBaseDownload(file_buffer, request)
+        downloader = MediaIoBaseDownload(
+            file_buffer, request, chunksize=1024 * 1024 * 10
+        )
 
         done = False
         while not done:

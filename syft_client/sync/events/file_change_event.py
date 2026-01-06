@@ -27,6 +27,15 @@ class FileChangeEventsMessageFileName(BaseModel):
     def as_string(self) -> str:
         return f"{FILE_CHANGE_FILENAME_PREFIX}_{self.timestamp}_{self.id}{DEFAULT_EVENT_FILENAME_EXTENSION}"
 
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, FileChangeEventsMessageFileName):
+            return False
+        return (
+            self.id == other.id
+            and self.timestamp == other.timestamp
+            and self.extension == other.extension
+        )
+
     @classmethod
     def from_string(cls, filename: str) -> "FileChangeEventsMessageFileName":
         try:
