@@ -134,14 +134,6 @@ class ConnectionRouter(BaseModel):
             sender_email=sender_email
         )
 
-    def get_peers_as_do(self) -> List[Peer]:
-        connection = self.connection_for_send_message()
-        peer_emails = connection.get_peers_as_do()
-        return [
-            Peer(email=peer_email, platforms=[GdriveFilesPlatform()])
-            for peer_email in peer_emails
-        ]
-
     def get_peers_as_ds(self) -> List[Peer]:
         connection = self.connection_for_receive_message()
         peer_emails = connection.get_peers_as_ds()

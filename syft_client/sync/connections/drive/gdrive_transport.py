@@ -178,24 +178,6 @@ class GDriveConnection(SyftboxPlatformConnection):
             peer_folder_id = self.create_peer_inbox_folder_as_ds(peer_email)
         self.add_permission(peer_folder_id, peer_email, write=True)
 
-    def get_peers_as_do(self) -> List[str]:
-        results = (
-            self.drive_service.files()
-            .list(
-                q=f"name contains '{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}' and trashed=false"
-                f"and mimeType = '{GOOGLE_FOLDER_MIME_TYPE}'"
-            )
-            .execute()
-        )
-        peers = set()
-        inbox_folders = results.get("files", [])
-        inbox_folder_names = [x["name"] for x in inbox_folders]
-        for name in inbox_folder_names:
-            outbox_folder = GdriveInboxOutBoxFolder.from_name(name)
-            if outbox_folder.sender_email != self.email:
-                peers.add(outbox_folder.sender_email)
-        return list(peers)
-
     def get_peers_as_ds(self) -> List[str]:
         results = (
             self.drive_service.files()
