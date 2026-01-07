@@ -517,8 +517,11 @@ class SyftboxManager(BaseModel):
         )
 
         if add_peers:
+            # DS creates peer request
             sender_manager.add_peer(receiver_manager.email)
-            receiver_manager.add_peer(sender_manager.email)
+            # DO approves the peer request automatically (for backward compatibility)
+            receiver_manager.load_peers()
+            receiver_manager.approve_peer_request(sender_manager.email)
         if load_peers:
             receiver_manager.load_peers()
             sender_manager.load_peers()

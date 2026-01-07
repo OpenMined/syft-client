@@ -365,6 +365,7 @@ def test_peer_request_blocks_sync_until_approved():
     )
 
 
+@pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_file_deletion_do_to_ds():
     """Test that DO can delete a file and it syncs to DS"""
     ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
