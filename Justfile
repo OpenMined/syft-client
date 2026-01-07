@@ -15,6 +15,11 @@ test-integration:
     uv run pytest -s ./tests/integration
 
 
+benchmark:
+    #!/bin/bash
+    python ./benchmarks/benchmark_loadtime.py
+
+
 delete-syftboxes:
     #!/bin/bash
     python ./scripts/delete_syftboxes.py

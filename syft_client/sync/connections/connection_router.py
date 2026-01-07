@@ -4,6 +4,7 @@ from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
     ConnectionConfig,
 )
+from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessage,
 )
@@ -37,8 +38,24 @@ class ConnectionRouter(BaseModel):
     def connection_for_receive_message(self) -> SyftboxPlatformConnection:
         return self.connections[0]
 
-    def connection_for_eventlog(self) -> SyftboxPlatformConnection:
-        return self.connections[0]
+    def copy_connection(
+        self, connection: SyftboxPlatformConnection
+    ) -> SyftboxPlatformConnection:
+        if isinstance(connection, GDriveConnection):
+            return GDriveConnection.from_token_path(
+                connection.email, connection.token_path
+            )
+        else:
+            return connection
+
+    def connection_for_eventlog(
+        self, create_new: bool = False
+    ) -> SyftboxPlatformConnection:
+        existing_connection = self.connections[0]
+        if create_new:
+            return self.copy_connection(existing_connection)
+        else:
+            return existing_connection
 
     def connection_for_datasite_watcher(self) -> SyftboxPlatformConnection:
         return self.connections[0]
@@ -71,9 +88,29 @@ class ConnectionRouter(BaseModel):
             print_peer_added_to_platform(peer_email, platform.module_path)
         return Peer(email=peer_email, platforms=[platform])
 
-    def delete_syftbox(self):
+    # def delete_syftbox(self):
+    #     connection = self.connection_for_own_syftbox()
+    #     connection.delete_syftbox()
+
+    def delete_multiple_files_by_ids(self, file_ids: List[str]):
         connection = self.connection_for_own_syftbox()
-        connection.delete_syftbox()
+        connection.delete_multiple_files_by_ids(file_ids)
+
+    def get_all_accepted_event_file_ids_do(self) -> List[str]:
+        connection = self.connection_for_eventlog()
+        return connection.get_all_accepted_event_file_ids_do()
+
+    def gather_all_file_and_folder_ids(self) -> List[str]:
+        connection = self.connection_for_own_syftbox()
+        return connection.gather_all_file_and_folder_ids()
+
+    def reset_caches(self):
+        connection = self.connection_for_own_syftbox()
+        connection.reset_caches()
+
+    def delete_file_by_id(self, file_id: str):
+        connection = self.connection_for_own_syftbox()
+        connection.delete_file_by_id(file_id)
 
     def write_events_message_to_syftbox(self, events_message: FileChangeEventsMessage):
         connection = self.connection_for_eventlog()

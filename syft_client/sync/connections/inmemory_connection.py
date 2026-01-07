@@ -279,3 +279,17 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
 
         # Return copy of files from backing store
         return collection.files.copy()
+
+    def get_all_accepted_event_file_ids_do(self) -> List[str]:
+        return [
+            e.message_filepath.id for e in self.backing_store.syftbox_events_message_log
+        ]
+
+    def download_events_message_by_id(
+        self, events_message_id: str
+    ) -> FileChangeEventsMessage:
+        return [
+            e
+            for e in self.backing_store.syftbox_events_message_log
+            if e.message_filepath.id == events_message_id
+        ][0]
