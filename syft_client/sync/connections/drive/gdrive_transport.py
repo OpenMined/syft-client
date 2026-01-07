@@ -413,10 +413,14 @@ class GDriveConnection(SyftboxPlatformConnection):
     ):
         fname = proposed_filechange_message.message_filename.as_string()
         sender_email = proposed_filechange_message.sender_email
-        gdrive_id = self.get_inbox_proposed_event_id_from_name(sender_email, fname)
+
+        # Use cached platform_id if available, otherwise fall back to name-based lookup
+        gdrive_id = proposed_filechange_message.platform_id
+        if gdrive_id is None:
+            gdrive_id = self.get_inbox_proposed_event_id_from_name(sender_email, fname)
         if gdrive_id is None:
             raise ValueError(
-                f"Event {fname} not found in outbox, event should already be created for this type of connection"
+                f"Event {fname} not found in inbox, event should already be created for this type of connection"
             )
         file_info = (
             self.drive_service.files().get(fileId=gdrive_id, fields="parents").execute()
@@ -679,6 +683,8 @@ class GDriveConnection(SyftboxPlatformConnection):
             ][0]["id"]
             file_data = self.download_file(first_file_id)
             res = ProposedFileChangesMessage.from_compressed_data(file_data)
+            # Store the platform-specific file ID to avoid re-querying when removing
+            res.platform_id = first_file_id
             return res
 
     def _get_do_inbox_folder_id(self, sender_email: str) -> str | None:

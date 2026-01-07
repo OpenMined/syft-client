@@ -99,6 +99,9 @@ class ProposedFileChangesMessage(BaseModel):
     sender_email: str
     message_filename: MessageFileName = Field(default_factory=lambda: MessageFileName())
     proposed_file_changes: List[ProposedFileChange]
+    # Platform-specific ID (e.g., Google Drive file ID) - set when retrieving message
+    # Used to avoid re-querying the platform when removing the message
+    platform_id: str | None = Field(default=None, exclude=True)
 
     @classmethod
     def from_compressed_data(cls, data: bytes) -> "ProposedFileChangesMessage":
