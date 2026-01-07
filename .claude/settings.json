@@ -4,7 +4,6 @@
       "Bash(pytest:*)",
       "Bash(find:*)",
       "Bash(ls:*)",
-      "Bash(git:*)",
       "Bash(gh:*)",
       "Bash(just:*)",
       "Bash(cat:*)",

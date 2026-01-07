@@ -10,7 +10,7 @@ from syft_client.sync.events.file_change_event import (
 )
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
-from syft_client.sync.peers.peer import Peer
+from syft_client.sync.peers.peer import Peer, PeerState
 from syft_client.sync.utils.print_utils import (
     print_peer_adding_to_platform,
     print_peer_added_to_platform,
@@ -75,25 +75,6 @@ class ConnectionRouter(BaseModel):
             recipient, proposed_file_changes_message
         )
 
-    def download_events_message_by_id(
-        self, events_message_id: str
-    ) -> FileChangeEventsMessage:
-        connection = self.connection_for_eventlog()
-        return connection.download_event_message_by_id(events_message_id)
-
-    def add_peer_as_do(self, peer_email: str, verbose: bool = True) -> Peer:
-        connection = self.connection_for_send_message()
-        platform = GdriveFilesPlatform()
-
-        if verbose:
-            print_peer_adding_to_platform(peer_email, platform.module_path)
-
-        connection.add_peer_as_do(peer_email=peer_email)
-
-        if verbose:
-            print_peer_added_to_platform(peer_email, platform.module_path)
-        return Peer(email=peer_email, platforms=[platform])
-
     def add_peer_as_ds(self, peer_email: str, verbose: bool = True) -> Peer:
         connection = self.connection_for_receive_message()
         platform = GdriveFilesPlatform()
@@ -153,14 +134,6 @@ class ConnectionRouter(BaseModel):
             sender_email=sender_email
         )
 
-    def get_peers_as_do(self) -> List[Peer]:
-        connection = self.connection_for_send_message()
-        peer_emails = connection.get_peers_as_do()
-        return [
-            Peer(email=peer_email, platforms=[GdriveFilesPlatform()])
-            for peer_email in peer_emails
-        ]
-
     def get_peers_as_ds(self) -> List[Peer]:
         connection = self.connection_for_receive_message()
         peer_emails = connection.get_peers_as_ds()
@@ -168,6 +141,37 @@ class ConnectionRouter(BaseModel):
             Peer(email=peer_email, platforms=[GdriveFilesPlatform()])
             for peer_email in peer_emails
         ]
+
+    def get_approved_peers_as_do(self) -> List[Peer]:
+        """Get approved peers for DO"""
+        connection = self.connection_for_send_message()
+        peer_emails = connection.get_approved_peers_as_do()
+        return [
+            Peer(
+                email=peer_email,
+                platforms=[GdriveFilesPlatform()],
+                state=PeerState.ACCEPTED,
+            )
+            for peer_email in peer_emails
+        ]
+
+    def get_peer_requests_as_do(self) -> List[Peer]:
+        """Get pending peer requests for DO"""
+        connection = self.connection_for_send_message()
+        peer_emails = connection.get_peer_requests_as_do()
+        return [
+            Peer(
+                email=peer_email,
+                platforms=[GdriveFilesPlatform()],
+                state=PeerState.PENDING,
+            )
+            for peer_email in peer_emails
+        ]
+
+    def update_peer_state(self, peer_email: str, state: str):
+        """Update peer state in storage"""
+        connection = self.connection_for_send_message()
+        connection._update_peer_state(peer_email, state)
 
     def remove_proposed_filechange_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage

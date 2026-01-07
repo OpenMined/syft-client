@@ -42,6 +42,7 @@ GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 GDRIVE_TRANSPORT_NAME = "gdrive_files"
 GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
+SYFT_PEERS_FILE = "SYFT_peers.json"
 
 
 class GdriveArchiveFolder(BaseModel):
@@ -163,22 +164,6 @@ class GDriveConnection(SyftboxPlatformConnection):
         syftbox_folder_id = self.get_syftbox_folder_id()
         return self.create_folder(archive_folder_name, syftbox_folder_id)
 
-    def add_peer_as_do(self, peer_email: str):
-        """Add peer knowing that self is do.
-
-        Note: This is intentionally a no-op. In the DS→DO workflow, DS creates
-        all the necessary infrastructure (inbox/outbox folders). DO relies on
-        finding folders created and shared by DS.
-
-        If you're seeing issues with DO not finding folders, ensure:
-        1. DS has added DO as a peer first (creates the folders)
-        2. Google Drive permission propagation has completed (can take a few seconds)
-        """
-        print(
-            f"INFO: add_peer_as_do called for {peer_email}. "
-            f"No action taken - DO relies on folders created by DS."
-        )
-
     def add_peer_as_ds(self, peer_email: str):
         """Add peer knowing that self is ds"""
         # create the DS outbox (DO inbox)
@@ -192,24 +177,6 @@ class GDriveConnection(SyftboxPlatformConnection):
         if peer_folder_id is None:
             peer_folder_id = self.create_peer_inbox_folder_as_ds(peer_email)
         self.add_permission(peer_folder_id, peer_email, write=True)
-
-    def get_peers_as_do(self) -> List[str]:
-        results = (
-            self.drive_service.files()
-            .list(
-                q=f"name contains '{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}' and trashed=false"
-                f"and mimeType = '{GOOGLE_FOLDER_MIME_TYPE}'"
-            )
-            .execute()
-        )
-        peers = set()
-        inbox_folders = results.get("files", [])
-        inbox_folder_names = [x["name"] for x in inbox_folders]
-        for name in inbox_folder_names:
-            outbox_folder = GdriveInboxOutBoxFolder.from_name(name)
-            if outbox_folder.sender_email != self.email:
-                peers.add(outbox_folder.sender_email)
-        return list(peers)
 
     def get_peers_as_ds(self) -> List[str]:
         results = (
@@ -232,6 +199,106 @@ class GDriveConnection(SyftboxPlatformConnection):
             except Exception:
                 continue
         return list(peers)
+
+    def _get_peers_file_id(self) -> str | None:
+        """Find SYFT_peers.json file in /SyftBox folder"""
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        query = f"name='{SYFT_PEERS_FILE}' and '{syftbox_folder_id}' in parents and trashed=false"
+        results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+        items = results.get("files", [])
+        return items[0]["id"] if items else None
+
+    def _read_peers_json(self) -> Dict[str, Dict[str, str]]:
+        """Read peers JSON from GDrive. Returns empty dict if not found."""
+        file_id = self._get_peers_file_id()
+        if file_id is None:
+            return {}
+
+        try:
+            file_data = self.download_file(file_id)
+            return json.loads(file_data.decode("utf-8"))
+        except Exception as e:
+            print(f"Warning: Error reading peers file: {e}")
+            return {}
+
+    def _write_peers_json(self, peers_data: Dict[str, Dict[str, str]]):
+        """Write peers JSON to GDrive. Creates or updates the file."""
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        file_id = self._get_peers_file_id()
+
+        # Convert to JSON bytes
+        json_data = json.dumps(peers_data, indent=2)
+        file_payload, _ = self.create_file_payload(json_data)
+
+        if file_id is None:
+            # Create new file
+            file_metadata = {
+                "name": SYFT_PEERS_FILE,
+                "parents": [syftbox_folder_id],
+            }
+            result = (
+                self.drive_service.files()
+                .create(body=file_metadata, media_body=file_payload, fields="id")
+                .execute()
+            )
+            return result.get("id")
+        else:
+            # Update existing file
+            self.drive_service.files().update(
+                fileId=file_id, media_body=file_payload
+            ).execute()
+            return file_id
+
+    def _update_peer_state(self, peer_email: str, state: str):
+        """Update a single peer's state in the JSON file"""
+        peers_data = self._read_peers_json()
+        peers_data[peer_email] = {"state": state}
+        self._write_peers_json(peers_data)
+
+    def get_approved_peers_as_do(self) -> List[str]:
+        """Get list of approved peer emails from JSON file"""
+        peers_data = self._read_peers_json()
+        return [
+            email
+            for email, data in peers_data.items()
+            if data.get("state") == "accepted"
+        ]
+
+    def get_peer_requests_as_do(self) -> List[str]:
+        """
+        Get list of pending peer requests.
+        Returns folders shared with DO that are NOT in JSON with accepted/rejected state.
+        """
+        # Get all folders shared with DO (current get_peers_as_do logic)
+        results = (
+            self.drive_service.files()
+            .list(
+                q=f"name contains '{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}' and trashed=false "
+                f"and mimeType = '{GOOGLE_FOLDER_MIME_TYPE}'"
+            )
+            .execute()
+        )
+
+        all_folder_peers = set()
+        inbox_folders = results.get("files", [])
+        inbox_folder_names = [x["name"] for x in inbox_folders]
+        for name in inbox_folder_names:
+            outbox_folder = GdriveInboxOutBoxFolder.from_name(name)
+            if outbox_folder.sender_email != self.email:
+                all_folder_peers.add(outbox_folder.sender_email)
+
+        # Filter out peers already in JSON with accepted or rejected state
+        peers_data = self._read_peers_json()
+        pending_peers = []
+        for peer_email in all_folder_peers:
+            if peer_email not in peers_data:
+                # Not in JSON at all = new pending request
+                pending_peers.append(peer_email)
+            elif peers_data[peer_email].get("state") not in ["accepted", "rejected"]:
+                # In JSON but not accepted or rejected = pending
+                pending_peers.append(peer_email)
+
+        return pending_peers
 
     def get_events_messages_for_datasite_watcher(
         self, peer_email: str, since_timestamp: float | None
@@ -346,10 +413,14 @@ class GDriveConnection(SyftboxPlatformConnection):
     ):
         fname = proposed_filechange_message.message_filename.as_string()
         sender_email = proposed_filechange_message.sender_email
-        gdrive_id = self.get_inbox_proposed_event_id_from_name(sender_email, fname)
+
+        # Use cached platform_id if available, otherwise fall back to name-based lookup
+        gdrive_id = proposed_filechange_message.platform_id
+        if gdrive_id is None:
+            gdrive_id = self.get_inbox_proposed_event_id_from_name(sender_email, fname)
         if gdrive_id is None:
             raise ValueError(
-                f"Event {fname} not found in outbox, event should already be created for this type of connection"
+                f"Event {fname} not found in inbox, event should already be created for this type of connection"
             )
         file_info = (
             self.drive_service.files().get(fileId=gdrive_id, fields="parents").execute()
@@ -612,6 +683,8 @@ class GDriveConnection(SyftboxPlatformConnection):
             ][0]["id"]
             file_data = self.download_file(first_file_id)
             res = ProposedFileChangesMessage.from_compressed_data(file_data)
+            # Store the platform-specific file ID to avoid re-querying when removing
+            res.platform_id = first_file_id
             return res
 
     def _get_do_inbox_folder_id(self, sender_email: str) -> str | None:

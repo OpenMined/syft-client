@@ -34,7 +34,13 @@ class InMemoryBackingPlatform(BaseModel):
     syftbox_events_message_log: List[FileChangeEventsMessage] = Field(
         default_factory=lambda: []
     )
-    peers: Dict[str, List[str]] = Field(default_factory=lambda: {})
+
+    # Peer state tracking for request/approval flow
+    # Structure: {owner_email: {peer_email: state}}
+    # Example: {"do@test.com": {"ds1@test.com": "accepted", "ds2@test.com": "pending"}}
+    # Note: backing_store is shared between connections, so we need nested dicts
+    # State can be: "pending", "accepted", or "rejected"
+    peer_states: Dict[str, Dict[str, str]] = Field(default_factory=dict)
 
     outboxes: Dict[str, List[FileChangeEventsMessage]] = Field(
         default_factory=lambda: {
@@ -70,11 +76,10 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             backing_store=backing_store or InMemoryBackingPlatform(),
         )
 
-    def get_peers_as_do(self) -> List[str]:
-        return self.backing_store.peers.get(self.owner_email, [])
-
     def get_peers_as_ds(self) -> List[str]:
-        return self.backing_store.peers.get(self.owner_email, [])
+        """Get all peers regardless of state"""
+        peer_states = self.backing_store.peer_states.get(self.owner_email, {})
+        return list(peer_states.keys())
 
     def send_proposed_file_changes_message(
         self, recipient: str, proposed_file_changes_message: ProposedFileChangesMessage
@@ -85,29 +90,62 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         if self.receiver_function is not None:
             self.receiver_function()
 
-    def add_peer(self, owner_email: str, peer_email: str):
-        if owner_email not in self.backing_store.peers:
-            self.backing_store.peers[owner_email] = []
-        self.backing_store.peers[owner_email].append(peer_email)
-
-    def add_peer_as_do(self, peer_email: str):
-        self.add_peer(self.owner_email, peer_email)
+    def create_pending_peer_state(self, owner_email: str, peer_email: str):
+        """Add a peer with pending state (creates peer request)"""
+        if owner_email not in self.backing_store.peer_states:
+            self.backing_store.peer_states[owner_email] = {}
+        # Add as pending if not already tracked
+        if peer_email not in self.backing_store.peer_states[owner_email]:
+            self.backing_store.peer_states[owner_email][peer_email] = "pending"
 
     def add_peer_as_ds(self, peer_email: str):
-        self.add_peer(self.owner_email, peer_email)
+        """Add peer as DS - creates peer relationship that DO can discover"""
+        # Reversed: add DS to DO's peer list so DO can discover it
+        # self.owner_email is DS, peer_email is DO
+        # We want peer_states[DO_email][DS_email] = "pending"
+        self.create_pending_peer_state(peer_email, self.owner_email)
+        self.create_pending_peer_state(self.owner_email, peer_email)
+
+    def _get_peer_states(self) -> Dict[str, str]:
+        """Get peer states for this owner. Returns {peer_email: state}"""
+        return self.backing_store.peer_states.get(self.owner_email, {})
+
+    def _update_peer_state(self, peer_email: str, state: str):
+        """Update a peer's state"""
+        if self.owner_email not in self.backing_store.peer_states:
+            self.backing_store.peer_states[self.owner_email] = {}
+        self.backing_store.peer_states[self.owner_email][peer_email] = state
+
+    def get_approved_peers_as_do(self) -> List[str]:
+        """Get list of approved peer emails"""
+        peer_states = self._get_peer_states()
+        return [email for email, state in peer_states.items() if state == "accepted"]
+
+    def get_peer_requests_as_do(self) -> List[str]:
+        """Get list of pending peer requests"""
+        # Get all peers that have been added (in backing_store.peers)
+        # Filter to only those not in peer_states or with pending state
+        peer_states = self._get_peer_states()
+        pending = [email for email, state in peer_states.items() if state == "pending"]
+        return pending
 
     def get_next_proposed_filechange_message(
         self, sender_email: str = None
     ) -> ProposedFileChangesMessage | None:
-        # TODO: either remove the sender parameter in all SyftboxPlatformConnections
-        # or implement it here
-        # if sender_email is not None:
-        #     raise NotImplementedError("Not implemented")
-
+        """Get next message from specific sender (or any if sender_email=None)"""
         if len(self.backing_store.proposed_events_inbox) == 0:
             return None
-        else:
+
+        if sender_email is None:
+            # No filter - return first message
             return self.backing_store.proposed_events_inbox[0]
+
+        # Filter by sender
+        for message in self.backing_store.proposed_events_inbox:
+            if message.sender_email == sender_email:
+                return message
+
+        return None  # No message from this sender
 
     def remove_proposed_filechange_message_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage

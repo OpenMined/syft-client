@@ -178,6 +178,11 @@ def test_sync_existing_inbox_state_do():
     proposed_events_messages = get_mock_proposed_events_messages(2)
     store.proposed_events_inbox.extend(proposed_events_messages)
 
+    # add the peers for the messages, otherwise it wont sync them
+    for message in proposed_events_messages:
+        store.peer_states[do_manager.email] = {message.sender_email: "accepted"}
+    do_manager.load_peers()
+
     do_manager.sync()
 
     n_events_message_in_cache = len(
@@ -228,13 +233,19 @@ def test_load_peers():
     )
 
     ds_manager.add_peer("peer1@email.com")
-    ds_manager.add_peer("peer2@email.com")
+    ds_manager.add_peer(do_manager.email)
 
-    do_manager.add_peer("peer3@email.com")
+    do_manager.load_peers()
+
+    do_manager.approve_peer_request(ds_manager.email)
 
     # reset the peers and load them from connection
-    do_manager.peers = []
-    ds_manager.peers = []
+    do_manager._approved_peers = []
+    do_manager._peer_requests = []
+    do_manager._outstanding_peer_requests = []
+    ds_manager._approved_peers = []
+    ds_manager._peer_requests = []
+    ds_manager._outstanding_peer_requests = []
 
     do_manager.load_peers()
     ds_manager.load_peers()
