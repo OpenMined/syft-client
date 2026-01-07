@@ -519,9 +519,13 @@ class SyftboxManager(BaseModel):
         if add_peers:
             # DS creates peer request
             sender_manager.add_peer(receiver_manager.email)
+            # unfortunately, we need this because of delays in gdrive
             # DO approves the peer request automatically (for backward compatibility)
             receiver_manager.load_peers()
-            receiver_manager.approve_peer_request(sender_manager.email)
+            # we are not checking if the peer exists because of delays in gdrive
+            receiver_manager.approve_peer_request(
+                sender_manager.email, peer_must_exist=False
+            )
         if load_peers:
             receiver_manager.load_peers()
             sender_manager.load_peers()
