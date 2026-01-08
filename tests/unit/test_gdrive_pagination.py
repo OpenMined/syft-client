@@ -145,41 +145,36 @@ def test_early_termination_stops_pagination():
     """Should stop fetching pages when encountering old file"""
     conn = create_mock_connection()
 
+    # Create filenames using FileChangeEventsMessageFileName
+    fname1 = FileChangeEventsMessageFileName(id=uuid4(), timestamp=1731506450.0)
+    fname2 = FileChangeEventsMessageFileName(id=uuid4(), timestamp=1731506440.0)
+    fname3 = FileChangeEventsMessageFileName(id=uuid4(), timestamp=1731506430.0)
+    fname4 = FileChangeEventsMessageFileName(
+        id=uuid4(), timestamp=1731506400.0
+    )  # <= since_timestamp
+    fname5 = FileChangeEventsMessageFileName(id=uuid4(), timestamp=1731506390.0)
+
     # Mock returns 3 potential pages, but should stop after page 2
     conn.drive_service.files().list().execute.side_effect = [
         {
             "files": [
-                {
-                    "name": "syfteventsmessagev3_1731506450.0_uuid1.tar.gz",
-                    "id": "id1",
-                },
-                {
-                    "name": "syfteventsmessagev3_1731506440.0_uuid2.tar.gz",
-                    "id": "id2",
-                },
+                {"name": fname1.as_string(), "id": "id1"},
+                {"name": fname2.as_string(), "id": "id2"},
             ],
             "nextPageToken": "token1",
         },
         {
             "files": [
+                {"name": fname3.as_string(), "id": "id3"},
                 {
-                    "name": "syfteventsmessagev3_1731506430.0_uuid3.tar.gz",
-                    "id": "id3",
-                },
-                {
-                    "name": "syfteventsmessagev3_1731506400.0_uuid4.tar.gz",
+                    "name": fname4.as_string(),
                     "id": "id4",
                 },  # <= since_timestamp, should stop here
             ],
             "nextPageToken": "token2",
         },
         {
-            "files": [
-                {
-                    "name": "syfteventsmessagev3_1731506390.0_uuid5.tar.gz",
-                    "id": "id5",
-                }
-            ],
+            "files": [{"name": fname5.as_string(), "id": "id5"}],
             "nextPageToken": None,
         },
     ]
@@ -190,7 +185,8 @@ def test_early_termination_stops_pagination():
 
     # Should stop after 2nd page (when it finds timestamp <= 1731506400.0)
     assert conn.drive_service.files().list().execute.call_count == 2
-    assert len(files) == 4  # 2 files from page 1 + 2 files from page 2
+    # Only files with timestamp > since_timestamp are returned
+    assert len(files) == 3  # fname1, fname2, fname3 (fname4 is excluded)
     # Page 3 should NOT be fetched
 
 
@@ -198,17 +194,16 @@ def test_no_early_termination_when_all_files_new():
     """Should fetch all pages when all files are newer than since_timestamp"""
     conn = create_mock_connection()
 
+    fname1 = FileChangeEventsMessageFileName(id=uuid4(), timestamp=1731506450.0)
+    fname2 = FileChangeEventsMessageFileName(id=uuid4(), timestamp=1731506440.0)
+
     conn.drive_service.files().list().execute.side_effect = [
         {
-            "files": [
-                {"name": "syfteventsmessagev3_1731506450.0_uuid1.tar.gz", "id": "id1"}
-            ],
+            "files": [{"name": fname1.as_string(), "id": "id1"}],
             "nextPageToken": "token1",
         },
         {
-            "files": [
-                {"name": "syfteventsmessagev3_1731506440.0_uuid2.tar.gz", "id": "id2"}
-            ],
+            "files": [{"name": fname2.as_string(), "id": "id2"}],
             "nextPageToken": None,
         },
     ]
