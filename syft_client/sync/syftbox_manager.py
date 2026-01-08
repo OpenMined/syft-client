@@ -954,5 +954,7 @@ class SyftboxManager(BaseModel):
         self.connection_router.reset_caches()
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
-        all_platforms = set([plat for p in self._peers for plat in p.platforms])
+        all_platforms = set(
+            [plat for p in self._approved_peers for plat in p.platforms]
+        )
         return list(all_platforms)
