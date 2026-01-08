@@ -591,13 +591,16 @@ class GDriveConnection(SyftboxPlatformConnection):
                 for file in page_files:
                     timestamp = self._extract_timestamp_from_filename(file["name"])
 
-                    if timestamp is not None and timestamp <= since_timestamp:
-                        # Found a file we already have! Stop pagination
-                        should_stop = True
-                        break
-
-                # Add files from this page (caller will filter exact timestamps)
-                all_files.extend(page_files)
+                    if timestamp is not None:
+                        if timestamp > since_timestamp:
+                            all_files.append(file)
+                        else:
+                            # Found a file we already have! Stop pagination
+                            should_stop = True
+                            break
+                    else:
+                        # No timestamp in filename, include the file
+                        all_files.append(file)
 
                 if should_stop:
                     # Don't fetch more pages
