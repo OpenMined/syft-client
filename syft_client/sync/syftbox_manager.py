@@ -780,18 +780,24 @@ class SyftboxManager(BaseModel):
             self.sync()
         return self.job_client.jobs
 
-    def process_approved_jobs(self, stream_output: bool = True) -> None:
+    def process_approved_jobs(
+        self, stream_output: bool = True, timeout: int | None = None
+    ) -> None:
         """
         Process approved jobs. Automatically calls sync() after processing
 
         Args:
             stream_output: If True (default), stream output in real-time.
                         If False, capture output at end.
+            timeout: Timeout in seconds per job. Defaults to 300 (5 minutes).
+                    Can also be set via SYFT_JOB_TIMEOUT_SECONDS env var.
 
         PRE_SYNC defaults to "true", so auto-sync is enabled by default.
         To disable auto-sync, set: PRE_SYNC=false
         """
-        self.job_runner.process_approved_jobs(stream_output=stream_output)
+        self.job_runner.process_approved_jobs(
+            stream_output=stream_output, timeout=timeout
+        )
         if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
 
