@@ -1,5 +1,6 @@
 from pathlib import Path
 import copy
+from syft_client.utils import resolve_path
 from concurrent.futures import ThreadPoolExecutor
 import time
 from pydantic import ConfigDict
@@ -958,3 +959,29 @@ class SyftboxManager(BaseModel):
             [plat for p in self._approved_peers for plat in p.platforms]
         )
         return list(all_platforms)
+
+    def resolve_path(self, path: str | Path) -> Path:
+        return resolve_path(path, syftbox_folder=self.syftbox_folder)
+
+    def _resolve_dataset_owners_for_name(self, dataset_name: str) -> str | None:
+        matches = []
+        for dataset in self.dataset_manager.get_all():
+            if dataset.name == dataset_name:
+                matches.append(dataset.owner)
+        return matches
+
+    # def resolve_dataset_path(
+    #     self, dataset_name: str, owner_email: str | None = None
+    # ) -> Path:
+    #     if owner_email is None:
+    #         owner_emails = self._resolve_dataset_owners_for_name(dataset_name)
+    #         if len(owner_emails) == 1:
+    #             owner_email = owner_emails[0]
+    #         else:
+    #             raise ValueError(
+    #                 f"Dataset {dataset_name} has 0 or multiple owners: {owner_emails}, please specify the owner_email"
+    #             )
+
+    #     return resolve_dataset_path(
+    #         dataset_name, syftbox_folder=self.syftbox_folder, owner_email=owner_email
+    #     )
