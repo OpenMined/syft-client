@@ -348,6 +348,15 @@ def test_datasets():
     mock_content_ds = (dataset_ds.mock_dir / "mock.txt").read_text()
     assert len(mock_content_ds) > 0
 
+    # test getting it via resolve path
+    from syft_client import resolve_dataset_file_path
+
+    mock_file_path = resolve_dataset_file_path("my dataset", client=ds_manager)
+    assert mock_file_path.exists()
+
+    mock_content_ds = mock_file_path.read_text()
+    assert len(mock_content_ds) > 0
+
     def has_file(root_dir, filename):
         return any(p.name == filename for p in Path(root_dir).rglob("*"))
 
@@ -579,6 +588,72 @@ with open("outputs/result.json", "w") as f:
         json_content = json.loads(f.read())
 
     assert json_content["result"] == 1
+
+
+def test_jobs_with_dataset():
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+
+    do_manager.create_dataset(
+        name="my dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="This is a summary",
+        readme_path=readme_path,
+        tags=["tag1", "tag2"],
+        users=[ds_manager.email],
+    )
+    do_manager.sync()
+
+    ds_manager.sync()
+    assert len(ds_manager.datasets.get_all()) == 1
+
+    dataset_ds = ds_manager.datasets.get("my dataset", datasite=do_manager.email)
+    assert dataset_ds.mock_files[0].exists()
+
+    test_py_path = "/tmp/test.py"
+    with open(test_py_path, "w") as f:
+        f.write("""
+import syft_client as sc
+import os
+import json
+
+data_path = sc.resolve_dataset_file_path("my dataset")
+with open(data_path, "r") as f:
+    data = f.read()
+result = {"result": len(data)}
+os.mkdir("outputs")
+with open("outputs/result.json", "w") as f:
+    f.write(json.dumps(result))
+""")
+
+    ds_manager.submit_python_job(
+        user=do_manager.email,
+        code_path=test_py_path,
+        job_name="test.job",
+    )
+
+    do_manager.sync()
+    assert len(do_manager.job_client.jobs) == 1
+    job = do_manager.job_client.jobs[0]
+
+    job.approve()
+
+    do_manager.job_runner.process_approved_jobs()
+
+    do_manager.sync()
+
+    ds_manager.sync()
+
+    output_path = ds_manager.job_client.jobs[-1].output_paths[0]
+    with open(output_path, "r") as f:
+        json_content = json.loads(f.read())
+
+    assert json_content["result"] > 1
 
 
 def test_single_file_job_submission_without_pyproject():
