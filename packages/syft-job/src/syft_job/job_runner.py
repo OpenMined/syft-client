@@ -11,6 +11,7 @@ from .config import SyftJobConfig
 
 # Default timeout for job execution (5 minutes)
 DEFAULT_JOB_TIMEOUT_SECONDS = 300
+IS_IN_JOB_ENV_VAR = "SYFT_IS_IN_JOB"
 
 
 class SyftJobRunner:
@@ -218,6 +219,7 @@ class SyftJobRunner:
         env = os.environ.copy()
         env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
         env["SYFTBOX_EMAIL"] = self.config.email
+        env[IS_IN_JOB_ENV_VAR] = "true"
         # Disable Python output buffering so streaming works in real-time
         env["PYTHONUNBUFFERED"] = "1"
 
@@ -317,6 +319,7 @@ class SyftJobRunner:
         env = os.environ.copy()
         env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
         env["SYFTBOX_EMAIL"] = self.config.email
+        env[IS_IN_JOB_ENV_VAR] = "true"
         # Disable Python output buffering for consistency
         env["PYTHONUNBUFFERED"] = "1"
 

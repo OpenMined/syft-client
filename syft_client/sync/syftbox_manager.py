@@ -1,5 +1,9 @@
 from pathlib import Path
 import copy
+<<<<<<< HEAD
+=======
+from syft_client.utils import resolve_path
+>>>>>>> bcc1f9dec91083536b8cc3373b2acf2bdb31eddc
 from concurrent.futures import ThreadPoolExecutor
 import time
 from pydantic import ConfigDict
@@ -954,5 +958,33 @@ class SyftboxManager(BaseModel):
         self.connection_router.reset_caches()
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
-        all_platforms = set([plat for p in self._peers for plat in p.platforms])
+        all_platforms = set(
+            [plat for p in self._approved_peers for plat in p.platforms]
+        )
         return list(all_platforms)
+
+    def resolve_path(self, path: str | Path) -> Path:
+        return resolve_path(path, syftbox_folder=self.syftbox_folder)
+
+    def _resolve_dataset_owners_for_name(self, dataset_name: str) -> str | None:
+        matches = []
+        for dataset in self.dataset_manager.get_all():
+            if dataset.name == dataset_name:
+                matches.append(dataset.owner)
+        return matches
+
+    # def resolve_dataset_path(
+    #     self, dataset_name: str, owner_email: str | None = None
+    # ) -> Path:
+    #     if owner_email is None:
+    #         owner_emails = self._resolve_dataset_owners_for_name(dataset_name)
+    #         if len(owner_emails) == 1:
+    #             owner_email = owner_emails[0]
+    #         else:
+    #             raise ValueError(
+    #                 f"Dataset {dataset_name} has 0 or multiple owners: {owner_emails}, please specify the owner_email"
+    #             )
+
+    #     return resolve_dataset_path(
+    #         dataset_name, syftbox_folder=self.syftbox_folder, owner_email=owner_email
+    #     )
