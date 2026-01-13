@@ -9,28 +9,30 @@ from pathlib import Path
 
 import pytest
 
+# Store original value before any modifications
+_original_syft_client_install_source = os.environ.get("SYFT_CLIENT_INSTALL_SOURCE")
 
-@pytest.fixture(scope="session", autouse=True)
-def use_local_syft_client_for_jobs():
+
+def pytest_configure(config):
     """
-    Use local syft-client code instead of PyPI for job submissions.
+    Set SYFT_CLIENT_INSTALL_SOURCE BEFORE any test modules are imported.
 
-    When jobs are submitted, they install syft-client as a dependency.
-    By default, this installs from PyPI, but for testing we want to use
-    the local code to test our latest changes.
+    This hook runs before pytest collects tests, which means it runs
+    before test modules are imported. This is critical because
+    syft_job.client reads SYFT_CLIENT_INSTALL_SOURCE at module import time.
 
-    This sets SYFT_CLIENT_INSTALL_SOURCE to the repo root path.
+    Using a fixture doesn't work because fixtures run after imports.
     """
-    # Get repo root (tests/ -> syft-client/)
     repo_root = Path(__file__).parent.parent.resolve()
-    original_value = os.environ.get("SYFT_CLIENT_INSTALL_SOURCE")
     os.environ["SYFT_CLIENT_INSTALL_SOURCE"] = str(repo_root)
 
-    yield
 
-    # Restore original value after all tests
-    if original_value is not None:
-        os.environ["SYFT_CLIENT_INSTALL_SOURCE"] = original_value
+def pytest_unconfigure(config):
+    """
+    Restore original SYFT_CLIENT_INSTALL_SOURCE value after all tests.
+    """
+    if _original_syft_client_install_source is not None:
+        os.environ["SYFT_CLIENT_INSTALL_SOURCE"] = _original_syft_client_install_source
     else:
         os.environ.pop("SYFT_CLIENT_INSTALL_SOURCE", None)
 
