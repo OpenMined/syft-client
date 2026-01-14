@@ -1,9 +1,46 @@
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.events.file_change_event import FileChangeEventsMessageFileName
+import os
 import uuid
 import time
+from pathlib import Path
 from typing import List
+import pytest
 from syft_client.sync.utils.syftbox_utils import get_event_hash_from_content
+from syft_client.sync.syftbox_manager import SyftboxManager
+
+SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent
+CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
+
+FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
+EMAIL_DO = os.environ.get("BEACH_EMAIL_DO", "")
+
+FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
+EMAIL_DS = os.environ.get("BEACH_EMAIL_DS", "")
+
+token_path_do = CREDENTIALS_DIR / FILE_DO
+token_path_ds = CREDENTIALS_DIR / FILE_DS
+
+
+def remove_syftboxes_from_drive():
+    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
+        do_email=EMAIL_DO,
+        ds_email=EMAIL_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
+        add_peers=False,
+    )
+    manager_ds.delete_syftbox()
+    manager_do.delete_syftbox()
+
+
+@pytest.fixture()
+def setup_delete_syftboxes():
+    tokens_exist = token_path_do.exists() and token_path_ds.exists()
+    if not tokens_exist:
+        raise ValueError("Credentials not found")
+    remove_syftboxes_from_drive()
+    yield
 
 
 def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:
