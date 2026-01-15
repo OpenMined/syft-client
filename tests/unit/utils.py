@@ -67,7 +67,7 @@ def create_tmp_dataset_files():
     private_path = tmp_dir / "private.txt"
     readme_path = tmp_dir / "readme.md"
     mock_path.write_text("Hello, world!")
-    private_path.write_text("Hello, world!")
+    private_path.write_text("Hello, world private!")
     readme_path.write_text("Hello, world!")
     return mock_path, private_path, readme_path
 
