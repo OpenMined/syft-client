@@ -858,12 +858,11 @@ class SyftboxManager(BaseModel):
 
     def _upload_dataset_to_collection(self, dataset, users: list[str] | str):
         """Upload dataset files to collection folder."""
-        collection_tag = dataset.name
-
-        # Create collection folder
-        self.connection_router.create_dataset_collection_folder(
-            tag=collection_tag, owner_email=self.email
+        from syft_client.sync.connections.drive.gdrive_transport import (
+            DatasetCollectionFolder,
         )
+
+        collection_tag = dataset.name
 
         # Prepare files to upload
         files = {}
@@ -878,11 +877,21 @@ class SyftboxManager(BaseModel):
         if dataset.readme_path and dataset.readme_path.exists():
             files[dataset.readme_path.name] = dataset.readme_path.read_bytes()
 
+        # Compute content hash
+        content_hash = DatasetCollectionFolder.compute_hash(files)
+
+        # Create collection folder with hash in name
+        self.connection_router.create_dataset_collection_folder(
+            tag=collection_tag, content_hash=content_hash, owner_email=self.email
+        )
+
         # Upload files
-        self.connection_router.upload_dataset_files(collection_tag, files)
+        self.connection_router.upload_dataset_files(collection_tag, content_hash, files)
 
         # Share with users
-        self.connection_router.share_dataset_collection(collection_tag, users)
+        self.connection_router.share_dataset_collection(
+            collection_tag, content_hash, users
+        )
 
     def delete_dataset(self, *args, sync=True, **kwargs):
         if self.dataset_manager is None:
@@ -900,6 +909,10 @@ class SyftboxManager(BaseModel):
             users: List of email addresses or "any"
             sync: Whether to sync after sharing
         """
+        from syft_client.sync.connections.drive.gdrive_transport import (
+            DatasetCollectionFolder,
+        )
+
         if self.dataset_manager is None:
             raise ValueError("Dataset manager is not set")
 
@@ -911,8 +924,21 @@ class SyftboxManager(BaseModel):
         if dataset is None:
             raise ValueError(f"Dataset {tag} not found")
 
+        # Compute current content hash from local files
+        files = {}
+        for mock_file in dataset.mock_files:
+            if mock_file.exists():
+                files[mock_file.name] = mock_file.read_bytes()
+        metadata_path = dataset.mock_dir / "dataset.yaml"
+        if metadata_path.exists():
+            files["dataset.yaml"] = metadata_path.read_bytes()
+        if dataset.readme_path and dataset.readme_path.exists():
+            files[dataset.readme_path.name] = dataset.readme_path.read_bytes()
+
+        content_hash = DatasetCollectionFolder.compute_hash(files)
+
         # Share collection
-        self.connection_router.share_dataset_collection(tag, users)
+        self.connection_router.share_dataset_collection(tag, content_hash, users)
 
         if sync:
             self.sync()

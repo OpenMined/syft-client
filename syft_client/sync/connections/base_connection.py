@@ -19,22 +19,29 @@ class SyftboxPlatformConnection(BaseModel):
     def from_config(cls, config: ConnectionConfig):
         return config.connection_type.from_config(config)
 
-    def create_dataset_collection_folder(self, tag: str, owner_email: str) -> str:
+    def create_dataset_collection_folder(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> str:
         raise NotImplementedError()
 
-    def share_dataset_collection(self, tag: str, users: list[str] | str) -> None:
+    def share_dataset_collection(
+        self, tag: str, content_hash: str, users: list[str] | str
+    ) -> None:
         raise NotImplementedError()
 
-    def upload_dataset_files(self, tag: str, files: dict[str, bytes]) -> None:
+    def upload_dataset_files(
+        self, tag: str, content_hash: str, files: dict[str, bytes]
+    ) -> None:
         raise NotImplementedError()
 
     def list_dataset_collections_as_do(self) -> list[str]:
         raise NotImplementedError()
 
-    def list_dataset_collections_as_ds(self) -> list[str]:
+    def list_dataset_collections_as_ds(self) -> list[dict]:
+        """Returns list of dicts with keys: owner_email, tag, content_hash"""
         raise NotImplementedError()
 
     def download_dataset_collection(
-        self, tag: str, owner_email: str
+        self, tag: str, content_hash: str, owner_email: str
     ) -> dict[str, bytes]:
         raise NotImplementedError()

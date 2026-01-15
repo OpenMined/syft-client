@@ -48,6 +48,8 @@ class DataSiteWatcherCache(BaseModel):
     seconds_before_syncing_down: int = SECONDS_BEFORE_SYNCING_DOWN
     peers: List[str] = []
     last_event_timestamp_per_peer: Dict[str, float] = {}
+    # Cache of dataset collection hashes: "{owner_email}/{tag}" -> content_hash
+    dataset_collection_hashes: Dict[str, str] = {}
 
     @classmethod
     def from_config(cls, config: DataSiteWatcherCacheConfig):
@@ -86,6 +88,7 @@ class DataSiteWatcherCache(BaseModel):
         self.peers = []
         self.current_check_point = None
         self.last_event_timestamp_per_peer = {}
+        self.dataset_collection_hashes = {}
 
     @property
     def last_event_timestamp(self) -> float | None:
@@ -150,21 +153,34 @@ class DataSiteWatcherCache(BaseModel):
     def sync_down_datasets(self, peer_email: str):
         """
         Sync dataset collections from peer.
-        Separate from message sync.
+        Separate from message sync. Uses hash to skip unchanged collections.
         """
-        # Get list of collections shared with us
+        # Get list of collections shared with us (now returns list of dicts)
         collections = self.connection_router.list_dataset_collections_as_ds()
 
         # Filter by peer
-        peer_collections = [c for c in collections if c.startswith(f"{peer_email}/")]
+        peer_collections = [c for c in collections if c["owner_email"] == peer_email]
 
-        for collection_str in peer_collections:
-            owner_email, tag = collection_str.split("/", 1)
+        for collection in peer_collections:
+            owner_email = collection["owner_email"]
+            tag = collection["tag"]
+            content_hash = collection["content_hash"]
+
+            # Check if hash changed - skip download if unchanged
+            cache_key = f"{owner_email}/{tag}"
+            cached_hash = self.dataset_collection_hashes.get(cache_key)
+            if cached_hash == content_hash:
+                continue
 
             # Download collection files
-            files = self.connection_router.download_dataset_collection(tag, owner_email)
+            files = self.connection_router.download_dataset_collection(
+                tag, content_hash, owner_email
+            )
 
             # Write files to local cache
             for file_name, content in files.items():
                 file_path = f"{owner_email}/public/syft_datasets/{tag}/{file_name}"
                 self.file_connection.write_file(file_path, content)
+
+            # Update hash cache
+            self.dataset_collection_hashes[cache_key] = content_hash

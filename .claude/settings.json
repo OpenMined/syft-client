@@ -9,7 +9,8 @@
       "Bash(cat:*)",
       "Bash(la:*)",
       "Bash(ruff format:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(uv run python:*)"
     ]
   }
 }
