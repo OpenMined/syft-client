@@ -28,33 +28,6 @@ token_path_do = CREDENTIALS_DIR / FILE_DO
 token_path_ds = CREDENTIALS_DIR / FILE_DS
 
 
-def remove_syftboxes_from_drive():
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-    )
-    manager_ds.delete_syftbox()
-    manager_do.delete_syftbox()
-
-
-@pytest.fixture()
-def setup_delete_syftboxes():
-    print("\nCleaning up syftboxes from drive for integration tests")
-    tokens_exist = token_path_do.exists() and token_path_ds.exists()
-    if not tokens_exist:
-        raise ValueError(
-            """"Credentials not found, create them using scripts/create_token.py and store them in /credentials
-            as token_do.json and token_ds.json. Also set the environment variables BEACH_EMAIL_DO and BEACH_EMAIL_DS to the email addresses of the DO and DS."""
-        )
-    remove_syftboxes_from_drive()
-    print("Syftboxes deleted from drive, starting tests")
-    yield
-    print("Tearing down")
-
-
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_google_drive_connection_syncing():
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
