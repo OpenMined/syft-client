@@ -5,7 +5,6 @@ import uuid
 import time
 from pathlib import Path
 from typing import List
-import pytest
 from syft_client.sync.utils.syftbox_utils import get_event_hash_from_content
 from syft_client.sync.syftbox_manager import SyftboxManager
 
@@ -32,15 +31,6 @@ def remove_syftboxes_from_drive():
     )
     manager_ds.delete_syftbox()
     manager_do.delete_syftbox()
-
-
-@pytest.fixture()
-def setup_delete_syftboxes():
-    tokens_exist = token_path_do.exists() and token_path_ds.exists()
-    if not tokens_exist:
-        raise ValueError("Credentials not found")
-    remove_syftboxes_from_drive()
-    yield
 
 
 def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:

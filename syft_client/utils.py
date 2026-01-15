@@ -71,9 +71,9 @@ def resolve_dataset_files_path(
     manager = SyftDatasetManager(syftbox_folder_path=syftbox_folder, email="")
     dataset = manager.get(name=dataset_name, datasite=owner)
     if use_private:
-        return dataset.mock_files
-    else:
         return dataset.private_files
+    else:
+        return dataset.mock_files
 
 
 def resolve_path(
