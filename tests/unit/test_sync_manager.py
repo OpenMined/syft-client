@@ -1052,7 +1052,7 @@ with open("outputs/result.json", "w") as f:
     with open(output_path, "r") as f:
         json_content = json.loads(f.read())
 
-    assert json_content["result"] == "Hello, world!"
+    assert json_content["result"] == "Hello, world private!"
 
 
 def test_folder_job_flow_with_dataset():
@@ -1114,8 +1114,8 @@ def test_folder_job_flow_with_dataset():
             json_content = json.loads(f.read())
 
         # Verify the helper module was imported and used correctly
-        assert json_content["original"] == "Hello, world!"
-        assert json_content["processed"] == "Processed: Hello, world!"
+        assert json_content["original"] == "Hello, world private!"
+        assert json_content["processed"] == "Processed: Hello, world private!"
         assert json_content["multiplier"] == 2
 
     finally:
@@ -1215,8 +1215,8 @@ def test_pyproject_folder_job_flow_with_dataset():
             json_content = json.loads(f.read())
 
         # Verify the helper module was imported and used correctly
-        assert json_content["original"] == "Hello, world!"
-        assert json_content["processed"] == "Processed: Hello, world!"
+        assert json_content["original"] == "Hello, world private!"
+        assert json_content["processed"] == "Processed: Hello, world private!"
         assert json_content["multiplier"] == 3
 
     finally:
