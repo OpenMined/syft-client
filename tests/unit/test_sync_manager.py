@@ -337,7 +337,7 @@ def test_datasets():
 
     # Verify DS can see collection
     ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
-    assert any("my dataset" in c for c in ds_collections)
+    assert any(c["tag"] == "my dataset" for c in ds_collections)
 
     assert len(ds_manager.datasets.get_all()) == 1
 
@@ -474,13 +474,19 @@ def test_dataset_empty_permissions_no_access():
 
     # DS should NOT see the collection (no permissions)
     ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
-    assert not any("private dataset" in c for c in ds_collections)
+    assert not any(c["tag"] == "private dataset" for c in ds_collections)
+
+    # Get the hash from DO's backing store and try to download anyway
+    do_backing_store = do_manager.connection_router.connections[0].backing_store
+    collection = [
+        c for c in do_backing_store.dataset_collections if c.tag == "private dataset"
+    ][0]
+    content_hash = collection.content_hash
 
     # DS should NOT be able to download the dataset collection (no permissions)
-    ds_manager.connection_router.connections[0].backing_store
     try:
         ds_manager.connection_router.download_dataset_collection(
-            "private dataset", do_manager.email
+            "private dataset", content_hash, do_manager.email
         )
         assert False, "Should have raised PermissionError"
     except PermissionError:

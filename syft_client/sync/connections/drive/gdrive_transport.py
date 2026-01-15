@@ -68,6 +68,40 @@ class GdriveInboxOutBoxFolder(BaseModel):
         )
 
 
+class DatasetCollectionFolder(BaseModel):
+    """Represents a dataset collection folder with format: {prefix}_{tag}_{hash}"""
+
+    tag: str
+    content_hash: str
+
+    def as_string(self) -> str:
+        return f"{DATASET_COLLECTION_PREFIX}_{self.tag}_{self.content_hash}"
+
+    @classmethod
+    def from_name(cls, name: str) -> "DatasetCollectionFolder":
+        """Parse folder name like 'syft_datasetcollection_mytag_abc123'"""
+        parts = name.split("_")
+        if len(parts) < 3:
+            raise ValueError(f"Invalid dataset collection folder name: {name}")
+        # prefix is parts[0:2] joined = "syft_datasetcollection"
+        # tag is parts[2:-1] joined (in case tag has underscores)
+        # hash is parts[-1]
+        tag = "_".join(parts[2:-1])
+        content_hash = parts[-1]
+        return cls(tag=tag, content_hash=content_hash)
+
+    @staticmethod
+    def compute_hash(files: dict[str, bytes]) -> str:
+        """Compute a hash from file contents."""
+        import hashlib
+
+        hasher = hashlib.sha256()
+        for name in sorted(files.keys()):
+            hasher.update(name.encode())
+            hasher.update(files[name])
+        return hasher.hexdigest()[:12]
+
+
 class GDriveConnection(SyftboxPlatformConnection):
     """Google Drive Files API transport layer"""
 
@@ -924,30 +958,36 @@ class GDriveConnection(SyftboxPlatformConnection):
         items = results.get("files", [])
         return items[0]["id"] if items else None
 
-    def create_dataset_collection_folder(self, tag: str, owner_email: str) -> str:
-        """Create /SyftBox/{DATASET_COLLECTION_PREFIX}_<TAG> folder."""
-        folder_name = f"{DATASET_COLLECTION_PREFIX}_{tag}"
+    def create_dataset_collection_folder(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> str:
+        """Create /SyftBox/{DATASET_COLLECTION_PREFIX}_{tag}_{hash} folder."""
+        folder_obj = DatasetCollectionFolder(tag=tag, content_hash=content_hash)
+        folder_name = folder_obj.as_string()
+        cache_key = f"{tag}_{content_hash}"
 
         # Check cache
-        if tag in self.dataset_collection_folder_id_cache:
-            return self.dataset_collection_folder_id_cache[tag]
+        if cache_key in self.dataset_collection_folder_id_cache:
+            return self.dataset_collection_folder_id_cache[cache_key]
 
         syftbox_folder_id = self.get_syftbox_folder_id()
 
         # Check if exists
         folder_id = self._find_folder_by_name(folder_name, parent_id=syftbox_folder_id)
         if folder_id:
-            self.dataset_collection_folder_id_cache[tag] = folder_id
+            self.dataset_collection_folder_id_cache[cache_key] = folder_id
             return folder_id
 
         # Create new folder
         folder_id = self.create_folder(folder_name, syftbox_folder_id)
-        self.dataset_collection_folder_id_cache[tag] = folder_id
+        self.dataset_collection_folder_id_cache[cache_key] = folder_id
         return folder_id
 
-    def share_dataset_collection(self, tag: str, users: list[str] | str) -> None:
+    def share_dataset_collection(
+        self, tag: str, content_hash: str, users: list[str] | str
+    ) -> None:
         """Share dataset collection folder with users."""
-        folder_id = self._get_dataset_collection_folder_id(tag)
+        folder_id = self._get_dataset_collection_folder_id(tag, content_hash)
 
         share_with_any = False
         if isinstance(users, str):
@@ -970,9 +1010,11 @@ class GDriveConnection(SyftboxPlatformConnection):
                 self.add_permission(folder_id, user_email, write=False)
         # else: empty list means no sharing - do nothing
 
-    def upload_dataset_files(self, tag: str, files: dict[str, bytes]) -> None:
+    def upload_dataset_files(
+        self, tag: str, content_hash: str, files: dict[str, bytes]
+    ) -> None:
         """Upload dataset files to collection folder."""
-        folder_id = self._get_dataset_collection_folder_id(tag)
+        folder_id = self._get_dataset_collection_folder_id(tag, content_hash)
 
         for file_path, content in files.items():
             file_payload, _ = self.create_file_payload(content)
@@ -997,8 +1039,11 @@ class GDriveConnection(SyftboxPlatformConnection):
         folders = results.get("files", [])
         return [f["name"].replace(f"{DATASET_COLLECTION_PREFIX}_", "") for f in folders]
 
-    def list_dataset_collections_as_ds(self) -> list[str]:
-        """List collections shared with DS (not owned by me)."""
+    def list_dataset_collections_as_ds(self) -> list[dict]:
+        """List collections shared with DS (not owned by me).
+
+        Returns list of dicts with keys: owner_email, tag, content_hash
+        """
         query = (
             f"name contains '{DATASET_COLLECTION_PREFIX}_' and not 'me' in owners "
             f"and trashed=false and mimeType='{GOOGLE_FOLDER_MIME_TYPE}'"
@@ -1012,21 +1057,34 @@ class GDriveConnection(SyftboxPlatformConnection):
         folders = results.get("files", [])
         result = []
         for folder in folders:
-            tag = folder["name"].replace(f"{DATASET_COLLECTION_PREFIX}_", "")
-            owner_email = folder.get("owners", [{}])[0].get("emailAddress", "unknown")
-            result.append(f"{owner_email}/{tag}")
+            try:
+                folder_obj = DatasetCollectionFolder.from_name(folder["name"])
+                owner_email = folder.get("owners", [{}])[0].get(
+                    "emailAddress", "unknown"
+                )
+                result.append(
+                    {
+                        "owner_email": owner_email,
+                        "tag": folder_obj.tag,
+                        "content_hash": folder_obj.content_hash,
+                    }
+                )
+            except ValueError:
+                # Skip folders that don't match the expected format
+                continue
         return result
 
     def download_dataset_collection(
-        self, tag: str, owner_email: str
+        self, tag: str, content_hash: str, owner_email: str
     ) -> dict[str, bytes]:
         """Download all files from a dataset collection."""
-        folder_name = f"{DATASET_COLLECTION_PREFIX}_{tag}"
+        folder_obj = DatasetCollectionFolder(tag=tag, content_hash=content_hash)
+        folder_name = folder_obj.as_string()
         # Try to find folder by name (could be owned by someone else)
         folder_id = self._find_folder_by_name(folder_name, owner_email=owner_email)
 
         if not folder_id:
-            raise ValueError(f"Collection {tag} not found")
+            raise ValueError(f"Collection {tag} with hash {content_hash} not found")
 
         file_metadatas = self.get_file_metadatas_from_folder(folder_id)
         files = {}
@@ -1037,17 +1095,21 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return files
 
-    def _get_dataset_collection_folder_id(self, tag: str) -> str:
+    def _get_dataset_collection_folder_id(self, tag: str, content_hash: str) -> str:
         """Get folder ID for dataset collection, with caching."""
-        if tag in self.dataset_collection_folder_id_cache:
-            return self.dataset_collection_folder_id_cache[tag]
+        cache_key = f"{tag}_{content_hash}"
+        if cache_key in self.dataset_collection_folder_id_cache:
+            return self.dataset_collection_folder_id_cache[cache_key]
 
-        folder_name = f"{DATASET_COLLECTION_PREFIX}_{tag}"
+        folder_obj = DatasetCollectionFolder(tag=tag, content_hash=content_hash)
+        folder_name = folder_obj.as_string()
         syftbox_folder_id = self.get_syftbox_folder_id()
         folder_id = self._find_folder_by_name(folder_name, parent_id=syftbox_folder_id)
 
         if not folder_id:
-            raise ValueError(f"Collection folder {tag} not found")
+            raise ValueError(
+                f"Collection folder {tag} with hash {content_hash} not found"
+            )
 
-        self.dataset_collection_folder_id_cache[tag] = folder_id
+        self.dataset_collection_folder_id_cache[cache_key] = folder_id
         return folder_id
