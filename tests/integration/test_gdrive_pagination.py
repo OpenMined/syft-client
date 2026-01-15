@@ -1,46 +1,19 @@
-from syft_client.sync.syftbox_manager import SyftboxManager
-import os
-from pathlib import Path
 from time import sleep
 import pytest
 from unittest.mock import patch
 
-SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent
-CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
-
-FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
-EMAIL_DO = os.environ["BEACH_EMAIL_DO"]
-
-FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
-EMAIL_DS = os.environ["BEACH_EMAIL_DS"]
-
-token_path_do = CREDENTIALS_DIR / FILE_DO
-token_path_ds = CREDENTIALS_DIR / FILE_DS
-
-
-def remove_syftboxes_from_drive():
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-    )
-    manager_ds.delete_syftbox()
-    manager_do.delete_syftbox()
-
-
-@pytest.fixture()
-def setup_delete_syftboxes():
-    tokens_exist = token_path_do.exists() and token_path_ds.exists()
-    if not tokens_exist:
-        raise ValueError("Credentials not found")
-    remove_syftboxes_from_drive()
-    yield
+from tests.integration.utils import (
+    EMAIL_DO,
+    EMAIL_DS,
+    token_path_do,
+    token_path_ds,
+)
+from syft_client.sync.syftbox_manager import SyftboxManager
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
-def test_pagination_with_small_page_size():
+def test_pagination_and_early_termination():
+    """Test pagination with small page size and early termination with since_timestamp"""
     from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
@@ -50,43 +23,51 @@ def test_pagination_with_small_page_size():
         ds_token_path=token_path_ds,
     )
 
-    for i in range(5):
+    # Send 2 initial file changes
+    for i in range(2):
         manager_ds.send_file_change(f"{EMAIL_DO}/job_{i}.job", f"Job {i}")
-        sleep(0.2)
+        sleep(0.3)
 
     sleep(1)
 
+    # Test pagination with small page size
     original_method = GDriveConnection.get_file_metadatas_from_folder
-    page_num = [0]  # Use list to maintain state across calls
 
-    def get_files_page_size_2_with_logging(
-        self, folder_id, since_timestamp=None, page_size=100
-    ):
-        page_num[0] += 1
-
-        # Log before calling the method
-        print(f"\n[TEST LOG] === API Call #{page_num[0]} ===")
-        print(f"[TEST LOG] Forcing page_size=2 (instead of {page_size})")
-
-        # Call original method with page_size=2
-        result = original_method(self, folder_id, since_timestamp, page_size=2)
-
-        # Log after getting results
-        print(f"[TEST LOG] Total files returned: {len(result)}")
-        if result:
-            print("[TEST LOG] File names:")
-            for f in result:
-                print(f"[TEST LOG]   - {f['name']}")
-        print(f"[TEST LOG] === End of API Call #{page_num[0]} ===\n")
-
-        return result
+    def get_files_page_size_2(self, folder_id, since_timestamp=None, page_size=100):
+        return original_method(self, folder_id, since_timestamp, page_size=2)
 
     with patch.object(
         GDriveConnection,
         "get_file_metadatas_from_folder",
-        get_files_page_size_2_with_logging,
+        get_files_page_size_2,
     ):
         manager_do.sync()
 
-    events = manager_do.proposed_file_change_handler.event_cache.get_cached_events()
-    assert len(events) == 5
+    initial_events = (
+        manager_do.proposed_file_change_handler.event_cache.get_cached_events()
+    )
+    assert len(initial_events) == 2
+
+    # Use the latest processed event as checkpoint
+    checkpoint_timestamp = initial_events[-1].timestamp
+
+    sleep(2)
+
+    # Send 2 more file changes
+    for i in range(2, 4):
+        manager_ds.send_file_change(f"{EMAIL_DO}/job_{i}.job", f"Job {i}")
+        sleep(0.5)
+
+    sleep(2)
+    manager_do.sync()
+
+    # Test early termination
+    connection = manager_ds.datasite_outbox_puller.datasite_watcher_cache.connection_router.connection_for_datasite_watcher()
+
+    new_events = connection.get_events_messages_for_datasite_watcher(
+        EMAIL_DO, since_timestamp=checkpoint_timestamp
+    )
+
+    new_event_timestamps = [e.timestamp for e in new_events]
+    assert all(t > checkpoint_timestamp for t in new_event_timestamps)
+    assert len(new_events) == 2

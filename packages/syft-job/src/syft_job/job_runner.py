@@ -10,7 +10,8 @@ from . import __version__
 from .config import SyftJobConfig
 
 # Default timeout for job execution (5 minutes)
-DEFAULT_JOB_TIMEOUT_SECONDS = 300
+# Can be overridden by setting SYFT_JOB_TIMEOUT_SECONDS environment variable
+DEFAULT_JOB_TIMEOUT_SECONDS = int(os.environ.get("SYFT_JOB_TIMEOUT_SECONDS", "300"))
 IS_IN_JOB_ENV_VAR = "SYFT_IS_IN_JOB"
 
 
@@ -204,8 +205,13 @@ class SyftJobRunner:
 
         return jobs
 
-    def _execute_job_streaming(self, job_name: str) -> bool:
-        """Execute job with real-time streaming output."""
+    def _execute_job_streaming(self, job_name: str, timeout: int) -> bool:
+        """Execute job with real-time streaming output.
+
+        Args:
+            job_name: Name of the job to execute
+            timeout: Timeout in seconds
+        """
         job_dir = self.config.get_job_dir(self.config.email) / job_name
         run_script = job_dir / "run.sh"
 
@@ -254,13 +260,12 @@ class SyftJobRunner:
             try:
                 while process.poll() is None:
                     # Check for timeout
-                    if time.time() - start_time > DEFAULT_JOB_TIMEOUT_SECONDS:
+                    if time.time() - start_time > timeout:
                         process.kill()
                         process.wait()
                         timed_out = True
                         print(
-                            f"⏰ Job {job_name} timed out after "
-                            f"{DEFAULT_JOB_TIMEOUT_SECONDS // 60} minutes"
+                            f"⏰ Job {job_name} timed out after {timeout // 60} minutes"
                         )
                         stdout_f.write("\n--- PROCESS TIMED OUT ---\n")
                         stderr_f.write("\n--- PROCESS TIMED OUT ---\n")
@@ -305,9 +310,12 @@ class SyftJobRunner:
 
         return returncode
 
-    def _execute_job_captured(self, job_name: str) -> int:
+    def _execute_job_captured(self, job_name: str, timeout: int) -> int:
         """Execute job with captured output (non-streaming).
-        Default, CI-friendly
+
+        Args:
+            job_name: Name of the job to execute
+            timeout: Timeout in seconds
         """
         job_dir = self.config.get_job_dir(self.config.email) / job_name
         run_script = job_dir / "run.sh"
@@ -329,7 +337,7 @@ class SyftJobRunner:
             cwd=job_dir,
             capture_output=True,
             text=True,
-            timeout=DEFAULT_JOB_TIMEOUT_SECONDS,
+            timeout=timeout,
             env=env,
         )
 
@@ -345,7 +353,9 @@ class SyftJobRunner:
 
         return result.returncode
 
-    def _execute_job(self, job_name: str, stream_output: bool = True) -> bool:
+    def _execute_job(
+        self, job_name: str, stream_output: bool = True, timeout: int | None = None
+    ) -> bool:
         """
         Execute run.sh for a job in the approved directory.
 
@@ -353,10 +363,14 @@ class SyftJobRunner:
             job_name: Name of the job to execute
             stream_output: If True (default), stream output in real-time.
                         If False, capture output at end (CI-friendly).
+            timeout: Timeout in seconds. Defaults to 300 (5 minutes).
+                    Can also be set via SYFT_JOB_TIMEOUT_SECONDS env var.
 
         Returns:
             bool: True if execution was successful, False otherwise
         """
+        if timeout is None:
+            timeout = DEFAULT_JOB_TIMEOUT_SECONDS
         job_dir = self.config.get_job_dir(self.config.email) / job_name
         run_script = job_dir / "run.sh"
 
@@ -370,9 +384,9 @@ class SyftJobRunner:
         try:
             # Execute with streaming or captured output
             if stream_output:
-                returncode = self._execute_job_streaming(job_name)
+                returncode = self._execute_job_streaming(job_name, timeout)
             else:
-                returncode = self._execute_job_captured(job_name)
+                returncode = self._execute_job_captured(job_name, timeout)
 
             # Create done marker file to mark job as completed
             self.config.create_done_marker(job_dir)
@@ -400,21 +414,22 @@ class SyftJobRunner:
             return True
 
         except subprocess.TimeoutExpired:
-            print(
-                f"⏰ Job {job_name} timed out after "
-                f"{DEFAULT_JOB_TIMEOUT_SECONDS // 60} minutes"
-            )
+            print(f"⏰ Job {job_name} timed out after {timeout // 60} minutes")
             return False
         except Exception as e:
             print(f"❌ Error executing job {job_name}: {e}")
             return False
 
-    def process_approved_jobs(self, stream_output: bool = True) -> None:
+    def process_approved_jobs(
+        self, stream_output: bool = True, timeout: int | None = None
+    ) -> None:
         """Process all jobs in the approved directory.
 
         Args:
             stream_output: If True (default), stream output in real-time.
                         If False, capture output at end (CI-friendly).
+            timeout: Timeout in seconds per job. Defaults to 300 (5 minutes).
+                    Can also be set via SYFT_JOB_TIMEOUT_SECONDS env var.
         """
         approved_jobs = self._get_jobs_in_approved()
 
@@ -425,7 +440,7 @@ class SyftJobRunner:
 
         for job_name in approved_jobs:
             print(f"\n{'=' * 50}")
-            self._execute_job(job_name, stream_output=stream_output)
+            self._execute_job(job_name, stream_output=stream_output, timeout=timeout)
             print(f"{'=' * 50}")
 
         if approved_jobs:
