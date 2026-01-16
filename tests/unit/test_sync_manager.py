@@ -20,6 +20,7 @@ from syft_client.sync.sync.caches.datasite_owner_cache import (
 )
 from tests.unit.utils import get_mock_events_messages
 from tests.unit.utils import get_mock_proposed_events_messages
+from tests.unit.utils import setup_mock_peer_version
 
 
 def test_in_memory_connection():
@@ -181,6 +182,8 @@ def test_sync_existing_inbox_state_do():
     # add the peers for the messages, otherwise it wont sync them
     for message in proposed_events_messages:
         store.peer_states[do_manager.email] = {message.sender_email: "accepted"}
+        # Set up version file for the mock peer so DO can read it
+        setup_mock_peer_version(store, message.sender_email, do_manager.email)
     do_manager.load_peers()
 
     do_manager.sync()

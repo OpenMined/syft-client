@@ -17,7 +17,7 @@ from syft_client.sync.utils.print_utils import (
 )
 from syft_client.sync.platforms.base_platform import BasePlatform
 from pydantic import BaseModel, PrivateAttr
-from typing import List
+from typing import List, Optional
 from syft_client.sync.sync.caches.datasite_watcher_cache import (
     DataSiteWatcherCacheConfig,
 )
@@ -55,6 +55,7 @@ from syft_client.sync.sync.proposed_file_change_pusher import (
     ProposedFileChangePusherConfig,
 )
 from syft_client.sync.sync.datasite_outbox_puller import DatasiteOutboxPullerConfig
+from syft_client.sync.version.version_manager import VersionManager
 import os
 
 COLAB_DEFAULT_SYFTBOX_FOLDER = Path("/")
@@ -76,6 +77,11 @@ class SyftboxManagerConfig(BaseModel):
     only_ds: bool = False
     only_datasite_owner: bool = False
     use_in_memory_cache: bool = True
+
+    # Version negotiation settings
+    ignore_protocol_version: bool = False
+    ignore_client_version: bool = False
+    suppress_version_warnings: bool = False
 
     proposed_file_change_handler_config: ProposedFileChangeHandlerConfig
 
@@ -353,6 +359,11 @@ class SyftboxManager(BaseModel):
     job_client: JobClient | None = None
     job_runner: SyftJobRunner | None = None
 
+    # Version negotiation settings
+    ignore_protocol_version: bool = False
+    ignore_client_version: bool = False
+    suppress_version_warnings: bool = False
+
     _approved_peers: List[Peer] = PrivateAttr(default_factory=list)
     _peer_requests: List[Peer] = PrivateAttr(default_factory=list)
     _outstanding_peer_requests: List[Peer] = PrivateAttr(default_factory=list)
@@ -360,6 +371,7 @@ class SyftboxManager(BaseModel):
     _executor: ThreadPoolExecutor = PrivateAttr(
         default_factory=lambda: ThreadPoolExecutor(max_workers=10)
     )
+    _version_manager: Optional[VersionManager] = PrivateAttr(default=None)
 
     @property
     def peers(self) -> PeerList:
@@ -428,7 +440,22 @@ class SyftboxManager(BaseModel):
             dataset_manager=dataset_manager,
             job_client=job_client,
             job_runner=job_runner,
+            ignore_protocol_version=config.ignore_protocol_version,
+            ignore_client_version=config.ignore_client_version,
+            suppress_version_warnings=config.suppress_version_warnings,
         )
+
+        # Initialize version manager after the manager is created (needs connection_router)
+        # Check if connection_router has connections before initializing version manager
+        if manager_res.connection_router.connections:
+            manager_res._version_manager = VersionManager(
+                connection_router=manager_res.connection_router,
+                ignore_protocol_version=config.ignore_protocol_version,
+                ignore_client_version=config.ignore_client_version,
+                suppress_version_warnings=config.suppress_version_warnings,
+            )
+            # Write own version file
+            manager_res._version_manager.write_own_version()
 
         return manager_res
 
@@ -636,16 +663,29 @@ class SyftboxManager(BaseModel):
                 self.approve_peer_request(peer_email, verbose=False)
             else:
                 peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
+                # Share version file with the peer (DO)
+                if self._version_manager:
+                    self._version_manager.share_version_with_peer(peer_email)
                 # we only do this for DSes
                 self._outstanding_peer_requests.append(peer)
                 print_peer_added(peer)
 
-    def submit_bash_job(self, *args, sync=True, **kwargs):
-        job_dir = self.job_client.submit_bash_job(*args, **kwargs)
+    def submit_bash_job(
+        self, user: str, *args, sync=True, force_submission: bool = False, **kwargs
+    ):
+        # Check version compatibility before submission
+        if self._version_manager and not force_submission:
+            self._version_manager.check_version_for_submission(user, force=False)
+        job_dir = self.job_client.submit_bash_job(user, *args, **kwargs)
         self.push_job_files(job_dir)
 
-    def submit_python_job(self, *args, sync=True, **kwargs):
-        job_dir = self.job_client.submit_python_job(*args, **kwargs)
+    def submit_python_job(
+        self, user: str, *args, sync=True, force_submission: bool = False, **kwargs
+    ):
+        # Check version compatibility before submission
+        if self._version_manager and not force_submission:
+            self._version_manager.check_version_for_submission(user, force=False)
+        job_dir = self.job_client.submit_python_job(user, *args, **kwargs)
         self.push_job_files(job_dir)
         print(f"Submitted python job, job files are in {job_dir}")
 
@@ -671,10 +711,24 @@ class SyftboxManager(BaseModel):
         self.load_peers()
         if self.is_do:
             peer_emails = [peer.email for peer in self._approved_peers]
-            self.proposed_file_change_handler.sync(peer_emails)
+            # Load peer versions in parallel
+            if self._version_manager:
+                self._version_manager.load_peer_versions_parallel(peer_emails)
+                # Filter to compatible peers, warn for incompatible
+                compatible_emails = self._version_manager.get_compatible_peer_emails(
+                    peer_emails, warn_incompatible=True
+                )
+            else:
+                compatible_emails = peer_emails
+            self.proposed_file_change_handler.sync(compatible_emails)
         else:
             # ds
             peer_emails = [peer.email for peer in self._outstanding_peer_requests]
+            # Load peer versions in parallel
+            if self._version_manager:
+                self._version_manager.load_peer_versions_parallel(peer_emails)
+                # Warn if all connected peers are incompatible
+                self._version_manager.warn_if_all_peers_incompatible(peer_emails)
             self.datasite_outbox_puller.sync_down(peer_emails)
 
     def load_peers(self):
@@ -722,6 +776,10 @@ class SyftboxManager(BaseModel):
 
         # Update state in GDrive
         self.connection_router.update_peer_state(email, PeerState.ACCEPTED.value)
+
+        # Share version file with the approved peer (DS)
+        if self._version_manager:
+            self._version_manager.share_version_with_peer(email)
 
         # Move from requests to approved
         self._peer_requests = [p for p in self._peer_requests if p.email != email]
@@ -795,7 +853,25 @@ class SyftboxManager(BaseModel):
 
         PRE_SYNC defaults to "true", so auto-sync is enabled by default.
         To disable auto-sync, set: PRE_SYNC=false
+
+        Raises:
+            VersionMismatchError: If any approved job was submitted by a peer
+                                  with incompatible version
+            VersionUnknownError: If any approved job was submitted by a peer
+                                 with unknown version
         """
+        # Check version compatibility for all approved job submitters
+        if self._version_manager:
+            approved_jobs = [job for job in self.job_client.jobs if job.status == "approved"]
+            submitter_emails = set(job.submitted_by for job in approved_jobs if job.submitted_by != "unknown")
+
+            # Load versions for all submitters
+            self._version_manager.load_peer_versions_parallel(list(submitter_emails))
+
+            # Check each submitter's version (will raise if incompatible)
+            for email in submitter_emails:
+                self._version_manager.check_version_for_job_execution(email)
+
         self.job_runner.process_approved_jobs(
             stream_output=stream_output, timeout=timeout
         )
@@ -824,6 +900,19 @@ class SyftboxManager(BaseModel):
                 connection
             )
             self.datasite_outbox_puller.connection_router.add_connection(connection)
+
+        # Initialize version manager if not already initialized (for in-memory setup)
+        if self._version_manager is None:
+            self._version_manager = VersionManager(
+                connection_router=self.connection_router,
+                ignore_protocol_version=self.ignore_protocol_version,
+                ignore_client_version=self.ignore_client_version,
+                suppress_version_warnings=self.suppress_version_warnings,
+            )
+            # Set test mode for in-memory connections (uses 2 threads instead of 10)
+            self._version_manager._test_mode = True
+            # Write own version file
+            self._version_manager.write_own_version()
 
     def send_file_change(self, path: str | Path, content: str):
         self.file_writer.write_file(path, content)

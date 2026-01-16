@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from syft_client.sync.connections.base_connection import (
@@ -12,6 +12,9 @@ from syft_client.sync.messages.proposed_filechange import (
     ProposedFileChangesMessage,
 )
 from syft_datasets.dataset_manager import SHARE_WITH_ANY
+
+if TYPE_CHECKING:
+    from syft_client.sync.version.version_info import VersionInfo
 
 
 class InMemoryPlatformConnectionConfig(ConnectionConfig):
@@ -51,6 +54,12 @@ class InMemoryBackingPlatform(BaseModel):
 
     # Dataset collections storage
     dataset_collections: List[InMemoryDatasetsFolder] = Field(default_factory=list)
+
+    # Version files storage: {owner_email: version_json_string}
+    version_files: Dict[str, str] = Field(default_factory=dict)
+
+    # Version file permissions: {owner_email: set of emails that can read}
+    version_file_permissions: Dict[str, List[str]] = Field(default_factory=dict)
 
 
 class InMemoryPlatformConnection(SyftboxPlatformConnection):
@@ -329,3 +338,30 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             for e in self.backing_store.syftbox_events_message_log
             if e.message_filepath.id == events_message_id
         ][0]
+
+    def write_version_file(self, version_info: "VersionInfo") -> None:
+        """Write version file to this user's storage."""
+        self.backing_store.version_files[self.owner_email] = version_info.to_json()
+
+    def read_peer_version_file(self, peer_email: str) -> Optional["VersionInfo"]:
+        """Read version file from a peer's storage."""
+        from syft_client.sync.version.version_info import VersionInfo
+
+        # Check if version file exists
+        version_json = self.backing_store.version_files.get(peer_email)
+        if version_json is None:
+            return None
+
+        # Check if we have permission to read it
+        permissions = self.backing_store.version_file_permissions.get(peer_email, [])
+        if self.owner_email not in permissions:
+            return None
+
+        return VersionInfo.from_json(version_json)
+
+    def share_version_file_with_peer(self, peer_email: str) -> None:
+        """Share the version file with a peer so they can read it."""
+        if self.owner_email not in self.backing_store.version_file_permissions:
+            self.backing_store.version_file_permissions[self.owner_email] = []
+        if peer_email not in self.backing_store.version_file_permissions[self.owner_email]:
+            self.backing_store.version_file_permissions[self.owner_email].append(peer_email)

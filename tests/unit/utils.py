@@ -9,6 +9,8 @@ import time
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_client.sync.utils.syftbox_utils import get_event_hash_from_content
+from syft_client.sync.version.version_info import VersionInfo
+from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlatform
 
 
 def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:
@@ -197,3 +199,29 @@ with open("outputs/result.json", "w") as f:
 """)
 
     return project_dir
+
+
+def setup_mock_peer_version(
+    store: InMemoryBackingPlatform,
+    peer_email: str,
+    reader_email: str,
+) -> None:
+    """Set up version file for a mock peer in the backing store.
+
+    This is useful for tests that directly manipulate the backing store
+    instead of going through the normal add_peer/approve_peer flow.
+
+    Args:
+        store: The InMemoryBackingPlatform backing store
+        peer_email: The email of the mock peer who "owns" the version file
+        reader_email: The email of the user who should be able to read it
+    """
+    # Write version file for the mock peer
+    version_info = VersionInfo.current()
+    store.version_files[peer_email] = version_info.to_json()
+
+    # Grant read permission to the reader
+    if peer_email not in store.version_file_permissions:
+        store.version_file_permissions[peer_email] = []
+    if reader_email not in store.version_file_permissions[peer_email]:
+        store.version_file_permissions[peer_email].append(reader_email)
