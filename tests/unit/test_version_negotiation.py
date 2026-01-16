@@ -347,6 +347,10 @@ class TestVersionMismatchBehavior:
         )
         store.version_files[ds_manager.email] = incompatible.to_json()
 
+        # Clear cached version so it sees the incompatible version
+        do_manager._version_manager._peer_versions.pop(ds_manager.email, None)
+        do_manager._version_manager.load_peer_version(ds_manager.email)
+
         # DO loads peers and syncs - should skip DS due to version mismatch
         do_manager.load_peers()
         do_manager._version_manager.suppress_version_warnings = True
@@ -357,8 +361,8 @@ class TestVersionMismatchBehavior:
 
         assert ds_manager.email not in compatible_peers
 
-    def test_job_execution_blocked_with_incompatible_version(self):
-        """Test that job execution is blocked when submitter version is incompatible."""
+    def test_job_execution_skipped_with_incompatible_version(self):
+        """Test that job execution is skipped (with warning) when submitter version is incompatible."""
         ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
             sync_automatically=False,
             use_in_memory_cache=False,
@@ -392,11 +396,75 @@ class TestVersionMismatchBehavior:
         )
         store.version_files[ds_manager.email] = incompatible.to_json()
 
-        # Clear cached version so it reloads
+        # Clear cached version so it sees the incompatible version
         do_manager._version_manager._peer_versions.pop(ds_manager.email, None)
+        do_manager._version_manager.load_peer_version(ds_manager.email)
 
-        # Job execution should raise due to version mismatch
-        # Note: Must call process_approved_jobs on SyftboxManager (not job_runner)
-        # to trigger version check
-        with pytest.raises(VersionMismatchError):
+        # Job execution should be skipped (with warning) due to version mismatch
+        # Job remains approved but is not executed
+        import warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
             do_manager.process_approved_jobs()
+            # Check that a warning was issued about skipping the job
+            assert len(w) >= 1
+            assert any("Skipping job" in str(warning.message) for warning in w)
+
+        # Job should still be approved (not executed, not rejected)
+        assert job.status == "approved"
+
+    def test_job_execution_forced_with_incompatible_version(self):
+        """Test that job execution can be forced even when submitter version is incompatible."""
+        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+            sync_automatically=False,
+            use_in_memory_cache=False,
+        )
+
+        # Submit a job first (with compatible versions)
+        test_py_path = "/tmp/test_exec_force.py"
+        with open(test_py_path, "w") as f:
+            f.write('print("hello")')
+
+        ds_manager.submit_python_job(
+            user=do_manager.email,
+            code_path=test_py_path,
+            job_name="test.exec.force.job",
+        )
+
+        do_manager.sync()
+        assert len(do_manager.job_client.jobs) == 1
+        job = do_manager.job_client.jobs[0]
+        job.approve()
+
+        # Now change DS version to be incompatible
+        store = ds_manager.connection_router.connections[0].backing_store
+        current = VersionInfo.current()
+        incompatible = VersionInfo(
+            syft_client_version="0.0.1",
+            min_supported_syft_client_version=current.min_supported_syft_client_version,
+            protocol_version=current.protocol_version,
+            min_supported_protocol_version=current.min_supported_protocol_version,
+            updated_at=current.updated_at,
+        )
+        store.version_files[ds_manager.email] = incompatible.to_json()
+
+        # Clear cached version so it sees the incompatible version
+        do_manager._version_manager._peer_versions.pop(ds_manager.email, None)
+        do_manager._version_manager.load_peer_version(ds_manager.email)
+
+        # Mock the job_runner to avoid actual execution
+        executed_jobs = []
+        original_process = do_manager.job_runner.process_approved_jobs
+
+        def mock_process_approved_jobs(stream_output=True, timeout=None, skip_job_names=None):
+            # Track that we were called without skip_job_names (force mode)
+            executed_jobs.append(skip_job_names)
+
+        do_manager.job_runner.process_approved_jobs = mock_process_approved_jobs
+
+        # With force_execution=True, job_runner should be called without skip list
+        do_manager.process_approved_jobs(force_execution=True)
+
+        # Verify job_runner was called with no jobs to skip
+        assert len(executed_jobs) == 1
+        assert executed_jobs[0] is None  # No jobs skipped when force=True

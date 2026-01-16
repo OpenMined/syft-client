@@ -421,7 +421,10 @@ class SyftJobRunner:
             return False
 
     def process_approved_jobs(
-        self, stream_output: bool = True, timeout: int | None = None
+        self,
+        stream_output: bool = True,
+        timeout: int | None = None,
+        skip_job_names: list[str] | None = None,
     ) -> None:
         """Process all jobs in the approved directory.
 
@@ -430,8 +433,17 @@ class SyftJobRunner:
                         If False, capture output at end (CI-friendly).
             timeout: Timeout in seconds per job. Defaults to 300 (5 minutes).
                     Can also be set via SYFT_JOB_TIMEOUT_SECONDS env var.
+            skip_job_names: Optional list of job names to skip.
         """
         approved_jobs = self._get_jobs_in_approved()
+
+        if not approved_jobs:
+            return
+
+        # Filter out jobs to skip
+        if skip_job_names:
+            skip_set = set(skip_job_names)
+            approved_jobs = [j for j in approved_jobs if j not in skip_set]
 
         if not approved_jobs:
             return

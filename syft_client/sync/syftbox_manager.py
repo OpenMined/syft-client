@@ -1,5 +1,6 @@
 from pathlib import Path
 import copy
+import warnings
 from syft_client.utils import resolve_path
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -664,8 +665,9 @@ class SyftboxManager(BaseModel):
             else:
                 peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
                 # Share version file with the peer (DO)
-                if self._version_manager:
-                    self._version_manager.share_version_with_peer(peer_email)
+                self._version_manager.share_version_with_peer(peer_email)
+                # Try to load the peer's version (may not be available yet if not approved)
+                self._version_manager.load_peer_version(peer_email)
                 # we only do this for DSes
                 self._outstanding_peer_requests.append(peer)
                 print_peer_added(peer)
@@ -673,8 +675,8 @@ class SyftboxManager(BaseModel):
     def submit_bash_job(
         self, user: str, *args, sync=True, force_submission: bool = False, **kwargs
     ):
-        # Check version compatibility before submission
-        if self._version_manager and not force_submission:
+        # Check version compatibility before submission (uses cached versions)
+        if not force_submission:
             self._version_manager.check_version_for_submission(user, force=False)
         job_dir = self.job_client.submit_bash_job(user, *args, **kwargs)
         self.push_job_files(job_dir)
@@ -682,8 +684,8 @@ class SyftboxManager(BaseModel):
     def submit_python_job(
         self, user: str, *args, sync=True, force_submission: bool = False, **kwargs
     ):
-        # Check version compatibility before submission
-        if self._version_manager and not force_submission:
+        # Check version compatibility before submission (uses cached versions)
+        if not force_submission:
             self._version_manager.check_version_for_submission(user, force=False)
         job_dir = self.job_client.submit_python_job(user, *args, **kwargs)
         self.push_job_files(job_dir)
@@ -711,24 +713,16 @@ class SyftboxManager(BaseModel):
         self.load_peers()
         if self.is_do:
             peer_emails = [peer.email for peer in self._approved_peers]
-            # Load peer versions in parallel
-            if self._version_manager:
-                self._version_manager.load_peer_versions_parallel(peer_emails)
-                # Filter to compatible peers, warn for incompatible
-                compatible_emails = self._version_manager.get_compatible_peer_emails(
-                    peer_emails, warn_incompatible=True
-                )
-            else:
-                compatible_emails = peer_emails
+            # Filter to compatible peers using cached versions, warn for incompatible
+            compatible_emails = self._version_manager.get_compatible_peer_emails(
+                peer_emails, warn_incompatible=True
+            )
             self.proposed_file_change_handler.sync(compatible_emails)
         else:
             # ds
             peer_emails = [peer.email for peer in self._outstanding_peer_requests]
-            # Load peer versions in parallel
-            if self._version_manager:
-                self._version_manager.load_peer_versions_parallel(peer_emails)
-                # Warn if all connected peers are incompatible
-                self._version_manager.warn_if_all_peers_incompatible(peer_emails)
+            # Warn if all connected peers are incompatible (uses cached versions)
+            self._version_manager.warn_if_all_peers_incompatible(peer_emails)
             self.datasite_outbox_puller.sync_down(peer_emails)
 
     def load_peers(self):
@@ -778,8 +772,9 @@ class SyftboxManager(BaseModel):
         self.connection_router.update_peer_state(email, PeerState.ACCEPTED.value)
 
         # Share version file with the approved peer (DS)
-        if self._version_manager:
-            self._version_manager.share_version_with_peer(email)
+        self._version_manager.share_version_with_peer(email)
+        # Load the peer's version (DS should have shared it when they added us)
+        self._version_manager.load_peer_version(email)
 
         # Move from requests to approved
         self._peer_requests = [p for p in self._peer_requests if p.email != email]
@@ -840,7 +835,7 @@ class SyftboxManager(BaseModel):
         return self.job_client.jobs
 
     def process_approved_jobs(
-        self, stream_output: bool = True, timeout: int | None = None
+        self, stream_output: bool = True, timeout: int | None = None, force_execution: bool = False
     ) -> None:
         """
         Process approved jobs. Automatically calls sync() after processing
@@ -850,31 +845,46 @@ class SyftboxManager(BaseModel):
                         If False, capture output at end.
             timeout: Timeout in seconds per job. Defaults to 300 (5 minutes).
                     Can also be set via SYFT_JOB_TIMEOUT_SECONDS env var.
+            force_execution: If True, process all approved jobs regardless of
+                           version compatibility. If False (default), skip jobs
+                           from peers with incompatible or unknown versions.
 
         PRE_SYNC defaults to "true", so auto-sync is enabled by default.
         To disable auto-sync, set: PRE_SYNC=false
-
-        Raises:
-            VersionMismatchError: If any approved job was submitted by a peer
-                                  with incompatible version
-            VersionUnknownError: If any approved job was submitted by a peer
-                                 with unknown version
         """
-        # Check version compatibility for all approved job submitters
-        if self._version_manager:
+        skip_job_names = []
+
+        if not force_execution:
+            # Check version compatibility for all approved job submitters (uses cached versions)
             approved_jobs = [job for job in self.job_client.jobs if job.status == "approved"]
-            submitter_emails = set(job.submitted_by for job in approved_jobs if job.submitted_by != "unknown")
 
-            # Load versions for all submitters
-            self._version_manager.load_peer_versions_parallel(list(submitter_emails))
+            for job in approved_jobs:
+                if job.submitted_by == "unknown":
+                    continue
 
-            # Check each submitter's version (will raise if incompatible)
-            for email in submitter_emails:
-                self._version_manager.check_version_for_job_execution(email)
+                if not self._version_manager.is_peer_version_compatible(job.submitted_by):
+                    # Warn about incompatible job
+                    peer_version = self._version_manager.get_peer_version(job.submitted_by)
+                    if peer_version is None:
+                        warnings.warn(
+                            f"Skipping job '{job.name}' from {job.submitted_by}: "
+                            "version unknown. Use force_execution=True to override."
+                        )
+                    else:
+                        own_version = self._version_manager.get_own_version()
+                        reason = own_version.get_incompatibility_reason(peer_version)
+                        warnings.warn(
+                            f"Skipping job '{job.name}' from {job.submitted_by}: "
+                            f"{reason}. Use force_execution=True to override."
+                        )
+                    skip_job_names.append(job.name)
 
         self.job_runner.process_approved_jobs(
-            stream_output=stream_output, timeout=timeout
+            stream_output=stream_output,
+            timeout=timeout,
+            skip_job_names=skip_job_names if skip_job_names else None,
         )
+
         if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
 
