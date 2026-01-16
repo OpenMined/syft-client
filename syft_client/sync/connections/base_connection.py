@@ -37,6 +37,14 @@ class SyftboxPlatformConnection(BaseModel):
     def list_dataset_collections_as_do(self) -> list[str]:
         raise NotImplementedError()
 
+    def list_all_dataset_collections_as_do_with_permissions(self) -> list[dict]:
+        """Returns list of dicts with keys: folder_id, tag, content_hash, has_any_permission"""
+        raise NotImplementedError()
+
+    def list_dataset_collections_shared_with_any(self) -> list[dict]:
+        """Returns list of dicts with keys: folder_id, tag, content_hash"""
+        raise NotImplementedError()
+
     def list_dataset_collections_as_ds(self) -> list[dict]:
         """Returns list of dicts with keys: owner_email, tag, content_hash"""
         raise NotImplementedError()

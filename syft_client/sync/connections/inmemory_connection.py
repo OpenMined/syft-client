@@ -290,6 +290,37 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
                 result.append(collection.tag)
         return result
 
+    def list_all_dataset_collections_as_do_with_permissions(self) -> list[dict]:
+        """List all DO's dataset collections with permissions info."""
+        result = []
+        for collection in self.backing_store.dataset_collections:
+            if collection.owner_email == self.owner_email:
+                result.append(
+                    {
+                        "folder_id": f"{collection.tag}/{collection.content_hash}",
+                        "tag": collection.tag,
+                        "content_hash": collection.content_hash,
+                        "has_any_permission": SHARE_WITH_ANY
+                        in collection.allowed_users,
+                    }
+                )
+        return result
+
+    def list_dataset_collections_shared_with_any(self) -> list[dict]:
+        """List DO's dataset collections that have 'any' permission."""
+        result = []
+        for collection in self.backing_store.dataset_collections:
+            if collection.owner_email == self.owner_email:
+                if SHARE_WITH_ANY in collection.allowed_users:
+                    result.append(
+                        {
+                            "folder_id": f"{collection.tag}/{collection.content_hash}",
+                            "tag": collection.tag,
+                            "content_hash": collection.content_hash,
+                        }
+                    )
+        return result
+
     def list_dataset_collections_as_ds(self) -> list[dict]:
         result = []
         for collection in self.backing_store.dataset_collections:
