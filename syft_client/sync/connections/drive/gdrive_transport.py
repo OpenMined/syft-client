@@ -1129,6 +1129,24 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return files
 
+    def get_dataset_collection_file_metadatas(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> List[Dict]:
+        """Get file metadata from a dataset collection without downloading."""
+        folder_obj = DatasetCollectionFolder(tag=tag, content_hash=content_hash)
+        folder_name = folder_obj.as_string()
+        folder_id = self._find_folder_by_name(folder_name, owner_email=owner_email)
+
+        if not folder_id:
+            raise ValueError(f"Collection {tag} with hash {content_hash} not found")
+
+        file_metadatas = self.get_file_metadatas_from_folder(folder_id)
+        return [{"file_id": f["id"], "file_name": f["name"]} for f in file_metadatas]
+
+    def download_dataset_file(self, file_id: str) -> bytes:
+        """Download a single file from a dataset collection."""
+        return self.download_file(file_id)
+
     def _get_dataset_collection_folder_id(self, tag: str, content_hash: str) -> str:
         """Get folder ID for dataset collection, with caching."""
         cache_key = f"{tag}_{content_hash}"

@@ -346,6 +346,59 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         # Return copy of files from backing store
         return collection.files.copy()
 
+    def get_dataset_collection_file_metadatas(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> List[Dict]:
+        """Get file metadata from a dataset collection without downloading."""
+        # Find collection
+        collection = None
+        for c in self.backing_store.dataset_collections:
+            if (
+                c.tag == tag
+                and c.owner_email == owner_email
+                and c.content_hash == content_hash
+            ):
+                collection = c
+                break
+
+        if collection is None:
+            raise ValueError(
+                f"Collection {tag} with hash {content_hash} not found for owner {owner_email}"
+            )
+
+        # Check permissions
+        if not collection.allowed_users:
+            raise PermissionError(f"No access granted to collection {tag}")
+
+        if (
+            SHARE_WITH_ANY not in collection.allowed_users
+            and self.owner_email not in collection.allowed_users
+        ):
+            raise PermissionError(f"Access denied to collection {tag}")
+
+        # Return metadata for each file
+        return [
+            {"file_id": f"{tag}/{content_hash}/{name}", "file_name": name}
+            for name in collection.files.keys()
+        ]
+
+    def download_dataset_file(self, file_id: str) -> bytes:
+        """Download a single file from a dataset collection."""
+        # file_id format: "{tag}/{content_hash}/{file_name}"
+        parts = file_id.split("/", 2)
+        if len(parts) != 3:
+            raise ValueError(f"Invalid file_id format: {file_id}")
+        tag, content_hash, file_name = parts
+
+        # Find the collection
+        for c in self.backing_store.dataset_collections:
+            if c.tag == tag and c.content_hash == content_hash:
+                if file_name in c.files:
+                    return c.files[file_name]
+                raise ValueError(f"File {file_name} not found in collection {tag}")
+
+        raise ValueError(f"Collection {tag} with hash {content_hash} not found")
+
     def get_all_accepted_event_file_ids_do(self) -> List[str]:
         return [
             e.message_filepath.id for e in self.backing_store.syftbox_events_message_log

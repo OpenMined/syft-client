@@ -239,3 +239,15 @@ class ConnectionRouter(BaseModel):
     ) -> dict[str, bytes]:
         connection = self.connection_for_datasite_watcher()
         return connection.download_dataset_collection(tag, content_hash, owner_email)
+
+    def get_dataset_collection_file_metadatas(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> List[dict]:
+        connection = self.connection_for_datasite_watcher()
+        return connection.get_dataset_collection_file_metadatas(
+            tag, content_hash, owner_email
+        )
+
+    def download_dataset_file(self, file_id: str) -> bytes:
+        connection = self.connection_for_datasite_watcher()
+        return connection.download_dataset_file(file_id)
