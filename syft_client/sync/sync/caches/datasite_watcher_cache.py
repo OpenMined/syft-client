@@ -1,4 +1,5 @@
-from typing import Dict, List
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, Dict, List
 from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConnection
 from pathlib import Path
 from pydantic import BaseModel, Field, model_validator
@@ -107,6 +108,37 @@ class DataSiteWatcherCache(BaseModel):
             )
         )
         for event_message in sorted(new_event_messages, key=lambda x: x.timestamp):
+            self.apply_event_message(event_message)
+            self.last_event_timestamp_per_peer[peer_email] = event_message.timestamp
+
+        self.last_sync = datetime.now()
+
+    def sync_down_parallel(
+        self,
+        peer_email: str,
+        executor: ThreadPoolExecutor,
+        download_fn: Callable[[str], FileChangeEventsMessage],
+    ):
+        """Sync with parallel file downloads."""
+        peer_timestamp = self.last_event_timestamp_per_peer.get(peer_email)
+
+        # Get file metadata (no download yet)
+        file_metadatas = self.connection_router.get_outbox_file_metadatas_for_ds(
+            peer_email=peer_email,
+            since_timestamp=peer_timestamp,
+        )
+
+        if not file_metadatas:
+            # No new messages to download
+            self.last_sync = datetime.now()
+            return
+
+        # Download all files in parallel
+        file_ids = [m["file_id"] for m in file_metadatas]
+        downloaded_messages = list(executor.map(download_fn, file_ids))
+
+        # Apply in timestamp order
+        for event_message in sorted(downloaded_messages, key=lambda x: x.timestamp):
             self.apply_event_message(event_message)
             self.last_event_timestamp_per_peer[peer_email] = event_message.timestamp
 

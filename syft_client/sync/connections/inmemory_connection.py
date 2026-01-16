@@ -177,6 +177,36 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         else:
             return [e for e in all_event_messages if e.timestamp > since_timestamp]
 
+    def get_outbox_file_metadatas_for_ds(
+        self, peer_email: str, since_timestamp: float | None = None
+    ) -> List[Dict]:
+        """Get file metadata from outbox for parallel download (consistent with GDrive)."""
+        all_event_messages = self.backing_store.outboxes["all"]
+        if since_timestamp is not None:
+            all_event_messages = [
+                e for e in all_event_messages if e.timestamp > since_timestamp
+            ]
+
+        result = []
+        for e in sorted(all_event_messages, key=lambda x: x.timestamp):
+            result.append(
+                {
+                    "file_id": e.message_filepath.id,
+                    "file_name": e.message_filepath.as_string(),
+                    "timestamp": e.timestamp,
+                }
+            )
+        return result
+
+    def download_events_message_by_id_from_outbox(
+        self, events_message_id: str
+    ) -> FileChangeEventsMessage:
+        """Download from outbox (for DS syncing from DO's outbox)."""
+        for e in self.backing_store.outboxes["all"]:
+            if e.message_filepath.id == events_message_id:
+                return e
+        raise ValueError(f"Event message {events_message_id} not found in outbox")
+
     def get_all_events_messages_do(self) -> List[FileChangeEventsMessage]:
         return self.backing_store.syftbox_events_message_log
 
