@@ -189,6 +189,23 @@ class ConnectionRouter(BaseModel):
             peer_email=peer_email, since_timestamp=since_timestamp
         )
 
+    def get_outbox_file_metadatas_for_ds(
+        self, peer_email: str, since_timestamp: float | None
+    ) -> List[dict]:
+        connection = self.connection_for_datasite_watcher()
+        return connection.get_outbox_file_metadatas_for_ds(peer_email, since_timestamp)
+
+    def download_events_message_by_id_from_outbox(
+        self, file_id: str
+    ) -> FileChangeEventsMessage:
+        """Download event message from outbox by ID."""
+        connection = self.connection_for_datasite_watcher()
+        return connection.download_events_message_by_id_from_outbox(file_id)
+
+    def connection_for_parallel_download(self) -> SyftboxPlatformConnection:
+        """Create a new connection for thread-safe parallel downloads."""
+        return self.copy_connection(self.connection_for_datasite_watcher())
+
     def create_dataset_collection_folder(
         self, tag: str, content_hash: str, owner_email: str
     ) -> str:

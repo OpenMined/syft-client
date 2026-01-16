@@ -368,6 +368,40 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return res
 
+    def get_outbox_file_metadatas_for_ds(
+        self, peer_email: str, since_timestamp: float | None
+    ) -> List[Dict]:
+        """Get file metadata from DS's inbox folder (DO's outbox) without downloading."""
+        folder_id = self._get_ds_inbox_folder_id(peer_email)
+        if folder_id is None:
+            raise ValueError(f"Folder for peer {peer_email} not found")
+
+        file_metadatas = self.get_file_metadatas_from_folder(
+            folder_id, since_timestamp=since_timestamp
+        )
+        valid_fname_objs = self._get_valid_events_from_file_metadatas(file_metadatas)
+        name_to_id = {f["name"]: f["id"] for f in file_metadatas}
+
+        result = []
+        for fname_obj in sorted(valid_fname_objs, key=lambda x: x.timestamp):
+            if since_timestamp is None or fname_obj.timestamp > since_timestamp:
+                file_name = fname_obj.as_string()
+                if file_name in name_to_id:
+                    result.append(
+                        {
+                            "file_id": name_to_id[file_name],
+                            "file_name": file_name,
+                            "timestamp": fname_obj.timestamp,
+                        }
+                    )
+        return result
+
+    def download_events_message_by_id_from_outbox(
+        self, events_message_id: str
+    ) -> FileChangeEventsMessage:
+        """Download from outbox - same as download_events_message_by_id for GDrive."""
+        return self.download_events_message_by_id(events_message_id)
+
     def write_events_message_to_syftbox(self, event_message: FileChangeEventsMessage):
         """Writes to /SyftBox/myemail"""
         personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
