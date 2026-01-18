@@ -230,6 +230,14 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_send_message()
         return connection.list_dataset_collections_as_do()
 
+    def list_all_dataset_collections_as_do_with_permissions(self) -> list[dict]:
+        connection = self.connection_for_send_message()
+        return connection.list_all_dataset_collections_as_do_with_permissions()
+
+    def list_dataset_collections_shared_with_any(self) -> list[dict]:
+        connection = self.connection_for_send_message()
+        return connection.list_dataset_collections_shared_with_any()
+
     def list_dataset_collections_as_ds(self) -> list[dict]:
         connection = self.connection_for_receive_message()
         return connection.list_dataset_collections_as_ds()

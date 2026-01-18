@@ -81,6 +81,22 @@ def test_google_drive_connection_load_state():
     manager_ds1.send_file_change(f"{EMAIL_DO}/my.job", "Hello, world!")
     manager_ds1.send_file_change(f"{EMAIL_DO}/my_second.job", "Hello, world!")
 
+    # create a dataset with "any" permission to test loading and cache
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+    manager_do1.create_dataset(
+        name="load_state_dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="Dataset for load state test",
+        readme_path=readme_path,
+        tags=["test"],
+        users="any",
+    )
+
+    # verify dataset was created and cache was populated
+    assert len(manager_do1.datasets.get_all()) == 1
+    assert len(manager_do1.proposed_file_change_handler._any_shared_datasets) == 1
+
     # test loading the peers and loading the inbox
     manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
@@ -106,6 +122,7 @@ def test_google_drive_connection_load_state():
     )
 
     # we have created some state now, so now we can log in again and load the state
+    # use a fresh syftbox folder to simulate clean filesystem
     manager_ds3, manager_do3 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
@@ -127,6 +144,18 @@ def test_google_drive_connection_load_state():
         manager_ds3.datasite_outbox_puller.datasite_watcher_cache.get_cached_events()
     )
     assert len(loaded_events_ds) == 2
+
+    # verify datasets were loaded from GDrive
+    loaded_datasets = manager_do3.datasets.get_all()
+    assert len(loaded_datasets) == 1
+    assert loaded_datasets[0].name == "load_state_dataset"
+
+    # verify _any_shared_datasets cache was populated during pull_initial_state
+    assert len(manager_do3.proposed_file_change_handler._any_shared_datasets) == 1
+    assert (
+        manager_do3.proposed_file_change_handler._any_shared_datasets[0][0]
+        == "load_state_dataset"
+    )
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
@@ -218,6 +247,49 @@ def test_datasets():
 
     assert has_file(ds_manager.syftbox_folder, "mock.txt")
     assert not has_file(ds_manager.syftbox_folder, "private.txt")
+
+
+@pytest.mark.usefixtures("setup_delete_syftboxes")
+def test_datasets_shared_with_any():
+    """Test that datasets shared with 'any' become discoverable after peer approval."""
+    # Create managers WITHOUT auto peer setup
+    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
+        do_email=EMAIL_DO,
+        ds_email=EMAIL_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
+        use_in_memory_cache=False,
+        add_peers=False,  # Don't auto-add peers
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+
+    # DO creates dataset with users='any' BEFORE peer is approved
+    do_manager.create_dataset(
+        name="any dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="Dataset shared with anyone",
+        readme_path=readme_path,
+        tags=["any"],
+        users="any",
+    )
+
+    # DS should NOT see the dataset yet (not approved)
+    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    assert not any(c["tag"] == "any dataset" for c in ds_collections)
+
+    # DS adds peer, DO approves (this should share 'any' datasets)
+    ds_manager.add_peer(do_manager.email)
+    do_manager.load_peers()
+    do_manager.approve_peer_request(ds_manager.email, peer_must_exist=False)
+
+    # DS should now see the dataset
+    import time
+
+    time.sleep(2)  # Wait for Drive to propagate
+    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    assert any(c["tag"] == "any dataset" for c in ds_collections)
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
