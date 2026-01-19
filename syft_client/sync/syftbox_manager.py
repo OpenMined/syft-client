@@ -18,7 +18,7 @@ from syft_client.sync.utils.print_utils import (
 )
 from syft_client.sync.platforms.base_platform import BasePlatform
 from pydantic import BaseModel, PrivateAttr
-from typing import List, Optional
+from typing import List, Optional, cast
 from syft_client.sync.sync.caches.datasite_watcher_cache import (
     DataSiteWatcherCacheConfig,
 )
@@ -56,7 +56,10 @@ from syft_client.sync.sync.proposed_file_change_pusher import (
     ProposedFileChangePusherConfig,
 )
 from syft_client.sync.sync.datasite_outbox_puller import DatasiteOutboxPullerConfig
-from syft_client.sync.version.version_manager import VersionManager, VersionManagerConfig
+from syft_client.sync.version.version_manager import (
+    VersionManager,
+    VersionManagerConfig,
+)
 import os
 
 COLAB_DEFAULT_SYFTBOX_FOLDER = Path("/")
@@ -134,6 +137,7 @@ class SyftboxManagerConfig(BaseModel):
         )
         version_manager_config = VersionManagerConfig(
             connection_configs=connection_configs,
+            is_do=only_datasite_owner,
         )
         return cls(
             email=email,
@@ -206,6 +210,7 @@ class SyftboxManagerConfig(BaseModel):
         )
         version_manager_config = VersionManagerConfig(
             connection_configs=connection_configs,
+            is_do=only_datasite_owner,
         )
         return cls(
             email=email,
@@ -271,6 +276,7 @@ class SyftboxManagerConfig(BaseModel):
             n_threads=2,  # Use fewer threads for testing
             ignore_protocol_version=not check_versions,
             ignore_client_version=not check_versions,
+            is_do=only_datasite_owner,
         )
 
         return cls(
@@ -345,6 +351,7 @@ class SyftboxManagerConfig(BaseModel):
             connection_configs=connection_configs,
             ignore_protocol_version=not check_versions,
             ignore_client_version=not check_versions,
+            is_do=only_datasite_owner,
         )
         return cls(
             email=email,
@@ -380,10 +387,6 @@ class SyftboxManager(BaseModel):
     job_runner: SyftJobRunner | None = None
     version_manager: VersionManager | None = None
 
-    _approved_peers: List[Peer] = PrivateAttr(default_factory=list)
-    _peer_requests: List[Peer] = PrivateAttr(default_factory=list)
-    _outstanding_peer_requests: List[Peer] = PrivateAttr(default_factory=list)
-
     _executor: ThreadPoolExecutor = PrivateAttr(
         default_factory=lambda: ThreadPoolExecutor(max_workers=10)
     )
@@ -404,9 +407,11 @@ class SyftboxManager(BaseModel):
             self.sync()
 
         if self.is_do:
-            combined = PeerList(self._approved_peers + self._peer_requests)
+            combined = PeerList(
+                self.version_manager.approved_peers + self.version_manager.pending_peers
+            )
         else:
-            peers = copy.deepcopy(self._outstanding_peer_requests)
+            peers = copy.deepcopy(self.version_manager.outstanding_peers)
             for peer in peers:
                 peer.state = PeerState.ACCEPTED
             combined = PeerList(peers)
@@ -671,27 +676,8 @@ class SyftboxManager(BaseModel):
         return ds_manager, do_manager
 
     def add_peer(self, peer_email: str, force: bool = False, verbose: bool = True):
-        existing_emails = [p.email for p in self._approved_peers]
-        if peer_email in existing_emails and not force:
-            print(f"Peer {peer_email} already exists, skipping")
-        else:
-            if self.is_do:
-                # this is a no-op for DOs
-                platform = GdriveFilesPlatform()
-                if verbose:
-                    print_peer_adding_to_platform(peer_email, platform.module_path)
-                    print_peer_added_to_platform(peer_email, platform.module_path)
-                peer = Peer(email=peer_email, platforms=[platform])
-                self.approve_peer_request(peer_email, verbose=False)
-            else:
-                peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
-                # Share version file with the peer (DO)
-                self.version_manager.share_version_with_peer(peer_email)
-                # Try to load the peer's version (may not be available yet if not approved)
-                self.version_manager.load_peer_version(peer_email)
-                # we only do this for DSes
-                self._outstanding_peer_requests.append(peer)
-                print_peer_added(peer)
+        """Add a peer. Delegates to VersionManager."""
+        self.version_manager.add_peer(peer_email, force=force, verbose=verbose)
 
     def submit_bash_job(
         self, user: str, *args, sync=True, force_submission: bool = False, **kwargs
@@ -733,7 +719,7 @@ class SyftboxManager(BaseModel):
     def sync(self):
         self.load_peers()
         if self.is_do:
-            peer_emails = [peer.email for peer in self._approved_peers]
+            peer_emails = [peer.email for peer in self.version_manager.approved_peers]
             # Filter to compatible peers using cached versions, warn for incompatible
             compatible_emails = self.version_manager.get_compatible_peer_emails(
                 peer_emails, warn_incompatible=True
@@ -741,28 +727,20 @@ class SyftboxManager(BaseModel):
             self.proposed_file_change_handler.sync(compatible_emails)
         else:
             # ds
-            peer_emails = [peer.email for peer in self._outstanding_peer_requests]
+            peer_emails = [
+                peer.email for peer in self.version_manager.outstanding_peers
+            ]
             # Warn if all connected peers are incompatible (uses cached versions)
             self.version_manager.warn_if_all_peers_incompatible(peer_emails)
             self.datasite_outbox_puller.sync_down(peer_emails)
 
     def load_peers(self):
-        if self.is_do:
-            approved = self.connection_router.get_approved_peers_as_do()
-            requests = self.connection_router.get_peer_requests_as_do()
-            outstanding = []
-        else:
-            # DS sees all peers as approved (no request concept for DS)
-            approved = []
-            requests = []
-            outstanding = self.connection_router.get_peers_as_ds()
-
-        self._approved_peers = approved
-        self._peer_requests = requests
-        self._outstanding_peer_requests = outstanding
+        """Load peers from connection router. Delegates to VersionManager."""
+        cast(VersionManager, self.version_manager).load_peers()
 
     def check_peer_request_exists(self, email: str) -> bool:
-        return any(p.email == email for p in self._peer_requests)
+        """Check if a peer request exists. Delegates to VersionManager."""
+        return self.version_manager.check_peer_request_exists(email)
 
     def approve_peer_request(
         self,
@@ -770,77 +748,14 @@ class SyftboxManager(BaseModel):
         verbose: bool = True,
         peer_must_exist: bool = True,
     ):
-        """
-        Approve a pending peer request. DO only.
-
-        Args:
-            email_or_peer: Email string or Peer object to approve
-        """
-        if not self.is_do:
-            raise ValueError("Only Data Owners can approve peer requests")
-
-        email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
-
-        # Find peer in requests
-        peer_request_exists = any(p.email == email for p in self._peer_requests)
-        if peer_must_exist and not peer_request_exists:
-            raise ValueError(
-                f"Peer {email} not found in pending requests."
-                f"Use client.peers to see current requests."
-            )
-
-        # Update state in GDrive
-        self.connection_router.update_peer_state(email, PeerState.ACCEPTED.value)
-
-        # Share version file with the approved peer (DS)
-        self.version_manager.share_version_with_peer(email)
-        # Load the peer's version (DS should have shared it when they added us)
-        self.version_manager.load_peer_version(email)
-
-        # Move from requests to approved
-        self._peer_requests = [p for p in self._peer_requests if p.email != email]
-
-        # TODO, once we have more platforms, we need to check for which platform
-        accepted_peer = Peer(
-            email=email, platforms=[GdriveFilesPlatform()], state=PeerState.ACCEPTED
+        """Approve a pending peer request. Delegates to VersionManager."""
+        self.version_manager.approve_peer_request(
+            email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
         )
-        self._approved_peers.append(accepted_peer)
-
-        if verbose:
-            print(f"✓ Approved peer request from {email}")
 
     def reject_peer_request(self, email_or_peer: str | Peer):
-        """
-        Reject a pending peer request. DO only.
-
-        Args:
-            email_or_peer: Email string or Peer object to reject
-        """
-        if not self.is_do:
-            raise ValueError("Only Data Owners can reject peer requests")
-
-        email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
-
-        # Find peer in requests
-        peer = None
-        for p in self._peer_requests:
-            if p.email == email:
-                peer = p
-                break
-
-        if peer is None:
-            raise ValueError(
-                f"Peer {email} not found in pending requests. "
-                f"Use client.peers to see current requests."
-            )
-
-        # Update state in GDrive
-        self.connection_router.update_peer_state(email, PeerState.REJECTED.value)
-
-        # Remove from requests (don't add to approved)
-        self._peer_requests = [p for p in self._peer_requests if p.email != email]
-
-        print(f"✗ Rejected peer request from {email}")
+        """Reject a pending peer request. Delegates to VersionManager."""
+        self.version_manager.reject_peer_request(email_or_peer)
 
     @property
     def jobs(self) -> JobsList:
@@ -856,7 +771,10 @@ class SyftboxManager(BaseModel):
         return self.job_client.jobs
 
     def process_approved_jobs(
-        self, stream_output: bool = True, timeout: int | None = None, force_execution: bool = False
+        self,
+        stream_output: bool = True,
+        timeout: int | None = None,
+        force_execution: bool = False,
     ) -> None:
         """
         Process approved jobs. Automatically calls sync() after processing
@@ -877,15 +795,21 @@ class SyftboxManager(BaseModel):
 
         if not force_execution:
             # Check version compatibility for all approved job submitters (uses cached versions)
-            approved_jobs = [job for job in self.job_client.jobs if job.status == "approved"]
+            approved_jobs = [
+                job for job in self.job_client.jobs if job.status == "approved"
+            ]
 
             for job in approved_jobs:
                 if job.submitted_by == "unknown":
                     continue
 
-                if not self.version_manager.is_peer_version_compatible(job.submitted_by):
+                if not self.version_manager.is_peer_version_compatible(
+                    job.submitted_by
+                ):
                     # Warn about incompatible job
-                    peer_version = self.version_manager.get_peer_version(job.submitted_by)
+                    peer_version = self.version_manager.get_peer_version(
+                        job.submitted_by
+                    )
                     if peer_version is None:
                         warnings.warn(
                             f"Skipping job '{job.name}' from {job.submitted_by}: "
@@ -1099,7 +1023,7 @@ class SyftboxManager(BaseModel):
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
         all_platforms = set(
-            [plat for p in self._approved_peers for plat in p.platforms]
+            [plat for p in self.version_manager.approved_peers for plat in p.platforms]
         )
         return list(all_platforms)
 

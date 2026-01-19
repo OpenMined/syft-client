@@ -447,7 +447,7 @@ def test_version_upgrade_breaks_communication():
     ds_connection.write_version_file(new_version)
 
     # Phase 3: Clear DO's cached version of DS and reload from GDrive
-    do_manager.version_manager._peer_versions.pop(ds_manager.email, None)
+    do_manager.version_manager.clear_peer_version(ds_manager.email)
 
     # Reload DS's version (this fetches from GDrive)
     reloaded_version = do_manager.version_manager.load_peer_version(ds_manager.email)
