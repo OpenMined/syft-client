@@ -267,6 +267,7 @@ class SyftboxManagerConfig(BaseModel):
         )
         version_manager_config = VersionManagerConfig(
             connection_configs=[],  # Empty for in-memory, connections added later
+            n_threads=2,  # Use fewer threads for testing
         )
 
         return cls(
@@ -919,8 +920,6 @@ class SyftboxManager(BaseModel):
 
         # Write own version file on first connection (for in-memory setup)
         if is_first_connection:
-            # Set test mode for in-memory connections (uses 2 threads instead of 10)
-            self.version_manager._test_mode = True
             self.version_manager.write_own_version()
 
     def send_file_change(self, path: str | Path, content: str):

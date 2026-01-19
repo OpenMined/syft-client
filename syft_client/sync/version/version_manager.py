@@ -24,6 +24,7 @@ class VersionManagerConfig(BaseModel):
     ignore_protocol_version: bool = False
     ignore_client_version: bool = False
     suppress_version_warnings: bool = False
+    n_threads: int = 10
 
 
 class VersionManager(BaseModel):
@@ -35,11 +36,11 @@ class VersionManager(BaseModel):
     ignore_protocol_version: bool = False
     ignore_client_version: bool = False
     suppress_version_warnings: bool = False
+    n_threads: int = 10
 
     _own_version: Optional[VersionInfo] = PrivateAttr(default=None)
     _peer_versions: Dict[str, Optional[VersionInfo]] = PrivateAttr(default_factory=dict)
     _executor: Optional[ThreadPoolExecutor] = PrivateAttr(default=None)
-    _test_mode: bool = PrivateAttr(default=False)
 
     @classmethod
     def from_config(cls, config: VersionManagerConfig) -> "VersionManager":
@@ -49,12 +50,12 @@ class VersionManager(BaseModel):
             ignore_protocol_version=config.ignore_protocol_version,
             ignore_client_version=config.ignore_client_version,
             suppress_version_warnings=config.suppress_version_warnings,
+            n_threads=config.n_threads,
         )
 
     def model_post_init(self, __context) -> None:
         """Initialize the thread pool executor."""
-        max_workers = 2 if self._test_mode else 10
-        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._executor = ThreadPoolExecutor(max_workers=self.n_threads)
 
     def get_own_version(self) -> VersionInfo:
         """Get current client's version info."""
