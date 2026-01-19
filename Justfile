@@ -43,3 +43,29 @@ clean:
     remove_dirs ".pytest_cache"
 
     printf "{{ _green }}✓ Clean complete!{{ _nc }}\n"
+
+
+# Bump version (patch, minor, or major)
+[group('version')]
+bump part="patch":
+    uvx bump2version --allow-dirty {{ part }}
+
+# Show current version
+[group('version')]
+version:
+    @python3 -c "import syft_client; print(syft_client.__version__)"
+
+# Build syft client wheel
+[group('build')]
+build:
+    @echo "{{ _cyan }}Building syft-client wheel...{{ _nc }}"
+    rm -rf dist/
+    uv build
+    @echo "{{ _green }}Build complete!{{ _nc }}"
+
+# Publish to PyPI
+[group('publish')]
+publish: build
+    @echo "{{ _cyan }}Publishing to PyPI...{{ _nc }}"
+    
+
