@@ -1255,8 +1255,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         """Find SYFT_version.json file in a peer's /SyftBox folder"""
         # Find the peer's SyftBox folder
         query = (
-            f"name='{SYFT_VERSION_FILE}' and trashed=false "
-            f"and '{peer_email}' in owners"
+            f"name='{SYFT_VERSION_FILE}' and trashed=false and '{peer_email}' in owners"
         )
         results = self.drive_service.files().list(q=query, fields="files(id)").execute()
         items = results.get("files", [])
@@ -1282,6 +1281,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         if file_id is None:
             # Version file doesn't exist yet, create it first
             from syft_client.sync.version.version_info import VersionInfo
+
             self.write_version_file(VersionInfo.current())
             file_id = self._get_version_file_id()
 

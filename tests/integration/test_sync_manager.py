@@ -530,9 +530,9 @@ def test_version_upgrade_breaks_communication():
     )
 
     # Verify versions are now incompatible
-    assert not do_manager.version_manager.is_peer_version_compatible(ds_manager.email), (
-        "DO should now see DS as incompatible after version upgrade"
-    )
+    assert not do_manager.version_manager.is_peer_version_compatible(
+        ds_manager.email
+    ), "DO should now see DS as incompatible after version upgrade"
 
     # Cleanup: Restore DS's version file to the original version
     ds_connection.write_version_file(current)

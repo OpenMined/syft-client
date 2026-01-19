@@ -30,8 +30,14 @@ class TestVersionInfo:
 
         assert restored.syft_client_version == original.syft_client_version
         assert restored.protocol_version == original.protocol_version
-        assert restored.min_supported_syft_client_version == original.min_supported_syft_client_version
-        assert restored.min_supported_protocol_version == original.min_supported_protocol_version
+        assert (
+            restored.min_supported_syft_client_version
+            == original.min_supported_syft_client_version
+        )
+        assert (
+            restored.min_supported_protocol_version
+            == original.min_supported_protocol_version
+        )
 
     def test_compatible_versions_match(self):
         """Test that identical versions are compatible."""
@@ -256,7 +262,14 @@ class TestForceSubmission:
         )
         # Verify job files were created (submission succeeded)
         import os
-        job_dir = ds_manager.syftbox_folder / do_manager.email / "app_data" / "job" / "test.force.job"
+
+        job_dir = (
+            ds_manager.syftbox_folder
+            / do_manager.email
+            / "app_data"
+            / "job"
+            / "test.force.job"
+        )
         assert job_dir.exists(), "Job directory should exist after force submission"
 
 
@@ -282,11 +295,17 @@ class TestIgnoreVersionFlags:
         # Without ignore flag, should be incompatible
         ds_manager.version_manager.ignore_client_version = False
         ds_manager.version_manager.load_peer_version(do_manager.email)
-        assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email) is False
+        assert (
+            ds_manager.version_manager.is_peer_version_compatible(do_manager.email)
+            is False
+        )
 
         # With ignore flag, should be compatible
         ds_manager.version_manager.ignore_client_version = True
-        assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email) is True
+        assert (
+            ds_manager.version_manager.is_peer_version_compatible(do_manager.email)
+            is True
+        )
 
     def test_ignore_protocol_version(self):
         """Test that ignore_protocol_version bypasses protocol version check."""
@@ -307,11 +326,17 @@ class TestIgnoreVersionFlags:
         # Without ignore flag, should be incompatible
         ds_manager.version_manager.ignore_protocol_version = False
         ds_manager.version_manager.load_peer_version(do_manager.email)
-        assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email) is False
+        assert (
+            ds_manager.version_manager.is_peer_version_compatible(do_manager.email)
+            is False
+        )
 
         # With ignore flag, should be compatible
         ds_manager.version_manager.ignore_protocol_version = True
-        assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email) is True
+        assert (
+            ds_manager.version_manager.is_peer_version_compatible(do_manager.email)
+            is True
+        )
 
     def test_ignore_both_versions(self):
         """Test that ignoring both versions makes any peer compatible."""
@@ -333,7 +358,10 @@ class TestIgnoreVersionFlags:
         ds_manager.version_manager.ignore_protocol_version = True
         ds_manager.version_manager.load_peer_version(do_manager.email)
 
-        assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email) is True
+        assert (
+            ds_manager.version_manager.is_peer_version_compatible(do_manager.email)
+            is True
+        )
 
 
 class TestVersionMismatchBehavior:
@@ -371,7 +399,9 @@ class TestVersionMismatchBehavior:
 
         assert ds_manager.email not in compatible_peers
 
-    @pytest.mark.skip(reason="skip_job_names parameter not in installed syft-job package")
+    @pytest.mark.skip(
+        reason="skip_job_names parameter not in installed syft-job package"
+    )
     def test_job_execution_skipped_with_incompatible_version(self):
         """Test that job execution is skipped (with warning) when submitter version is incompatible."""
         ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
@@ -415,6 +445,7 @@ class TestVersionMismatchBehavior:
         # Job execution should be skipped (with warning) due to version mismatch
         # Job remains approved but is not executed
         import warnings
+
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             do_manager.process_approved_jobs()
@@ -468,7 +499,9 @@ class TestVersionMismatchBehavior:
         executed_jobs = []
         original_process = do_manager.job_runner.process_approved_jobs
 
-        def mock_process_approved_jobs(stream_output=True, timeout=None, skip_job_names=None):
+        def mock_process_approved_jobs(
+            stream_output=True, timeout=None, skip_job_names=None
+        ):
             # Track that we were called without skip_job_names (force mode)
             executed_jobs.append(skip_job_names)
 
