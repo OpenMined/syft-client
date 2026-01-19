@@ -1,12 +1,16 @@
+from pathlib import Path
+from syft_datasets.dataset_manager import FOLDER_NAME as DATASETS_FOLDER_NAME
 from pydantic import ConfigDict, Field, BaseModel, PrivateAttr
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-from typing import Tuple
+from typing import List, Tuple
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessage,
 )
-from syft_client.sync.connections.base_connection import ConnectionConfig
-from typing import List
+from syft_client.sync.connections.base_connection import (
+    ConnectionConfig,
+    FileCollection,
+)
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     DataSiteOwnerEventCacheConfig,
 )
@@ -18,6 +22,7 @@ from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMes
 
 class ProposedFileChangeHandlerConfig(BaseModel):
     email: str
+    syftbox_folder: Path | None = None
     write_files: bool = True
     cache_config: DataSiteOwnerEventCacheConfig = Field(
         default_factory=DataSiteOwnerEventCacheConfig
@@ -36,6 +41,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     connection_router: ConnectionRouter
     initial_sync_done: bool = False
     email: str
+    syftbox_folder: Path | None = None
 
     syftbox_events_queue: Queue[FileChangeEventsMessage] = Field(default_factory=Queue)
     outbox_queue: Queue[Tuple[str, FileChangeEventsMessage]] = Field(
@@ -45,6 +51,8 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     _executor: ThreadPoolExecutor = PrivateAttr(
         default_factory=lambda: ThreadPoolExecutor(max_workers=10)
     )
+    # Cache of datasets shared with "any" - list of (tag, content_hash) tuples
+    _any_shared_datasets: List[tuple] = PrivateAttr(default_factory=list)
 
     @classmethod
     def from_config(cls, config: ProposedFileChangeHandlerConfig):
@@ -53,6 +61,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
             write_files=config.write_files,
             connection_router=ConnectionRouter.from_configs(config.connection_configs),
             email=config.email,
+            syftbox_folder=config.syftbox_folder,
         )
 
     def sync(self, peer_emails: list[str], recompute_hashes: bool = True):
@@ -95,7 +104,109 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
 
         for events_message in events_messages:
             self.event_cache.add_events_message_to_local_cache(events_message)
+
+        # load datasets from connection and populate cache
+        self._pull_datasets_for_initial_sync()
+
         self.initial_sync_done = True
+
+    def _pull_datasets_for_initial_sync(self):
+        """Load datasets from GDrive when DO connects.
+
+        Restores datasets to local filesystem and populates the _any_shared_datasets cache.
+        """
+        if self.syftbox_folder is None:
+            return
+
+        collections = (
+            self.connection_router.list_all_dataset_collections_as_do_with_permissions()
+        )
+
+        self._update_any_shared_datasets_cache(collections)
+
+        collections_to_download = self._filter_collections_needing_download(collections)
+        self._download_dataset_collections_parallel(collections_to_download)
+
+    def _update_any_shared_datasets_cache(self, collections: list[FileCollection]):
+        """Populate _any_shared_datasets cache from collections with 'any' permission."""
+        for collection in collections:
+            if collection.has_any_permission:
+                entry = (collection.tag, collection.content_hash)
+                if entry not in self._any_shared_datasets:
+                    self._any_shared_datasets.append(entry)
+
+    def _filter_collections_needing_download(
+        self, collections: list[FileCollection]
+    ) -> list[FileCollection]:
+        """Return collections that don't exist locally yet."""
+        result = []
+        for collection in collections:
+            local_dataset_dir = (
+                self.syftbox_folder
+                / self.email
+                / "public"
+                / DATASETS_FOLDER_NAME
+                / collection.tag
+            )
+            if not (local_dataset_dir / "dataset.yaml").exists():
+                result.append(collection)
+        return result
+
+    def _download_dataset_collections_parallel(self, collections: list[FileCollection]):
+        """Download all files from collections in parallel and write to disk."""
+        if not collections:
+            return
+
+        # Fetch file metadatas for all collections in parallel
+        all_file_metadatas = list(
+            self._executor.map(
+                self._get_file_metadatas_with_new_connection, collections
+            )
+        )
+
+        # Build list of (collection, file_metadata) tuples
+        all_downloads = [
+            (collection, metadata)
+            for collection, file_metadatas in zip(collections, all_file_metadatas)
+            for metadata in file_metadatas
+        ]
+
+        if not all_downloads:
+            return
+
+        # Download all files in parallel
+        file_ids = [metadata["file_id"] for _, metadata in all_downloads]
+        downloaded_contents = list(
+            self._executor.map(self._download_file_with_new_connection, file_ids)
+        )
+
+        # Write all files to disk
+        for (collection, metadata), content in zip(all_downloads, downloaded_contents):
+            local_dataset_dir = (
+                self.syftbox_folder
+                / self.email
+                / "public"
+                / DATASETS_FOLDER_NAME
+                / collection.tag
+            )
+            local_dataset_dir.mkdir(parents=True, exist_ok=True)
+            (local_dataset_dir / metadata["file_name"]).write_bytes(content)
+
+    def _get_file_metadatas_with_new_connection(
+        self, collection: FileCollection
+    ) -> list:
+        """Get file metadatas for a collection using a new connection for thread safety."""
+        connection = self.connection_router.connection_for_parallel_download()
+        return connection.get_dataset_collection_file_metadatas(
+            tag=collection.tag,
+            content_hash=collection.content_hash,
+            owner_email=self.email,
+        )
+
+    def _download_file_with_new_connection(self, file_id: str) -> bytes:
+        """Download a file using a new connection for thread safety."""
+        connection = self.connection_router.connection_for_parallel_download()
+        return connection.download_dataset_file(file_id)
 
     def process_local_changes(self, recipients: list[str]):
         # TODO: currently permissions are not implemented, so we just write to all recipients

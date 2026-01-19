@@ -1,8 +1,9 @@
 from pydantic import BaseModel
 from typing import List
 from syft_client.sync.connections.base_connection import (
-    SyftboxPlatformConnection,
     ConnectionConfig,
+    FileCollection,
+    SyftboxPlatformConnection,
 )
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.sync.events.file_change_event import (
@@ -229,6 +230,12 @@ class ConnectionRouter(BaseModel):
     def list_dataset_collections_as_do(self) -> list[str]:
         connection = self.connection_for_send_message()
         return connection.list_dataset_collections_as_do()
+
+    def list_all_dataset_collections_as_do_with_permissions(
+        self,
+    ) -> list[FileCollection]:
+        connection = self.connection_for_send_message()
+        return connection.list_all_dataset_collections_as_do_with_permissions()
 
     def list_dataset_collections_as_ds(self) -> list[dict]:
         connection = self.connection_for_receive_message()
