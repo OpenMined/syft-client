@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from syft_client.sync.connections.base_connection import (
@@ -14,9 +14,19 @@ from syft_client.sync.messages.proposed_filechange import (
 )
 from syft_datasets.dataset_manager import SHARE_WITH_ANY
 
+if TYPE_CHECKING:
+    from syft_client.sync.version.version_info import VersionInfo
+
 
 class InMemoryPlatformConnectionConfig(ConnectionConfig):
     receiver_function: Callable | None = None
+
+
+class InMemoryVersionFile(BaseModel):
+    """Represents a version file with its content and permissions."""
+
+    content: str  # JSON string of version info
+    allowed_readers: List[str] = Field(default_factory=list)  # Emails that can read
 
 
 class InMemoryDatasetsFolder(BaseModel):
@@ -52,6 +62,9 @@ class InMemoryBackingPlatform(BaseModel):
 
     # Dataset collections storage
     dataset_collections: List[InMemoryDatasetsFolder] = Field(default_factory=list)
+
+    # Version files storage: {owner_email: InMemoryVersionFile}
+    version_files: Dict[str, InMemoryVersionFile] = Field(default_factory=dict)
 
 
 class InMemoryPlatformConnection(SyftboxPlatformConnection):
@@ -430,3 +443,37 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             for e in self.backing_store.syftbox_events_message_log
             if e.message_filepath.id == events_message_id
         ][0]
+
+    def write_version_file(self, version_info: "VersionInfo") -> None:
+        """Write version file to this user's storage."""
+        existing = self.backing_store.version_files.get(self.owner_email)
+        if existing:
+            existing.content = version_info.to_json()
+        else:
+            self.backing_store.version_files[self.owner_email] = InMemoryVersionFile(
+                content=version_info.to_json()
+            )
+
+    def read_peer_version_file(self, peer_email: str) -> Optional["VersionInfo"]:
+        """Read version file from a peer's storage."""
+        from syft_client.sync.version.version_info import VersionInfo
+
+        version_file = self.backing_store.version_files.get(peer_email)
+        if version_file is None:
+            return None
+
+        # Check if we have permission to read it
+        if self.owner_email not in version_file.allowed_readers:
+            return None
+
+        return VersionInfo.from_json(version_file.content)
+
+    def share_version_file_with_peer(self, peer_email: str) -> None:
+        """Share the version file with a peer so they can read it."""
+        version_file = self.backing_store.version_files.get(self.owner_email)
+        if version_file is None:
+            # Create empty version file if it doesn't exist yet
+            version_file = InMemoryVersionFile(content="")
+            self.backing_store.version_files[self.owner_email] = version_file
+        if peer_email not in version_file.allowed_readers:
+            version_file.allowed_readers.append(peer_email)

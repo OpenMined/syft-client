@@ -27,9 +27,9 @@ def test_peer_request_blocks_sync_until_approved():
 
     # Verify: DO sees this as a pending request
     do_manager.load_peers()
-    assert len(do_manager._peer_requests) == 1
-    assert len(do_manager._approved_peers) == 0
-    assert do_manager._peer_requests[0].email == ds_manager.email
+    assert len(do_manager.version_manager.pending_peers) == 1
+    assert len(do_manager.version_manager.approved_peers) == 0
+    assert do_manager.version_manager.pending_peers[0].email == ds_manager.email
 
     # Step 2: DS submits a simple job
     job_file_path = f"{do_manager.email}/test.job"
@@ -47,9 +47,9 @@ def test_peer_request_blocks_sync_until_approved():
     do_manager.approve_peer_request(ds_manager.email)
 
     # Verify: Peer moved from requests to approved
-    assert len(do_manager._peer_requests) == 0
-    assert len(do_manager._approved_peers) == 1
-    assert do_manager._approved_peers[0].email == ds_manager.email
+    assert len(do_manager.version_manager.pending_peers) == 0
+    assert len(do_manager.version_manager.approved_peers) == 1
+    assert do_manager.version_manager.approved_peers[0].email == ds_manager.email
 
     # Step 5: DO syncs again - now it should work
     do_manager.sync()

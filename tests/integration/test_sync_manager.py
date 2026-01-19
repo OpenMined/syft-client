@@ -364,9 +364,9 @@ def test_peer_request_blocks_sync_until_approved():
 
     # Verify: DO sees this as a pending request
     do_manager.load_peers()
-    assert len(do_manager._peer_requests) == 1
-    assert len(do_manager._approved_peers) == 0
-    assert do_manager._peer_requests[0].email == ds_manager.email
+    assert len(do_manager.version_manager.pending_peers) == 1
+    assert len(do_manager.version_manager.approved_peers) == 0
+    assert do_manager.version_manager.pending_peers[0].email == ds_manager.email
 
     # Step 2: DS submits a simple job
     job_file_path = f"{do_manager.email}/test.job"
@@ -387,9 +387,9 @@ def test_peer_request_blocks_sync_until_approved():
     do_manager.approve_peer_request(ds_manager.email)
 
     # Verify: Peer moved from requests to approved
-    assert len(do_manager._peer_requests) == 0
-    assert len(do_manager._approved_peers) == 1
-    assert do_manager._approved_peers[0].email == ds_manager.email
+    assert len(do_manager.version_manager.pending_peers) == 0
+    assert len(do_manager.version_manager.approved_peers) == 1
+    assert do_manager.version_manager.approved_peers[0].email == ds_manager.email
 
     # Step 5: DO syncs again - now it should work
     do_manager.sync()
@@ -466,3 +466,73 @@ def test_file_deletion_do_to_ds():
     assert expected_path not in ds_cache.file_hashes, (
         "Hash should be removed from DS cache"
     )
+
+
+@pytest.mark.usefixtures("setup_delete_syftboxes")
+def test_version_upgrade_breaks_communication():
+    """
+    Integration test for version negotiation:
+    1. Initialize peers with matching versions and verify they are compatible
+    2. Update one peer's version file (simulating an upgrade)
+    3. Reload the version and verify peers are now incompatible
+    """
+    from syft_client.sync.version.version_info import VersionInfo
+
+    # Phase 1: Create managers with compatible versions
+    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
+        do_email=EMAIL_DO,
+        ds_email=EMAIL_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
+        use_in_memory_cache=False,
+        check_versions=True,
+    )
+
+    # Wait for GDrive permissions to propagate
+    sleep(2)
+
+    # Verify initial version compatibility
+    ds_manager.version_manager.load_peer_version(do_manager.email)
+    do_manager.version_manager.load_peer_version(ds_manager.email)
+
+    assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email), (
+        "DS should see DO as compatible initially"
+    )
+    assert do_manager.version_manager.is_peer_version_compatible(ds_manager.email), (
+        "DO should see DS as compatible initially"
+    )
+
+    # Phase 2: Simulate DS "upgrading" to a new incompatible version
+    ds_connection = ds_manager.connection_router.connections[0]
+
+    current = VersionInfo.current()
+    new_version = VersionInfo(
+        syft_client_version="99.0.0",  # Incompatible version
+        min_supported_syft_client_version="99.0.0",
+        protocol_version=current.protocol_version,
+        min_supported_protocol_version=current.min_supported_protocol_version,
+        updated_at=current.updated_at,
+    )
+
+    # Write the new version to GDrive (simulating DS upgrading their client)
+    ds_connection.write_version_file(new_version)
+
+    # Phase 3: Clear DO's cached version of DS and reload from GDrive
+    do_manager.version_manager.clear_peer_version(ds_manager.email)
+
+    # Reload DS's version (this fetches from GDrive)
+    reloaded_version = do_manager.version_manager.load_peer_version(ds_manager.email)
+
+    # Verify the new version was loaded
+    assert reloaded_version is not None, "Should be able to reload peer version"
+    assert reloaded_version.syft_client_version == "99.0.0", (
+        "Reloaded version should be the upgraded version"
+    )
+
+    # Verify versions are now incompatible
+    assert not do_manager.version_manager.is_peer_version_compatible(
+        ds_manager.email
+    ), "DO should now see DS as incompatible after version upgrade"
+
+    # Cleanup: Restore DS's version file to the original version
+    ds_connection.write_version_file(current)

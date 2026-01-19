@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from syft_client.sync.connections.drive.grdrive_config import (
         GdriveConnectionConfig,
     )
+    from syft_client.sync.version.version_info import VersionInfo
 
 SYFTBOX_FOLDER = "SyftBox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
@@ -44,6 +45,7 @@ SCOPES = ["https://www.googleapis.com/auth/drive"]
 GDRIVE_TRANSPORT_NAME = "gdrive_files"
 GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
 SYFT_PEERS_FILE = "SYFT_peers.json"
+SYFT_VERSION_FILE = "SYFT_version.json"
 
 
 class GdriveArchiveFolder(BaseModel):
@@ -1215,3 +1217,73 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         self.dataset_collection_folder_id_cache[cache_key] = folder_id
         return folder_id
+
+    def _get_version_file_id(self) -> Optional[str]:
+        """Find SYFT_version.json file in /SyftBox folder"""
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        query = f"name='{SYFT_VERSION_FILE}' and '{syftbox_folder_id}' in parents and trashed=false"
+        results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+        items = results.get("files", [])
+        return items[0]["id"] if items else None
+
+    def write_version_file(self, version_info: "VersionInfo") -> None:
+        """Write version file to /SyftBox folder. Creates or updates the file."""
+
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        file_id = self._get_version_file_id()
+
+        # Convert to JSON string
+        json_data = version_info.to_json()
+        file_payload, _ = self.create_file_payload(json_data)
+
+        if file_id is None:
+            # Create new file
+            file_metadata = {
+                "name": SYFT_VERSION_FILE,
+                "parents": [syftbox_folder_id],
+            }
+            self.drive_service.files().create(
+                body=file_metadata, media_body=file_payload, fields="id"
+            ).execute()
+        else:
+            # Update existing file
+            self.drive_service.files().update(
+                fileId=file_id, media_body=file_payload
+            ).execute()
+
+    def _get_peer_version_file_id(self, peer_email: str) -> Optional[str]:
+        """Find SYFT_version.json file in a peer's /SyftBox folder"""
+        # Find the peer's SyftBox folder
+        query = (
+            f"name='{SYFT_VERSION_FILE}' and trashed=false and '{peer_email}' in owners"
+        )
+        results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+        items = results.get("files", [])
+        return items[0]["id"] if items else None
+
+    def read_peer_version_file(self, peer_email: str) -> Optional["VersionInfo"]:
+        """Read version file from a peer's /SyftBox folder."""
+        from syft_client.sync.version.version_info import VersionInfo
+
+        file_id = self._get_peer_version_file_id(peer_email)
+        if file_id is None:
+            return None
+
+        try:
+            file_data = self.download_file(file_id)
+            return VersionInfo.from_json(file_data.decode("utf-8"))
+        except Exception:
+            return None
+
+    def share_version_file_with_peer(self, peer_email: str) -> None:
+        """Share the version file with a peer so they can read it."""
+        file_id = self._get_version_file_id()
+        if file_id is None:
+            # Version file doesn't exist yet, create it first
+            from syft_client.sync.version.version_info import VersionInfo
+
+            self.write_version_file(VersionInfo.current())
+            file_id = self._get_version_file_id()
+
+        if file_id:
+            self.add_permission(file_id, peer_email, write=False)

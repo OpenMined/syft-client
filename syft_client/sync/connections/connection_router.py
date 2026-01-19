@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import TYPE_CHECKING, List, Optional
 from syft_client.sync.connections.base_connection import (
     ConnectionConfig,
     FileCollection,
@@ -16,6 +16,9 @@ from syft_client.sync.utils.print_utils import (
     print_peer_adding_to_platform,
     print_peer_added_to_platform,
 )
+
+if TYPE_CHECKING:
+    from syft_client.sync.version.version_info import VersionInfo
 
 
 class ConnectionRouter(BaseModel):
@@ -246,6 +249,31 @@ class ConnectionRouter(BaseModel):
     ) -> dict[str, bytes]:
         connection = self.connection_for_datasite_watcher()
         return connection.download_dataset_collection(tag, content_hash, owner_email)
+
+    def connection_for_version_read(
+        self, create_new: bool = False
+    ) -> SyftboxPlatformConnection:
+        """Get connection for reading version files. Can create new for thread safety."""
+        existing_connection = self.connections[0]
+        if create_new:
+            return self.copy_connection(existing_connection)
+        else:
+            return existing_connection
+
+    def write_version_file(self, version_info: "VersionInfo") -> None:
+        """Write version file to own SyftBox folder."""
+        connection = self.connection_for_own_syftbox()
+        connection.write_version_file(version_info)
+
+    def read_peer_version_file(self, peer_email: str) -> Optional["VersionInfo"]:
+        """Read version file from a peer's SyftBox folder."""
+        connection = self.connection_for_datasite_watcher()
+        return connection.read_peer_version_file(peer_email)
+
+    def share_version_file_with_peer(self, peer_email: str) -> None:
+        """Share version file with a peer so they can read it."""
+        connection = self.connection_for_own_syftbox()
+        connection.share_version_file_with_peer(peer_email)
 
     def get_dataset_collection_file_metadatas(
         self, tag: str, content_hash: str, owner_email: str
