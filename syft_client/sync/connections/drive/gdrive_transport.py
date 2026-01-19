@@ -1124,47 +1124,6 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return collections
 
-    def list_dataset_collections_shared_with_any(self) -> list[dict]:
-        """List DO's dataset collections that have 'anyone' permission.
-
-        Returns list of dicts with keys: folder_id, tag, content_hash
-        """
-        syftbox_folder_id = self.get_syftbox_folder_id()
-        query = (
-            f"name contains '{DATASET_COLLECTION_PREFIX}_' and '{syftbox_folder_id}' in parents "
-            f"and 'me' in owners and trashed=false and mimeType='{GOOGLE_FOLDER_MIME_TYPE}'"
-        )
-        results = (
-            self.drive_service.files().list(q=query, fields="files(id,name)").execute()
-        )
-
-        folders_with_any = []
-        for folder in results.get("files", []):
-            folder_id = folder["id"]
-            # Check if folder has "anyone" permission
-            try:
-                perms = (
-                    self.drive_service.permissions()
-                    .list(fileId=folder_id, fields="permissions(type)")
-                    .execute()
-                )
-                has_anyone = any(
-                    p.get("type") == "anyone" for p in perms.get("permissions", [])
-                )
-                if has_anyone:
-                    folder_obj = DatasetCollectionFolder.from_name(folder["name"])
-                    folders_with_any.append(
-                        {
-                            "folder_id": folder_id,
-                            "tag": folder_obj.tag,
-                            "content_hash": folder_obj.content_hash,
-                        }
-                    )
-            except Exception:
-                continue
-
-        return folders_with_any
-
     def list_dataset_collections_as_ds(self) -> list[dict]:
         """List collections shared with DS (not owned by me).
 
