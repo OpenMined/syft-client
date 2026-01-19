@@ -1,4 +1,5 @@
-from typing import Dict, List
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, Dict, List
 from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConnection
 from pathlib import Path
 from pydantic import BaseModel, Field, model_validator
@@ -112,6 +113,37 @@ class DataSiteWatcherCache(BaseModel):
 
         self.last_sync = datetime.now()
 
+    def sync_down_parallel(
+        self,
+        peer_email: str,
+        executor: ThreadPoolExecutor,
+        download_fn: Callable[[str], FileChangeEventsMessage],
+    ):
+        """Sync with parallel file downloads."""
+        peer_timestamp = self.last_event_timestamp_per_peer.get(peer_email)
+
+        # Get file metadata (no download yet)
+        file_metadatas = self.connection_router.get_outbox_file_metadatas_for_ds(
+            peer_email=peer_email,
+            since_timestamp=peer_timestamp,
+        )
+
+        if not file_metadatas:
+            # No new messages to download
+            self.last_sync = datetime.now()
+            return
+
+        # Download all files in parallel
+        file_ids = [m["file_id"] for m in file_metadatas]
+        downloaded_messages = list(executor.map(download_fn, file_ids))
+
+        # Apply in timestamp order
+        for event_message in sorted(downloaded_messages, key=lambda x: x.timestamp):
+            self.apply_event_message(event_message)
+            self.last_event_timestamp_per_peer[peer_email] = event_message.timestamp
+
+        self.last_sync = datetime.now()
+
     def apply_event_message(self, event_message: FileChangeEventsMessage):
         self.events_connection.write_file(
             event_message.message_filepath.as_string(), event_message
@@ -184,3 +216,65 @@ class DataSiteWatcherCache(BaseModel):
 
             # Update hash cache
             self.dataset_collection_hashes[cache_key] = content_hash
+
+    def sync_down_datasets_parallel(
+        self,
+        peer_email: str,
+        executor: ThreadPoolExecutor,
+        download_fn: Callable[[str], bytes],
+    ):
+        """
+        Sync dataset collections from peer with parallel file downloads.
+        Downloads all files from all collections in a single parallel batch.
+        """
+        collections = self.connection_router.list_dataset_collections_as_ds()
+        peer_collections = [c for c in collections if c["owner_email"] == peer_email]
+
+        # Gather all files to download across all collections
+        all_downloads = []  # List of (collection_info, file_metadata)
+        collections_to_update = []
+
+        for collection in peer_collections:
+            owner_email = collection["owner_email"]
+            tag = collection["tag"]
+            content_hash = collection["content_hash"]
+
+            # Check if hash changed - skip download if unchanged
+            cache_key = f"{owner_email}/{tag}"
+            cached_hash = self.dataset_collection_hashes.get(cache_key)
+            if cached_hash == content_hash:
+                continue
+
+            # Get file metadata (no download yet)
+            file_metadatas = (
+                self.connection_router.get_dataset_collection_file_metadatas(
+                    tag, content_hash, owner_email
+                )
+            )
+
+            if not file_metadatas:
+                continue
+
+            collections_to_update.append(collection)
+            for metadata in file_metadatas:
+                all_downloads.append((collection, metadata))
+
+        if not all_downloads:
+            return
+
+        # Download all files from all collections in parallel
+        file_ids = [metadata["file_id"] for _, metadata in all_downloads]
+        downloaded_contents = list(executor.map(download_fn, file_ids))
+
+        # Write files to local cache
+        for (collection, metadata), content in zip(all_downloads, downloaded_contents):
+            owner_email = collection["owner_email"]
+            tag = collection["tag"]
+            file_name = metadata["file_name"]
+            file_path = f"{owner_email}/public/syft_datasets/{tag}/{file_name}"
+            self.file_connection.write_file(file_path, content)
+
+        # Update hash cache for all collections
+        for collection in collections_to_update:
+            cache_key = f"{collection['owner_email']}/{collection['tag']}"
+            self.dataset_collection_hashes[cache_key] = collection["content_hash"]

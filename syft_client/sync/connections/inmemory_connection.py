@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 from pydantic import BaseModel, Field
 from syft_client.sync.connections.base_connection import (
     ConnectionConfig,
+    FileCollection,
     SyftboxPlatformConnection,
 )
 from syft_client.sync.events.file_change_event import (
@@ -190,6 +191,36 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         else:
             return [e for e in all_event_messages if e.timestamp > since_timestamp]
 
+    def get_outbox_file_metadatas_for_ds(
+        self, peer_email: str, since_timestamp: float | None = None
+    ) -> List[Dict]:
+        """Get file metadata from outbox for parallel download (consistent with GDrive)."""
+        all_event_messages = self.backing_store.outboxes["all"]
+        if since_timestamp is not None:
+            all_event_messages = [
+                e for e in all_event_messages if e.timestamp > since_timestamp
+            ]
+
+        result = []
+        for e in sorted(all_event_messages, key=lambda x: x.timestamp):
+            result.append(
+                {
+                    "file_id": e.message_filepath.id,
+                    "file_name": e.message_filepath.as_string(),
+                    "timestamp": e.timestamp,
+                }
+            )
+        return result
+
+    def download_events_message_by_id_from_outbox(
+        self, events_message_id: str
+    ) -> FileChangeEventsMessage:
+        """Download from outbox (for DS syncing from DO's outbox)."""
+        for e in self.backing_store.outboxes["all"]:
+            if e.message_filepath.id == events_message_id:
+                return e
+        raise ValueError(f"Event message {events_message_id} not found in outbox")
+
     def get_all_events_messages_do(self) -> List[FileChangeEventsMessage]:
         return self.backing_store.syftbox_events_message_log
 
@@ -273,6 +304,23 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
                 result.append(collection.tag)
         return result
 
+    def list_all_dataset_collections_as_do_with_permissions(
+        self,
+    ) -> list[FileCollection]:
+        """List all DO's dataset collections with permissions info."""
+        result = []
+        for collection in self.backing_store.dataset_collections:
+            if collection.owner_email == self.owner_email:
+                result.append(
+                    FileCollection(
+                        folder_id=f"{collection.tag}/{collection.content_hash}",
+                        tag=collection.tag,
+                        content_hash=collection.content_hash,
+                        has_any_permission=SHARE_WITH_ANY in collection.allowed_users,
+                    )
+                )
+        return result
+
     def list_dataset_collections_as_ds(self) -> list[dict]:
         result = []
         for collection in self.backing_store.dataset_collections:
@@ -328,6 +376,59 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
 
         # Return copy of files from backing store
         return collection.files.copy()
+
+    def get_dataset_collection_file_metadatas(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> List[Dict]:
+        """Get file metadata from a dataset collection without downloading."""
+        # Find collection
+        collection = None
+        for c in self.backing_store.dataset_collections:
+            if (
+                c.tag == tag
+                and c.owner_email == owner_email
+                and c.content_hash == content_hash
+            ):
+                collection = c
+                break
+
+        if collection is None:
+            raise ValueError(
+                f"Collection {tag} with hash {content_hash} not found for owner {owner_email}"
+            )
+
+        # Check permissions
+        if not collection.allowed_users:
+            raise PermissionError(f"No access granted to collection {tag}")
+
+        if (
+            SHARE_WITH_ANY not in collection.allowed_users
+            and self.owner_email not in collection.allowed_users
+        ):
+            raise PermissionError(f"Access denied to collection {tag}")
+
+        # Return metadata for each file
+        return [
+            {"file_id": f"{tag}/{content_hash}/{name}", "file_name": name}
+            for name in collection.files.keys()
+        ]
+
+    def download_dataset_file(self, file_id: str) -> bytes:
+        """Download a single file from a dataset collection."""
+        # file_id format: "{tag}/{content_hash}/{file_name}"
+        parts = file_id.split("/", 2)
+        if len(parts) != 3:
+            raise ValueError(f"Invalid file_id format: {file_id}")
+        tag, content_hash, file_name = parts
+
+        # Find the collection
+        for c in self.backing_store.dataset_collections:
+            if c.tag == tag and c.content_hash == content_hash:
+                if file_name in c.files:
+                    return c.files[file_name]
+                raise ValueError(f"File {file_name} not found in collection {tag}")
+
+        raise ValueError(f"Collection {tag} with hash {content_hash} not found")
 
     def get_all_accepted_event_file_ids_do(self) -> List[str]:
         return [

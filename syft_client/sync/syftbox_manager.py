@@ -104,6 +104,7 @@ class SyftboxManagerConfig(BaseModel):
         connection_configs = [GdriveConnectionConfig(email=email, token_path=None)]
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
             email=email,
+            syftbox_folder=syftbox_folder,
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
                 email=email,
@@ -174,6 +175,7 @@ class SyftboxManagerConfig(BaseModel):
         ]
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
             email=email,
+            syftbox_folder=syftbox_folder,
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
                 email=email,
@@ -242,6 +244,7 @@ class SyftboxManagerConfig(BaseModel):
 
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
             email=email,
+            syftbox_folder=syftbox_folder,
             write_files=write_files,
             cache_config=DataSiteOwnerEventCacheConfig(
                 email=email,
@@ -313,6 +316,7 @@ class SyftboxManagerConfig(BaseModel):
         ]
         proposed_file_change_handler_config = ProposedFileChangeHandlerConfig(
             email=email,
+            syftbox_folder=syftbox_folder,
             connection_configs=connection_configs,
             cache_config=DataSiteOwnerEventCacheConfig(
                 email=email,
@@ -753,6 +757,29 @@ class SyftboxManager(BaseModel):
             email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
         )
 
+        # Share all "any" datasets with the new peer so they can discover them
+        # (Google Drive "anyone with link" files are not discoverable via search)
+        email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
+        self._share_any_datasets_with_peer(email)
+
+    def _share_any_datasets_with_peer(self, peer_email: str):
+        """Share all datasets that have 'any' permission with a specific peer.
+
+        This is needed because Google Drive "anyone with link" files are not
+        discoverable via search. By adding explicit user sharing, the peer
+        can discover these datasets.
+
+        Uses cache populated during pull_initial_state() in ProposedFileChangeHandler.
+        """
+        for tag, content_hash in self.proposed_file_change_handler._any_shared_datasets:
+            try:
+                self.connection_router.share_dataset_collection(
+                    tag, content_hash, peer_email
+                )
+            except Exception:
+                # Ignore errors (e.g., already shared)
+                pass
+
     def reject_peer_request(self, email_or_peer: str | Peer):
         """Reject a pending peer request. Delegates to VersionManager."""
         self.version_manager.reject_peer_request(email_or_peer)
@@ -927,6 +954,12 @@ class SyftboxManager(BaseModel):
         self.connection_router.share_dataset_collection(
             collection_tag, content_hash, users
         )
+
+        # Cache "any" datasets for quick sharing with new peers
+        if users == "any":
+            self.proposed_file_change_handler._any_shared_datasets.append(
+                (collection_tag, content_hash)
+            )
 
     def delete_dataset(self, *args, sync=True, **kwargs):
         if self.dataset_manager is None:

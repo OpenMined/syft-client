@@ -1,8 +1,9 @@
 from pydantic import BaseModel
 from typing import TYPE_CHECKING, List, Optional
 from syft_client.sync.connections.base_connection import (
-    SyftboxPlatformConnection,
     ConnectionConfig,
+    FileCollection,
+    SyftboxPlatformConnection,
 )
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.sync.events.file_change_event import (
@@ -192,6 +193,23 @@ class ConnectionRouter(BaseModel):
             peer_email=peer_email, since_timestamp=since_timestamp
         )
 
+    def get_outbox_file_metadatas_for_ds(
+        self, peer_email: str, since_timestamp: float | None
+    ) -> List[dict]:
+        connection = self.connection_for_datasite_watcher()
+        return connection.get_outbox_file_metadatas_for_ds(peer_email, since_timestamp)
+
+    def download_events_message_by_id_from_outbox(
+        self, file_id: str
+    ) -> FileChangeEventsMessage:
+        """Download event message from outbox by ID."""
+        connection = self.connection_for_datasite_watcher()
+        return connection.download_events_message_by_id_from_outbox(file_id)
+
+    def connection_for_parallel_download(self) -> SyftboxPlatformConnection:
+        """Create a new connection for thread-safe parallel downloads."""
+        return self.copy_connection(self.connection_for_datasite_watcher())
+
     def create_dataset_collection_folder(
         self, tag: str, content_hash: str, owner_email: str
     ) -> str:
@@ -215,6 +233,12 @@ class ConnectionRouter(BaseModel):
     def list_dataset_collections_as_do(self) -> list[str]:
         connection = self.connection_for_send_message()
         return connection.list_dataset_collections_as_do()
+
+    def list_all_dataset_collections_as_do_with_permissions(
+        self,
+    ) -> list[FileCollection]:
+        connection = self.connection_for_send_message()
+        return connection.list_all_dataset_collections_as_do_with_permissions()
 
     def list_dataset_collections_as_ds(self) -> list[dict]:
         connection = self.connection_for_receive_message()
@@ -250,3 +274,15 @@ class ConnectionRouter(BaseModel):
         """Share version file with a peer so they can read it."""
         connection = self.connection_for_own_syftbox()
         connection.share_version_file_with_peer(peer_email)
+
+    def get_dataset_collection_file_metadatas(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> List[dict]:
+        connection = self.connection_for_datasite_watcher()
+        return connection.get_dataset_collection_file_metadatas(
+            tag, content_hash, owner_email
+        )
+
+    def download_dataset_file(self, file_id: str) -> bytes:
+        connection = self.connection_for_datasite_watcher()
+        return connection.download_dataset_file(file_id)
