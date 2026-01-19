@@ -3,6 +3,15 @@ from pydantic import BaseModel
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 
 
+class FileCollection(BaseModel):
+    """A collection of files that can be shared and synced."""
+
+    folder_id: str
+    tag: str
+    content_hash: str
+    has_any_permission: bool = False
+
+
 class ConnectionConfig(BaseModel):
     connection_type: ClassVar[Type["SyftboxPlatformConnection"]]
 
@@ -37,8 +46,10 @@ class SyftboxPlatformConnection(BaseModel):
     def list_dataset_collections_as_do(self) -> list[str]:
         raise NotImplementedError()
 
-    def list_all_dataset_collections_as_do_with_permissions(self) -> list[dict]:
-        """Returns list of dicts with keys: folder_id, tag, content_hash, has_any_permission"""
+    def list_all_dataset_collections_as_do_with_permissions(
+        self,
+    ) -> list[FileCollection]:
+        """Returns list of FileCollection objects for DO's dataset collections."""
         raise NotImplementedError()
 
     def list_dataset_collections_as_ds(self) -> list[dict]:

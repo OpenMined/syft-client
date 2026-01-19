@@ -1,4 +1,5 @@
 from pathlib import Path
+from syft_datasets.dataset_manager import FOLDER_NAME as DATASETS_FOLDER_NAME
 from pydantic import ConfigDict, Field, BaseModel, PrivateAttr
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
@@ -6,7 +7,10 @@ from typing import List, Tuple
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessage,
 )
-from syft_client.sync.connections.base_connection import ConnectionConfig
+from syft_client.sync.connections.base_connection import (
+    ConnectionConfig,
+    FileCollection,
+)
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     DataSiteOwnerEventCacheConfig,
 )
@@ -102,77 +106,107 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
             self.event_cache.add_events_message_to_local_cache(events_message)
 
         # load datasets from connection and populate cache
-        self._load_datasets_from_connection()
+        self._pull_datasets_for_initial_sync()
 
         self.initial_sync_done = True
 
-    def _load_datasets_from_connection(self):
+    def _pull_datasets_for_initial_sync(self):
         """Load datasets from GDrive when DO connects.
 
-        This restores datasets to local filesystem so they appear in datasets.get_all(),
-        and populates the _any_shared_datasets cache for efficient peer sharing.
-        Downloads all datasets in parallel for speed.
+        Restores datasets to local filesystem and populates the _any_shared_datasets cache.
         """
         if self.syftbox_folder is None:
             return
 
-        try:
-            collections = self.connection_router.list_all_dataset_collections_as_do_with_permissions()
-        except Exception:
-            # Connection may not support this (e.g., not fully set up)
-            return
+        collections = (
+            self.connection_router.list_all_dataset_collections_as_do_with_permissions()
+        )
 
-        # Populate _any_shared_datasets cache (avoid duplicates)
+        self._update_any_shared_datasets_cache(collections)
+
+        collections_to_download = self._filter_collections_needing_download(collections)
+        self._download_dataset_collections_parallel(collections_to_download)
+
+    def _update_any_shared_datasets_cache(self, collections: list[FileCollection]):
+        """Populate _any_shared_datasets cache from collections with 'any' permission."""
         for collection in collections:
-            if collection["has_any_permission"]:
-                entry = (collection["tag"], collection["content_hash"])
+            if collection.has_any_permission:
+                entry = (collection.tag, collection.content_hash)
                 if entry not in self._any_shared_datasets:
                     self._any_shared_datasets.append(entry)
 
-        # Download all datasets in parallel
-        list(
+    def _filter_collections_needing_download(
+        self, collections: list[FileCollection]
+    ) -> list[FileCollection]:
+        """Return collections that don't exist locally yet."""
+        result = []
+        for collection in collections:
+            local_dataset_dir = (
+                self.syftbox_folder
+                / self.email
+                / "public"
+                / DATASETS_FOLDER_NAME
+                / collection.tag
+            )
+            if not (local_dataset_dir / "dataset.yaml").exists():
+                result.append(collection)
+        return result
+
+    def _download_dataset_collections_parallel(self, collections: list[FileCollection]):
+        """Download all files from collections in parallel and write to disk."""
+        if not collections:
+            return
+
+        # Fetch file metadatas for all collections in parallel
+        all_file_metadatas = list(
             self._executor.map(
-                self._restore_dataset_to_local_from_collection, collections
+                self._get_file_metadatas_with_new_connection, collections
             )
         )
 
-    def _restore_dataset_to_local_from_collection(self, collection: dict):
-        """Download dataset files from GDrive and write to local filesystem.
+        # Build list of (collection, file_metadata) tuples
+        all_downloads = [
+            (collection, metadata)
+            for collection, file_metadatas in zip(collections, all_file_metadatas)
+            for metadata in file_metadatas
+        ]
 
-        Uses a new connection for thread safety during parallel downloads.
-        """
-        from syft_datasets.dataset_manager import FOLDER_NAME
-
-        if self.syftbox_folder is None:
+        if not all_downloads:
             return
 
-        tag = collection["tag"]
-        content_hash = collection["content_hash"]
-
-        # Check if dataset already exists locally
-        local_dataset_dir = (
-            self.syftbox_folder / self.email / "public" / FOLDER_NAME / tag
+        # Download all files in parallel
+        file_ids = [metadata["file_id"] for _, metadata in all_downloads]
+        downloaded_contents = list(
+            self._executor.map(self._download_file_with_new_connection, file_ids)
         )
-        metadata_path = local_dataset_dir / "dataset.yaml"
-        if metadata_path.exists():
-            # Already exists locally, skip
-            return
 
-        try:
-            # Use a new connection for thread safety
-            connection = self.connection_router.connection_for_parallel_download()
-            files = connection.download_dataset_collection(
-                tag=tag, content_hash=content_hash, owner_email=self.email
+        # Write all files to disk
+        for (collection, metadata), content in zip(all_downloads, downloaded_contents):
+            local_dataset_dir = (
+                self.syftbox_folder
+                / self.email
+                / "public"
+                / DATASETS_FOLDER_NAME
+                / collection.tag
             )
-
-            # Write files to local filesystem
             local_dataset_dir.mkdir(parents=True, exist_ok=True)
-            for filename, content in files.items():
-                file_path = local_dataset_dir / filename
-                file_path.write_bytes(content)
-        except Exception:
-            # Failed to download, skip this dataset
-            pass
+            (local_dataset_dir / metadata["file_name"]).write_bytes(content)
+
+    def _get_file_metadatas_with_new_connection(
+        self, collection: FileCollection
+    ) -> list:
+        """Get file metadatas for a collection using a new connection for thread safety."""
+        connection = self.connection_router.connection_for_parallel_download()
+        return connection.get_dataset_collection_file_metadatas(
+            tag=collection.tag,
+            content_hash=collection.content_hash,
+            owner_email=self.email,
+        )
+
+    def _download_file_with_new_connection(self, file_id: str) -> bytes:
+        """Download a file using a new connection for thread safety."""
+        connection = self.connection_router.connection_for_parallel_download()
+        return connection.download_dataset_file(file_id)
 
     def process_local_changes(self, recipients: list[str]):
         # TODO: currently permissions are not implemented, so we just write to all recipients

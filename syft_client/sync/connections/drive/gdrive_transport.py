@@ -18,6 +18,7 @@ from syft_client.sync.connections.drive.gdrive_utils import (
 )
 
 from syft_client.sync.connections.base_connection import (
+    FileCollection,
     SyftboxPlatformConnection,
 )
 from syft_datasets.dataset_manager import SHARE_WITH_ANY, DATASET_COLLECTION_PREFIX
@@ -1082,12 +1083,10 @@ class GDriveConnection(SyftboxPlatformConnection):
         folders = results.get("files", [])
         return [f["name"].replace(f"{DATASET_COLLECTION_PREFIX}_", "") for f in folders]
 
-    def list_all_dataset_collections_as_do_with_permissions(self) -> list[dict]:
-        """List all DO's dataset collections with permissions info.
-
-        Returns list of dicts with keys: folder_id, tag, content_hash, has_any_permission
-        Used to restore datasets from GDrive when DO connects.
-        """
+    def list_all_dataset_collections_as_do_with_permissions(
+        self,
+    ) -> list[FileCollection]:
+        """List all DO's dataset collections with permissions info."""
         syftbox_folder_id = self.get_syftbox_folder_id()
         query = (
             f"name contains '{DATASET_COLLECTION_PREFIX}_' and '{syftbox_folder_id}' in parents "
@@ -1112,12 +1111,12 @@ class GDriveConnection(SyftboxPlatformConnection):
                     p.get("type") == "anyone" for p in perms.get("permissions", [])
                 )
                 collections.append(
-                    {
-                        "folder_id": folder_id,
-                        "tag": folder_obj.tag,
-                        "content_hash": folder_obj.content_hash,
-                        "has_any_permission": has_anyone,
-                    }
+                    FileCollection(
+                        folder_id=folder_id,
+                        tag=folder_obj.tag,
+                        content_hash=folder_obj.content_hash,
+                        has_any_permission=has_anyone,
+                    )
                 )
             except Exception:
                 continue
