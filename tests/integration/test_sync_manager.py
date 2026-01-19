@@ -414,6 +414,7 @@ def test_version_upgrade_breaks_communication():
         do_token_path=token_path_do,
         ds_token_path=token_path_ds,
         use_in_memory_cache=False,
+        check_versions=True,
     )
 
     # Wait for GDrive permissions to propagate

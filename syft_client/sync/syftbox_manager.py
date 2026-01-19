@@ -230,6 +230,7 @@ class SyftboxManagerConfig(BaseModel):
         only_ds: bool = False,
         only_datasite_owner: bool = False,
         use_in_memory_cache: bool = True,
+        check_versions: bool = False,
     ):
         syftbox_folder = syftbox_folder or random_syftbox_folder_for_testing()
         email = email or random_email()
@@ -268,6 +269,8 @@ class SyftboxManagerConfig(BaseModel):
         version_manager_config = VersionManagerConfig(
             connection_configs=[],  # Empty for in-memory, connections added later
             n_threads=2,  # Use fewer threads for testing
+            ignore_protocol_version=not check_versions,
+            ignore_client_version=not check_versions,
         )
 
         return cls(
@@ -295,6 +298,7 @@ class SyftboxManagerConfig(BaseModel):
         only_ds: bool = False,
         only_datasite_owner: bool = False,
         use_in_memory_cache: bool = True,
+        check_versions: bool = False,
     ):
         syftbox_folder = syftbox_folder or random_syftbox_folder_for_testing()
         email = email or random_email()
@@ -339,6 +343,8 @@ class SyftboxManagerConfig(BaseModel):
         )
         version_manager_config = VersionManagerConfig(
             connection_configs=connection_configs,
+            ignore_protocol_version=not check_versions,
+            ignore_client_version=not check_versions,
         )
         return cls(
             email=email,
@@ -454,23 +460,21 @@ class SyftboxManager(BaseModel):
             version_manager=version_manager,
         )
 
-        # Write own version file if connection_router has connections
-        if manager_res.connection_router.connections:
-            manager_res.version_manager.write_own_version()
-
         return manager_res
 
     @classmethod
     def for_colab(
         cls, email: str, only_ds: bool = False, only_datasite_owner: bool = False
     ):
-        return cls.from_config(
+        manager = cls.from_config(
             SyftboxManagerConfig.for_colab(
                 email=email,
                 only_ds=only_ds,
                 only_datasite_owner=only_datasite_owner,
             )
         )
+        manager.version_manager.write_own_version()
+        return manager
 
     @classmethod
     def for_jupyter(
@@ -482,7 +486,7 @@ class SyftboxManager(BaseModel):
     ):
         if token_path is not None:
             token_path = Path(token_path)
-        return cls.from_config(
+        manager = cls.from_config(
             SyftboxManagerConfig.for_jupyter(
                 email=email,
                 only_ds=only_ds,
@@ -490,6 +494,8 @@ class SyftboxManager(BaseModel):
                 token_path=token_path,
             )
         )
+        manager.version_manager.write_own_version()
+        return manager
 
     @classmethod
     def pair_with_google_drive_testing_connection(
@@ -504,6 +510,7 @@ class SyftboxManager(BaseModel):
         load_peers: bool = False,
         use_in_memory_cache: bool = True,
         clear_caches: bool = True,
+        check_versions: bool = False,
     ):
         receiver_config = SyftboxManagerConfig.for_google_drive_testing_connection(
             email=do_email,
@@ -512,6 +519,7 @@ class SyftboxManager(BaseModel):
             token_path=do_token_path,
             only_ds=False,
             only_datasite_owner=True,
+            check_versions=check_versions,
         )
 
         receiver_manager = cls.from_config(receiver_config)
@@ -523,8 +531,14 @@ class SyftboxManager(BaseModel):
             token_path=ds_token_path,
             only_ds=True,
             only_datasite_owner=False,
+            check_versions=check_versions,
         )
         sender_manager = cls.from_config(sender_config)
+
+        # Write version files if version checking is enabled
+        if check_versions:
+            sender_manager.version_manager.write_own_version()
+            receiver_manager.version_manager.write_own_version()
 
         # this makes sure that when we write a file as sender, the inactive file watcher picks it up
         sender_manager.file_writer.add_callback(
@@ -576,6 +590,7 @@ class SyftboxManager(BaseModel):
         sync_automatically: bool = True,
         add_peers: bool = True,
         use_in_memory_cache: bool = True,
+        check_versions: bool = False,
     ):
         # this doesnt contain the connections, as we need to set them after creation
         receiver_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
@@ -584,6 +599,7 @@ class SyftboxManager(BaseModel):
             only_ds=False,
             only_datasite_owner=True,
             use_in_memory_cache=use_in_memory_cache,
+            check_versions=check_versions,
         )
 
         do_manager = cls.from_config(receiver_config)
@@ -594,6 +610,7 @@ class SyftboxManager(BaseModel):
             only_ds=True,
             only_datasite_owner=False,
             use_in_memory_cache=use_in_memory_cache,
+            check_versions=check_versions,
         )
         ds_manager = cls.from_config(sender_config)
 
@@ -631,6 +648,10 @@ class SyftboxManager(BaseModel):
             owner_email=do_manager.email,
         )
         do_manager.add_connection(receiver_connection)
+
+        # Write version files after connections are set up
+        ds_manager.version_manager.write_own_version()
+        do_manager.version_manager.write_own_version()
 
         # this make sure that when the receiver writes a file to disk,
         # the file watcher picks it up
@@ -895,9 +916,6 @@ class SyftboxManager(BaseModel):
                 "Only InMemoryPlatformConnections can be added to the manager"
             )
 
-        # Check if this is the first connection being added
-        is_first_connection = not self.version_manager.connection_router.connections
-
         if self.proposed_file_change_handler is not None:
             self.proposed_file_change_handler.connection_router.add_connection(
                 connection
@@ -917,10 +935,6 @@ class SyftboxManager(BaseModel):
 
         # Add connection to version manager's router
         self.version_manager.connection_router.add_connection(connection)
-
-        # Write own version file on first connection (for in-memory setup)
-        if is_first_connection:
-            self.version_manager.write_own_version()
 
     def send_file_change(self, path: str | Path, content: str):
         self.file_writer.write_file(path, content)

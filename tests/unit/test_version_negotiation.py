@@ -202,6 +202,7 @@ class TestForceSubmission:
         ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
             add_peers=False,
             sync_automatically=False,
+            check_versions=True,
         )
 
         # DS adds DO but DO hasn't shared version with DS yet
@@ -224,6 +225,7 @@ class TestForceSubmission:
         ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
             add_peers=False,
             sync_automatically=False,
+            check_versions=True,
         )
 
         # DS adds DO as peer but DO hasn't approved yet
@@ -337,7 +339,9 @@ class TestVersionMismatchBehavior:
 
     def test_sync_skips_incompatible_peers(self):
         """Test that sync skips peers with incompatible versions (DO side)."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+            check_versions=True,
+        )
 
         # Set incompatible version for DS
         store = ds_manager.connection_router.connections[0].backing_store
@@ -370,6 +374,7 @@ class TestVersionMismatchBehavior:
         ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
             sync_automatically=False,
             use_in_memory_cache=False,
+            check_versions=True,
         )
 
         # Submit a job first (with compatible versions)
