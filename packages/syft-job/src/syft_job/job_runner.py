@@ -1,8 +1,6 @@
 import os
-import selectors
 import shutil
 import subprocess
-import sys
 import time
 from typing import List, Set
 
@@ -233,12 +231,11 @@ class SyftJobRunner:
         stdout_file = job_dir / "stdout.txt"
         stderr_file = job_dir / "stderr.txt"
 
-        # Execute run.sh with streaming output
-        # Use line buffering (buffering=1) for files to auto-flush on newlines
-        # Note: sys.stdout.flush() is still needed for console output in Jupyter/Colab
+        import selectors
+
         with (
-            open(stdout_file, "w", buffering=1) as stdout_f,
-            open(stderr_file, "w", buffering=1) as stderr_f,
+            open(stdout_file, "w") as stdout_f,
+            open(stderr_file, "w") as stderr_f,
         ):
             process = subprocess.Popen(
                 ["bash", str(run_script)],
@@ -249,7 +246,6 @@ class SyftJobRunner:
                 env=env,
             )
 
-            # Use selectors for cross-platform non-blocking I/O
             sel = selectors.DefaultSelector()
             sel.register(process.stdout, selectors.EVENT_READ, data="stdout")
             sel.register(process.stderr, selectors.EVENT_READ, data="stderr")
@@ -257,54 +253,43 @@ class SyftJobRunner:
             start_time = time.time()
             timed_out = False
 
-            try:
-                while process.poll() is None:
-                    # Check for timeout
-                    if time.time() - start_time > timeout:
-                        process.kill()
-                        process.wait()
-                        timed_out = True
-                        print(
-                            f"⏰ Job {job_name} timed out after {timeout // 60} minutes"
-                        )
-                        stdout_f.write("\n--- PROCESS TIMED OUT ---\n")
-                        stderr_f.write("\n--- PROCESS TIMED OUT ---\n")
-                        break
+            # Stream output while process is running
+            while process.poll() is None:
+                if time.time() - start_time > timeout:
+                    process.kill()
+                    process.wait()
+                    timed_out = True
+                    print(f"⏰ Job {job_name} timed out after {timeout // 60} minutes")
+                    stdout_f.write("\n--- PROCESS TIMED OUT ---\n")
+                    stderr_f.write("\n--- PROCESS TIMED OUT ---\n")
+                    break
 
-                    # Check for available output (non-blocking)
-                    events = sel.select(timeout=0.1)
-                    for key, _ in events:
-                        line = key.fileobj.readline()
-                        if line:
-                            if key.data == "stdout":
-                                print(f"{log_prefix} {line}", end="", flush=True)
-                                stdout_f.write(line)  # buffering=1 auto-flushes
-                            else:
-                                print(
-                                    f"{log_prefix} STDERR: {line}",
-                                    end="",
-                                    file=sys.stderr,
-                                )
-                                print(
-                                    f"{log_prefix} STDERR: {line}", end="", flush=True
-                                )
-                                stderr_f.write(line)  # buffering=1 auto-flushes
-            finally:
-                sel.unregister(process.stdout)
-                sel.unregister(process.stderr)
-                sel.close()
+                for key, _ in sel.select(timeout=0.1):
+                    line = key.fileobj.readline()
+                    if line:
+                        if key.data == "stdout":
+                            print(f"{log_prefix} {line}", end="", flush=True)
+                            stdout_f.write(line)
+                        else:
+                            print(f"{log_prefix} STDERR: {line}", end="", flush=True)
+                            stderr_f.write(line)
 
-            # Read any remaining output after process ends
-            remaining_stdout, remaining_stderr = process.communicate()
+            sel.close()
+
+            # Process exited - drain any remaining data from pipes
+            # Using read() gets everything: Python's buffer + OS pipe buffer
+            remaining_stdout = process.stdout.read()
+            remaining_stderr = process.stderr.read()
+
             if remaining_stdout:
-                print(f"{log_prefix} {remaining_stdout}", end="", flush=True)
-                stdout_f.write(remaining_stdout)
+                for line in remaining_stdout.splitlines(keepends=True):
+                    print(f"{log_prefix} {line}", end="", flush=True)
+                    stdout_f.write(line)
+
             if remaining_stderr:
-                print(
-                    f"{log_prefix} STDERR: {remaining_stderr}", end="", file=sys.stderr
-                )
-                print(f"{log_prefix} STDERR: {remaining_stderr}", end="", flush=True)
-                stderr_f.write(remaining_stderr)
+                for line in remaining_stderr.splitlines(keepends=True):
+                    print(f"{log_prefix} STDERR: {line}", end="", flush=True)
+                    stderr_f.write(line)
 
             returncode = process.returncode if not timed_out else -1
 
