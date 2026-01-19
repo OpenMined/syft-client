@@ -8,12 +8,22 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
+from syft_client.sync.connections.base_connection import ConnectionConfig
 from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.version.exceptions import (
     VersionMismatchError,
     VersionUnknownError,
 )
 from syft_client.sync.version.version_info import VersionInfo
+
+
+class VersionManagerConfig(BaseModel):
+    """Configuration for VersionManager."""
+
+    connection_configs: List[ConnectionConfig] = []
+    ignore_protocol_version: bool = False
+    ignore_client_version: bool = False
+    suppress_version_warnings: bool = False
 
 
 class VersionManager(BaseModel):
@@ -30,6 +40,16 @@ class VersionManager(BaseModel):
     _peer_versions: Dict[str, Optional[VersionInfo]] = PrivateAttr(default_factory=dict)
     _executor: Optional[ThreadPoolExecutor] = PrivateAttr(default=None)
     _test_mode: bool = PrivateAttr(default=False)
+
+    @classmethod
+    def from_config(cls, config: VersionManagerConfig) -> "VersionManager":
+        """Create a VersionManager from a config."""
+        return cls(
+            connection_router=ConnectionRouter.from_configs(config.connection_configs),
+            ignore_protocol_version=config.ignore_protocol_version,
+            ignore_client_version=config.ignore_client_version,
+            suppress_version_warnings=config.suppress_version_warnings,
+        )
 
     def model_post_init(self, __context) -> None:
         """Initialize the thread pool executor."""

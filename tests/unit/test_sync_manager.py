@@ -184,6 +184,8 @@ def test_sync_existing_inbox_state_do():
         store.peer_states[do_manager.email] = {message.sender_email: "accepted"}
         # Set up version file for the mock peer so DO can read it
         setup_mock_peer_version(store, message.sender_email, do_manager.email)
+        # Load the peer version into the version manager's cache
+        do_manager.version_manager.load_peer_version(message.sender_email)
     do_manager.load_peers()
 
     do_manager.sync()

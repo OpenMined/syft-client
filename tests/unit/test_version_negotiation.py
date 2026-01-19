@@ -163,7 +163,7 @@ class TestVersionManager:
         ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
 
         # DS should be able to load DO's version
-        version = ds_manager._version_manager.load_peer_version(do_manager.email)
+        version = ds_manager.version_manager.load_peer_version(do_manager.email)
         assert version is not None
         assert version.syft_client_version == VersionInfo.current().syft_client_version
 
@@ -174,7 +174,7 @@ class TestVersionManager:
         )
 
         # DS tries to load DO's version without having permission
-        version = ds_manager._version_manager.load_peer_version(do_manager.email)
+        version = ds_manager.version_manager.load_peer_version(do_manager.email)
         assert version is None
 
     def test_load_peer_versions_parallel(self):
@@ -188,7 +188,7 @@ class TestVersionManager:
         setup_mock_peer_version(store, "peer2@test.com", ds_manager.email)
 
         peer_emails = ["peer1@test.com", "peer2@test.com", do_manager.email]
-        versions = ds_manager._version_manager.load_peer_versions_parallel(peer_emails)
+        versions = ds_manager.version_manager.load_peer_versions_parallel(peer_emails)
 
         assert len(versions) == 3
         assert all(v is not None for v in versions.values())
@@ -276,13 +276,13 @@ class TestIgnoreVersionFlags:
         store.version_files[do_manager.email].content = different_version.to_json()
 
         # Without ignore flag, should be incompatible
-        ds_manager._version_manager.ignore_client_version = False
-        ds_manager._version_manager.load_peer_version(do_manager.email)
-        assert ds_manager._version_manager.is_peer_version_compatible(do_manager.email) is False
+        ds_manager.version_manager.ignore_client_version = False
+        ds_manager.version_manager.load_peer_version(do_manager.email)
+        assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email) is False
 
         # With ignore flag, should be compatible
-        ds_manager._version_manager.ignore_client_version = True
-        assert ds_manager._version_manager.is_peer_version_compatible(do_manager.email) is True
+        ds_manager.version_manager.ignore_client_version = True
+        assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email) is True
 
     def test_ignore_protocol_version(self):
         """Test that ignore_protocol_version bypasses protocol version check."""
@@ -301,13 +301,13 @@ class TestIgnoreVersionFlags:
         store.version_files[do_manager.email].content = different_version.to_json()
 
         # Without ignore flag, should be incompatible
-        ds_manager._version_manager.ignore_protocol_version = False
-        ds_manager._version_manager.load_peer_version(do_manager.email)
-        assert ds_manager._version_manager.is_peer_version_compatible(do_manager.email) is False
+        ds_manager.version_manager.ignore_protocol_version = False
+        ds_manager.version_manager.load_peer_version(do_manager.email)
+        assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email) is False
 
         # With ignore flag, should be compatible
-        ds_manager._version_manager.ignore_protocol_version = True
-        assert ds_manager._version_manager.is_peer_version_compatible(do_manager.email) is True
+        ds_manager.version_manager.ignore_protocol_version = True
+        assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email) is True
 
     def test_ignore_both_versions(self):
         """Test that ignoring both versions makes any peer compatible."""
@@ -325,11 +325,11 @@ class TestIgnoreVersionFlags:
         )
         store.version_files[do_manager.email].content = different_version.to_json()
 
-        ds_manager._version_manager.ignore_client_version = True
-        ds_manager._version_manager.ignore_protocol_version = True
-        ds_manager._version_manager.load_peer_version(do_manager.email)
+        ds_manager.version_manager.ignore_client_version = True
+        ds_manager.version_manager.ignore_protocol_version = True
+        ds_manager.version_manager.load_peer_version(do_manager.email)
 
-        assert ds_manager._version_manager.is_peer_version_compatible(do_manager.email) is True
+        assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email) is True
 
 
 class TestVersionMismatchBehavior:
@@ -352,14 +352,14 @@ class TestVersionMismatchBehavior:
         store.version_files[ds_manager.email].content = incompatible.to_json()
 
         # Clear cached version so it sees the incompatible version
-        do_manager._version_manager._peer_versions.pop(ds_manager.email, None)
-        do_manager._version_manager.load_peer_version(ds_manager.email)
+        do_manager.version_manager._peer_versions.pop(ds_manager.email, None)
+        do_manager.version_manager.load_peer_version(ds_manager.email)
 
         # DO loads peers and syncs - should skip DS due to version mismatch
         do_manager.load_peers()
-        do_manager._version_manager.suppress_version_warnings = True
+        do_manager.version_manager.suppress_version_warnings = True
 
-        compatible_peers = do_manager._version_manager.get_compatible_peer_emails(
+        compatible_peers = do_manager.version_manager.get_compatible_peer_emails(
             [ds_manager.email], warn_incompatible=False
         )
 
@@ -401,8 +401,8 @@ class TestVersionMismatchBehavior:
         store.version_files[ds_manager.email].content = incompatible.to_json()
 
         # Clear cached version so it sees the incompatible version
-        do_manager._version_manager._peer_versions.pop(ds_manager.email, None)
-        do_manager._version_manager.load_peer_version(ds_manager.email)
+        do_manager.version_manager._peer_versions.pop(ds_manager.email, None)
+        do_manager.version_manager.load_peer_version(ds_manager.email)
 
         # Job execution should be skipped (with warning) due to version mismatch
         # Job remains approved but is not executed
@@ -453,8 +453,8 @@ class TestVersionMismatchBehavior:
         store.version_files[ds_manager.email].content = incompatible.to_json()
 
         # Clear cached version so it sees the incompatible version
-        do_manager._version_manager._peer_versions.pop(ds_manager.email, None)
-        do_manager._version_manager.load_peer_version(ds_manager.email)
+        do_manager.version_manager._peer_versions.pop(ds_manager.email, None)
+        do_manager.version_manager.load_peer_version(ds_manager.email)
 
         # Mock the job_runner to avoid actual execution
         executed_jobs = []
