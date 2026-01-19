@@ -285,9 +285,8 @@ def test_datasets_shared_with_any():
     do_manager.approve_peer_request(ds_manager.email, peer_must_exist=False)
 
     # DS should now see the dataset
-    import time
-
-    time.sleep(2)  # Wait for Drive to propagate
+    # Google Drive search index takes time to propagate permission changes
+    time.sleep(5)
     ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
     assert any(c["tag"] == "any dataset" for c in ds_collections)
 
