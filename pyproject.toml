@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "syft-client"
-version = "0.1.93"
+dynamic = ["version"]
 description = "A simple client library for setting up secure communication channels using Google Drive"
 readme = "README.md"
 authors = [
@@ -81,6 +81,9 @@ Homepage = "https://github.com/OpenMined/syft-client"
 Repository = "https://github.com/OpenMined/syft-client"
 Documentation = "https://github.com/OpenMined/syft-client#readme"
 "Bug Tracker" = "https://github.com/OpenMined/syft-client/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "syft_client.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]
