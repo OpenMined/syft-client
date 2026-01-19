@@ -5,6 +5,15 @@ _red := '\033[0;31m'
 _green := '\033[0;32m'
 _nc := '\033[0m'
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Aliases
+
+alias b := build
+alias p := publish
+alias bp:= bump-and-publish
+# ---------------------------------------------------------------------------------------------------------------------
+
+
 test-unit:
     #!/bin/bash
     uv run pytest ./tests/unit
@@ -67,5 +76,11 @@ build:
 [group('publish')]
 publish: build
     @echo "{{ _cyan }}Publishing to PyPI...{{ _nc }}"
-    
+
+# Bump version and publish to PyPI
+[group('publish')]
+bump-and-publish part="patch":
+    just bump {{ part }}
+    just publish
+    @echo "{{ _green }}Bump and publish complete!{{ _nc }}"
 
