@@ -121,15 +121,17 @@ class TestVersionManager:
         store = ds_manager.connection_router.connections[0].backing_store
 
         # Before adding peer, DS version is not shared with DO
-        ds_permissions = store.version_file_permissions.get(ds_manager.email, [])
+        ds_version_file = store.version_files.get(ds_manager.email)
+        ds_permissions = ds_version_file.allowed_readers if ds_version_file else []
         assert do_manager.email not in ds_permissions
 
         # DS adds DO as peer
         ds_manager.add_peer(do_manager.email)
 
         # Now DS version should be shared with DO
-        ds_permissions = store.version_file_permissions.get(ds_manager.email, [])
-        assert do_manager.email in ds_permissions
+        ds_version_file = store.version_files.get(ds_manager.email)
+        assert ds_version_file is not None
+        assert do_manager.email in ds_version_file.allowed_readers
 
     def test_version_shared_on_approve_peer(self):
         """Test that version file is shared when approving a peer request."""
@@ -144,15 +146,17 @@ class TestVersionManager:
         do_manager.load_peers()
 
         # Before approval, DO version is not shared with DS
-        do_permissions = store.version_file_permissions.get(do_manager.email, [])
+        do_version_file = store.version_files.get(do_manager.email)
+        do_permissions = do_version_file.allowed_readers if do_version_file else []
         assert ds_manager.email not in do_permissions
 
         # DO approves DS
         do_manager.approve_peer_request(ds_manager.email)
 
         # Now DO version should be shared with DS
-        do_permissions = store.version_file_permissions.get(do_manager.email, [])
-        assert ds_manager.email in do_permissions
+        do_version_file = store.version_files.get(do_manager.email)
+        assert do_version_file is not None
+        assert ds_manager.email in do_version_file.allowed_readers
 
     def test_load_peer_version(self):
         """Test that peer version can be loaded."""
@@ -269,7 +273,7 @@ class TestIgnoreVersionFlags:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        store.version_files[do_manager.email] = different_version.to_json()
+        store.version_files[do_manager.email].content = different_version.to_json()
 
         # Without ignore flag, should be incompatible
         ds_manager._version_manager.ignore_client_version = False
@@ -294,7 +298,7 @@ class TestIgnoreVersionFlags:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        store.version_files[do_manager.email] = different_version.to_json()
+        store.version_files[do_manager.email].content = different_version.to_json()
 
         # Without ignore flag, should be incompatible
         ds_manager._version_manager.ignore_protocol_version = False
@@ -319,7 +323,7 @@ class TestIgnoreVersionFlags:
             min_supported_protocol_version="0.0.1",
             updated_at=current.updated_at,
         )
-        store.version_files[do_manager.email] = different_version.to_json()
+        store.version_files[do_manager.email].content = different_version.to_json()
 
         ds_manager._version_manager.ignore_client_version = True
         ds_manager._version_manager.ignore_protocol_version = True
@@ -345,7 +349,7 @@ class TestVersionMismatchBehavior:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        store.version_files[ds_manager.email] = incompatible.to_json()
+        store.version_files[ds_manager.email].content = incompatible.to_json()
 
         # Clear cached version so it sees the incompatible version
         do_manager._version_manager._peer_versions.pop(ds_manager.email, None)
@@ -394,7 +398,7 @@ class TestVersionMismatchBehavior:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        store.version_files[ds_manager.email] = incompatible.to_json()
+        store.version_files[ds_manager.email].content = incompatible.to_json()
 
         # Clear cached version so it sees the incompatible version
         do_manager._version_manager._peer_versions.pop(ds_manager.email, None)
@@ -446,7 +450,7 @@ class TestVersionMismatchBehavior:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        store.version_files[ds_manager.email] = incompatible.to_json()
+        store.version_files[ds_manager.email].content = incompatible.to_json()
 
         # Clear cached version so it sees the incompatible version
         do_manager._version_manager._peer_versions.pop(ds_manager.email, None)

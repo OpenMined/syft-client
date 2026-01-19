@@ -216,12 +216,16 @@ def setup_mock_peer_version(
         peer_email: The email of the mock peer who "owns" the version file
         reader_email: The email of the user who should be able to read it
     """
-    # Write version file for the mock peer
+    from syft_client.sync.connections.inmemory_connection import InMemoryVersionFile
+
     version_info = VersionInfo.current()
-    store.version_files[peer_email] = version_info.to_json()
+    version_file = store.version_files.get(peer_email)
+    if version_file is None:
+        version_file = InMemoryVersionFile(content=version_info.to_json())
+        store.version_files[peer_email] = version_file
+    else:
+        version_file.content = version_info.to_json()
 
     # Grant read permission to the reader
-    if peer_email not in store.version_file_permissions:
-        store.version_file_permissions[peer_email] = []
-    if reader_email not in store.version_file_permissions[peer_email]:
-        store.version_file_permissions[peer_email].append(reader_email)
+    if reader_email not in version_file.allowed_readers:
+        version_file.allowed_readers.append(reader_email)
