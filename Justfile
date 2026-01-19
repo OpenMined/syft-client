@@ -76,6 +76,8 @@ build:
 [group('publish')]
 publish: build
     @echo "{{ _cyan }}Publishing to PyPI...{{ _nc }}"
+    uvx twine upload dist/*
+    @echo "{{ _green }}Publish complete!{{ _nc }}"
 
 # Bump version and publish to PyPI
 [group('publish')]
