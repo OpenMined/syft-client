@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from syft_client.sync.connections.drive.grdrive_config import (
         GdriveConnectionConfig,
     )
+    from syft_client.sync.version.version_info import VersionInfo
 
 SYFTBOX_FOLDER = "SyftBox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
