@@ -4,7 +4,6 @@ import pytest
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.version.version_info import VersionInfo
 from syft_client.sync.version.exceptions import (
-    VersionMismatchError,
     VersionUnknownError,
 )
 from tests.unit.utils import setup_mock_peer_version
@@ -261,7 +260,6 @@ class TestForceSubmission:
             force_submission=True,
         )
         # Verify job files were created (submission succeeded)
-        import os
 
         job_dir = (
             ds_manager.syftbox_folder
@@ -497,7 +495,6 @@ class TestVersionMismatchBehavior:
 
         # Mock the job_runner to avoid actual execution
         executed_jobs = []
-        original_process = do_manager.job_runner.process_approved_jobs
 
         def mock_process_approved_jobs(
             stream_output=True, timeout=None, skip_job_names=None

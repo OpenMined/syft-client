@@ -1227,7 +1227,6 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     def write_version_file(self, version_info: "VersionInfo") -> None:
         """Write version file to /SyftBox folder. Creates or updates the file."""
-        from syft_client.sync.version.version_info import VersionInfo
 
         syftbox_folder_id = self.get_syftbox_folder_id()
         file_id = self._get_version_file_id()

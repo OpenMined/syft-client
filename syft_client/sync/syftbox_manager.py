@@ -10,15 +10,9 @@ from syft_job.job_runner import SyftJobRunner
 from syft_job import SyftJobConfig
 from syft_datasets.config import SyftBoxConfig
 from syft_datasets.dataset_manager import SyftDatasetManager
-from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
-from syft_client.sync.utils.print_utils import (
-    print_peer_added,
-    print_peer_added_to_platform,
-    print_peer_adding_to_platform,
-)
 from syft_client.sync.platforms.base_platform import BasePlatform
 from pydantic import BaseModel, PrivateAttr
-from typing import List, Optional, cast
+from typing import List, cast
 from syft_client.sync.sync.caches.datasite_watcher_cache import (
     DataSiteWatcherCacheConfig,
 )
