@@ -100,9 +100,11 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_own_syftbox()
         connection.delete_multiple_files_by_ids(file_ids)
 
-    def get_all_accepted_event_file_ids_do(self) -> List[str]:
+    def get_all_accepted_event_file_ids_do(
+        self, since_timestamp: float | None = None
+    ) -> List[str]:
         connection = self.connection_for_eventlog()
-        return connection.get_all_accepted_event_file_ids_do()
+        return connection.get_all_accepted_event_file_ids_do(since_timestamp)
 
     def gather_all_file_and_folder_ids(self) -> List[str]:
         connection = self.connection_for_own_syftbox()
