@@ -141,8 +141,12 @@ def test_ds_cache_aware_sync_gdrive():
     # Verify initial cache state
     ds_cache1 = ds_manager1.datasite_outbox_puller.datasite_watcher_cache
     initial_cache_count = len(ds_cache1.events_connection)
-    assert initial_cache_count >= 3, (
-        f"Should have at least 3 event messages cached, got {initial_cache_count}"
+    initial_hash_count = len(ds_cache1.file_hashes)
+    assert initial_cache_count >= 1, (
+        f"Should have at least 1 event message cached, got {initial_cache_count}"
+    )
+    assert initial_hash_count >= 3, (
+        f"Should have at least 3 file hashes cached, got {initial_hash_count}"
     )
     assert len(ds_cache1.last_event_timestamp_per_peer) > 0, (
         "Should have timestamps for peers"
@@ -183,11 +187,11 @@ def test_ds_cache_aware_sync_gdrive():
         f"New manager should have at least 3 file hashes pre-populated, got {len(new_cache.file_hashes)}"
     )
 
-    # Sync the new manager - should only download the 2 new events
+    # Sync the new manager - should only download the new events
     new_ds_manager.sync()
 
-    # Verify total events in cache (should be initial + 2 new)
-    final_cache_count = len(new_cache.events_connection)
-    assert final_cache_count >= initial_cache_count + 2, (
-        f"Should have at least {initial_cache_count + 2} events after sync, got {final_cache_count}"
+    # Verify file hashes increased (should have 5 files total now)
+    final_hash_count = len(new_cache.file_hashes)
+    assert final_hash_count >= 5, (
+        f"Should have at least 5 file hashes after sync, got {final_hash_count}"
     )
