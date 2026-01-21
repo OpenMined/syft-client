@@ -101,7 +101,9 @@ class DataSiteWatcherCache(BaseModel):
                 peer_email = event.datasite_email
                 current_ts = self.last_event_timestamp_per_peer.get(peer_email)
                 if current_ts is None or events_message.timestamp > current_ts:
-                    self.last_event_timestamp_per_peer[peer_email] = events_message.timestamp
+                    self.last_event_timestamp_per_peer[peer_email] = (
+                        events_message.timestamp
+                    )
 
                 # Update file_hashes
                 path_key = Path(event.path_in_syftbox)

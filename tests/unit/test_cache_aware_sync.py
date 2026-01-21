@@ -5,7 +5,6 @@ events they don't already have locally, avoiding redundant re-downloads on resta
 """
 
 from pathlib import Path
-from unittest.mock import patch
 
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlatform
@@ -197,9 +196,7 @@ def test_do_cache_handles_deletions_correctly():
         use_in_memory_cache=False
     )
 
-    store: InMemoryBackingPlatform = do_manager.connection_router.connections[
-        0
-    ].backing_store
+    do_manager.connection_router.connections[0].backing_store
 
     datasite_dir_do = do_manager.syftbox_folder / do_manager.email
 
@@ -249,9 +246,7 @@ def test_ds_cache_handles_deletions_correctly():
         use_in_memory_cache=False
     )
 
-    store: InMemoryBackingPlatform = ds_manager.connection_router.connections[
-        0
-    ].backing_store
+    ds_manager.connection_router.connections[0].backing_store
 
     datasite_dir_do = do_manager.syftbox_folder / do_manager.email
 
