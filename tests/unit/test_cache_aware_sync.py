@@ -127,7 +127,10 @@ def test_ds_incremental_sync_downloads_only_new_events():
 
     # Add initial 3 events and sync
     initial_events = get_mock_events_messages(3)
-    store.outboxes["all"].extend(initial_events)
+    outbox_folder = store.get_or_create_outbox_folder(
+        owner_email=do_manager.email, recipient_email=ds_manager.email
+    )
+    outbox_folder.messages.extend(initial_events)
 
     ds_manager.sync()
 
@@ -148,7 +151,7 @@ def test_ds_incremental_sync_downloads_only_new_events():
     # Add 2 more events to outbox
     time.sleep(0.01)  # Ensure new events have later timestamps
     additional_events = get_mock_events_messages(2)
-    store.outboxes["all"].extend(additional_events)
+    outbox_folder.messages.extend(additional_events)
 
     # Create a NEW SyftboxManager with the same cache directory (simulating restart)
     new_ds_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
