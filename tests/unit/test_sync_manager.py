@@ -333,16 +333,9 @@ def test_datasets():
         ].backing_store
     )
 
+    # Dataset files are excluded from outbox sync (they use their own dedicated channel)
     syftbox_events = backing_store.syftbox_events_message_log
-    assert len(syftbox_events) == 1
-
-    outbox_folder = backing_store.get_outbox_folder(
-        owner_email=do_manager.email, recipient_email=ds_manager.email
-    )
-    outbox_events = [
-        event for message in outbox_folder.messages for event in message.events
-    ]
-    assert not any("private" in str(event.path_in_datasite) for event in outbox_events)
+    assert len(syftbox_events) == 0
 
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
@@ -413,16 +406,9 @@ def test_datasets_with_parquet():
         ].backing_store
     )
 
+    # Dataset files are excluded from outbox sync (they use their own dedicated channel)
     syftbox_events = backing_store.syftbox_events_message_log
-    assert len(syftbox_events) == 1
-
-    outbox_folder = backing_store.get_outbox_folder(
-        owner_email=do_manager.email, recipient_email=ds_manager.email
-    )
-    outbox_events = [
-        event for message in outbox_folder.messages for event in message.events
-    ]
-    assert not any("private" in str(event.path_in_datasite) for event in outbox_events)
+    assert len(syftbox_events) == 0
 
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
@@ -1032,6 +1018,7 @@ def test_single_file_job_flow_with_dataset():
         summary="This is a summary",
         readme_path=readme_path,
         tags=["tag1", "tag2"],
+        users=[ds_manager.email],  # Share with DS so they can access the dataset
     )
 
     datasets = do_manager.datasets.get_all()
@@ -1111,6 +1098,7 @@ def test_folder_job_flow_with_dataset():
         summary="This is a summary",
         readme_path=readme_path,
         tags=["tag1", "tag2"],
+        users=[ds_manager.email],  # Share with DS so they can access the dataset
     )
 
     ds_manager.sync()
@@ -1180,6 +1168,7 @@ def test_pyproject_folder_job_flow_with_dataset():
         summary="This is a summary",
         readme_path=readme_path,
         tags=["tag1", "tag2"],
+        users=[ds_manager.email],  # Share with DS so they can access the dataset
     )
 
     ds_manager.sync()
@@ -1334,3 +1323,130 @@ def test_in_memory_deletion():
     ds_cache = ds_manager.datasite_outbox_puller.datasite_watcher_cache
     ds_path = Path(do_manager.email) / job_path_in_datasite
     assert str(ds_path) not in [str(p) for p, _ in ds_cache.file_connection.get_items()]
+
+
+def test_syft_datasets_excluded_from_outbox_sync():
+    """Test that files in syft_datasets folder are excluded from outbox sync.
+
+    Datasets have their own dedicated sync channel with proper permissions,
+    so they should not be broadcast to all peers via the general outbox.
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    datasite_dir_do = do_manager.syftbox_folder / do_manager.email
+
+    # Create a regular file (should be synced)
+    regular_file = datasite_dir_do / "public" / "regular_file.txt"
+    regular_file.parent.mkdir(parents=True, exist_ok=True)
+    regular_file.write_text("regular content")
+
+    # Create a dataset file (should NOT be synced via outbox)
+    dataset_file = (
+        datasite_dir_do / "public" / "syft_datasets" / "my_dataset" / "dataset.yaml"
+    )
+    dataset_file.parent.mkdir(parents=True, exist_ok=True)
+    dataset_file.write_text("name: my_dataset")
+
+    # Sync DO to generate events
+    do_manager.sync()
+
+    # Check which files are in the DO's event cache (i.e., what gets sent to outbox)
+    do_cache = do_manager.proposed_file_change_handler.event_cache
+    cached_paths = [str(p) for p in do_cache.file_hashes.keys()]
+
+    # Regular file should be in cache (will be synced)
+    assert any("regular_file.txt" in p for p in cached_paths), (
+        "Regular files should be included in outbox sync"
+    )
+
+    # Dataset file should NOT be in cache (excluded from outbox)
+    assert not any("syft_datasets" in p for p in cached_paths), (
+        "Files in syft_datasets should be excluded from outbox sync"
+    )
+
+
+def test_job_files_only_sync_to_submitter():
+    """Test that job files only sync to the peer who submitted the job.
+
+    When a DO has multiple approved peers, job results should only be sent
+    to the peer who submitted that specific job, not broadcast to all peers.
+    """
+    import yaml
+
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    # The submitter is a different peer (not ds_manager)
+    submitter_email = "submitter_peer@example.com"
+    non_submitter_email = ds_manager.email
+
+    datasite_dir_do = do_manager.syftbox_folder / do_manager.email
+
+    # Create a job with config.yaml that has submitted_by set to the submitter
+    job_name = "test_job_123"
+    job_dir = datasite_dir_do / "app_data" / "job" / job_name
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write config.yaml with submitted_by
+    config_path = job_dir / "config.yaml"
+    config_data = {"submitted_by": submitter_email, "status": "completed"}
+    with open(config_path, "w") as f:
+        yaml.dump(config_data, f)
+
+    # Create job result file
+    result_file = job_dir / "outputs" / "result.json"
+    result_file.parent.mkdir(parents=True, exist_ok=True)
+    result_file.write_text('{"result": 42}')
+
+    # Create a regular file (non-job) that should go to all peers
+    regular_file = datasite_dir_do / "public" / "shared.txt"
+    regular_file.parent.mkdir(parents=True, exist_ok=True)
+    regular_file.write_text("shared content")
+
+    # Process local changes with both recipients
+    recipients = [submitter_email, non_submitter_email]
+    do_manager.proposed_file_change_handler.process_local_changes(recipients)
+
+    # Check what's in the outbox folders
+    backing_store = do_manager.connection_router.connections[0].backing_store
+
+    # Get events from per-recipient outbox folders
+    submitter_folder = backing_store.get_outbox_folder(
+        owner_email=do_manager.email, recipient_email=submitter_email
+    )
+    non_submitter_folder = backing_store.get_outbox_folder(
+        owner_email=do_manager.email, recipient_email=non_submitter_email
+    )
+
+    submitter_events = submitter_folder.messages if submitter_folder else []
+    non_submitter_events = non_submitter_folder.messages if non_submitter_folder else []
+
+    # Extract paths from events
+    submitter_paths = []
+    for msg in submitter_events:
+        for event in msg.events:
+            submitter_paths.append(str(event.path_in_datasite))
+
+    non_submitter_paths = []
+    for msg in non_submitter_events:
+        for event in msg.events:
+            non_submitter_paths.append(str(event.path_in_datasite))
+
+    # Job files should ONLY be in submitter's outbox
+    assert any("app_data/job" in p for p in submitter_paths), (
+        "Job files should be sent to submitter"
+    )
+    assert not any("app_data/job" in p for p in non_submitter_paths), (
+        "Job files should NOT be sent to non-submitter peers"
+    )
+
+    # Regular files should be in BOTH outboxes
+    assert any("shared.txt" in p for p in submitter_paths), (
+        "Regular files should be sent to submitter"
+    )
+    assert any("shared.txt" in p for p in non_submitter_paths), (
+        "Regular files should be sent to non-submitter peers"
+    )

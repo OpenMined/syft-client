@@ -1,4 +1,6 @@
 from pathlib import Path
+
+import yaml
 from syft_datasets.dataset_manager import FOLDER_NAME as DATASETS_FOLDER_NAME
 from pydantic import ConfigDict, Field, BaseModel, PrivateAttr
 from concurrent.futures import ThreadPoolExecutor
@@ -215,15 +217,61 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         connection = self.connection_router.connection_for_parallel_download()
         return connection.download_dataset_file(file_id)
 
+    def _is_job_path(self, path: Path) -> bool:
+        """Check if path is under app_data/job/."""
+        return "app_data/job/" in str(path)
+
+    def _get_job_submitter(self, path: Path) -> str | None:
+        """Return submitted_by email for a job file. Returns None if not found."""
+        parts = path.parts
+        try:
+            job_idx = parts.index("job")
+            job_name = parts[job_idx + 1]
+            job_dir = self.syftbox_folder / self.email / "app_data" / "job" / job_name
+            config_path = job_dir / "config.yaml"
+            if config_path.exists():
+                with open(config_path) as f:
+                    config = yaml.safe_load(f)
+                return config.get("submitted_by")
+        except (ValueError, IndexError, Exception):
+            pass
+        return None
+
     def process_local_changes(self, recipients: list[str]):
-        # TODO: currently permissions are not implemented, so we just write to all recipients
         file_change_events_message = self.event_cache.process_local_file_changes()
-        if file_change_events_message is not None:
-            self.queue_event_for_syftbox(
-                recipients=recipients,
-                file_change_events_message=file_change_events_message,
-            )
-            self.process_syftbox_events_queue()
+        if file_change_events_message is None:
+            return
+
+        # Write all events to the syftbox events queue (local storage)
+        self.syftbox_events_queue.put(file_change_events_message)
+
+        # Group events by recipient for outbox filtering
+        events_by_recipient: dict[str, list] = {r: [] for r in recipients}
+
+        for event in file_change_events_message.events:
+            path = Path(event.path_in_datasite)
+
+            if self._is_job_path(path):
+                # Job file - get submitter
+                submitter = self._get_job_submitter(path)
+                if submitter is None:
+                    # Can't determine submitter - skip this event (don't leak)
+                    continue
+                # Only send to submitter if they're in recipients
+                if submitter in events_by_recipient:
+                    events_by_recipient[submitter].append(event)
+            else:
+                # Non-job file - send to all recipients
+                for recipient in recipients:
+                    events_by_recipient[recipient].append(event)
+
+        # Queue filtered events per recipient for outbox
+        for recipient, events in events_by_recipient.items():
+            if events:
+                msg = FileChangeEventsMessage(events=events)
+                self.outbox_queue.put((recipient, msg))
+
+        self.process_syftbox_events_queue()
 
     def pull_and_process_next_proposed_filechange(
         self, sender_email: str, raise_on_none=True

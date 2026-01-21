@@ -112,6 +112,8 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 continue
             if ".venv" in str(path):
                 continue
+            if "syft_datasets" in str(path):
+                continue
             current_files[path] = content
 
         # Detect modifications and additions
