@@ -71,7 +71,7 @@ class DataSiteWatcherCache(BaseModel):
             syftbox_parent = Path(config.syftbox_folder).parent
             events_folder = syftbox_parent / f"{syftbox_folder_name}-event-messages"
 
-            return cls(
+            cache = cls(
                 events_connection=FSFileConnection(
                     base_dir=events_folder, dtype=FileChangeEventsMessage
                 ),
@@ -80,6 +80,38 @@ class DataSiteWatcherCache(BaseModel):
                     connection_configs=config.connection_configs
                 ),
             )
+            cache._load_cached_state()
+            return cache
+
+    def _load_cached_state(self):
+        """Load existing events from disk cache and populate last_event_timestamp_per_peer and file_hashes."""
+        try:
+            cached_messages = self.events_connection.get_all()
+        except Exception:
+            return
+
+        if not cached_messages:
+            return
+
+        sorted_messages = sorted(cached_messages, key=lambda m: m.timestamp)
+
+        for events_message in sorted_messages:
+            for event in events_message.events:
+                # Update last_event_timestamp_per_peer
+                peer_email = event.datasite_email
+                current_ts = self.last_event_timestamp_per_peer.get(peer_email)
+                if current_ts is None or events_message.timestamp > current_ts:
+                    self.last_event_timestamp_per_peer[peer_email] = (
+                        events_message.timestamp
+                    )
+
+                # Update file_hashes
+                path_key = Path(event.path_in_syftbox)
+                if event.is_deleted:
+                    if path_key in self.file_hashes:
+                        del self.file_hashes[path_key]
+                else:
+                    self.file_hashes[path_key] = event.new_hash
 
     def clear_cache(self):
         self.events_connection.clear_cache()

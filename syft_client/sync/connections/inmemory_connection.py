@@ -486,10 +486,13 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
 
         raise ValueError(f"Collection {tag} with hash {content_hash} not found")
 
-    def get_all_accepted_event_file_ids_do(self) -> List[str]:
-        return [
-            e.message_filepath.id for e in self.backing_store.syftbox_events_message_log
-        ]
+    def get_all_accepted_event_file_ids_do(
+        self, since_timestamp: float | None = None
+    ) -> List[str]:
+        events = self.backing_store.syftbox_events_message_log
+        if since_timestamp is not None:
+            events = [e for e in events if e.timestamp > since_timestamp]
+        return [e.message_filepath.id for e in events]
 
     def download_events_message_by_id(
         self, events_message_id: str

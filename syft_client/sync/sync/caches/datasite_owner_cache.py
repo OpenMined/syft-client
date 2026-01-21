@@ -70,13 +70,36 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             my_datasite_folder = config.syftbox_folder / config.email
             syftbox_parent = Path(config.syftbox_folder).parent
             events_folder = syftbox_parent / f"{syftbox_folder_name}-events"
-            return cls(
+            cache = cls(
                 events_messages_connection=FSFileConnection(
                     base_dir=events_folder, dtype=FileChangeEventsMessage
                 ),
                 file_connection=FSFileConnection(base_dir=my_datasite_folder),
                 email=config.email,
             )
+            cache._load_file_hashes_from_disk()
+            return cache
+
+    def _load_file_hashes_from_disk(self) -> float | None:
+        """Load existing events from disk and populate file_hashes."""
+        cached_messages = self.events_messages_connection.get_all()
+
+        sorted_messages = sorted(cached_messages, key=lambda m: m.timestamp)
+
+        for events_message in sorted_messages:
+            for event in events_message.events:
+                if event.is_deleted:
+                    if event.path_in_datasite in self.file_hashes:
+                        del self.file_hashes[event.path_in_datasite]
+                else:
+                    self.file_hashes[event.path_in_datasite] = event.new_hash
+
+    @property
+    def latest_cached_timestamp(self) -> float | None:
+        cached_messages = self.events_messages_connection.get_all()
+        if not cached_messages:
+            return None
+        return max(m.timestamp for m in cached_messages)
 
     def process_local_file_changes(self) -> FileChangeEventsMessage | None:
         new_events = []

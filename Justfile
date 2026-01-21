@@ -16,7 +16,7 @@ alias bp:= bump-and-publish
 
 test-unit:
     #!/bin/bash
-    uv run pytest ./tests/unit -n auto
+    uv run pytest -n auto ./tests/unit
 
 
 test-integration:

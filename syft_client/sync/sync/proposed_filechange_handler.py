@@ -89,17 +89,24 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         connection = self.connection_router.connection_for_eventlog(create_new=True)
         return connection.download_events_message_by_id(events_message_id)
 
-    def get_all_accepted_events_messages_do(self) -> list[FileChangeEventsMessage]:
-        message_ids = self.connection_router.get_all_accepted_event_file_ids_do()
+    def get_all_accepted_events_messages_do(
+        self, since_timestamp: float | None = None
+    ) -> list[FileChangeEventsMessage]:
+        message_ids = self.connection_router.get_all_accepted_event_file_ids_do(
+            since_timestamp=since_timestamp
+        )
         result_messages = self._executor.map(
             self.download_events_message_by_id_with_connection, message_ids
         )
         return list(result_messages)
 
     def pull_initial_state(self):
-        # pull all events from the syftbox
-        events_messages: list[FileChangeEventsMessage] = (
-            self.get_all_accepted_events_messages_do()
+        # Get latest cached timestamp to only download new events
+        since_timestamp = self.event_cache.latest_cached_timestamp
+
+        # Only download events newer than cached
+        events_messages = self.get_all_accepted_events_messages_do(
+            since_timestamp=since_timestamp
         )
 
         for events_message in events_messages:

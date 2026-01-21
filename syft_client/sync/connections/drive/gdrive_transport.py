@@ -431,9 +431,13 @@ class GDriveConnection(SyftboxPlatformConnection):
         file_data = self.download_file(events_message_id)
         return FileChangeEventsMessage.from_compressed_data(file_data)
 
-    def get_all_accepted_event_file_ids_do(self) -> List[str]:
+    def get_all_accepted_event_file_ids_do(
+        self, since_timestamp: float | None = None
+    ) -> List[str]:
         personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
-        file_metadatas = self.get_file_metadatas_from_folder(personal_syftbox_folder_id)
+        file_metadatas = self.get_file_metadatas_from_folder(
+            personal_syftbox_folder_id, since_timestamp=since_timestamp
+        )
         valid_fname_objs = self._filter_valid_file_metadatas(file_metadatas)
         return [f["id"] for f in valid_fname_objs]
 
