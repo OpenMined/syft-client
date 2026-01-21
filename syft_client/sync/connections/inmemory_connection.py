@@ -29,6 +29,18 @@ class InMemoryVersionFile(BaseModel):
     allowed_readers: List[str] = Field(default_factory=list)  # Emails that can read
 
 
+class InMemoryOutboxFolder(BaseModel):
+    """Represents an outbox folder with permissions, similar to GDrive outbox folders."""
+
+    owner_email: str  # DO who owns this outbox
+    recipient_email: str  # DS who reads from this outbox
+    messages: List[FileChangeEventsMessage] = Field(default_factory=list)
+
+    def folder_name(self) -> str:
+        """Generate folder name similar to GDrive pattern."""
+        return f"syft_outbox_inbox_{self.owner_email}_to_{self.recipient_email}"
+
+
 class InMemoryDatasetsFolder(BaseModel):
     """Represents a dataset collection with files and permissions."""
 
@@ -54,17 +66,47 @@ class InMemoryBackingPlatform(BaseModel):
     # State can be: "pending", "accepted", or "rejected"
     peer_states: Dict[str, Dict[str, str]] = Field(default_factory=dict)
 
-    outboxes: Dict[str, List[FileChangeEventsMessage]] = Field(
-        default_factory=lambda: {
-            "all": [],
-        }
-    )
+    outbox_folders: List[InMemoryOutboxFolder] = Field(default_factory=list)
 
     # Dataset collections storage
     dataset_collections: List[InMemoryDatasetsFolder] = Field(default_factory=list)
 
     # Version files storage: {owner_email: InMemoryVersionFile}
     version_files: Dict[str, InMemoryVersionFile] = Field(default_factory=dict)
+
+    def get_or_create_outbox_folder(
+        self, owner_email: str, recipient_email: str
+    ) -> InMemoryOutboxFolder:
+        """Get an existing outbox folder or create a new one."""
+        folder = self.get_outbox_folder(owner_email, recipient_email)
+        if folder is None:
+            folder = InMemoryOutboxFolder(
+                owner_email=owner_email, recipient_email=recipient_email
+            )
+            self.outbox_folders.append(folder)
+        return folder
+
+    def get_outbox_folder(
+        self, owner_email: str, recipient_email: str
+    ) -> Optional[InMemoryOutboxFolder]:
+        """Get an outbox folder if it exists, otherwise return None."""
+        for folder in self.outbox_folders:
+            if (
+                folder.owner_email == owner_email
+                and folder.recipient_email == recipient_email
+            ):
+                return folder
+        return None
+
+    def get_all_outbox_messages(
+        self, owner_email: Optional[str] = None
+    ) -> List[FileChangeEventsMessage]:
+        """Get all outbox messages, optionally filtered by owner email."""
+        messages = []
+        for folder in self.outbox_folders:
+            if owner_email is None or folder.owner_email == owner_email:
+                messages.extend(folder.messages)
+        return messages
 
 
 class InMemoryPlatformConnection(SyftboxPlatformConnection):
@@ -179,30 +221,41 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
     def write_event_messages_to_outbox_do(
         self, sender_email: str, events_message: FileChangeEventsMessage
     ) -> None:
-        self.backing_store.outboxes["all"].append(events_message)
+        """Write to the outbox folder for a specific recipient (sender_email is the recipient)."""
+        folder = self.backing_store.get_or_create_outbox_folder(
+            owner_email=self.owner_email, recipient_email=sender_email
+        )
+        folder.messages.append(events_message)
 
     def get_events_messages_for_datasite_watcher(
         self, peer_email: str, since_timestamp: float | None = None
     ) -> List[FileChangeEventsMessage]:
-        # TODO: implement permissions
-        all_event_messages = self.backing_store.outboxes["all"]
+        """Get events from DO's (peer_email) outbox folder for this DS (self.owner_email)."""
+        folder = self.backing_store.get_outbox_folder(
+            owner_email=peer_email, recipient_email=self.owner_email
+        )
+        if folder is None:
+            return []
+        messages = folder.messages
         if since_timestamp is None:
-            return all_event_messages
-        else:
-            return [e for e in all_event_messages if e.timestamp > since_timestamp]
+            return messages
+        return [e for e in messages if e.timestamp > since_timestamp]
 
     def get_outbox_file_metadatas_for_ds(
         self, peer_email: str, since_timestamp: float | None = None
     ) -> List[Dict]:
-        """Get file metadata from outbox for parallel download (consistent with GDrive)."""
-        all_event_messages = self.backing_store.outboxes["all"]
+        """Get file metadata from DO's (peer_email) outbox folder for this DS."""
+        folder = self.backing_store.get_outbox_folder(
+            owner_email=peer_email, recipient_email=self.owner_email
+        )
+        if folder is None:
+            return []
+        messages = folder.messages
         if since_timestamp is not None:
-            all_event_messages = [
-                e for e in all_event_messages if e.timestamp > since_timestamp
-            ]
+            messages = [e for e in messages if e.timestamp > since_timestamp]
 
         result = []
-        for e in sorted(all_event_messages, key=lambda x: x.timestamp):
+        for e in sorted(messages, key=lambda x: x.timestamp):
             result.append(
                 {
                     "file_id": e.message_filepath.id,
@@ -216,9 +269,12 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         self, events_message_id: str
     ) -> FileChangeEventsMessage:
         """Download from outbox (for DS syncing from DO's outbox)."""
-        for e in self.backing_store.outboxes["all"]:
-            if e.message_filepath.id == events_message_id:
-                return e
+        # Search all folders where this DS is a recipient
+        for folder in self.backing_store.outbox_folders:
+            if folder.recipient_email == self.owner_email:
+                for e in folder.messages:
+                    if e.message_filepath.id == events_message_id:
+                        return e
         raise ValueError(f"Event message {events_message_id} not found in outbox")
 
     def get_all_events_messages_do(self) -> List[FileChangeEventsMessage]:

@@ -149,7 +149,10 @@ def test_sync_existing_datasite_state_do():
     events_messages = get_mock_events_messages(2)
 
     store.syftbox_events_message_log.extend(events_messages)
-    store.outboxes["all"].extend(events_messages)
+    outbox_folder = store.get_or_create_outbox_folder(
+        owner_email=do_manager.email, recipient_email=ds_manager.email
+    )
+    outbox_folder.messages.extend(events_messages)
 
     # sync down existing state
     do_manager.sync()
@@ -167,7 +170,10 @@ def test_sync_existing_datasite_state_do():
     assert n_files_in_cache == 2
     assert hashes_in_cache == 2
     # outbox should still be 2
-    assert len(store.outboxes["all"]) == 2
+    outbox_folder = store.get_outbox_folder(
+        owner_email=do_manager.email, recipient_email=ds_manager.email
+    )
+    assert len(outbox_folder.messages) == 2
 
 
 def test_sync_existing_inbox_state_do():
@@ -210,7 +216,11 @@ def test_sync_existing_inbox_state_do():
     )
     assert n_events_in_syftbox == 2
 
-    assert len(store.outboxes["all"]) == 2
+    # Messages are written to outbox for the sender (email@email.com)
+    outbox_folder = store.get_outbox_folder(
+        owner_email=do_manager.email, recipient_email="email@email.com"
+    )
+    assert len(outbox_folder.messages) == 2
 
 
 def test_sync_existing_datasite_state_ds():
@@ -222,7 +232,10 @@ def test_sync_existing_datasite_state_ds():
 
     events_messages = get_mock_events_messages(2)
     store.syftbox_events_message_log.extend(events_messages)
-    store.outboxes["all"].extend(events_messages)
+    outbox_folder = store.get_or_create_outbox_folder(
+        owner_email=do_manager.email, recipient_email=ds_manager.email
+    )
+    outbox_folder.messages.extend(events_messages)
 
     ds_manager.sync()
 
@@ -323,9 +336,11 @@ def test_datasets():
     syftbox_events = backing_store.syftbox_events_message_log
     assert len(syftbox_events) == 1
 
-    outbox_events_messages = backing_store.outboxes["all"]
+    outbox_folder = backing_store.get_outbox_folder(
+        owner_email=do_manager.email, recipient_email=ds_manager.email
+    )
     outbox_events = [
-        event for message in outbox_events_messages for event in message.events
+        event for message in outbox_folder.messages for event in message.events
     ]
     assert not any("private" in str(event.path_in_datasite) for event in outbox_events)
 
@@ -401,9 +416,11 @@ def test_datasets_with_parquet():
     syftbox_events = backing_store.syftbox_events_message_log
     assert len(syftbox_events) == 1
 
-    outbox_events_messages = backing_store.outboxes["all"]
+    outbox_folder = backing_store.get_outbox_folder(
+        owner_email=do_manager.email, recipient_email=ds_manager.email
+    )
     outbox_events = [
-        event for message in outbox_events_messages for event in message.events
+        event for message in outbox_folder.messages for event in message.events
     ]
     assert not any("private" in str(event.path_in_datasite) for event in outbox_events)
 
