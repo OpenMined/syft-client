@@ -333,16 +333,9 @@ def test_datasets():
         ].backing_store
     )
 
+    # Dataset files are excluded from outbox sync (they use their own dedicated channel)
     syftbox_events = backing_store.syftbox_events_message_log
-    assert len(syftbox_events) == 1
-
-    outbox_folder = backing_store.get_outbox_folder(
-        owner_email=do_manager.email, recipient_email=ds_manager.email
-    )
-    outbox_events = [
-        event for message in outbox_folder.messages for event in message.events
-    ]
-    assert not any("private" in str(event.path_in_datasite) for event in outbox_events)
+    assert len(syftbox_events) == 0
 
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
@@ -413,16 +406,9 @@ def test_datasets_with_parquet():
         ].backing_store
     )
 
+    # Dataset files are excluded from outbox sync (they use their own dedicated channel)
     syftbox_events = backing_store.syftbox_events_message_log
-    assert len(syftbox_events) == 1
-
-    outbox_folder = backing_store.get_outbox_folder(
-        owner_email=do_manager.email, recipient_email=ds_manager.email
-    )
-    outbox_events = [
-        event for message in outbox_folder.messages for event in message.events
-    ]
-    assert not any("private" in str(event.path_in_datasite) for event in outbox_events)
+    assert len(syftbox_events) == 0
 
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
@@ -1032,6 +1018,7 @@ def test_single_file_job_flow_with_dataset():
         summary="This is a summary",
         readme_path=readme_path,
         tags=["tag1", "tag2"],
+        users=[ds_manager.email],  # Share with DS so they can access the dataset
     )
 
     datasets = do_manager.datasets.get_all()
@@ -1111,6 +1098,7 @@ def test_folder_job_flow_with_dataset():
         summary="This is a summary",
         readme_path=readme_path,
         tags=["tag1", "tag2"],
+        users=[ds_manager.email],  # Share with DS so they can access the dataset
     )
 
     ds_manager.sync()
@@ -1180,6 +1168,7 @@ def test_pyproject_folder_job_flow_with_dataset():
         summary="This is a summary",
         readme_path=readme_path,
         tags=["tag1", "tag2"],
+        users=[ds_manager.email],  # Share with DS so they can access the dataset
     )
 
     ds_manager.sync()
@@ -1419,12 +1408,19 @@ def test_job_files_only_sync_to_submitter():
     recipients = [submitter_email, non_submitter_email]
     do_manager.proposed_file_change_handler.process_local_changes(recipients)
 
-    # Check what's in the outbox queue
+    # Check what's in the outbox folders
     backing_store = do_manager.connection_router.connections[0].backing_store
 
-    # Get all events from all outboxes
-    submitter_events = backing_store.outboxes.get(submitter_email, [])
-    non_submitter_events = backing_store.outboxes.get(non_submitter_email, [])
+    # Get events from per-recipient outbox folders
+    submitter_folder = backing_store.get_outbox_folder(
+        owner_email=do_manager.email, recipient_email=submitter_email
+    )
+    non_submitter_folder = backing_store.get_outbox_folder(
+        owner_email=do_manager.email, recipient_email=non_submitter_email
+    )
+
+    submitter_events = submitter_folder.messages if submitter_folder else []
+    non_submitter_events = non_submitter_folder.messages if non_submitter_folder else []
 
     # Extract paths from events
     submitter_paths = []
