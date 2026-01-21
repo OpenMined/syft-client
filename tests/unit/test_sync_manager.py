@@ -1343,7 +1343,9 @@ def test_syft_datasets_excluded_from_outbox_sync():
     regular_file.write_text("regular content")
 
     # Create a dataset file (should NOT be synced via outbox)
-    dataset_file = datasite_dir_do / "public" / "syft_datasets" / "my_dataset" / "dataset.yaml"
+    dataset_file = (
+        datasite_dir_do / "public" / "syft_datasets" / "my_dataset" / "dataset.yaml"
+    )
     dataset_file.parent.mkdir(parents=True, exist_ok=True)
     dataset_file.write_text("name: my_dataset")
 
