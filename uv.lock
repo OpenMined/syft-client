@@ -2405,7 +2405,6 @@ wheels = [
 
 [[package]]
 name = "syft-client"
-version = "0.1.93"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -2490,7 +2489,7 @@ requires-dist = [
     { name = "python-daemon", specifier = ">=3.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13.0.0" },
-    { name = "syft-client", extras = ["test", "dev", "job"], marker = "extra == 'all'" },
+    { name = "syft-client", extras = ["dev", "job", "test"], marker = "extra == 'all'" },
     { name = "syft-dataset", editable = "packages/syft-datasets" },
     { name = "syft-job", editable = "packages/syft-job" },
     { name = "tqdm", marker = "extra == 'dev'", specifier = ">=4.64.0" },
@@ -2502,7 +2501,7 @@ dev = [{ name = "pre-commit", specifier = ">=4.3.0" }]
 
 [[package]]
 name = "syft-dataset"
-version = "0.1.4"
+version = "0.1.5"
 source = { editable = "packages/syft-datasets" }
 dependencies = [
     { name = "pyyaml" },
@@ -2525,7 +2524,7 @@ dev = [{ name = "ipykernel", specifier = ">=7.1.0" }]
 
 [[package]]
 name = "syft-job"
-version = "0.1.22"
+version = "0.1.23"
 source = { editable = "packages/syft-job" }
 dependencies = [
     { name = "pandas" },
