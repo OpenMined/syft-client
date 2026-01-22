@@ -1058,10 +1058,6 @@ class SyftboxManager(BaseModel):
         if verbose:
             print(f"Deleted {len(file_ids)} files and folders in {end - start}s")
         self.connection_router.reset_caches()
-        
-    def clear_peers(self):
-        """Clear the local peer list without deleting the syftbox."""
-        self._peers = PeerList()
 
     # =========================================================================
     # CHECKPOINT METHODS

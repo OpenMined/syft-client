@@ -5,8 +5,6 @@ Tests checkpoint creation, restore, threshold-based creation,
 and in-memory checkpoint methods.
 """
 
-from pathlib import Path
-
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.connections.inmemory_connection import (
     InMemoryPlatformConnection,

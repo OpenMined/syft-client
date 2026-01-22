@@ -261,7 +261,9 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     # CHECKPOINT METHODS
     # =========================================================================
 
-    def create_checkpoint(self, last_event_timestamp: float | None = None) -> Checkpoint:
+    def create_checkpoint(
+        self, last_event_timestamp: float | None = None
+    ) -> Checkpoint:
         """
         Create a checkpoint from current cache state.
 

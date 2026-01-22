@@ -407,9 +407,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         """
         # Get latest checkpoint timestamp
         checkpoint = self.connection_router.get_latest_checkpoint()
-        checkpoint_timestamp = (
-            checkpoint.last_event_timestamp if checkpoint else None
-        )
+        checkpoint_timestamp = checkpoint.last_event_timestamp if checkpoint else None
 
         # Count events since checkpoint
         events_count = self.connection_router.get_events_count_since_checkpoint(

@@ -1311,9 +1311,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             f"name='{folder_name}' and mimeType='{GOOGLE_FOLDER_MIME_TYPE}' "
             f"and '{syftbox_folder_id}' in parents and trashed=false"
         )
-        results = (
-            self.drive_service.files().list(q=query, fields="files(id)").execute()
-        )
+        results = self.drive_service.files().list(q=query, fields="files(id)").execute()
         items = results.get("files", [])
         return items[0]["id"] if items else None
 
@@ -1375,9 +1373,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             f"and name contains '{CHECKPOINT_FILENAME_PREFIX}'"
         )
         results = (
-            self.drive_service.files()
-            .list(q=query, fields="files(id, name)")
-            .execute()
+            self.drive_service.files().list(q=query, fields="files(id, name)").execute()
         )
         items = results.get("files", [])
 
@@ -1417,9 +1413,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             f"and name contains '{CHECKPOINT_FILENAME_PREFIX}'"
         )
         results = (
-            self.drive_service.files()
-            .list(q=query, fields="files(id, name)")
-            .execute()
+            self.drive_service.files().list(q=query, fields="files(id, name)").execute()
         )
         items = results.get("files", [])
 
