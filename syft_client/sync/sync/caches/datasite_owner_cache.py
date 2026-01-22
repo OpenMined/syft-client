@@ -293,18 +293,20 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
 
         Args:
             checkpoint: The checkpoint to restore from.
-            write_files: Whether to write files to disk.
+            write_files: Whether to write files to disk (only affects filesystem,
+                        in-memory file_connection is always updated).
         """
         # Clear current state
         self.file_hashes = {}
 
         # Restore from checkpoint
+        # Always write to file_connection to maintain consistent state for
+        # process_local_changes comparison. This is needed even when write_files=False
+        # because file_connection may be in-memory and serves as the source of truth.
         for file_entry in checkpoint.files:
             path = Path(file_entry.path)
             self.file_hashes[path] = file_entry.hash
-
-            if write_files:
-                self.file_connection.write_file(file_entry.path, file_entry.content)
+            self.file_connection.write_file(file_entry.path, file_entry.content)
 
     def get_latest_event_timestamp(self) -> float | None:
         """Get the timestamp of the latest event in the cache."""

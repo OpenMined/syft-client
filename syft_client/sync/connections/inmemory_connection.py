@@ -16,6 +16,7 @@ from syft_datasets.dataset_manager import SHARE_WITH_ANY
 
 if TYPE_CHECKING:
     from syft_client.sync.version.version_info import VersionInfo
+from syft_client.sync.checkpoints.checkpoint import Checkpoint
 
 
 class InMemoryPlatformConnectionConfig(ConnectionConfig):
@@ -73,6 +74,9 @@ class InMemoryBackingPlatform(BaseModel):
 
     # Version files storage: {owner_email: InMemoryVersionFile}
     version_files: Dict[str, InMemoryVersionFile] = Field(default_factory=dict)
+
+    # Checkpoint storage
+    checkpoints: List[Checkpoint] = Field(default_factory=lambda: [])
 
     def get_or_create_outbox_folder(
         self, owner_email: str, recipient_email: str
@@ -536,3 +540,40 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             self.backing_store.version_files[self.owner_email] = version_file
         if peer_email not in version_file.allowed_readers:
             version_file.allowed_readers.append(peer_email)
+    # =========================================================================
+    # CHECKPOINT METHODS
+    # =========================================================================
+
+    def upload_checkpoint(self, checkpoint: Checkpoint) -> str:
+        """Upload a checkpoint to in-memory storage."""
+        self.backing_store.checkpoints.append(checkpoint)
+        return checkpoint.filename
+
+    def get_latest_checkpoint(self) -> Checkpoint | None:
+        """Get the latest checkpoint from in-memory storage."""
+        if not self.backing_store.checkpoints:
+            return None
+        # Return checkpoint with highest timestamp
+        return max(self.backing_store.checkpoints, key=lambda c: c.timestamp)
+
+    def get_events_count_since_checkpoint(
+        self, checkpoint_timestamp: float | None
+    ) -> int:
+        """Count events created after the checkpoint timestamp."""
+        if checkpoint_timestamp is None:
+            return len(self.backing_store.syftbox_events_message_log)
+        return sum(
+            1
+            for msg in self.backing_store.syftbox_events_message_log
+            if msg.timestamp > checkpoint_timestamp
+        )
+
+    def get_events_messages_since_timestamp(
+        self, since_timestamp: float
+    ) -> List[FileChangeEventsMessage]:
+        """Get events created after a specific timestamp."""
+        return [
+            msg
+            for msg in self.backing_store.syftbox_events_message_log
+            if msg.timestamp > since_timestamp
+        ]
