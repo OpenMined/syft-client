@@ -4,29 +4,27 @@ Integration tests for checkpoint functionality with Google Drive.
 Tests checkpoint creation, upload, download, and restore against actual Google Drive.
 """
 
-from syft_client.sync.syftbox_manager import SyftboxManager
+import os
 from time import sleep
+
 import pytest
 
-from tests.integration.conftest import (
-    get_email_do,
-    get_email_ds,
-    TOKEN_PATH_DO,
-    TOKEN_PATH_DS,
-)
+from syft_client.sync.syftbox_manager import SyftboxManager
+from tests.integration.utils import token_path_do, token_path_ds
+
+
+EMAIL_DO = os.environ.get("BEACH_EMAIL_DO", "")
+EMAIL_DS = os.environ.get("BEACH_EMAIL_DS", "")
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_checkpoint_create_and_upload():
     """Test that checkpoints can be created and uploaded to Google Drive."""
-    EMAIL_DO = get_email_do()
-    EMAIL_DS = get_email_ds()
-
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=TOKEN_PATH_DO,
-        ds_token_path=TOKEN_PATH_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
     )
 
     # Send some file changes to build state
@@ -53,15 +51,12 @@ def test_checkpoint_create_and_upload():
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_checkpoint_restore_on_fresh_login():
     """Test that a fresh login restores state from checkpoint instead of downloading all events."""
-    EMAIL_DO = get_email_do()
-    EMAIL_DS = get_email_ds()
-
     # First session: create state and checkpoint
     manager_ds1, manager_do1 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=TOKEN_PATH_DO,
-        ds_token_path=TOKEN_PATH_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
     )
 
     # Send file changes
@@ -82,8 +77,8 @@ def test_checkpoint_restore_on_fresh_login():
     manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=TOKEN_PATH_DO,
-        ds_token_path=TOKEN_PATH_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
         add_peers=False,
         load_peers=True,
         clear_caches=True,  # Clear local caches to simulate fresh login
@@ -103,15 +98,12 @@ def test_checkpoint_restore_on_fresh_login():
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_checkpoint_with_incremental_events():
     """Test that checkpoint + incremental events works correctly."""
-    EMAIL_DO = get_email_do()
-    EMAIL_DS = get_email_ds()
-
     # First session: create initial state and checkpoint
     manager_ds1, manager_do1 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=TOKEN_PATH_DO,
-        ds_token_path=TOKEN_PATH_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
     )
 
     # Send initial files
@@ -141,8 +133,8 @@ def test_checkpoint_with_incremental_events():
     manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=TOKEN_PATH_DO,
-        ds_token_path=TOKEN_PATH_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
         add_peers=False,
         load_peers=True,
         clear_caches=True,
@@ -161,14 +153,11 @@ def test_checkpoint_with_incremental_events():
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_should_create_checkpoint():
     """Test should_create_checkpoint threshold logic with Google Drive."""
-    EMAIL_DO = get_email_do()
-    EMAIL_DS = get_email_ds()
-
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=TOKEN_PATH_DO,
-        ds_token_path=TOKEN_PATH_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
     )
 
     # No events yet
@@ -190,14 +179,11 @@ def test_should_create_checkpoint():
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_try_create_checkpoint():
     """Test try_create_checkpoint conditional creation with Google Drive."""
-    EMAIL_DO = get_email_do()
-    EMAIL_DS = get_email_ds()
-
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=TOKEN_PATH_DO,
-        ds_token_path=TOKEN_PATH_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
     )
 
     # Send some files
@@ -221,14 +207,11 @@ def test_try_create_checkpoint():
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_auto_checkpoint_on_sync():
     """Test automatic checkpoint creation during sync."""
-    EMAIL_DO = get_email_do()
-    EMAIL_DS = get_email_ds()
-
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=TOKEN_PATH_DO,
-        ds_token_path=TOKEN_PATH_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
     )
 
     # Send enough files to trigger auto-checkpoint (threshold=5)
@@ -243,8 +226,8 @@ def test_auto_checkpoint_on_sync():
     manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
-        do_token_path=TOKEN_PATH_DO,
-        ds_token_path=TOKEN_PATH_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
         add_peers=False,
         load_peers=True,
         clear_caches=True,
