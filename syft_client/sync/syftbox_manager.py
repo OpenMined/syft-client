@@ -733,7 +733,7 @@ class SyftboxManager(BaseModel):
             self.proposed_file_change_handler.sync(compatible_emails)
             # Auto-checkpoint if enabled and threshold exceeded
             if auto_checkpoint:
-                self.maybe_create_checkpoint(checkpoint_threshold)
+                self.try_create_checkpoint(checkpoint_threshold)
         else:
             # ds
             peer_emails = [
@@ -1101,9 +1101,9 @@ class SyftboxManager(BaseModel):
             return False
         return self.proposed_file_change_handler.should_create_checkpoint(threshold)
 
-    def maybe_create_checkpoint(self, threshold: int = 50):
+    def try_create_checkpoint(self, threshold: int = 50):
         """
-        Create a checkpoint if the event count exceeds the threshold.
+        Try to create a checkpoint if the event count exceeds the threshold.
 
         This is useful for automatic checkpoint creation after syncs.
 
@@ -1115,7 +1115,7 @@ class SyftboxManager(BaseModel):
         """
         if not self.is_do:
             return None
-        return self.proposed_file_change_handler.maybe_create_checkpoint(threshold)
+        return self.proposed_file_change_handler.try_create_checkpoint(threshold)
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
         all_platforms = set(

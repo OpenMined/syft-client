@@ -418,11 +418,11 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
 
         return events_count >= threshold
 
-    def maybe_create_checkpoint(
+    def try_create_checkpoint(
         self, threshold: int = DEFAULT_CHECKPOINT_EVENT_THRESHOLD
     ) -> Checkpoint | None:
         """
-        Create checkpoint if event count exceeds threshold.
+        Try to create checkpoint if event count exceeds threshold.
 
         Args:
             threshold: Create checkpoint if events since last checkpoint >= threshold.
