@@ -20,6 +20,10 @@ from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.sync.caches.datasite_owner_cache import DataSiteOwnerEventCache
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
+from syft_client.sync.checkpoints.checkpoint import Checkpoint
+
+# Default threshold for auto-checkpoint creation
+DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50
 
 
 class ProposedFileChangeHandlerConfig(BaseModel):
@@ -101,21 +105,50 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
             self.download_events_message_by_id_with_connection, message_ids
         )
         return list(result_messages)
-
+        
     def pull_initial_state(self):
+        """
+        Pull initial state from Google Drive.
+
+        Uses checkpoint if available for faster sync:
+        1. Check for checkpoint
+        2. If checkpoint exists: restore from checkpoint + download only newer events
+        3. If no checkpoint: download all events (fallback)
+        """
+        # Try to use checkpoint for faster sync
+        checkpoint = self.connection_router.get_latest_checkpoint()
+
         # Get latest cached timestamp to only download new events
         since_timestamp = self.event_cache.latest_cached_timestamp
 
-        # Only download events newer than cached
-        events_messages = self.get_all_accepted_events_messages_do(
+        if checkpoint is not None:
+            # Restore from checkpoint
+            print(f"Found checkpoint with {len(checkpoint.files)} files, restoring...")
+            self.event_cache.apply_checkpoint(checkpoint, write_files=self.write_files)
+
+            # Download only events after checkpoint
+            if checkpoint.last_event_timestamp is not None:
+                events_messages = (
+                    self.connection_router.get_events_messages_since_timestamp(
+                        checkpoint.last_event_timestamp
+                    )
+                )
+                print(f"Downloading {len(events_messages)} events since checkpoint...")
+                for events_message in events_messages:
+                    self.event_cache.add_events_message_to_local_cache(events_message)
+        else:
+            # No checkpoint - download all events (fallback)
+            print("No checkpoint found, downloading all events...")
+            events_messages: list[FileChangeEventsMessage] = (
+                self.get_all_accepted_events_messages_do(
             since_timestamp=since_timestamp
-        )
+            )
+            )
+            for events_message in events_messages:
+                self.event_cache.add_events_message_to_local_cache(events_message)
 
-        for events_message in events_messages:
-            self.event_cache.add_events_message_to_local_cache(events_message)
-
-        # load datasets from connection and populate cache
-        self._pull_datasets_for_initial_sync()
+            # load datasets from connection and populate cache
+            self._pull_datasets_for_initial_sync()
 
         self.initial_sync_done = True
 
@@ -333,3 +366,70 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     def write_file_filesystem(self, path: str, content: str):
         if self.write_files:
             raise NotImplementedError("Writing files to filesystem is not implemented")
+
+    # =========================================================================
+    # CHECKPOINT METHODS
+    # =========================================================================
+
+    def create_checkpoint(self) -> Checkpoint:
+        """
+        Create a checkpoint from current state and upload to Google Drive.
+
+        Returns:
+            The created Checkpoint object.
+        """
+        # Get the latest event timestamp
+        last_event_timestamp = self.event_cache.get_latest_event_timestamp()
+
+        # Create checkpoint from current cache state
+        checkpoint = self.event_cache.create_checkpoint(
+            last_event_timestamp=last_event_timestamp
+        )
+
+        # Upload to Google Drive
+        print(f"Creating checkpoint with {len(checkpoint.files)} files...")
+        self.connection_router.upload_checkpoint(checkpoint)
+        print("Checkpoint uploaded successfully!")
+
+        return checkpoint
+
+    def should_create_checkpoint(
+        self, threshold: int = DEFAULT_CHECKPOINT_EVENT_THRESHOLD
+    ) -> bool:
+        """
+        Check if we should create a checkpoint based on event count.
+
+        Args:
+            threshold: Create checkpoint if events since last checkpoint >= threshold.
+
+        Returns:
+            True if checkpoint should be created.
+        """
+        # Get latest checkpoint timestamp
+        checkpoint = self.connection_router.get_latest_checkpoint()
+        checkpoint_timestamp = (
+            checkpoint.last_event_timestamp if checkpoint else None
+        )
+
+        # Count events since checkpoint
+        events_count = self.connection_router.get_events_count_since_checkpoint(
+            checkpoint_timestamp
+        )
+
+        return events_count >= threshold
+
+    def maybe_create_checkpoint(
+        self, threshold: int = DEFAULT_CHECKPOINT_EVENT_THRESHOLD
+    ) -> Checkpoint | None:
+        """
+        Create checkpoint if event count exceeds threshold.
+
+        Args:
+            threshold: Create checkpoint if events since last checkpoint >= threshold.
+
+        Returns:
+            The created Checkpoint, or None if checkpoint was not needed.
+        """
+        if self.should_create_checkpoint(threshold):
+            return self.create_checkpoint()
+        return None

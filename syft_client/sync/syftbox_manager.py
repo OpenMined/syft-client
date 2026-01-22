@@ -714,7 +714,15 @@ class SyftboxManager(BaseModel):
     def is_do(self) -> bool:
         return self.proposed_file_change_handler is not None
 
-    def sync(self):
+    def sync(self, auto_checkpoint: bool = True, checkpoint_threshold: int = 50):
+        """
+        Sync local state with Google Drive.
+
+        Args:
+            auto_checkpoint: If True, automatically create checkpoint when
+                            event count exceeds threshold (DO only).
+            checkpoint_threshold: Create checkpoint when events >= this value.
+        """
         self.load_peers()
         if self.is_do:
             peer_emails = [peer.email for peer in self.version_manager.approved_peers]
@@ -723,6 +731,9 @@ class SyftboxManager(BaseModel):
                 peer_emails, warn_incompatible=True
             )
             self.proposed_file_change_handler.sync(compatible_emails)
+            # Auto-checkpoint if enabled and threshold exceeded
+            if auto_checkpoint:
+                self.maybe_create_checkpoint(checkpoint_threshold)
         else:
             # ds
             peer_emails = [
@@ -1047,6 +1058,64 @@ class SyftboxManager(BaseModel):
         if verbose:
             print(f"Deleted {len(file_ids)} files and folders in {end - start}s")
         self.connection_router.reset_caches()
+        
+    def clear_peers(self):
+        """Clear the local peer list without deleting the syftbox."""
+        self._peers = PeerList()
+
+    # =========================================================================
+    # CHECKPOINT METHODS
+    # =========================================================================
+
+    def create_checkpoint(self):
+        """
+        Create a checkpoint of the current state and upload to Google Drive.
+
+        A checkpoint is a snapshot of all files and their hashes. When logging in,
+        the client will download the checkpoint instead of all historical events,
+        significantly speeding up the initial sync.
+
+        Only available for Data Owners (DO).
+
+        Returns:
+            The created Checkpoint object.
+
+        Raises:
+            ValueError: If called on a Data Scientist client.
+        """
+        if not self.is_do:
+            raise ValueError("Checkpoints can only be created by Data Owners")
+        return self.proposed_file_change_handler.create_checkpoint()
+
+    def should_create_checkpoint(self, threshold: int = 50) -> bool:
+        """
+        Check if a checkpoint should be created based on event count.
+
+        Args:
+            threshold: Create checkpoint if events since last checkpoint >= threshold.
+
+        Returns:
+            True if checkpoint should be created.
+        """
+        if not self.is_do:
+            return False
+        return self.proposed_file_change_handler.should_create_checkpoint(threshold)
+
+    def maybe_create_checkpoint(self, threshold: int = 50):
+        """
+        Create a checkpoint if the event count exceeds the threshold.
+
+        This is useful for automatic checkpoint creation after syncs.
+
+        Args:
+            threshold: Create checkpoint if events since last checkpoint >= threshold.
+
+        Returns:
+            The created Checkpoint, or None if not needed or not a DO.
+        """
+        if not self.is_do:
+            return None
+        return self.proposed_file_change_handler.maybe_create_checkpoint(threshold)
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
         all_platforms = set(
