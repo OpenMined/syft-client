@@ -147,7 +147,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     def _filter_collections_needing_download(
         self, collections: list[FileCollection]
     ) -> list[FileCollection]:
-        """Return collections that don't exist locally yet."""
+        """Return collections that don't exist locally or have different content hash."""
         result = []
         for collection in collections:
             local_dataset_dir = (
@@ -157,9 +157,26 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
                 / DATASETS_FOLDER_NAME
                 / collection.tag
             )
-            if not (local_dataset_dir / "dataset.yaml").exists():
+            local_hash = self._compute_local_dataset_hash(local_dataset_dir)
+            if local_hash != collection.content_hash:
                 result.append(collection)
         return result
+
+    def _compute_local_dataset_hash(self, dataset_dir: Path) -> str | None:
+        """Compute content hash from local dataset files on disk."""
+        from syft_client.sync.connections.drive.gdrive_transport import (
+            DatasetCollectionFolder,
+        )
+
+        if not dataset_dir.exists():
+            return None
+
+        files = {}
+        for file_path in dataset_dir.iterdir():
+            if file_path.is_file():
+                files[file_path.name] = file_path.read_bytes()
+
+        return DatasetCollectionFolder.compute_hash(files) if files else None
 
     def _download_dataset_collections_parallel(self, collections: list[FileCollection]):
         """Download all files from collections in parallel and write to disk."""

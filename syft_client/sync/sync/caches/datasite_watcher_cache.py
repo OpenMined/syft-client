@@ -88,30 +88,83 @@ class DataSiteWatcherCache(BaseModel):
         try:
             cached_messages = self.events_connection.get_all()
         except Exception:
+            cached_messages = []
+
+        if cached_messages:
+            sorted_messages = sorted(cached_messages, key=lambda m: m.timestamp)
+
+            for events_message in sorted_messages:
+                for event in events_message.events:
+                    # Update last_event_timestamp_per_peer
+                    peer_email = event.datasite_email
+                    current_ts = self.last_event_timestamp_per_peer.get(peer_email)
+                    if current_ts is None or events_message.timestamp > current_ts:
+                        self.last_event_timestamp_per_peer[peer_email] = (
+                            events_message.timestamp
+                        )
+
+                    # Update file_hashes
+                    path_key = Path(event.path_in_syftbox)
+                    if event.is_deleted:
+                        if path_key in self.file_hashes:
+                            del self.file_hashes[path_key]
+                    else:
+                        self.file_hashes[path_key] = event.new_hash
+
+        self._load_dataset_hashes_from_disk()
+
+    def _load_dataset_hashes_from_disk(self):
+        """Scan local dataset directories and compute hashes to populate dataset_collection_hashes."""
+        for owner_email, tag in self._get_local_dataset_folders():
+            content_hash = self._compute_local_dataset_hash(owner_email, tag)
+            if content_hash:
+                cache_key = f"{owner_email}/{tag}"
+                self.dataset_collection_hashes[cache_key] = content_hash
+
+    def _get_local_dataset_folders(self):
+        """Yield (owner_email, tag) tuples for all local dataset folders."""
+        if not isinstance(self.file_connection, FSFileConnection):
             return
 
-        if not cached_messages:
+        base_dir = self.file_connection.base_dir
+        if not base_dir.exists():
             return
 
-        sorted_messages = sorted(cached_messages, key=lambda m: m.timestamp)
+        for email_dir in base_dir.iterdir():
+            if not email_dir.is_dir() or "@" not in email_dir.name:
+                continue
+            datasets_dir = email_dir / "public" / "syft_datasets"
+            if not datasets_dir.exists():
+                continue
+            for tag_dir in datasets_dir.iterdir():
+                if tag_dir.is_dir():
+                    yield email_dir.name, tag_dir.name
 
-        for events_message in sorted_messages:
-            for event in events_message.events:
-                # Update last_event_timestamp_per_peer
-                peer_email = event.datasite_email
-                current_ts = self.last_event_timestamp_per_peer.get(peer_email)
-                if current_ts is None or events_message.timestamp > current_ts:
-                    self.last_event_timestamp_per_peer[peer_email] = (
-                        events_message.timestamp
-                    )
+    def _compute_local_dataset_hash(self, owner_email: str, tag: str) -> str | None:
+        """Compute content hash from local dataset files on disk."""
+        from syft_client.sync.connections.drive.gdrive_transport import (
+            DatasetCollectionFolder,
+        )
 
-                # Update file_hashes
-                path_key = Path(event.path_in_syftbox)
-                if event.is_deleted:
-                    if path_key in self.file_hashes:
-                        del self.file_hashes[path_key]
-                else:
-                    self.file_hashes[path_key] = event.new_hash
+        if not isinstance(self.file_connection, FSFileConnection):
+            return None
+
+        dataset_dir = (
+            self.file_connection.base_dir
+            / owner_email
+            / "public"
+            / "syft_datasets"
+            / tag
+        )
+        if not dataset_dir.exists():
+            return None
+
+        files = {}
+        for file_path in dataset_dir.iterdir():
+            if file_path.is_file():
+                files[file_path.name] = file_path.read_bytes()
+
+        return DatasetCollectionFolder.compute_hash(files) if files else None
 
     def clear_cache(self):
         self.events_connection.clear_cache()
