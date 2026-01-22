@@ -289,7 +289,7 @@ class ConnectionRouter(BaseModel):
     def download_dataset_file(self, file_id: str) -> bytes:
         connection = self.connection_for_datasite_watcher()
         return connection.download_dataset_file(file_id)
-    
+
     # =========================================================================
     # CHECKPOINT METHODS
     # =========================================================================

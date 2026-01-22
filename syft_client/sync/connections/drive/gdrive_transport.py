@@ -1295,6 +1295,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         if file_id:
             self.add_permission(file_id, peer_email, write=False)
+
     # =========================================================================
     # CHECKPOINT METHODS
     # =========================================================================

@@ -105,7 +105,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
             self.download_events_message_by_id_with_connection, message_ids
         )
         return list(result_messages)
-        
+
     def pull_initial_state(self):
         """
         Pull initial state from Google Drive.
@@ -141,8 +141,8 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
             print("No checkpoint found, downloading all events...")
             events_messages: list[FileChangeEventsMessage] = (
                 self.get_all_accepted_events_messages_do(
-            since_timestamp=since_timestamp
-            )
+                    since_timestamp=since_timestamp
+                )
             )
             for events_message in events_messages:
                 self.event_cache.add_events_message_to_local_cache(events_message)

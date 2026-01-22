@@ -540,6 +540,7 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             self.backing_store.version_files[self.owner_email] = version_file
         if peer_email not in version_file.allowed_readers:
             version_file.allowed_readers.append(peer_email)
+
     # =========================================================================
     # CHECKPOINT METHODS
     # =========================================================================
