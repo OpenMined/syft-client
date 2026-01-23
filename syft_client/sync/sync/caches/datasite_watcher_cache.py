@@ -160,19 +160,6 @@ class DataSiteWatcherCache(BaseModel):
 
         return compute_directory_hash(collection_path)
 
-    def get_collection_hash(self, owner_email: str, tag: str) -> str | None:
-        """Get the cached hash for a collection."""
-        collection_path = self.get_collection_path(owner_email, tag)
-        if collection_path is None:
-            return None
-        return self.dataset_collection_hashes.get(collection_path)
-
-    def set_collection_hash(self, owner_email: str, tag: str, content_hash: str):
-        """Set the cached hash for a collection."""
-        collection_path = self.get_collection_path(owner_email, tag)
-        if collection_path is not None:
-            self.dataset_collection_hashes[collection_path] = content_hash
-
     def clear_cache(self):
         self.events_connection.clear_cache()
         self.file_connection.clear_cache()
