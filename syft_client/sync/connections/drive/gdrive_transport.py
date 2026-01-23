@@ -166,10 +166,11 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.credentials = credentials
         if self.environment == Environment.COLAB:
             from google.colab import auth as colab_auth
+            import google.auth
 
             colab_auth.authenticate_user()
-            # Build service without explicit credentials in Colab
-            self.drive_service = build("drive", "v3")
+            # Get Application Default Credentials set up by Colab auth
+            self.credentials, _ = google.auth.default()
 
         # Create Http with timeout to prevent indefinite hangs
         http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
