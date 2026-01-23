@@ -48,30 +48,17 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     email: str
     # Full path to collections (datasets) folder
     collections_folder: Path | None = None
-    # Relative path from datasite folder to collections (e.g., "public/syft_datasets")
-    relative_collections_path: Path | None = None
     # Cache of collection hashes: "tag" -> content_hash
     collection_hashes: Dict[str, str] = {}
 
     @classmethod
     def from_config(cls, config: DataSiteOwnerEventCacheConfig):
         if config.use_in_memory_cache:
-            # Compute relative collections path if both syftbox_folder and collections_folder are set
-            relative_path = None
-            if config.syftbox_folder and config.email and config.collections_folder:
-                my_datasite_folder = config.syftbox_folder / config.email
-                try:
-                    relative_path = config.collections_folder.relative_to(
-                        my_datasite_folder
-                    )
-                except ValueError:
-                    pass
             return cls(
                 events_connection=InMemoryCacheFileConnection[FileChangeEvent](),
                 file_connection=InMemoryCacheFileConnection[str](),
                 email=config.email,
                 collections_folder=config.collections_folder,
-                relative_collections_path=relative_path,
             )
         else:
             if config.syftbox_folder is None:
@@ -86,8 +73,6 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             my_datasite_folder = config.syftbox_folder / config.email
             syftbox_parent = Path(config.syftbox_folder).parent
             events_folder = syftbox_parent / f"{syftbox_folder_name}-events"
-            # Compute relative collections path
-            relative_path = config.collections_folder.relative_to(my_datasite_folder)
             cache = cls(
                 events_messages_connection=FSFileConnection(
                     base_dir=events_folder, dtype=FileChangeEventsMessage
@@ -95,7 +80,6 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 file_connection=FSFileConnection(base_dir=my_datasite_folder),
                 email=config.email,
                 collections_folder=config.collections_folder,
-                relative_collections_path=relative_path,
             )
             cache._load_cached_state()
             return cache
@@ -148,17 +132,12 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         return max(m.timestamp for m in cached_messages)
 
     def _is_collections_path(self, path: Path) -> bool:
-        """Check if path is under the collections folder.
-
-        Note: path should be relative to the datasite folder (e.g., "public/syft_datasets/tag/file.txt")
-        """
-        if self.relative_collections_path is None:
+        """Check if path is under the collections folder (syft_datasets)."""
+        if self.collections_folder is None:
             return False
-        try:
-            path.relative_to(self.relative_collections_path)
-            return True
-        except ValueError:
-            return False
+        # Use the collections folder name for a simple string check
+        collections_name = self.collections_folder.name
+        return f"/{collections_name}/" in f"/{path}/"
 
     def process_local_file_changes(self) -> FileChangeEventsMessage | None:
         new_events = []
