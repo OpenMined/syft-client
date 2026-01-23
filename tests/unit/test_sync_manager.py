@@ -1537,8 +1537,23 @@ def test_ds_dataset_cache_aware_sync():
         "Loaded hash should match remote hash, ensuring no re-download is needed"
     )
 
-    # Sync - no download should happen because hash matches
-    ds_manager2.sync()
+    # Patch the download method to verify it's NOT called (hash match should skip download)
+    from unittest.mock import patch
+
+    puller = ds_manager2.datasite_outbox_puller
+    original_method = puller.download_dataset_file_with_new_connection
+
+    with patch(
+        "syft_client.sync.sync.datasite_outbox_puller.DatasiteOutboxPuller.download_dataset_file_with_new_connection",
+        wraps=original_method,
+    ) as mock_download:
+        # Sync - no download should happen because hash matches
+        ds_manager2.sync()
+
+        # Verify download_dataset_file_with_new_connection was NOT called
+        assert mock_download.call_count == 0, (
+            "Should not download files when local hash matches remote"
+        )
 
     # Verify dataset still accessible
     assert len(ds_manager2.datasets.get_all()) == 1
@@ -1601,23 +1616,20 @@ def test_do_dataset_cache_aware_sync():
     ds_manager2.load_peers()
     do_manager2.load_peers()
 
-    # Patch the download function to track if it's called
+    # Patch the download method to verify it's NOT called (hash match should skip download)
     handler = do_manager2.proposed_file_change_handler
     with patch.object(
         handler,
-        "_download_dataset_collections_parallel",
-        wraps=handler._download_dataset_collections_parallel,
+        "_download_file_with_new_connection",
+        wraps=handler._download_file_with_new_connection,
     ) as mock_download:
         # Sync - should NOT trigger download since local hash matches remote
         do_manager2.sync()
 
-        # Verify download was called but with empty list (nothing to download)
-        if mock_download.call_count > 0:
-            # If called, it should have been called with an empty list
-            call_args = mock_download.call_args[0][0]
-            assert len(call_args) == 0, (
-                "Should not download any collections when local hash matches"
-            )
+        # Verify _download_file_with_new_connection was NOT called
+        assert mock_download.call_count == 0, (
+            "Should not download files when local hash matches remote"
+        )
 
     # Verify dataset still accessible
     assert len(do_manager2.datasets.get_all()) == 1
