@@ -8,6 +8,11 @@ with the main client.
 from pathlib import Path
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
+import httplib2
+from google_auth_httplib2 import AuthorizedHttp
+from google.oauth2.credentials import Credentials as GoogleCredentials
+from googleapiclient.discovery import build
+
 try:
     from .base import Monitor, NotificationSender, StateManager
 except ImportError:
@@ -15,6 +20,10 @@ except ImportError:
 
 if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
+
+# Google Drive constants
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
+GOOGLE_API_TIMEOUT = 120  # 2 minutes
 
 
 class PeerMonitor(Monitor):
@@ -53,16 +62,8 @@ class PeerMonitor(Monitor):
 
     def _create_drive_service(self):
         """Create Google Drive service (must be called from main thread)."""
-        import httplib2
-        from google_auth_httplib2 import AuthorizedHttp
-        from google.oauth2.credentials import Credentials as GoogleCredentials
-        from googleapiclient.discovery import build
-
-        SCOPES = ["https://www.googleapis.com/auth/drive"]
-        GOOGLE_API_TIMEOUT = 120  # 2 minutes
-
         credentials = GoogleCredentials.from_authorized_user_file(
-            str(self.drive_token_path), SCOPES
+            str(self.drive_token_path), DRIVE_SCOPES
         )
         # Create Http with timeout to prevent indefinite hangs
         http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
