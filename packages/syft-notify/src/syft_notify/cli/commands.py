@@ -78,7 +78,7 @@ def init():
 
     # Create config
     config = {
-        "email": do_email,
+        "do_email": do_email,
         "syftbox_root": syftbox_root,
         "notify": {
             "interval": 30,

@@ -73,6 +73,59 @@ class NotificationOrchestrator:
         print(f"✅ Gmail token saved: {token_path}")
 
     @classmethod
+    def from_client(
+        cls,
+        client,
+        gmail_token_path: Optional[str] = None,
+        interval: int = 30,
+    ) -> "NotificationOrchestrator":
+        if not client.is_do:
+            raise ValueError(
+                "NotificationOrchestrator should only run on Data Owner (DO) side."
+            )
+
+        paths = get_default_paths()
+
+        gmail_path = (
+            Path(gmail_token_path).expanduser()
+            if gmail_token_path
+            else paths["gmail_token"]
+        )
+        if not gmail_path.exists():
+            raise FileNotFoundError(
+                f"Gmail token not found: {gmail_path}\n\n"
+                "Run NotificationOrchestrator.setup() first."
+            )
+
+        drive_token_path = cls._find_drive_token()
+
+        return cls(
+            do_email=client.email,
+            syftbox_root=client.syftbox_folder,
+            drive_token_path=drive_token_path,
+            gmail_token_path=gmail_path,
+            interval=interval,
+        )
+
+    @staticmethod
+    def _find_drive_token() -> Optional[Path]:
+        try:
+            from syft_client import CREDENTIALS_DIR
+
+            for token_name in ["token_do.json", "token.json"]:
+                token_path = CREDENTIALS_DIR / token_name
+                if token_path.exists():
+                    return token_path
+        except ImportError:
+            pass
+
+        paths = get_default_paths()
+        if paths["drive_token"].exists():
+            return paths["drive_token"]
+
+        return None
+
+    @classmethod
     def from_config(
         cls,
         config_path: Optional[str] = None,
@@ -80,13 +133,13 @@ class NotificationOrchestrator:
     ) -> "NotificationOrchestrator":
         config = NotifyConfig.load(Path(config_path) if config_path else None)
 
-        if not config.email:
+        if not config.do_email:
             raise ValueError("Config missing 'email' field")
         if not config.syftbox_root:
             raise ValueError("Config missing 'syftbox_root' field")
 
         return cls(
-            do_email=config.email,
+            do_email=config.do_email,
             syftbox_root=config.syftbox_root,
             drive_token_path=config.drive_token_path,
             gmail_token_path=config.gmail_token_path,

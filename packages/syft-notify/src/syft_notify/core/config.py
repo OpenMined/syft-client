@@ -29,7 +29,7 @@ def get_default_paths() -> dict:
 
 @dataclass
 class NotifyConfig:
-    email: Optional[str] = None
+    do_email: Optional[str] = None
     syftbox_root: Optional[Path] = None
     drive_token_path: Optional[Path] = None
     gmail_token_path: Optional[Path] = None
@@ -54,7 +54,7 @@ class NotifyConfig:
         merged = {**common, **notify_section}
 
         return cls(
-            email=merged.get("email"),
+            do_email=merged.get("do_email"),
             syftbox_root=Path(merged["syftbox_root"])
             if merged.get("syftbox_root")
             else None,
@@ -83,8 +83,8 @@ class NotifyConfig:
             with open(config_path) as f:
                 data = yaml.safe_load(f) or {}
 
-        if self.email:
-            data["email"] = self.email
+        if self.do_email:
+            data["do_email"] = self.do_email
         if self.syftbox_root:
             data["syftbox_root"] = str(self.syftbox_root)
         if self.drive_token_path:
