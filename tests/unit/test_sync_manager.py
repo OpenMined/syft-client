@@ -1524,7 +1524,8 @@ def test_ds_dataset_cache_aware_sync():
 
     # Verify hash was loaded from disk on startup
     ds_cache = ds_manager2.datasite_outbox_puller.datasite_watcher_cache
-    cache_key = f"{do_email}/cached dataset"
+    # Cache uses full path as key: syftbox_folder / owner_email / collection_subpath / tag
+    cache_key = ds_cache.get_collection_path(do_email, "cached dataset")
     assert cache_key in ds_cache.dataset_collection_hashes, (
         "Hash should be loaded from disk on startup"
     )

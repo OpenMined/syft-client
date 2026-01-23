@@ -6,7 +6,7 @@ from uuid import uuid4
 from pathlib import Path
 from syft_client.sync.utils.syftbox_utils import create_event_timestamp
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConnection
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
@@ -24,35 +24,13 @@ class ProposedEventFileOutdatedException(Exception):
         )
 
 
-COLLECTIONS_FOLDER_NAME = "syft_datasets"
-
-
 class DataSiteOwnerEventCacheConfig(BaseModel):
     use_in_memory_cache: bool = True
     syftbox_folder: Path | None = None
     email: str | None = None
     events_base_path: Path | None = None
+    # Full path to collections folder - must be provided explicitly
     collections_folder: Path | None = None
-
-    @model_validator(mode="before")
-    def pre_init(cls, data):
-        if data.get("events_base_path") is None and data.get("base_path") is not None:
-            base_path = data["base_path"]
-            base_parent = base_path.parent
-            data["events_base_path"] = base_parent / "events"
-        # Compute full collections_folder path if not provided
-        if (
-            data.get("collections_folder") is None
-            and data.get("syftbox_folder")
-            and data.get("email")
-        ):
-            data["collections_folder"] = (
-                Path(data["syftbox_folder"])
-                / data["email"]
-                / "public"
-                / COLLECTIONS_FOLDER_NAME
-            )
-        return data
 
 
 class DataSiteOwnerEventCache(BaseModelCallbackMixin):
@@ -70,27 +48,46 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     email: str
     # Full path to collections (datasets) folder
     collections_folder: Path | None = None
+    # Relative path from datasite folder to collections (e.g., "public/syft_datasets")
+    relative_collections_path: Path | None = None
     # Cache of collection hashes: "tag" -> content_hash
     collection_hashes: Dict[str, str] = {}
 
     @classmethod
     def from_config(cls, config: DataSiteOwnerEventCacheConfig):
         if config.use_in_memory_cache:
+            # Compute relative collections path if both syftbox_folder and collections_folder are set
+            relative_path = None
+            if config.syftbox_folder and config.email and config.collections_folder:
+                my_datasite_folder = config.syftbox_folder / config.email
+                try:
+                    relative_path = config.collections_folder.relative_to(
+                        my_datasite_folder
+                    )
+                except ValueError:
+                    pass
             return cls(
                 events_connection=InMemoryCacheFileConnection[FileChangeEvent](),
                 file_connection=InMemoryCacheFileConnection[str](),
                 email=config.email,
                 collections_folder=config.collections_folder,
+                relative_collections_path=relative_path,
             )
         else:
             if config.syftbox_folder is None:
-                raise ValueError("base_path is required for non-in-memory cache")
+                raise ValueError("syftbox_folder is required for non-in-memory cache")
             if config.email is None:
                 raise ValueError("email is required for non-in-memory cache")
+            if config.collections_folder is None:
+                raise ValueError(
+                    "collections_folder is required for non-in-memory cache"
+                )
             syftbox_folder_name = Path(config.syftbox_folder).name
             my_datasite_folder = config.syftbox_folder / config.email
             syftbox_parent = Path(config.syftbox_folder).parent
             events_folder = syftbox_parent / f"{syftbox_folder_name}-events"
+            # Compute relative collections path
+            relative_path = config.collections_folder.relative_to(my_datasite_folder)
             cache = cls(
                 events_messages_connection=FSFileConnection(
                     base_dir=events_folder, dtype=FileChangeEventsMessage
@@ -98,10 +95,15 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 file_connection=FSFileConnection(base_dir=my_datasite_folder),
                 email=config.email,
                 collections_folder=config.collections_folder,
+                relative_collections_path=relative_path,
             )
-            cache._load_file_hashes_from_disk()
-            cache._load_collection_hashes_from_disk()
+            cache._load_cached_state()
             return cache
+
+    def _load_cached_state(self):
+        """Load cached state from disk: file hashes and collection hashes."""
+        self._load_file_hashes_from_disk()
+        self._load_collection_hashes_from_disk()
 
     def _load_file_hashes_from_disk(self) -> float | None:
         """Load existing events from disk and populate file_hashes."""
@@ -145,6 +147,19 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             return None
         return max(m.timestamp for m in cached_messages)
 
+    def _is_collections_path(self, path: Path) -> bool:
+        """Check if path is under the collections folder.
+
+        Note: path should be relative to the datasite folder (e.g., "public/syft_datasets/tag/file.txt")
+        """
+        if self.relative_collections_path is None:
+            return False
+        try:
+            path.relative_to(self.relative_collections_path)
+            return True
+        except ValueError:
+            return False
+
     def process_local_file_changes(self) -> FileChangeEventsMessage | None:
         new_events = []
 
@@ -156,7 +171,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 continue
             if ".venv" in str(path):
                 continue
-            if COLLECTIONS_FOLDER_NAME in str(path):
+            if self._is_collections_path(path):
                 continue
             current_files[path] = content
 

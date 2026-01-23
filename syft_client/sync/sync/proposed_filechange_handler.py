@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import yaml
-from pydantic import ConfigDict, Field, BaseModel, PrivateAttr, model_validator
+from pydantic import ConfigDict, Field, BaseModel, PrivateAttr
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from typing import List, Tuple
@@ -14,7 +14,6 @@ from syft_client.sync.connections.base_connection import (
 )
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     DataSiteOwnerEventCacheConfig,
-    COLLECTIONS_FOLDER_NAME,
 )
 from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.sync.caches.datasite_owner_cache import DataSiteOwnerEventCache
@@ -26,28 +25,12 @@ class ProposedFileChangeHandlerConfig(BaseModel):
     email: str
     syftbox_folder: Path | None = None
     write_files: bool = True
-    # Full path to collections folder
+    # Full path to collections folder - must be provided explicitly
     collections_folder: Path | None = None
     cache_config: DataSiteOwnerEventCacheConfig = Field(
         default_factory=DataSiteOwnerEventCacheConfig
     )
     connection_configs: List[ConnectionConfig] = []
-
-    @model_validator(mode="before")
-    def pre_init(cls, data):
-        # Compute full collections_folder path if not provided
-        if (
-            data.get("collections_folder") is None
-            and data.get("syftbox_folder")
-            and data.get("email")
-        ):
-            data["collections_folder"] = (
-                Path(data["syftbox_folder"])
-                / data["email"]
-                / "public"
-                / COLLECTIONS_FOLDER_NAME
-            )
-        return data
 
 
 class ProposedFileChangeHandler(BaseModelCallbackMixin):
