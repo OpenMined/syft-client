@@ -16,6 +16,7 @@ from syft_client.sync.sync.caches.cache_file_writer_connection import (
 )
 
 SECONDS_BEFORE_SYNCING_DOWN = 0
+COLLECTIONS_FOLDER_NAME = "syft_datasets"
 
 
 class DataSiteWatcherCacheConfig(BaseModel):
@@ -23,6 +24,8 @@ class DataSiteWatcherCacheConfig(BaseModel):
     syftbox_folder: Path | None = None
     events_base_path: Path | None = None
     connection_configs: List[ConnectionConfig] = []
+    # Base folder containing all owners' collections (the syftbox_folder)
+    collections_folder: Path | None = None
 
     @model_validator(mode="before")
     def pre_init(cls, data):
@@ -30,6 +33,9 @@ class DataSiteWatcherCacheConfig(BaseModel):
             base_path = data["base_path"]
             base_parent = base_path.parent
             data["events_base_path"] = base_parent / "events"
+        # Set collections_folder to syftbox_folder if not provided
+        if data.get("collections_folder") is None and data.get("syftbox_folder"):
+            data["collections_folder"] = Path(data["syftbox_folder"])
         return data
 
 
@@ -49,6 +55,8 @@ class DataSiteWatcherCache(BaseModel):
     seconds_before_syncing_down: int = SECONDS_BEFORE_SYNCING_DOWN
     peers: List[str] = []
     last_event_timestamp_per_peer: Dict[str, float] = {}
+    # Base folder containing all owners' collections (the syftbox_folder)
+    collections_folder: Path | None = None
     # Cache of dataset collection hashes: "{owner_email}/{tag}" -> content_hash
     dataset_collection_hashes: Dict[str, str] = {}
 
@@ -61,6 +69,7 @@ class DataSiteWatcherCache(BaseModel):
                 connection_router=ConnectionRouter.from_configs(
                     connection_configs=config.connection_configs
                 ),
+                collections_folder=config.collections_folder,
             )
             return res
         else:
@@ -79,6 +88,7 @@ class DataSiteWatcherCache(BaseModel):
                 connection_router=ConnectionRouter.from_configs(
                     connection_configs=config.connection_configs
                 ),
+                collections_folder=config.collections_folder,
             )
             cache._load_cached_state()
             return cache
@@ -121,19 +131,27 @@ class DataSiteWatcherCache(BaseModel):
                 cache_key = f"{owner_email}/{tag}"
                 self.dataset_collection_hashes[cache_key] = content_hash
 
+    def get_collection_path(self, owner_email: str, tag: str) -> Path | None:
+        """Get the full path to a collection for a given owner and tag."""
+        if self.collections_folder is None:
+            return None
+        return (
+            self.collections_folder
+            / owner_email
+            / "public"
+            / COLLECTIONS_FOLDER_NAME
+            / tag
+        )
+
     def _get_local_dataset_folders(self):
         """Yield (owner_email, tag) tuples for all local dataset folders."""
-        if not isinstance(self.file_connection, FSFileConnection):
+        if self.collections_folder is None or not self.collections_folder.exists():
             return
 
-        base_dir = self.file_connection.base_dir
-        if not base_dir.exists():
-            return
-
-        for email_dir in base_dir.iterdir():
+        for email_dir in self.collections_folder.iterdir():
             if not email_dir.is_dir() or "@" not in email_dir.name:
                 continue
-            datasets_dir = email_dir / "public" / "syft_datasets"
+            datasets_dir = email_dir / "public" / COLLECTIONS_FOLDER_NAME
             if not datasets_dir.exists():
                 continue
             for tag_dir in datasets_dir.iterdir():
@@ -142,29 +160,22 @@ class DataSiteWatcherCache(BaseModel):
 
     def _compute_local_dataset_hash(self, owner_email: str, tag: str) -> str | None:
         """Compute content hash from local dataset files on disk."""
-        from syft_client.sync.connections.drive.gdrive_transport import (
-            DatasetCollectionFolder,
-        )
+        from syft_client.sync.file_utils import compute_directory_hash
 
-        if not isinstance(self.file_connection, FSFileConnection):
+        dataset_dir = self.get_collection_path(owner_email, tag)
+        if dataset_dir is None:
             return None
+        return compute_directory_hash(dataset_dir)
 
-        dataset_dir = (
-            self.file_connection.base_dir
-            / owner_email
-            / "public"
-            / "syft_datasets"
-            / tag
-        )
-        if not dataset_dir.exists():
-            return None
+    def get_collection_hash(self, owner_email: str, tag: str) -> str | None:
+        """Get the cached hash for a collection."""
+        cache_key = f"{owner_email}/{tag}"
+        return self.dataset_collection_hashes.get(cache_key)
 
-        files = {}
-        for file_path in dataset_dir.iterdir():
-            if file_path.is_file():
-                files[file_path.name] = file_path.read_bytes()
-
-        return DatasetCollectionFolder.compute_hash(files) if files else None
+    def set_collection_hash(self, owner_email: str, tag: str, content_hash: str):
+        """Set the cached hash for a collection."""
+        cache_key = f"{owner_email}/{tag}"
+        self.dataset_collection_hashes[cache_key] = content_hash
 
     def clear_cache(self):
         self.events_connection.clear_cache()
@@ -296,7 +307,9 @@ class DataSiteWatcherCache(BaseModel):
 
             # Write files to local cache
             for file_name, content in files.items():
-                file_path = f"{owner_email}/public/syft_datasets/{tag}/{file_name}"
+                file_path = (
+                    f"{owner_email}/public/{COLLECTIONS_FOLDER_NAME}/{tag}/{file_name}"
+                )
                 self.file_connection.write_file(file_path, content)
 
             # Update hash cache
@@ -356,7 +369,9 @@ class DataSiteWatcherCache(BaseModel):
             owner_email = collection["owner_email"]
             tag = collection["tag"]
             file_name = metadata["file_name"]
-            file_path = f"{owner_email}/public/syft_datasets/{tag}/{file_name}"
+            file_path = (
+                f"{owner_email}/public/{COLLECTIONS_FOLDER_NAME}/{tag}/{file_name}"
+            )
             self.file_connection.write_file(file_path, content)
 
         # Update hash cache for all collections

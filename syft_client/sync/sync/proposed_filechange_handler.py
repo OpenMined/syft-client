@@ -1,8 +1,7 @@
 from pathlib import Path
 
 import yaml
-from syft_datasets.dataset_manager import FOLDER_NAME as DATASETS_FOLDER_NAME
-from pydantic import ConfigDict, Field, BaseModel, PrivateAttr
+from pydantic import ConfigDict, Field, BaseModel, PrivateAttr, model_validator
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from typing import List, Tuple
@@ -15,6 +14,7 @@ from syft_client.sync.connections.base_connection import (
 )
 from syft_client.sync.sync.caches.datasite_owner_cache import (
     DataSiteOwnerEventCacheConfig,
+    COLLECTIONS_FOLDER_NAME,
 )
 from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.sync.caches.datasite_owner_cache import DataSiteOwnerEventCache
@@ -26,10 +26,28 @@ class ProposedFileChangeHandlerConfig(BaseModel):
     email: str
     syftbox_folder: Path | None = None
     write_files: bool = True
+    # Full path to collections folder
+    collections_folder: Path | None = None
     cache_config: DataSiteOwnerEventCacheConfig = Field(
         default_factory=DataSiteOwnerEventCacheConfig
     )
     connection_configs: List[ConnectionConfig] = []
+
+    @model_validator(mode="before")
+    def pre_init(cls, data):
+        # Compute full collections_folder path if not provided
+        if (
+            data.get("collections_folder") is None
+            and data.get("syftbox_folder")
+            and data.get("email")
+        ):
+            data["collections_folder"] = (
+                Path(data["syftbox_folder"])
+                / data["email"]
+                / "public"
+                / COLLECTIONS_FOLDER_NAME
+            )
+        return data
 
 
 class ProposedFileChangeHandler(BaseModelCallbackMixin):
@@ -44,6 +62,8 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     initial_sync_done: bool = False
     email: str
     syftbox_folder: Path | None = None
+    # Full path to collections folder
+    collections_folder: Path | None = None
 
     syftbox_events_queue: Queue[FileChangeEventsMessage] = Field(default_factory=Queue)
     outbox_queue: Queue[Tuple[str, FileChangeEventsMessage]] = Field(
@@ -58,12 +78,16 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
 
     @classmethod
     def from_config(cls, config: ProposedFileChangeHandlerConfig):
+        # Ensure cache config has the same collections_folder (both are now full paths)
+        if config.collections_folder is not None:
+            config.cache_config.collections_folder = config.collections_folder
         return cls(
             event_cache=DataSiteOwnerEventCache.from_config(config.cache_config),
             write_files=config.write_files,
             connection_router=ConnectionRouter.from_configs(config.connection_configs),
             email=config.email,
             syftbox_folder=config.syftbox_folder,
+            collections_folder=config.collections_folder,
         )
 
     def sync(self, peer_emails: list[str], recompute_hashes: bool = True):
@@ -148,35 +172,23 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         self, collections: list[FileCollection]
     ) -> list[FileCollection]:
         """Return collections that don't exist locally or have different content hash."""
+        from syft_client.sync.file_utils import compute_directory_hash
+
         result = []
         for collection in collections:
-            local_dataset_dir = (
-                self.syftbox_folder
-                / self.email
-                / "public"
-                / DATASETS_FOLDER_NAME
-                / collection.tag
-            )
-            local_hash = self._compute_local_dataset_hash(local_dataset_dir)
-            if local_hash != collection.content_hash:
+            # Use cached hash from event_cache first
+            cached_hash = self.event_cache.get_collection_hash(collection.tag)
+            if cached_hash is None and self.collections_folder is not None:
+                # Fallback: compute hash from local filesystem (for locally created datasets)
+                local_dataset_dir = self.collections_folder / collection.tag
+                cached_hash = compute_directory_hash(local_dataset_dir)
+                # Update cache if we computed a hash
+                if cached_hash is not None:
+                    self.event_cache.set_collection_hash(collection.tag, cached_hash)
+
+            if cached_hash != collection.content_hash:
                 result.append(collection)
         return result
-
-    def _compute_local_dataset_hash(self, dataset_dir: Path) -> str | None:
-        """Compute content hash from local dataset files on disk."""
-        from syft_client.sync.connections.drive.gdrive_transport import (
-            DatasetCollectionFolder,
-        )
-
-        if not dataset_dir.exists():
-            return None
-
-        files = {}
-        for file_path in dataset_dir.iterdir():
-            if file_path.is_file():
-                files[file_path.name] = file_path.read_bytes()
-
-        return DatasetCollectionFolder.compute_hash(files) if files else None
 
     def _download_dataset_collections_parallel(self, collections: list[FileCollection]):
         """Download all files from collections in parallel and write to disk."""
@@ -208,15 +220,15 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
 
         # Write all files to disk
         for (collection, metadata), content in zip(all_downloads, downloaded_contents):
-            local_dataset_dir = (
-                self.syftbox_folder
-                / self.email
-                / "public"
-                / DATASETS_FOLDER_NAME
-                / collection.tag
-            )
+            local_dataset_dir = self.collections_folder / collection.tag
             local_dataset_dir.mkdir(parents=True, exist_ok=True)
             (local_dataset_dir / metadata["file_name"]).write_bytes(content)
+
+        # Update cached hashes for downloaded collections
+        for collection in collections:
+            self.event_cache.set_collection_hash(
+                collection.tag, collection.content_hash
+            )
 
     def _get_file_metadatas_with_new_connection(
         self, collection: FileCollection
@@ -235,11 +247,11 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         return connection.download_dataset_file(file_id)
 
     def _is_job_path(self, path: Path) -> bool:
-        """Check if path is under app_data/job/."""
+        """Check if path is under app_data/job/. This is a hack which will be removed after permissions are implemented."""
         return "app_data/job/" in str(path)
 
     def _get_job_submitter(self, path: Path) -> str | None:
-        """Return submitted_by email for a job file. Returns None if not found."""
+        """Return submitted_by email for a job file. Returns None if not found. This is a hack which will be removed after permissions are implemented."""
         parts = path.parts
         try:
             job_idx = parts.index("job")
