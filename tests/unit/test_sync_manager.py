@@ -73,7 +73,7 @@ def test_valid_and_invalid_proposed_filechange_event():
     )
 
     hash1 = message_1.proposed_file_changes[0].new_hash
-    do_manager.proposed_file_change_handler.handle_proposed_filechange_events_message(
+    do_manager.datasite_owner_syncer.handle_proposed_filechange_events_message(
         ds_email, message_1
     )
 
@@ -88,12 +88,12 @@ def test_valid_and_invalid_proposed_filechange_event():
             )
         ],
     )
-    do_manager.proposed_file_change_handler.handle_proposed_filechange_events_message(
+    do_manager.datasite_owner_syncer.handle_proposed_filechange_events_message(
         ds_email, message_2
     )
 
     content = (
-        do_manager.proposed_file_change_handler.event_cache.file_connection.read_file(
+        do_manager.datasite_owner_syncer.event_cache.file_connection.read_file(
             path_in_datasite
         )
     )
@@ -113,12 +113,12 @@ def test_valid_and_invalid_proposed_filechange_event():
 
     # This should fail, as the event is outdated
     with pytest.raises(ProposedEventFileOutdatedException):
-        do_manager.proposed_file_change_handler.handle_proposed_filechange_events_message(
+        do_manager.datasite_owner_syncer.handle_proposed_filechange_events_message(
             ds_email, message_3_outdated
         )
 
     content = (
-        do_manager.proposed_file_change_handler.event_cache.file_connection.read_file(
+        do_manager.datasite_owner_syncer.event_cache.file_connection.read_file(
             path_in_datasite
         )
     )
@@ -133,7 +133,7 @@ def test_sync_back_to_ds_cache():
     ds_manager.sync()
     assert (
         len(
-            ds_manager.datasite_outbox_puller.datasite_watcher_cache.get_cached_events()
+            ds_manager.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
         )
         == 1
     )
@@ -158,13 +158,13 @@ def test_sync_existing_datasite_state_do():
     do_manager.sync()
 
     n_messages_in_cache = len(
-        do_manager.proposed_file_change_handler.event_cache.events_messages_connection
+        do_manager.datasite_owner_syncer.event_cache.events_messages_connection
     )
     n_files_in_cache = len(
-        do_manager.proposed_file_change_handler.event_cache.file_connection
+        do_manager.datasite_owner_syncer.event_cache.file_connection
     )
     hashes_in_cache = len(
-        do_manager.proposed_file_change_handler.event_cache.file_hashes
+        do_manager.datasite_owner_syncer.event_cache.file_hashes
     )
     assert n_messages_in_cache == 2
     assert n_files_in_cache == 2
@@ -197,13 +197,13 @@ def test_sync_existing_inbox_state_do():
     do_manager.sync()
 
     n_events_message_in_cache = len(
-        do_manager.proposed_file_change_handler.event_cache.events_messages_connection
+        do_manager.datasite_owner_syncer.event_cache.events_messages_connection
     )
     n_files_in_cache = len(
-        do_manager.proposed_file_change_handler.event_cache.file_connection
+        do_manager.datasite_owner_syncer.event_cache.file_connection
     )
     hashes_in_cache = len(
-        do_manager.proposed_file_change_handler.event_cache.file_hashes
+        do_manager.datasite_owner_syncer.event_cache.file_hashes
     )
     assert n_events_message_in_cache == 2
     assert n_files_in_cache == 2
@@ -240,7 +240,7 @@ def test_sync_existing_datasite_state_ds():
     ds_manager.sync()
 
     ds_events_in_cache = len(
-        ds_manager.datasite_outbox_puller.datasite_watcher_cache.events_connection
+        ds_manager.datasite_watcher_syncer.datasite_watcher_cache.events_connection
     )
     assert ds_events_in_cache == 2
 
@@ -278,10 +278,10 @@ def test_file_connections():
     )
 
     datasite_dir_do = (
-        do_manager.proposed_file_change_handler.event_cache.file_connection.base_dir
+        do_manager.datasite_owner_syncer.event_cache.file_connection.base_dir
     )
 
-    syftbox_dir_ds = ds_manager.datasite_outbox_puller.datasite_watcher_cache.file_connection.base_dir
+    syftbox_dir_ds = ds_manager.datasite_watcher_syncer.datasite_watcher_cache.file_connection.base_dir
 
     assert datasite_dir_do != syftbox_dir_ds
 
@@ -328,7 +328,7 @@ def test_datasets():
     assert "my dataset" in collections
 
     backing_store = (
-        do_manager.proposed_file_change_handler.connection_router.connections[
+        do_manager.datasite_owner_syncer.connection_router.connections[
             0
         ].backing_store
     )
@@ -401,7 +401,7 @@ def test_datasets_with_parquet():
     )
 
     backing_store = (
-        do_manager.proposed_file_change_handler.connection_router.connections[
+        do_manager.datasite_owner_syncer.connection_router.connections[
             0
         ].backing_store
     )
@@ -521,7 +521,7 @@ def test_dataset_only_mock_data_uploaded():
 
     # Get the backing store
     backing_store = (
-        do_manager.proposed_file_change_handler.connection_router.connections[
+        do_manager.datasite_owner_syncer.connection_router.connections[
             0
         ].backing_store
     )
@@ -572,7 +572,7 @@ with open("outputs/result.json", "w") as f:
     )
 
     backing_store = (
-        do_manager.proposed_file_change_handler.connection_router.connections[
+        do_manager.datasite_owner_syncer.connection_router.connections[
             0
         ].backing_store
     )
@@ -1282,12 +1282,12 @@ def test_file_deletion_do_to_ds():
     )
 
     # Verify hash is removed from caches
-    do_cache = do_manager.proposed_file_change_handler.event_cache
+    do_cache = do_manager.datasite_owner_syncer.event_cache
     assert result_rel_path not in do_cache.file_hashes, (
         "Hash should be removed from DO cache"
     )
 
-    ds_cache = ds_manager.datasite_outbox_puller.datasite_watcher_cache
+    ds_cache = ds_manager.datasite_watcher_syncer.datasite_watcher_cache
     expected_path = Path(do_manager.email) / result_rel_path
     assert expected_path not in ds_cache.file_hashes, (
         "Hash should be removed from DS cache"
@@ -1307,7 +1307,7 @@ def test_in_memory_deletion():
     ds_manager.send_file_change(job_path, "Hello, world!")
 
     # Verify file exists in DO cache
-    do_cache = do_manager.proposed_file_change_handler.event_cache
+    do_cache = do_manager.datasite_owner_syncer.event_cache
     assert job_path_in_datasite in [
         str(p) for p, _ in do_cache.file_connection.get_items()
     ]
@@ -1320,7 +1320,7 @@ def test_in_memory_deletion():
     ds_manager.sync()
 
     # Verify deletion propagated
-    ds_cache = ds_manager.datasite_outbox_puller.datasite_watcher_cache
+    ds_cache = ds_manager.datasite_watcher_syncer.datasite_watcher_cache
     ds_path = Path(do_manager.email) / job_path_in_datasite
     assert str(ds_path) not in [str(p) for p, _ in ds_cache.file_connection.get_items()]
 
@@ -1353,7 +1353,7 @@ def test_syft_datasets_excluded_from_outbox_sync():
     do_manager.sync()
 
     # Check which files are in the DO's event cache (i.e., what gets sent to outbox)
-    do_cache = do_manager.proposed_file_change_handler.event_cache
+    do_cache = do_manager.datasite_owner_syncer.event_cache
     cached_paths = [str(p) for p in do_cache.file_hashes.keys()]
 
     # Regular file should be in cache (will be synced)
@@ -1408,7 +1408,7 @@ def test_job_files_only_sync_to_submitter():
 
     # Process local changes with both recipients
     recipients = [submitter_email, non_submitter_email]
-    do_manager.proposed_file_change_handler.process_local_changes(recipients)
+    do_manager.datasite_owner_syncer.process_local_changes(recipients)
 
     # Check what's in the outbox folders
     backing_store = do_manager.connection_router.connections[0].backing_store

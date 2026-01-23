@@ -54,7 +54,7 @@ def test_do_cache_aware_sync_gdrive():
     do_manager1.sync()
 
     # Verify initial cache state
-    do_cache1 = do_manager1.proposed_file_change_handler.event_cache
+    do_cache1 = do_manager1.datasite_owner_syncer.event_cache
     initial_cache_count = len(do_cache1.events_messages_connection)
     initial_hash_count = len(do_cache1.file_hashes)
     assert initial_cache_count >= 3, (
@@ -84,7 +84,7 @@ def test_do_cache_aware_sync_gdrive():
     new_do_manager = SyftboxManager.from_config(new_do_config)
 
     # Verify the new manager's cache loaded existing events from disk
-    new_cache = new_do_manager.proposed_file_change_handler.event_cache
+    new_cache = new_do_manager.datasite_owner_syncer.event_cache
     assert len(new_cache.events_messages_connection) == initial_cache_count, (
         f"New manager cache should have loaded {initial_cache_count} events from disk, "
         f"got {len(new_cache.events_messages_connection)}"
@@ -139,7 +139,7 @@ def test_ds_cache_aware_sync_gdrive():
     ds_manager1.sync()
 
     # Verify initial cache state
-    ds_cache1 = ds_manager1.datasite_outbox_puller.datasite_watcher_cache
+    ds_cache1 = ds_manager1.datasite_watcher_syncer.datasite_watcher_cache
     initial_cache_count = len(ds_cache1.events_connection)
     initial_hash_count = len(ds_cache1.file_hashes)
     assert initial_cache_count >= 1, (
@@ -175,7 +175,7 @@ def test_ds_cache_aware_sync_gdrive():
     new_ds_manager = SyftboxManager.from_config(new_ds_config)
 
     # Verify the new manager's cache loaded existing events from disk
-    new_cache = new_ds_manager.datasite_outbox_puller.datasite_watcher_cache
+    new_cache = new_ds_manager.datasite_watcher_syncer.datasite_watcher_cache
     assert len(new_cache.events_connection) == initial_cache_count, (
         f"New manager cache should have loaded {initial_cache_count} events from disk, "
         f"got {len(new_cache.events_connection)}"

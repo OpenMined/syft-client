@@ -22,7 +22,7 @@ from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 
 
-class ProposedFileChangeHandlerConfig(BaseModel):
+class DatasiteOwnerSyncerConfig(BaseModel):
     email: str
     syftbox_folder: Path | None = None
     write_files: bool = True
@@ -32,7 +32,7 @@ class ProposedFileChangeHandlerConfig(BaseModel):
     connection_configs: List[ConnectionConfig] = []
 
 
-class ProposedFileChangeHandler(BaseModelCallbackMixin):
+class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     """Responsible for downloading files and checking permissions"""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
@@ -57,7 +57,7 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     _any_shared_datasets: List[tuple] = PrivateAttr(default_factory=list)
 
     @classmethod
-    def from_config(cls, config: ProposedFileChangeHandlerConfig):
+    def from_config(cls, config: DatasiteOwnerSyncerConfig):
         return cls(
             event_cache=DataSiteOwnerEventCache.from_config(config.cache_config),
             write_files=config.write_files,
