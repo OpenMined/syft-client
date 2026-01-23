@@ -9,6 +9,11 @@ import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 
+import httplib2
+from google_auth_httplib2 import AuthorizedHttp
+from google.oauth2.credentials import Credentials as GoogleCredentials
+from googleapiclient.discovery import build
+
 try:
     from .base import Monitor, NotificationSender, StateManager
 except ImportError:
@@ -22,6 +27,7 @@ if TYPE_CHECKING:
 GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
+GOOGLE_API_TIMEOUT = 120  # 2 minutes
 
 
 class JobMonitor(Monitor):
@@ -71,13 +77,13 @@ class JobMonitor(Monitor):
 
     def _create_drive_service(self):
         """Create Google Drive service (must be called from main thread)."""
-        from google.oauth2.credentials import Credentials as GoogleCredentials
-        from googleapiclient.discovery import build
-
         credentials = GoogleCredentials.from_authorized_user_file(
             str(self.drive_token_path), DRIVE_SCOPES
         )
-        return build("drive", "v3", credentials=credentials)
+        # Create Http with timeout to prevent indefinite hangs
+        http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
+        authorized_http = AuthorizedHttp(credentials, http=http)
+        return build("drive", "v3", http=authorized_http)
 
     def _find_inbox_folders(self) -> List[Tuple[str, str]]:
         """
