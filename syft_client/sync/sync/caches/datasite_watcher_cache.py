@@ -126,11 +126,8 @@ class DataSiteWatcherCache(BaseModel):
 
     def _load_dataset_hashes_from_disk(self):
         """Scan local dataset directories and compute hashes to populate dataset_collection_hashes."""
-        for owner_email, tag in self._get_local_dataset_folders():
-            collection_path = self.get_collection_path(owner_email, tag)
-            if collection_path is None:
-                continue
-            content_hash = self._compute_local_dataset_hash(owner_email, tag)
+        for collection_path in self._get_local_dataset_folders():
+            content_hash = self._compute_local_dataset_hash(collection_path)
             if content_hash:
                 self.dataset_collection_hashes[collection_path] = content_hash
 
@@ -141,7 +138,7 @@ class DataSiteWatcherCache(BaseModel):
         return self.syftbox_folder / owner_email / self.collection_subpath / tag
 
     def _get_local_dataset_folders(self):
-        """Yield (owner_email, tag) tuples for all local dataset folders."""
+        """Yield paths to all local dataset folders."""
         if self.syftbox_folder is None or not self.syftbox_folder.exists():
             return
         if self.collection_subpath is None:
@@ -155,16 +152,13 @@ class DataSiteWatcherCache(BaseModel):
                 continue
             for tag_dir in datasets_dir.iterdir():
                 if tag_dir.is_dir():
-                    yield email_dir.name, tag_dir.name
+                    yield tag_dir
 
-    def _compute_local_dataset_hash(self, owner_email: str, tag: str) -> str | None:
+    def _compute_local_dataset_hash(self, collection_path: Path) -> str | None:
         """Compute content hash from local dataset files on disk."""
         from syft_client.sync.file_utils import compute_directory_hash
 
-        dataset_dir = self.get_collection_path(owner_email, tag)
-        if dataset_dir is None:
-            return None
-        return compute_directory_hash(dataset_dir)
+        return compute_directory_hash(collection_path)
 
     def get_collection_hash(self, owner_email: str, tag: str) -> str | None:
         """Get the cached hash for a collection."""
