@@ -38,11 +38,9 @@ dependencies = [
     "click>=8.0.0",
     "python-daemon>=3.0.0",
     "syft-job",
-    "syft-dataset" # Shift back to optional-dependencies after adding lazy imports
+    "syft-dataset", # Shift back to optional-dependencies after adding lazy imports
+    "syft-notify",
 ]
-
-[project.scripts]
-syft-notify = "syft_client.notifications.cli:main"
 
 [project.optional-dependencies]
 test = [
