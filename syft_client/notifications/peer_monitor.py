@@ -53,15 +53,21 @@ class PeerMonitor(Monitor):
 
     def _create_drive_service(self):
         """Create Google Drive service (must be called from main thread)."""
+        import httplib2
+        from google_auth_httplib2 import AuthorizedHttp
         from google.oauth2.credentials import Credentials as GoogleCredentials
         from googleapiclient.discovery import build
 
         SCOPES = ["https://www.googleapis.com/auth/drive"]
+        GOOGLE_API_TIMEOUT = 120  # 2 minutes
 
         credentials = GoogleCredentials.from_authorized_user_file(
             str(self.drive_token_path), SCOPES
         )
-        return build("drive", "v3", credentials=credentials)
+        # Create Http with timeout to prevent indefinite hangs
+        http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
+        authorized_http = AuthorizedHttp(credentials, http=http)
+        return build("drive", "v3", http=authorized_http)
 
     def _load_peers_from_drive(self) -> set:
         """Load peer emails by querying Drive API directly."""

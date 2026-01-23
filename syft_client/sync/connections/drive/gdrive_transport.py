@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from typing import TYPE_CHECKING
 from googleapiclient.http import BatchHttpRequest
 from pydantic import BaseModel
+import httplib2
+from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from google.oauth2.credentials import Credentials as GoogleCredentials
@@ -38,6 +40,9 @@ if TYPE_CHECKING:
         GdriveConnectionConfig,
     )
     from syft_client.sync.version.version_info import VersionInfo
+
+# Timeout for Google API requests (in seconds)
+GOOGLE_API_TIMEOUT = 120  # 2 minutes
 
 SYFTBOX_FOLDER = "SyftBox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
@@ -170,7 +175,10 @@ class GDriveConnection(SyftboxPlatformConnection):
             # Build service without explicit credentials in Colab
             self.drive_service = build("drive", "v3")
 
-        self.drive_service = build("drive", "v3", credentials=self.credentials)
+        # Create Http with timeout to prevent indefinite hangs
+        http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
+        authorized_http = AuthorizedHttp(self.credentials, http=http)
+        self.drive_service = build("drive", "v3", http=authorized_http)
 
         self.get_personal_syftbox_folder_id()
         self._is_setup = True
@@ -961,7 +969,10 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     def download_file(self, file_id: str) -> bytes:
         # This is likely a message archive
-        drive_service = build("drive", "v3", credentials=self.credentials)
+        # Create Http with timeout to prevent indefinite hangs
+        http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
+        authorized_http = AuthorizedHttp(self.credentials, http=http)
+        drive_service = build("drive", "v3", http=authorized_http)
         request = drive_service.files().get_media(fileId=file_id)
 
         # Download to memory
