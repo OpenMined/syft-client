@@ -96,13 +96,9 @@ class DatasetCollectionFolder(BaseModel):
     @staticmethod
     def compute_hash(files: dict[str, bytes]) -> str:
         """Compute a hash from file contents."""
-        import hashlib
+        from syft_client.sync.file_utils import compute_file_hashes
 
-        hasher = hashlib.sha256()
-        for name in sorted(files.keys()):
-            hasher.update(name.encode())
-            hasher.update(files[name])
-        return hasher.hexdigest()[:12]
+        return compute_file_hashes(files)
 
 
 class GDriveConnection(SyftboxPlatformConnection):
