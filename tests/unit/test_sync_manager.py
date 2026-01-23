@@ -1450,3 +1450,186 @@ def test_job_files_only_sync_to_submitter():
     assert any("shared.txt" in p for p in non_submitter_paths), (
         "Regular files should be sent to non-submitter peers"
     )
+
+
+def test_ds_dataset_cache_aware_sync():
+    """Test that DS loads dataset hashes from disk and skips re-download on restart.
+
+    This test verifies cache-aware dataset syncing:
+    1. Create pair 1, DO creates dataset, DS syncs and downloads
+    2. Create pair 2 with same directories and backing store (simulates restart)
+    3. Verify hash is loaded from disk on startup and matches remote hash
+    4. This ensures sync_down_datasets will skip downloading (hash comparison passes)
+    """
+    # Create first pair
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+
+    do_manager.create_dataset(
+        name="cached dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="This is a cached dataset",
+        readme_path=readme_path,
+        tags=["cache", "test"],
+        users=[ds_manager.email],
+    )
+
+    # DS syncs and receives dataset
+    ds_manager.sync()
+
+    # Verify dataset was downloaded
+    assert len(ds_manager.datasets.get_all()) == 1
+    dataset = ds_manager.datasets.get("cached dataset", datasite=do_manager.email)
+    assert dataset.mock_files[0].exists()
+
+    # Get the original hash from the collection
+    collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    remote_hash = None
+    for c in collections:
+        if c["tag"] == "cached dataset":
+            remote_hash = c["content_hash"]
+            break
+    assert remote_hash is not None
+
+    # Get the backing store and directories for creating second pair
+    backing_store = ds_manager.connection_router.connections[0].backing_store
+    ds_folder = ds_manager.syftbox_folder
+    do_folder = do_manager.syftbox_folder
+    ds_email = ds_manager.email
+    do_email = do_manager.email
+
+    # Create second pair with same directories (simulates restart)
+    ds_manager2, do_manager2 = SyftboxManager.pair_with_in_memory_connection(
+        email1=do_email,
+        email2=ds_email,
+        base_path1=do_folder,
+        base_path2=ds_folder,
+        use_in_memory_cache=False,
+        add_peers=False,
+    )
+
+    # Replace backing store with the one from first pair (to share dataset collections)
+    for conn in ds_manager2.connection_router.connections:
+        conn.backing_store = backing_store
+    for conn in do_manager2.connection_router.connections:
+        conn.backing_store = backing_store
+
+    # Load peers (already approved in shared backing store)
+    ds_manager2.load_peers()
+    do_manager2.load_peers()
+
+    # Verify hash was loaded from disk on startup
+    ds_cache = ds_manager2.datasite_outbox_puller.datasite_watcher_cache
+    # Cache uses full path as key: syftbox_folder / owner_email / collection_subpath / tag
+    cache_key = ds_cache.get_collection_path(do_email, "cached dataset")
+    assert cache_key in ds_cache.dataset_collection_hashes, (
+        "Hash should be loaded from disk on startup"
+    )
+
+    # Verify the loaded hash matches the remote hash
+    # This ensures sync_down_datasets will skip the download (hash comparison at line 283-284)
+    loaded_hash = ds_cache.dataset_collection_hashes[cache_key]
+    assert loaded_hash == remote_hash, (
+        "Loaded hash should match remote hash, ensuring no re-download is needed"
+    )
+
+    # Patch the download method to verify it's NOT called (hash match should skip download)
+    from unittest.mock import patch
+
+    puller = ds_manager2.datasite_outbox_puller
+    original_method = puller.download_dataset_file_with_new_connection
+
+    with patch(
+        "syft_client.sync.sync.datasite_outbox_puller.DatasiteOutboxPuller.download_dataset_file_with_new_connection",
+        wraps=original_method,
+    ) as mock_download:
+        # Sync - no download should happen because hash matches
+        ds_manager2.sync()
+
+        # Verify download_dataset_file_with_new_connection was NOT called
+        assert mock_download.call_count == 0, (
+            "Should not download files when local hash matches remote"
+        )
+
+    # Verify dataset still accessible
+    assert len(ds_manager2.datasets.get_all()) == 1
+
+
+def test_do_dataset_cache_aware_sync():
+    """Test that DO doesn't re-download datasets on restart when hash matches.
+
+    This test verifies cache-aware dataset syncing for DO side:
+    1. Create pair 1, DO creates dataset
+    2. Create pair 2 with same directories and backing store (simulates restart)
+    3. Verify _download_dataset_collections_parallel is NOT called on sync
+    """
+    from unittest.mock import patch
+
+    # Create first pair
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+
+    do_manager.create_dataset(
+        name="do cached dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="This is a DO cached dataset",
+        readme_path=readme_path,
+        tags=["cache", "do", "test"],
+        users=[ds_manager.email],
+    )
+
+    # Verify dataset was created locally
+    assert len(do_manager.datasets.get_all()) == 1
+
+    # Get the backing store and directories for creating second pair
+    backing_store = ds_manager.connection_router.connections[0].backing_store
+    ds_folder = ds_manager.syftbox_folder
+    do_folder = do_manager.syftbox_folder
+    ds_email = ds_manager.email
+    do_email = do_manager.email
+
+    # Create second pair with same directories (simulates restart)
+    ds_manager2, do_manager2 = SyftboxManager.pair_with_in_memory_connection(
+        email1=do_email,
+        email2=ds_email,
+        base_path1=do_folder,
+        base_path2=ds_folder,
+        use_in_memory_cache=False,
+        add_peers=False,
+    )
+
+    # Replace backing store with the one from first pair (to share dataset collections)
+    for conn in ds_manager2.connection_router.connections:
+        conn.backing_store = backing_store
+    for conn in do_manager2.connection_router.connections:
+        conn.backing_store = backing_store
+
+    # Load peers (already approved in shared backing store)
+    ds_manager2.load_peers()
+    do_manager2.load_peers()
+
+    # Patch the download method to verify it's NOT called (hash match should skip download)
+    handler = do_manager2.proposed_file_change_handler
+    with patch.object(
+        handler,
+        "_download_file_with_new_connection",
+        wraps=handler._download_file_with_new_connection,
+    ) as mock_download:
+        # Sync - should NOT trigger download since local hash matches remote
+        do_manager2.sync()
+
+        # Verify _download_file_with_new_connection was NOT called
+        assert mock_download.call_count == 0, (
+            "Should not download files when local hash matches remote"
+        )
+
+    # Verify dataset still accessible
+    assert len(do_manager2.datasets.get_all()) == 1

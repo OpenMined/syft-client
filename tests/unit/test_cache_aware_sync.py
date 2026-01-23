@@ -230,10 +230,14 @@ def test_do_cache_handles_deletions_correctly():
         DataSiteOwnerEventCacheConfig,
     )
 
+    from syft_client.sync.syftbox_manager import COLLECTION_SUBPATH
+
+    collections_folder = syftbox_folder / do_manager.email / COLLECTION_SUBPATH
     config = DataSiteOwnerEventCacheConfig(
         use_in_memory_cache=False,
         syftbox_folder=syftbox_folder,
         email=do_manager.email,
+        collections_folder=collections_folder,
     )
     new_cache = DataSiteOwnerEventCache.from_config(config)
 
@@ -284,9 +288,12 @@ def test_ds_cache_handles_deletions_correctly():
         DataSiteWatcherCacheConfig,
     )
 
+    from syft_client.sync.syftbox_manager import COLLECTION_SUBPATH
+
     config = DataSiteWatcherCacheConfig(
         use_in_memory_cache=False,
         syftbox_folder=syftbox_folder,
+        collection_subpath=COLLECTION_SUBPATH,
         connection_configs=[],
     )
     new_cache = DataSiteWatcherCache.from_config(config)

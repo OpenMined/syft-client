@@ -6,7 +6,7 @@ from uuid import uuid4
 from pathlib import Path
 from syft_client.sync.utils.syftbox_utils import create_event_timestamp
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConnection
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
@@ -29,14 +29,8 @@ class DataSiteOwnerEventCacheConfig(BaseModel):
     syftbox_folder: Path | None = None
     email: str | None = None
     events_base_path: Path | None = None
-
-    @model_validator(mode="before")
-    def pre_init(cls, data):
-        if data.get("events_base_path") is None and data.get("base_path") is not None:
-            base_path = data["base_path"]
-            base_parent = base_path.parent
-            data["events_base_path"] = base_parent / "events"
-        return data
+    # Full path to collections folder - must be provided explicitly
+    collections_folder: Path | None = None
 
 
 class DataSiteOwnerEventCache(BaseModelCallbackMixin):
@@ -52,6 +46,10 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     # file path to the hash of the filecontent
     file_hashes: Dict[str, int] = {}
     email: str
+    # Full path to collections (datasets) folder
+    collections_folder: Path | None = None
+    # Cache of collection hashes: "tag" -> content_hash
+    collection_hashes: Dict[str, str] = {}
 
     @classmethod
     def from_config(cls, config: DataSiteOwnerEventCacheConfig):
@@ -60,12 +58,17 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 events_connection=InMemoryCacheFileConnection[FileChangeEvent](),
                 file_connection=InMemoryCacheFileConnection[str](),
                 email=config.email,
+                collections_folder=config.collections_folder,
             )
         else:
             if config.syftbox_folder is None:
-                raise ValueError("base_path is required for non-in-memory cache")
+                raise ValueError("syftbox_folder is required for non-in-memory cache")
             if config.email is None:
                 raise ValueError("email is required for non-in-memory cache")
+            if config.collections_folder is None:
+                raise ValueError(
+                    "collections_folder is required for non-in-memory cache"
+                )
             syftbox_folder_name = Path(config.syftbox_folder).name
             my_datasite_folder = config.syftbox_folder / config.email
             syftbox_parent = Path(config.syftbox_folder).parent
@@ -76,9 +79,15 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 ),
                 file_connection=FSFileConnection(base_dir=my_datasite_folder),
                 email=config.email,
+                collections_folder=config.collections_folder,
             )
-            cache._load_file_hashes_from_disk()
+            cache._load_cached_state()
             return cache
+
+    def _load_cached_state(self):
+        """Load cached state from disk: file hashes and collection hashes."""
+        self._load_file_hashes_from_disk()
+        self._load_collection_hashes_from_disk()
 
     def _load_file_hashes_from_disk(self) -> float | None:
         """Load existing events from disk and populate file_hashes."""
@@ -94,12 +103,41 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 else:
                     self.file_hashes[event.path_in_datasite] = event.new_hash
 
+    def _load_collection_hashes_from_disk(self):
+        """Scan local dataset directories and compute hashes to populate collection_hashes."""
+        from syft_client.sync.file_utils import compute_directory_hash
+
+        if self.collections_folder is None or not self.collections_folder.exists():
+            return
+
+        for tag_dir in self.collections_folder.iterdir():
+            if tag_dir.is_dir():
+                content_hash = compute_directory_hash(tag_dir)
+                if content_hash:
+                    self.collection_hashes[tag_dir.name] = content_hash
+
+    def get_collection_hash(self, tag: str) -> str | None:
+        """Get the cached hash for a collection."""
+        return self.collection_hashes.get(tag)
+
+    def set_collection_hash(self, tag: str, content_hash: str):
+        """Set the cached hash for a collection."""
+        self.collection_hashes[tag] = content_hash
+
     @property
     def latest_cached_timestamp(self) -> float | None:
         cached_messages = self.events_messages_connection.get_all()
         if not cached_messages:
             return None
         return max(m.timestamp for m in cached_messages)
+
+    def _is_collections_path(self, path: Path) -> bool:
+        """Check if path is under the collections folder (syft_datasets)."""
+        if self.collections_folder is None:
+            return False
+        # Use the collections folder name for a simple string check
+        collections_name = self.collections_folder.name
+        return f"/{collections_name}/" in f"/{path}/"
 
     def process_local_file_changes(self) -> FileChangeEventsMessage | None:
         new_events = []
@@ -112,7 +150,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 continue
             if ".venv" in str(path):
                 continue
-            if "syft_datasets" in str(path):
+            if self._is_collections_path(path):
                 continue
             current_files[path] = content
 
