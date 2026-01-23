@@ -90,34 +90,39 @@ class DataSiteWatcherCache(BaseModel):
             return cache
 
     def _load_cached_state(self):
-        """Load existing events from disk cache and populate last_event_timestamp_per_peer and file_hashes."""
+        """Load cached state from disk: file hashes, timestamps, and dataset hashes."""
+        self._load_file_hashes_from_events()
+        self._load_dataset_hashes_from_disk()
+
+    def _load_file_hashes_from_events(self):
+        """Load file hashes and timestamps from cached events."""
         try:
             cached_messages = self.events_connection.get_all()
         except Exception:
             cached_messages = []
 
-        if cached_messages:
-            sorted_messages = sorted(cached_messages, key=lambda m: m.timestamp)
+        if not cached_messages:
+            return
 
-            for events_message in sorted_messages:
-                for event in events_message.events:
-                    # Update last_event_timestamp_per_peer
-                    peer_email = event.datasite_email
-                    current_ts = self.last_event_timestamp_per_peer.get(peer_email)
-                    if current_ts is None or events_message.timestamp > current_ts:
-                        self.last_event_timestamp_per_peer[peer_email] = (
-                            events_message.timestamp
-                        )
+        sorted_messages = sorted(cached_messages, key=lambda m: m.timestamp)
 
-                    # Update file_hashes
-                    path_key = Path(event.path_in_syftbox)
-                    if event.is_deleted:
-                        if path_key in self.file_hashes:
-                            del self.file_hashes[path_key]
-                    else:
-                        self.file_hashes[path_key] = event.new_hash
+        for events_message in sorted_messages:
+            for event in events_message.events:
+                # Update last_event_timestamp_per_peer
+                peer_email = event.datasite_email
+                current_ts = self.last_event_timestamp_per_peer.get(peer_email)
+                if current_ts is None or events_message.timestamp > current_ts:
+                    self.last_event_timestamp_per_peer[peer_email] = (
+                        events_message.timestamp
+                    )
 
-        self._load_dataset_hashes_from_disk()
+                # Update file_hashes
+                path_key = Path(event.path_in_syftbox)
+                if event.is_deleted:
+                    if path_key in self.file_hashes:
+                        del self.file_hashes[path_key]
+                else:
+                    self.file_hashes[path_key] = event.new_hash
 
     def _load_dataset_hashes_from_disk(self):
         """Scan local dataset directories and compute hashes to populate dataset_collection_hashes."""
