@@ -170,11 +170,11 @@ class GDriveConnection(SyftboxPlatformConnection):
             colab_auth.authenticate_user()
             # Build service without explicit credentials in Colab
             self.drive_service = build("drive", "v3")
-
-        # Create Http with timeout to prevent indefinite hangs
-        http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
-        authorized_http = AuthorizedHttp(self.credentials, http=http)
-        self.drive_service = build("drive", "v3", http=authorized_http)
+        else:
+            # Create Http with timeout to prevent indefinite hangs
+            http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
+            authorized_http = AuthorizedHttp(self.credentials, http=http)
+            self.drive_service = build("drive", "v3", http=authorized_http)
 
         self.get_personal_syftbox_folder_id()
         self._is_setup = True
