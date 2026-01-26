@@ -40,6 +40,7 @@ dependencies = [
     "syft-job",
     "syft-dataset", # Shift back to optional-dependencies after adding lazy imports
     "syft-notify",
+    "syft-approve",
 ]
 
 [project.optional-dependencies]
@@ -74,6 +75,7 @@ members = ["packages/*"]
 "syft-notebook-ui" = { workspace = true }
 "syft-dataset" = { workspace = true }
 "syft-notify" = { workspace = true }
+"syft-approve" = { workspace = true }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"
