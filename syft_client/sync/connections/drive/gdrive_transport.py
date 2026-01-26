@@ -887,18 +887,21 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
 
     def delete_multiple_files_by_ids(
-        self, file_ids: List[str], ignore_permissions_errors: bool = True
+        self,
+        file_ids: List[str],
+        ignore_permissions_errors: bool = True,
+        ignore_file_not_found: bool = True,
     ):
         def callback(request_id, response, exception):
             if exception:
-                # insufficientFilePermissions is a common error when deleting files that may already beed removed
-                # I think (!)
-                if ignore_permissions_errors and "insufficientFilePermissions" in str(
-                    exception
-                ):
+                exception_str = str(exception)
+                # insufficientFilePermissions is a common error when deleting files that may already be removed
+                if ignore_permissions_errors and "insufficientFilePermissions" in exception_str:
                     return
-                else:
-                    raise exception
+                # 404 errors occur when files are already deleted
+                if ignore_file_not_found and ("404" in exception_str or "notFound" in exception_str):
+                    return
+                raise exception
             if (
                 not isinstance(response, str)
                 and response.get("status")
