@@ -896,10 +896,15 @@ class GDriveConnection(SyftboxPlatformConnection):
             if exception:
                 exception_str = str(exception)
                 # insufficientFilePermissions is a common error when deleting files that may already be removed
-                if ignore_permissions_errors and "insufficientFilePermissions" in exception_str:
+                if (
+                    ignore_permissions_errors
+                    and "insufficientFilePermissions" in exception_str
+                ):
                     return
                 # 404 errors occur when files are already deleted
-                if ignore_file_not_found and ("404" in exception_str or "notFound" in exception_str):
+                if ignore_file_not_found and (
+                    "404" in exception_str or "notFound" in exception_str
+                ):
                     return
                 raise exception
             if (
