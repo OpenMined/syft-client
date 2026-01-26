@@ -8,10 +8,9 @@ with the main client.
 from pathlib import Path
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
-import httplib2
-from google_auth_httplib2 import AuthorizedHttp
 from google.oauth2.credentials import Credentials as GoogleCredentials
-from googleapiclient.discovery import build
+
+from syft_client.sync.connections.drive.gdrive_transport import build_drive_service
 
 try:
     from .base import Monitor, NotificationSender, StateManager
@@ -23,7 +22,6 @@ if TYPE_CHECKING:
 
 # Google Drive constants
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
-GOOGLE_API_TIMEOUT = 120  # 2 minutes
 
 
 class PeerMonitor(Monitor):
@@ -65,10 +63,7 @@ class PeerMonitor(Monitor):
         credentials = GoogleCredentials.from_authorized_user_file(
             str(self.drive_token_path), DRIVE_SCOPES
         )
-        # Create Http with timeout to prevent indefinite hangs
-        http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
-        authorized_http = AuthorizedHttp(credentials, http=http)
-        return build("drive", "v3", http=authorized_http)
+        return build_drive_service(credentials)
 
     def _load_peers_from_drive(self) -> set:
         """Load peer emails by querying Drive API directly."""

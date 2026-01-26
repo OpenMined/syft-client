@@ -48,6 +48,17 @@ SYFTBOX_FOLDER = "SyftBox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 GDRIVE_TRANSPORT_NAME = "gdrive_files"
+
+
+def build_drive_service(
+    credentials: GoogleCredentials, timeout: int = GOOGLE_API_TIMEOUT
+):
+    """Build a Google Drive service with timeout-enabled authorized HTTP."""
+    http = httplib2.Http(timeout=timeout)
+    authorized_http = AuthorizedHttp(credentials, http=http)
+    return build("drive", "v3", http=authorized_http)
+
+
 GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
 SYFT_PEERS_FILE = "SYFT_peers.json"
 SYFT_VERSION_FILE = "SYFT_version.json"
@@ -171,10 +182,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             # Build service without explicit credentials in Colab
             self.drive_service = build("drive", "v3")
 
-        # Create Http with timeout to prevent indefinite hangs
-        http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
-        authorized_http = AuthorizedHttp(self.credentials, http=http)
-        self.drive_service = build("drive", "v3", http=authorized_http)
+        self.drive_service = build_drive_service(self.credentials)
 
         self.get_personal_syftbox_folder_id()
         self._is_setup = True
@@ -965,10 +973,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     def download_file(self, file_id: str) -> bytes:
         # This is likely a message archive
-        # Create Http with timeout to prevent indefinite hangs
-        http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
-        authorized_http = AuthorizedHttp(self.credentials, http=http)
-        drive_service = build("drive", "v3", http=authorized_http)
+        drive_service = build_drive_service(self.credentials)
         request = drive_service.files().get_media(fileId=file_id)
 
         # Download to memory
