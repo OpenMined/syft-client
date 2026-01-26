@@ -8,6 +8,7 @@ dependencies = [
     "click>=8.0.0",
     "python-daemon>=3.0.0",
     "pyyaml>=6.0",
+    "syft-job",
 ]
 
 [project.scripts]
