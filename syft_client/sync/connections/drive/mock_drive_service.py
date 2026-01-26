@@ -275,19 +275,47 @@ def _check_file_access(
     return False
 
 
-class MockHttpResponse:
-    """Mock HTTP response for MediaIoBaseDownload compatibility."""
+class MockHttpResponse(dict):
+    """Mock HTTP response for MediaIoBaseDownload compatibility.
+
+    This class mimics httplib2.Response which inherits from dict.
+    """
 
     def __init__(self, content: bytes):
+        super().__init__()
         self._content = content
-        self._position = 0
+        self._content_length = len(content)
         self.status = 200
+        # Set the headers that MediaIoBaseDownload expects
+        if self._content_length == 0:
+            self["content-range"] = "bytes 0-0/0"
+        else:
+            self["content-range"] = (
+                f"bytes 0-{self._content_length - 1}/{self._content_length}"
+            )
+        self["status"] = "200"
 
-    def headers(self) -> Dict[str, str]:
-        """Return headers dict for MediaIoBaseDownload."""
-        return {
-            "content-range": f"bytes 0-{len(self._content) - 1}/{len(self._content)}"
-        }
+
+class MockHttp:
+    """Mock HTTP client for MediaIoBaseDownload compatibility.
+
+    MediaIoBaseDownload uses request.http.request() to download content.
+    This class provides that interface.
+    """
+
+    def __init__(self, backing_store: "MockDriveBackingStore", file_id: str):
+        self._backing_store = backing_store
+        self._file_id = file_id
+
+    def request(
+        self, uri: str, method: str = "GET", **kwargs
+    ) -> tuple[MockHttpResponse, bytes]:
+        """Simulate an HTTP request that returns file content."""
+        file = self._backing_store.get_file(self._file_id)
+        if file is None:
+            raise Exception(f"File not found: {self._file_id}")
+
+        return (MockHttpResponse(file.content), file.content)
 
 
 class MockListRequest:
@@ -520,6 +548,7 @@ class MockGetMediaRequest:
     """Mock request for files().get_media().
 
     This class is designed to work with MediaIoBaseDownload.
+    MediaIoBaseDownload checks for request.http and uses it to download content.
     """
 
     def __init__(
@@ -533,6 +562,10 @@ class MockGetMediaRequest:
         self._file_id = fileId
         self._content: bytes | None = None
         self.uri = f"https://mock-drive.googleapis.com/files/{fileId}"
+        # Provide http attribute for MediaIoBaseDownload compatibility
+        self.http = MockHttp(backing_store, fileId)
+        # MediaIoBaseDownload iterates over request.headers.items()
+        self.headers: Dict[str, str] = {}
 
     def execute(self) -> bytes:
         """Execute the get_media request (direct download)."""
@@ -541,23 +574,6 @@ class MockGetMediaRequest:
             raise Exception(f"File not found: {self._file_id}")
         self._content = file.content
         return file.content
-
-    def next_chunk(self, http=None, num_retries=0):
-        """For MediaIoBaseDownload compatibility."""
-        if self._content is None:
-            file = self._backing_store.get_file(self._file_id)
-            if file is None:
-                raise Exception(f"File not found: {self._file_id}")
-            self._content = file.content
-
-        class MediaDownloadProgress:
-            def __init__(inner_self, progress):
-                inner_self._progress = progress
-
-            def progress(inner_self):
-                return inner_self._progress
-
-        return (MockHttpResponse(self._content), True)
 
 
 class MockPermissionCreateRequest:
