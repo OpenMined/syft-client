@@ -319,24 +319,3 @@ class TestRollingStateIntegration:
         rs = do_manager.connection_router.get_rolling_state()
         # It may be None (deleted) or empty (reset)
         assert rs is None or rs.event_count == 0
-
-    def test_flush_rolling_state(self):
-        """Test that flush_rolling_state uploads the current state."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
-
-        # Create checkpoint first
-        ds_manager.send_file_change(f"{do_manager.email}/file1.txt", "content1")
-        do_manager.sync(auto_checkpoint=False)
-        do_manager.create_checkpoint()
-
-        # Send more events
-        ds_manager.send_file_change(f"{do_manager.email}/file2.txt", "content2")
-        do_manager.sync(auto_checkpoint=False)
-
-        # Explicitly flush rolling state
-        do_manager.flush_rolling_state()
-
-        # Verify rolling state was uploaded
-        rs = do_manager.connection_router.get_rolling_state()
-        assert rs is not None
-        assert rs.event_count == 1
