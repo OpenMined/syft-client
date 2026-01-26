@@ -35,6 +35,11 @@ from syft_client.sync.job_file_change_handler import JobFileChangeHandler
 from syft_client.sync.connections.connection_router import ConnectionRouter
 
 from syft_client.sync.connections.drive.grdrive_config import GdriveConnectionConfig
+from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
+from syft_client.sync.connections.drive.mock_drive_service import (
+    MockDriveBackingStore,
+    MockDriveService,
+)
 from syft_client.sync.connections.inmemory_connection import (
     InMemoryPlatformConnection,
 )
@@ -643,6 +648,114 @@ class SyftboxManager(BaseModel):
             # DS creates peer request
             ds_manager.add_peer(do_manager.email)
             # DO approves the peer request automatically (for backward compatibility)
+            do_manager.load_peers()
+            do_manager.approve_peer_request(ds_manager.email)
+
+        return ds_manager, do_manager
+
+    @classmethod
+    def pair_with_mock_drive_service_connection(
+        cls,
+        email1: str | None = None,
+        email2: str | None = None,
+        base_path1: str | None = None,
+        base_path2: str | None = None,
+        sync_automatically: bool = True,
+        add_peers: bool = True,
+        use_in_memory_cache: bool = True,
+        check_versions: bool = False,
+    ):
+        """Create a pair of managers using mock Google Drive services for testing.
+
+        This creates managers that use the actual GDriveConnection code but with
+        mock services instead of real Google Drive API calls. This allows testing
+        the full GDrive code path without network calls.
+
+        Args:
+            email1: Email for the DO manager (defaults to random)
+            email2: Email for the DS manager (defaults to random)
+            base_path1: Base path for DO manager (defaults to temp dir)
+            base_path2: Base path for DS manager (defaults to temp dir)
+            sync_automatically: Whether to sync when DS sends changes
+            add_peers: Whether to automatically add and approve peers
+            use_in_memory_cache: Whether to use in-memory caches
+            check_versions: Whether to check protocol/client versions
+
+        Returns:
+            Tuple of (ds_manager, do_manager)
+        """
+        # Create configs using the existing base config generator
+        do_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
+            email=email1,
+            syftbox_folder=base_path1,
+            only_ds=False,
+            only_datasite_owner=True,
+            use_in_memory_cache=use_in_memory_cache,
+            check_versions=check_versions,
+        )
+
+        ds_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
+            email=email2,
+            syftbox_folder=base_path2,
+            only_ds=True,
+            only_datasite_owner=False,
+            use_in_memory_cache=use_in_memory_cache,
+            check_versions=check_versions,
+        )
+
+        # Create managers from configs
+        do_manager = cls.from_config(do_config)
+        ds_manager = cls.from_config(ds_config)
+
+        # Create shared backing store for mock services
+        shared_backing_store = MockDriveBackingStore()
+
+        # Create mock services (share same backing store, different current_user)
+        do_mock_service = MockDriveService(shared_backing_store, do_manager.email)
+        ds_mock_service = MockDriveService(shared_backing_store, ds_manager.email)
+
+        # Create GDriveConnection instances with mock services
+        do_connection = GDriveConnection.from_mock_service(
+            do_manager.email, do_mock_service
+        )
+        ds_connection = GDriveConnection.from_mock_service(
+            ds_manager.email, ds_mock_service
+        )
+
+        # Add connections to managers
+        # For DO: add connection to datasite_owner_syncer and version_manager
+        do_manager.datasite_owner_syncer.connection_router.add_connection(do_connection)
+        do_manager.version_manager.connection_router.add_connection(do_connection)
+
+        # For DS: add connection to datasite_watcher_syncer and version_manager
+        ds_manager.datasite_watcher_syncer.connection_router.add_connection(
+            ds_connection
+        )
+        ds_manager.datasite_watcher_syncer.datasite_watcher_cache.connection_router.add_connection(
+            ds_connection
+        )
+        ds_manager.version_manager.connection_router.add_connection(ds_connection)
+
+        # Set up callbacks for DS -> DO communication
+        ds_manager.file_writer.add_callback(
+            "write_file",
+            ds_manager.datasite_watcher_syncer.on_file_change,
+        )
+
+        # Set up callback for DO job handling
+        do_manager.datasite_owner_syncer.event_cache.add_callback(
+            "on_event_local_write",
+            do_manager.job_file_change_handler._handle_file_change,
+        )
+
+        # Write version files
+        ds_manager.version_manager.write_own_version()
+        do_manager.version_manager.write_own_version()
+
+        if add_peers:
+            # DS creates peer request
+            ds_manager.add_peer(do_manager.email)
+            # DO approves the peer request
             do_manager.load_peers()
             do_manager.approve_peer_request(ds_manager.email)
 

@@ -46,6 +46,10 @@ class ConnectionRouter(BaseModel):
         self, connection: SyftboxPlatformConnection
     ) -> SyftboxPlatformConnection:
         if isinstance(connection, GDriveConnection):
+            # Check if using mock service (no credentials and no token_path)
+            if connection.credentials is None and connection.token_path is None:
+                # Return the same connection for mock services (no need to copy)
+                return connection
             return GDriveConnection.from_token_path(
                 connection.email, connection.token_path
             )

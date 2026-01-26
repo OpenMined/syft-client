@@ -171,8 +171,40 @@ class GDriveConnection(SyftboxPlatformConnection):
         res.setup(credentials=credentials)
         return res
 
-    def setup(self, credentials: GoogleCredentials | None = None):
-        """Setup Drive transport with OAuth2 credentials or Colab auth"""
+    @classmethod
+    def from_mock_service(cls, email: str, mock_service: Any) -> "GDriveConnection":
+        """Create a GDriveConnection using a mock drive service for testing.
+
+        Args:
+            email: Email of the user
+            mock_service: MockDriveService instance to use instead of real API
+
+        Returns:
+            GDriveConnection configured with the mock service
+        """
+        res = cls(email=email, token_path=None)
+        res.setup(mock_service=mock_service)
+        return res
+
+    def setup(
+        self,
+        credentials: GoogleCredentials | None = None,
+        mock_service: Any = None,
+    ):
+        """Setup Drive transport with OAuth2 credentials, Colab auth, or mock service.
+
+        Args:
+            credentials: OAuth2 credentials for real API access
+            mock_service: MockDriveService instance for testing (takes precedence)
+        """
+        # Use mock service if provided (for testing)
+        if mock_service is not None:
+            self.drive_service = mock_service
+            self.credentials = None
+            self.get_personal_syftbox_folder_id()
+            self._is_setup = True
+            return
+
         # Check if we're in Colab and can use automatic auth
         self.credentials = credentials
         if self.environment == Environment.COLAB:
@@ -980,11 +1012,21 @@ class GDriveConnection(SyftboxPlatformConnection):
         return items[0]["id"] if items else None
 
     def download_file(self, file_id: str) -> bytes:
-        # This is likely a message archive
-        drive_service = build_drive_service(self.credentials)
+        # Use existing drive_service when available (including mock services)
+        # Only create new service with credentials if drive_service not set
+        if self.drive_service is not None:
+            drive_service = self.drive_service
+        else:
+            drive_service = build_drive_service(self.credentials)
+
         request = drive_service.files().get_media(fileId=file_id)
 
-        # Download to memory
+        # For mock services, directly call execute() to get content
+        # (Mock doesn't support MediaIoBaseDownload's HTTP streaming)
+        if self.credentials is None and self.drive_service is not None:
+            return request.execute()
+
+        # Download to memory using MediaIoBaseDownload for real API
         file_buffer = io.BytesIO()
         downloader = MediaIoBaseDownload(
             file_buffer, request, chunksize=1024 * 1024 * 10
