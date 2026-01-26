@@ -8,6 +8,7 @@ from syft_approve.core.config import (
 from syft_approve.handlers import JobApprovalHandler, PeerApprovalHandler
 from syft_approve.monitors import JobMonitor, PeerMonitor
 from syft_approve.orchestrator import ApprovalOrchestrator
+from syft_approve.state import JsonStateManager
 
 __all__ = [
     "ApproveConfig",
@@ -18,4 +19,5 @@ __all__ = [
     "JobMonitor",
     "PeerMonitor",
     "ApprovalOrchestrator",
+    "JsonStateManager",
 ]
