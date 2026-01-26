@@ -1,5 +1,6 @@
 """Google Drive Files transport layer implementation"""
 
+import logging
 import io
 import json
 from pathlib import Path
@@ -49,6 +50,8 @@ GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 GDRIVE_TRANSPORT_NAME = "gdrive_files"
 
+logging.getLogger("google_auth_httplib2").setLevel(logging.ERROR)
+
 
 def build_drive_service(
     credentials: GoogleCredentials,
@@ -59,10 +62,13 @@ def build_drive_service(
     http = httplib2.Http(timeout=timeout)
     if environment == Environment.COLAB:
         from google.colab import auth as colab_auth
+        import google.auth
 
         colab_auth.authenticate_user()
+        creds, _ = google.auth.default()
+        authed_http = AuthorizedHttp(creds, http=http)
         # Build service without explicit credentials in Colab
-        return build("drive", "v3", http=http)
+        return build("drive", "v3", http=authed_http)
     else:
         authorized_http = AuthorizedHttp(credentials, http=http)
         return build("drive", "v3", http=authorized_http)
