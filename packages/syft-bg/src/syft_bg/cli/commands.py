@@ -30,8 +30,8 @@ def get_status_text(status: ServiceStatus) -> str:
 def main(ctx):
     """SyftBox Background Services Manager."""
     if ctx.invoked_subcommand is None:
-        # Default to status if no command given
-        ctx.invoke(status)
+        # Default to TUI dashboard if no command given
+        ctx.invoke(tui)
 
 
 @main.command()
@@ -192,6 +192,21 @@ def init():
     from syft_bg.cli.init_flow import run_init_flow
 
     run_init_flow()
+
+
+@main.command()
+def tui():
+    """Launch interactive TUI dashboard."""
+    from syft_bg.tui import SyftBgApp
+
+    app = SyftBgApp()
+    result = app.run()
+
+    # Handle special exit codes
+    if result == 2:
+        from syft_bg.cli.init_flow import run_init_flow
+
+        run_init_flow()
 
 
 if __name__ == "__main__":
