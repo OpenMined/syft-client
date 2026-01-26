@@ -33,7 +33,7 @@ class JobApprovalHandler:
 
     def _get_approved_peers(self) -> list[str]:
         self.client.load_peers()
-        return [p.email for p in self.client._approved_peers]
+        return [p.email for p in self.client.version_manager.approved_peers]
 
     def check_and_approve(self) -> list[JobInfo]:
         if not self.config.enabled:
