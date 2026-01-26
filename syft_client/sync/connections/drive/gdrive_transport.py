@@ -36,6 +36,10 @@ from syft_client.sync.checkpoints.checkpoint import (
     Checkpoint,
     CHECKPOINT_FILENAME_PREFIX,
 )
+from syft_client.sync.checkpoints.rolling_state import (
+    RollingState,
+    ROLLING_STATE_FILENAME_PREFIX,
+)
 
 if TYPE_CHECKING:
     from syft_client.sync.connections.drive.grdrive_config import (
@@ -1501,3 +1505,135 @@ class GDriveConnection(SyftboxPlatformConnection):
                 continue
 
         return result
+
+    # =========================================================================
+    # ROLLING STATE METHODS
+    # =========================================================================
+
+    def _get_rolling_state_folder_name(self) -> str:
+        """Get the rolling state folder name: {email}-rolling-state"""
+        return f"{self.email}-rolling-state"
+
+    def _get_rolling_state_folder_id(self) -> str | None:
+        """Find the rolling state folder ID from Google Drive."""
+        folder_name = self._get_rolling_state_folder_name()
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        query = (
+            f"name='{folder_name}' and mimeType='{GOOGLE_FOLDER_MIME_TYPE}' "
+            f"and '{syftbox_folder_id}' in parents and trashed=false"
+        )
+        results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+        items = results.get("files", [])
+        return items[0]["id"] if items else None
+
+    def _get_or_create_rolling_state_folder_id(self) -> str:
+        """Get or create the rolling state folder."""
+        folder_id = self._get_rolling_state_folder_id()
+        if folder_id is not None:
+            return folder_id
+        # Create the folder
+        folder_name = self._get_rolling_state_folder_name()
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        return self.create_folder(folder_name, syftbox_folder_id)
+
+    def upload_rolling_state(self, rolling_state: RollingState) -> str:
+        """
+        Upload rolling state to Google Drive.
+
+        Overwrites any existing rolling state (keeps only one file).
+
+        Args:
+            rolling_state: The RollingState object to upload.
+
+        Returns:
+            The Google Drive file ID of the uploaded rolling state.
+        """
+        # Delete existing rolling state first
+        self.delete_rolling_state()
+
+        # Get or create rolling state folder
+        folder_id = self._get_or_create_rolling_state_folder_id()
+
+        # Compress and upload
+        compressed_data = rolling_state.as_compressed_data()
+        payload, _ = self.create_file_payload(compressed_data)
+
+        file_metadata = {
+            "name": rolling_state.filename,
+            "parents": [folder_id],
+        }
+
+        result = (
+            self.drive_service.files()
+            .create(body=file_metadata, media_body=payload, fields="id")
+            .execute()
+        )
+        return result.get("id")
+
+    def get_rolling_state(self) -> RollingState | None:
+        """
+        Download the rolling state from Google Drive.
+
+        Returns:
+            The RollingState object, or None if no rolling state exists.
+        """
+        folder_id = self._get_rolling_state_folder_id()
+        if folder_id is None:
+            return None
+
+        # List rolling state files
+        query = (
+            f"'{folder_id}' in parents and trashed=false "
+            f"and name contains '{ROLLING_STATE_FILENAME_PREFIX}'"
+        )
+        results = (
+            self.drive_service.files().list(q=query, fields="files(id, name)").execute()
+        )
+        items = results.get("files", [])
+
+        if not items:
+            return None
+
+        # Find the latest rolling state by timestamp in filename
+        latest_file = None
+        latest_timestamp = -1.0
+
+        for item in items:
+            timestamp = RollingState.filename_to_timestamp(item["name"])
+            if timestamp is not None and timestamp > latest_timestamp:
+                latest_timestamp = timestamp
+                latest_file = item
+
+        if latest_file is None:
+            return None
+
+        # Download the rolling state
+        try:
+            file_data = self.download_file(latest_file["id"])
+            return RollingState.from_compressed_data(file_data)
+        except Exception as e:
+            print(f"Warning: Failed to load rolling state: {e}")
+            return None
+
+    def delete_rolling_state(self) -> None:
+        """Delete all existing rolling state files."""
+        folder_id = self._get_rolling_state_folder_id()
+        if folder_id is None:
+            return
+
+        # List all rolling state files
+        query = (
+            f"'{folder_id}' in parents and trashed=false "
+            f"and name contains '{ROLLING_STATE_FILENAME_PREFIX}'"
+        )
+        results = (
+            self.drive_service.files().list(q=query, fields="files(id, name)").execute()
+        )
+        items = results.get("files", [])
+
+        # Delete each rolling state file
+        for item in items:
+            try:
+                self.drive_service.files().delete(fileId=item["id"]).execute()
+            except Exception as e:
+                print(f"Warning: Failed to delete rolling state {item['name']}: {e}")

@@ -17,6 +17,7 @@ from syft_datasets.dataset_manager import SHARE_WITH_ANY
 if TYPE_CHECKING:
     from syft_client.sync.version.version_info import VersionInfo
 from syft_client.sync.checkpoints.checkpoint import Checkpoint
+from syft_client.sync.checkpoints.rolling_state import RollingState
 
 
 class InMemoryPlatformConnectionConfig(ConnectionConfig):
@@ -77,6 +78,9 @@ class InMemoryBackingPlatform(BaseModel):
 
     # Checkpoint storage
     checkpoints: List[Checkpoint] = Field(default_factory=lambda: [])
+
+    # Rolling state storage
+    rolling_states: List[RollingState] = Field(default_factory=lambda: [])
 
     def get_or_create_outbox_folder(
         self, owner_email: str, recipient_email: str
@@ -577,4 +581,39 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             msg
             for msg in self.backing_store.syftbox_events_message_log
             if msg.timestamp > since_timestamp
+        ]
+
+    # =========================================================================
+    # ROLLING STATE METHODS
+    # =========================================================================
+
+    def upload_rolling_state(self, rolling_state: RollingState) -> str:
+        """
+        Upload rolling state to in-memory storage.
+
+        Removes any existing rolling state for this email first (keeps only one).
+        """
+        # Remove existing rolling states for this email
+        self.backing_store.rolling_states = [
+            rs
+            for rs in self.backing_store.rolling_states
+            if rs.email != rolling_state.email
+        ]
+        # Add new rolling state
+        self.backing_store.rolling_states.append(rolling_state)
+        return rolling_state.filename
+
+    def get_rolling_state(self) -> RollingState | None:
+        """Get the rolling state for this email from in-memory storage."""
+        for rs in self.backing_store.rolling_states:
+            if rs.email == self.owner_email:
+                return rs
+        return None
+
+    def delete_rolling_state(self) -> None:
+        """Delete all rolling states for this email."""
+        self.backing_store.rolling_states = [
+            rs
+            for rs in self.backing_store.rolling_states
+            if rs.email != self.owner_email
         ]

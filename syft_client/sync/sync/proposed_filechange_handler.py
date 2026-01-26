@@ -21,9 +21,13 @@ from syft_client.sync.sync.caches.datasite_owner_cache import DataSiteOwnerEvent
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.checkpoints.checkpoint import Checkpoint
+from syft_client.sync.checkpoints.rolling_state import RollingState
 
 # Default threshold for auto-checkpoint creation
 DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50
+
+# Default: upload rolling state to GDrive after this many events
+DEFAULT_ROLLING_STATE_UPLOAD_THRESHOLD = 1
 
 
 class ProposedFileChangeHandlerConfig(BaseModel):
@@ -59,6 +63,11 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
     )
     # Cache of datasets shared with "any" - list of (tag, content_hash) tuples
     _any_shared_datasets: List[tuple] = PrivateAttr(default_factory=list)
+
+    # In-memory rolling state for tracking events since last checkpoint
+    _rolling_state: RollingState | None = PrivateAttr(default=None)
+    # Counter for events since last rolling state upload
+    _events_since_rolling_state_upload: int = PrivateAttr(default=0)
 
     @classmethod
     def from_config(cls, config: ProposedFileChangeHandlerConfig):
@@ -110,13 +119,15 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         """
         Pull initial state from Google Drive.
 
-        Uses checkpoint if available for faster sync:
-        1. Check for checkpoint
-        2. If checkpoint exists: restore from checkpoint + download only newer events
-        3. If no checkpoint: download all events (fallback)
+        Uses checkpoint + rolling state for fastest sync:
+        1. Download checkpoint (if exists)
+        2. Download rolling state (if exists and matches checkpoint)
+        3. Apply both to restore complete state
+        4. Download only events newer than rolling state (usually 0-few)
         """
         # Try to use checkpoint for faster sync
         checkpoint = self.connection_router.get_latest_checkpoint()
+        rolling_state = self.connection_router.get_rolling_state()
 
         # Get latest cached timestamp to only download new events
         since_timestamp = self.event_cache.latest_cached_timestamp
@@ -126,16 +137,52 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
             print(f"Found checkpoint with {len(checkpoint.files)} files, restoring...")
             self.event_cache.apply_checkpoint(checkpoint, write_files=self.write_files)
 
-            # Download only events after checkpoint
-            if checkpoint.last_event_timestamp is not None:
+            # Initialize in-memory rolling state
+            base_timestamp = checkpoint.last_event_timestamp or checkpoint.timestamp
+            self._rolling_state = RollingState(
+                email=self.email,
+                base_checkpoint_timestamp=base_timestamp,
+            )
+
+            # Determine the timestamp to sync from
+            events_since_timestamp = checkpoint.last_event_timestamp
+
+            # Check if rolling state matches this checkpoint
+            if rolling_state is not None:
+                if rolling_state.base_checkpoint_timestamp == base_timestamp:
+                    # Rolling state is valid - apply it
+                    print(
+                        f"Found rolling state with {rolling_state.event_count} events, "
+                        "applying..."
+                    )
+                    self._apply_rolling_state_to_cache(rolling_state)
+                    self._rolling_state = rolling_state
+
+                    # Only need events AFTER the rolling state
+                    if rolling_state.last_event_timestamp is not None:
+                        events_since_timestamp = rolling_state.last_event_timestamp
+                else:
+                    # Rolling state is stale (different checkpoint) - ignore it
+                    print("Rolling state is stale, ignoring...")
+
+            # Download any remaining events since checkpoint/rolling state
+            if events_since_timestamp is not None:
                 events_messages = (
                     self.connection_router.get_events_messages_since_timestamp(
-                        checkpoint.last_event_timestamp
+                        events_since_timestamp
                     )
                 )
-                print(f"Downloading {len(events_messages)} events since checkpoint...")
-                for events_message in events_messages:
-                    self.event_cache.add_events_message_to_local_cache(events_message)
+                if events_messages:
+                    print(
+                        f"Downloading {len(events_messages)} events since "
+                        "checkpoint/rolling state..."
+                    )
+                    for events_message in events_messages:
+                        self.event_cache.add_events_message_to_local_cache(
+                            events_message
+                        )
+                        # Add to rolling state for future syncs
+                        self._add_events_to_rolling_state(events_message)
         else:
             # No checkpoint - download all events (fallback)
             print("No checkpoint found, downloading all events...")
@@ -337,10 +384,13 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         accepted_events_message = self.event_cache.process_proposed_events_message(
             proposed_events_message
         )
-        self.queue_event_for_syftbox(
-            recipients=[sender_email],
-            file_change_events_message=accepted_events_message,
-        )
+        if accepted_events_message is not None:
+            self.queue_event_for_syftbox(
+                recipients=[sender_email],
+                file_change_events_message=accepted_events_message,
+            )
+            # Add to rolling state after processing
+            self._add_events_to_rolling_state(accepted_events_message)
 
     def queue_event_for_syftbox(
         self, recipients: list[str], file_change_events_message: FileChangeEventsMessage
@@ -368,12 +418,68 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
             raise NotImplementedError("Writing files to filesystem is not implemented")
 
     # =========================================================================
+    # ROLLING STATE METHODS
+    # =========================================================================
+
+    def _apply_rolling_state_to_cache(self, rolling_state: RollingState) -> None:
+        """Apply events from rolling state to the cache."""
+        for event in rolling_state.events:
+            if event.is_deleted:
+                if event.path_in_datasite in self.event_cache.file_hashes:
+                    del self.event_cache.file_hashes[event.path_in_datasite]
+                if self.write_files:
+                    self.event_cache.file_connection.delete_file(
+                        str(event.path_in_datasite)
+                    )
+            else:
+                self.event_cache.file_hashes[event.path_in_datasite] = event.new_hash
+                if self.write_files:
+                    self.event_cache.file_connection.write_file(
+                        str(event.path_in_datasite), event.content
+                    )
+
+    def _add_events_to_rolling_state(
+        self,
+        events_message: FileChangeEventsMessage,
+        upload_threshold: int = DEFAULT_ROLLING_STATE_UPLOAD_THRESHOLD,
+    ) -> None:
+        """
+        Add events to the in-memory rolling state and upload if threshold is reached.
+
+        Args:
+            events_message: The events to add.
+            upload_threshold: Upload to GDrive after this many events added.
+        """
+        if self._rolling_state is None:
+            return
+
+        self._rolling_state.add_events_message(events_message)
+        self._events_since_rolling_state_upload += len(events_message.events)
+
+        # Upload if threshold reached
+        if self._events_since_rolling_state_upload >= upload_threshold:
+            self._upload_rolling_state()
+
+    def _upload_rolling_state(self) -> None:
+        """Upload the in-memory rolling state to GDrive."""
+        if self._rolling_state is None or self._rolling_state.event_count == 0:
+            return
+
+        print(
+            f"Uploading rolling state with {self._rolling_state.event_count} events..."
+        )
+        self.connection_router.upload_rolling_state(self._rolling_state)
+        self._events_since_rolling_state_upload = 0
+
+    # =========================================================================
     # CHECKPOINT METHODS
     # =========================================================================
 
     def create_checkpoint(self) -> Checkpoint:
         """
         Create a checkpoint from current state and upload to Google Drive.
+
+        Also deletes the rolling state and resets in-memory tracking.
 
         Returns:
             The created Checkpoint object.
@@ -389,7 +495,17 @@ class ProposedFileChangeHandler(BaseModelCallbackMixin):
         # Upload to Google Drive
         print(f"Creating checkpoint with {len(checkpoint.files)} files...")
         self.connection_router.upload_checkpoint(checkpoint)
-        print("Checkpoint uploaded successfully!")
+
+        # Delete rolling state from GDrive and reset in-memory state
+        self.connection_router.delete_rolling_state()
+        base_timestamp = last_event_timestamp or checkpoint.timestamp
+        self._rolling_state = RollingState(
+            email=self.email,
+            base_checkpoint_timestamp=base_timestamp,
+        )
+        self._events_since_rolling_state_upload = 0
+
+        print("Checkpoint uploaded, rolling state reset!")
 
         return checkpoint
 
