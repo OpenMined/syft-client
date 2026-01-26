@@ -92,10 +92,8 @@ def test_valid_and_invalid_proposed_filechange_event():
         ds_email, message_2
     )
 
-    content = (
-        do_manager.datasite_owner_syncer.event_cache.file_connection.read_file(
-            path_in_datasite
-        )
+    content = do_manager.datasite_owner_syncer.event_cache.file_connection.read_file(
+        path_in_datasite
     )
     assert content == "Content 2"
 
@@ -117,10 +115,8 @@ def test_valid_and_invalid_proposed_filechange_event():
             ds_email, message_3_outdated
         )
 
-    content = (
-        do_manager.datasite_owner_syncer.event_cache.file_connection.read_file(
-            path_in_datasite
-        )
+    content = do_manager.datasite_owner_syncer.event_cache.file_connection.read_file(
+        path_in_datasite
     )
     assert content == "Content 2"
 
@@ -160,12 +156,8 @@ def test_sync_existing_datasite_state_do():
     n_messages_in_cache = len(
         do_manager.datasite_owner_syncer.event_cache.events_messages_connection
     )
-    n_files_in_cache = len(
-        do_manager.datasite_owner_syncer.event_cache.file_connection
-    )
-    hashes_in_cache = len(
-        do_manager.datasite_owner_syncer.event_cache.file_hashes
-    )
+    n_files_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_connection)
+    hashes_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_hashes)
     assert n_messages_in_cache == 2
     assert n_files_in_cache == 2
     assert hashes_in_cache == 2
@@ -199,12 +191,8 @@ def test_sync_existing_inbox_state_do():
     n_events_message_in_cache = len(
         do_manager.datasite_owner_syncer.event_cache.events_messages_connection
     )
-    n_files_in_cache = len(
-        do_manager.datasite_owner_syncer.event_cache.file_connection
-    )
-    hashes_in_cache = len(
-        do_manager.datasite_owner_syncer.event_cache.file_hashes
-    )
+    n_files_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_connection)
+    hashes_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_hashes)
     assert n_events_message_in_cache == 2
     assert n_files_in_cache == 2
     assert hashes_in_cache == 2
@@ -327,11 +315,9 @@ def test_datasets():
     collections = do_manager.connection_router.list_dataset_collections_as_do()
     assert "my dataset" in collections
 
-    backing_store = (
-        do_manager.datasite_owner_syncer.connection_router.connections[
-            0
-        ].backing_store
-    )
+    backing_store = do_manager.datasite_owner_syncer.connection_router.connections[
+        0
+    ].backing_store
 
     # Dataset files are excluded from outbox sync (they use their own dedicated channel)
     syftbox_events = backing_store.syftbox_events_message_log
@@ -400,11 +386,9 @@ def test_datasets_with_parquet():
         users=[ds_manager.email],
     )
 
-    backing_store = (
-        do_manager.datasite_owner_syncer.connection_router.connections[
-            0
-        ].backing_store
-    )
+    backing_store = do_manager.datasite_owner_syncer.connection_router.connections[
+        0
+    ].backing_store
 
     # Dataset files are excluded from outbox sync (they use their own dedicated channel)
     syftbox_events = backing_store.syftbox_events_message_log
@@ -520,11 +504,9 @@ def test_dataset_only_mock_data_uploaded():
     )
 
     # Get the backing store
-    backing_store = (
-        do_manager.datasite_owner_syncer.connection_router.connections[
-            0
-        ].backing_store
-    )
+    backing_store = do_manager.datasite_owner_syncer.connection_router.connections[
+        0
+    ].backing_store
 
     # Find the dataset collection
     collection = None
@@ -571,11 +553,9 @@ with open("outputs/result.json", "w") as f:
         job_name="test.job",
     )
 
-    backing_store = (
-        do_manager.datasite_owner_syncer.connection_router.connections[
-            0
-        ].backing_store
-    )
+    backing_store = do_manager.datasite_owner_syncer.connection_router.connections[
+        0
+    ].backing_store
 
     # We want to make sure that we only send one message for the multiple files in the job.
     # this is to reduce the number of messages sent, which increases the speed of sync

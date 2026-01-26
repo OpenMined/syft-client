@@ -43,9 +43,7 @@ def test_pagination_and_early_termination():
     ):
         manager_do.sync()
 
-    initial_events = (
-        manager_do.datasite_owner_syncer.event_cache.get_cached_events()
-    )
+    initial_events = manager_do.datasite_owner_syncer.event_cache.get_cached_events()
     assert len(initial_events) == 2
 
     # Use the latest processed event as checkpoint

@@ -837,13 +837,9 @@ class SyftboxManager(BaseModel):
             )
 
         if self.datasite_owner_syncer is not None:
-            self.datasite_owner_syncer.connection_router.add_connection(
-                connection
-            )
+            self.datasite_owner_syncer.connection_router.add_connection(connection)
         if self.datasite_watcher_syncer is not None:
-            self.datasite_watcher_syncer.connection_router.add_connection(
-                connection
-            )
+            self.datasite_watcher_syncer.connection_router.add_connection(connection)
             self.datasite_watcher_syncer.datasite_watcher_cache.connection_router.add_connection(
                 connection
             )

@@ -51,9 +51,7 @@ def test_google_drive_connection_syncing():
     # continuing with the test
 
     manager_do.datasite_owner_syncer.sync(peer_emails=[EMAIL_DS])
-    assert (
-        len(manager_do.datasite_owner_syncer.event_cache.get_cached_events()) > 0
-    )
+    assert len(manager_do.datasite_owner_syncer.event_cache.get_cached_events()) > 0
 
     manager_ds.sync()
 
@@ -116,10 +114,7 @@ def test_google_drive_connection_load_state():
     # sync so we have something in the syftbox and do outbox
     manager_do2.sync()
 
-    assert (
-        len(manager_do2.datasite_owner_syncer.event_cache.get_cached_events())
-        == 2
-    )
+    assert len(manager_do2.datasite_owner_syncer.event_cache.get_cached_events()) == 2
 
     # we have created some state now, so now we can log in again and load the state
     # use a fresh syftbox folder to simulate clean filesystem
@@ -135,9 +130,7 @@ def test_google_drive_connection_load_state():
     manager_do3.sync()
     manager_ds3.sync()
 
-    loaded_events_do = (
-        manager_do3.datasite_owner_syncer.event_cache.get_cached_events()
-    )
+    loaded_events_do = manager_do3.datasite_owner_syncer.event_cache.get_cached_events()
     assert len(loaded_events_do) == 2
 
     loaded_events_ds = (
