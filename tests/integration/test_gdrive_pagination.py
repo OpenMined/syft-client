@@ -43,9 +43,7 @@ def test_pagination_and_early_termination():
     ):
         manager_do.sync()
 
-    initial_events = (
-        manager_do.proposed_file_change_handler.event_cache.get_cached_events()
-    )
+    initial_events = manager_do.datasite_owner_syncer.event_cache.get_cached_events()
     assert len(initial_events) == 2
 
     # Use the latest processed event as checkpoint
@@ -62,7 +60,7 @@ def test_pagination_and_early_termination():
     manager_do.sync()
 
     # Test early termination
-    connection = manager_ds.datasite_outbox_puller.datasite_watcher_cache.connection_router.connection_for_datasite_watcher()
+    connection = manager_ds.datasite_watcher_syncer.datasite_watcher_cache.connection_router.connection_for_datasite_watcher()
 
     new_events = connection.get_events_messages_for_datasite_watcher(
         EMAIL_DO, since_timestamp=checkpoint_timestamp

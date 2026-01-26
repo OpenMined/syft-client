@@ -40,7 +40,7 @@ def test_peer_request_blocks_sync_until_approved():
     do_manager.sync()
 
     # Verify: Cache is empty (no messages processed)
-    do_cache = do_manager.proposed_file_change_handler.event_cache
+    do_cache = do_manager.datasite_owner_syncer.event_cache
     assert len(do_cache.file_hashes) == 0, "Cache should be empty - peer not approved"
 
     # Step 4: DO approves peer request
@@ -93,5 +93,5 @@ def test_peer_request_rejection():
     do_manager.sync()
 
     # Verify: Nothing synced - cache should remain empty
-    do_cache = do_manager.proposed_file_change_handler.event_cache
+    do_cache = do_manager.datasite_owner_syncer.event_cache
     assert len(do_cache.file_hashes) == 0, "Cache should be empty - peer rejected"
