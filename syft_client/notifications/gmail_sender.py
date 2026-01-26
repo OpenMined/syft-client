@@ -8,8 +8,13 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 
+import httplib2
+from google_auth_httplib2 import AuthorizedHttp
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+
+# Timeout for Google API requests (in seconds)
+GOOGLE_API_TIMEOUT = 120  # 2 minutes
 
 try:
     from .base import NotificationSender
@@ -35,7 +40,10 @@ class GmailSender(NotificationSender):
             credentials: Google OAuth credentials
             use_html: Whether to send HTML emails (default True)
         """
-        self.service = build("gmail", "v1", credentials=credentials)
+        # Create Http with timeout to prevent indefinite hangs
+        http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
+        authorized_http = AuthorizedHttp(credentials, http=http)
+        self.service = build("gmail", "v1", http=authorized_http)
         self.use_html = use_html
         self._renderer: Optional[TemplateRenderer] = None
 

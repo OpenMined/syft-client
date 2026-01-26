@@ -5,8 +5,13 @@ from syft_client.sync.syftbox_manager import SyftboxManager
 import os
 from syft_client.sync.events.file_change_event import FileChangeEventsMessage
 from pathlib import Path
+import httplib2
+from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
+
+# Timeout for Google API requests (in seconds)
+GOOGLE_API_TIMEOUT = 120  # 2 minutes
 
 SYFT_CLIENT_DIR = Path(__file__).parent.parent
 # These are in gitignore, create yourself
@@ -45,10 +50,13 @@ def benchmark_gdrive_load_state():
     gdrive_ids = [f["id"] for f in file_metadatas]
 
     def download_file(gdrive_id: str) -> bytes:
+        # Create Http with timeout to prevent indefinite hangs
+        http = httplib2.Http(timeout=GOOGLE_API_TIMEOUT)
+        authorized_http = AuthorizedHttp(connection.credentials, http=http)
         service = build(
             "drive",
             "v3",
-            credentials=connection.credentials,
+            http=authorized_http,
         )
         request = service.files().get_media(fileId=gdrive_id)
         file_buffer = io.BytesIO()
