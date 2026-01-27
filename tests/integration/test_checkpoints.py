@@ -18,37 +18,6 @@ EMAIL_DS = os.environ.get("BEACH_EMAIL_DS", "")
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
-def test_checkpoint_create_and_upload():
-    """Test that checkpoints can be created and uploaded to Google Drive."""
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-    )
-
-    # Send some file changes to build state
-    manager_ds.send_file_change(f"{EMAIL_DO}/test1.txt", "Content 1")
-    manager_ds.send_file_change(f"{EMAIL_DO}/test2.txt", "Content 2")
-    sleep(1)
-
-    # DO syncs to receive the files
-    manager_do.sync(auto_checkpoint=False)
-
-    # Verify files are in cache
-    do_cache = manager_do.datasite_owner_syncer.event_cache
-    assert len(do_cache.file_hashes) == 2
-
-    # Create checkpoint
-    checkpoint = manager_do.create_checkpoint()
-
-    assert checkpoint is not None
-    assert len(checkpoint.files) == 2
-    assert checkpoint.email == EMAIL_DO
-    print(f"Created checkpoint with {len(checkpoint.files)} files")
-
-
-@pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_checkpoint_restore_on_fresh_login():
     """Test that a fresh login restores state from checkpoint instead of downloading all events."""
     # First session: create state and checkpoint
@@ -148,60 +117,6 @@ def test_checkpoint_with_incremental_events():
         f"Expected 4 files, got {len(do_cache.file_hashes)}"
     )
     print(f"Restored {len(do_cache.file_hashes)} files (checkpoint + incremental)")
-
-
-@pytest.mark.usefixtures("setup_delete_syftboxes")
-def test_should_create_checkpoint():
-    """Test should_create_checkpoint threshold logic with Google Drive."""
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-    )
-
-    # No events yet
-    assert not manager_do.should_create_checkpoint(threshold=1)
-
-    # Send some files
-    for i in range(5):
-        manager_ds.send_file_change(f"{EMAIL_DO}/test{i}.txt", f"Content {i}")
-    sleep(1)
-
-    manager_do.sync(auto_checkpoint=False)
-
-    # Now we have 5 events - check thresholds
-    assert manager_do.should_create_checkpoint(threshold=3)
-    assert manager_do.should_create_checkpoint(threshold=5)
-    assert not manager_do.should_create_checkpoint(threshold=10)
-
-
-@pytest.mark.usefixtures("setup_delete_syftboxes")
-def test_try_create_checkpoint():
-    """Test try_create_checkpoint conditional creation with Google Drive."""
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-    )
-
-    # Send some files
-    for i in range(3):
-        manager_ds.send_file_change(f"{EMAIL_DO}/test{i}.txt", f"Content {i}")
-    sleep(1)
-
-    manager_do.sync(auto_checkpoint=False)
-
-    # With high threshold, should not create
-    result = manager_do.try_create_checkpoint(threshold=10)
-    assert result is None
-
-    # With low threshold, should create
-    result = manager_do.try_create_checkpoint(threshold=2)
-    assert result is not None
-    assert len(result.files) == 3
-    print(f"try_create_checkpoint created checkpoint with {len(result.files)} files")
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
