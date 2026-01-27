@@ -95,12 +95,12 @@ class Checkpoint(BaseModel):
             last_event_timestamp=last_event_timestamp,
         )
 
-    def to_file_hashes(self) -> Dict[Path, str]:
-        """Convert checkpoint files to file_hashes dict."""
+    def get_file_hashes(self) -> Dict[Path, str]:
+        """Get file hashes as a dict mapping path to hash."""
         return {Path(f.path): f.hash for f in self.files}
 
-    def to_file_contents(self) -> Dict[str, str]:
-        """Convert checkpoint files to file_contents dict."""
+    def get_file_contents(self) -> Dict[str, str]:
+        """Get file contents as a dict mapping path to content."""
         return {f.path: f.content for f in self.files}
 
     def as_compressed_data(self) -> bytes:
