@@ -510,3 +510,62 @@ class TestVersionMismatchBehavior:
         # Verify job_runner was called with no jobs to skip
         assert len(executed_jobs) == 1
         assert executed_jobs[0] is None  # No jobs skipped when force=True
+
+    def test_version_upgrade_breaks_communication(self):
+        """Test that version upgrade makes peers incompatible.
+
+        Unit test equivalent of integration test_version_upgrade_breaks_communication.
+
+        1. Initialize peers with matching versions and verify they are compatible
+        2. Update one peer's version (simulating an upgrade)
+        3. Reload the version and verify peers are now incompatible
+        """
+        # Phase 1: Create managers with compatible versions
+        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+            check_versions=True,
+        )
+
+        # Verify initial version compatibility
+        ds_manager.version_manager.load_peer_version(do_manager.email)
+        do_manager.version_manager.load_peer_version(ds_manager.email)
+
+        assert ds_manager.version_manager.is_peer_version_compatible(
+            do_manager.email
+        ), "DS should see DO as compatible initially"
+        assert do_manager.version_manager.is_peer_version_compatible(
+            ds_manager.email
+        ), "DO should see DS as compatible initially"
+
+        # Phase 2: Simulate DS "upgrading" to a new incompatible version
+        store = ds_manager.connection_router.connections[0].backing_store
+
+        current = VersionInfo.current()
+        new_version = VersionInfo(
+            syft_client_version="99.0.0",  # Incompatible version
+            min_supported_syft_client_version="99.0.0",
+            protocol_version=current.protocol_version,
+            min_supported_protocol_version=current.min_supported_protocol_version,
+            updated_at=current.updated_at,
+        )
+
+        # Write the new version to backing store (simulating DS upgrading their client)
+        store.version_files[ds_manager.email].content = new_version.to_json()
+
+        # Phase 3: Clear DO's cached version of DS and reload
+        do_manager.version_manager.clear_peer_version(ds_manager.email)
+
+        # Reload DS's version
+        reloaded_version = do_manager.version_manager.load_peer_version(
+            ds_manager.email
+        )
+
+        # Verify the new version was loaded
+        assert reloaded_version is not None, "Should be able to reload peer version"
+        assert reloaded_version.syft_client_version == "99.0.0", (
+            "Reloaded version should be the upgraded version"
+        )
+
+        # Verify versions are now incompatible
+        assert not do_manager.version_manager.is_peer_version_compatible(
+            ds_manager.email
+        ), "DO should now see DS as incompatible after version upgrade"

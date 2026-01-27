@@ -1613,3 +1613,181 @@ def test_do_dataset_cache_aware_sync():
 
     # Verify dataset still accessible
     assert len(do_manager2.datasets.get_all()) == 1
+
+
+def test_in_memory_connection_syncing():
+    """Test basic syncing flow with in-memory connection.
+
+    Unit test equivalent of integration test_google_drive_connection_syncing.
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+
+    # DS sends a file change to DO
+    ds_manager.send_file_change(f"{do_manager.email}/my.job", "Hello, world!")
+
+    # DO should have events in cache after sync
+    do_manager.datasite_owner_syncer.sync(peer_emails=[ds_manager.email])
+    assert len(do_manager.datasite_owner_syncer.event_cache.get_cached_events()) > 0
+
+    # DS syncs to get any outbox updates from DO
+    ds_manager.sync()
+
+    events = (
+        ds_manager.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
+    )
+    assert len(events) > 0
+
+
+def test_in_memory_connection_load_state():
+    """Test state persistence and loading with in-memory connection.
+
+    Unit test equivalent of integration test_google_drive_connection_load_state.
+
+    Workflow (matches integration test):
+    1. Pair 1: Create peers, make changes, create dataset
+    2. Pair 2: Load peers, sync DO → verify events processed
+    3. Pair 3: Load peers, sync both → verify state loaded from storage
+    """
+    # Get shared backing store and directories that will persist across pairs
+    ds_manager1, do_manager1 = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        add_peers=True,
+    )
+
+    backing_store = ds_manager1.connection_router.connections[0].backing_store
+    ds_folder = ds_manager1.syftbox_folder
+    do_folder = do_manager1.syftbox_folder
+    ds_email = ds_manager1.email
+    do_email = do_manager1.email
+
+    # Make some changes
+    ds_manager1.send_file_change(f"{do_email}/my.job", "Hello, world!")
+    ds_manager1.send_file_change(f"{do_email}/my_second.job", "Hello, world!")
+
+    # Create a dataset with "any" permission
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+    do_manager1.create_dataset(
+        name="load_state_dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="Dataset for load state test",
+        readme_path=readme_path,
+        tags=["test"],
+        users="any",
+    )
+
+    # Verify dataset was created and cache populated
+    assert len(do_manager1.datasets.get_all()) == 1
+    assert len(do_manager1.datasite_owner_syncer._any_shared_datasets) == 1
+
+    # Create second pair (simulates restart, tests loading peers and processing inbox)
+    ds_manager2, do_manager2 = SyftboxManager.pair_with_in_memory_connection(
+        email1=do_email,
+        email2=ds_email,
+        base_path1=do_folder,
+        base_path2=ds_folder,
+        use_in_memory_cache=False,
+        add_peers=False,
+    )
+
+    # Replace backing store
+    for conn in ds_manager2.connection_router.connections:
+        conn.backing_store = backing_store
+    for conn in do_manager2.connection_router.connections:
+        conn.backing_store = backing_store
+
+    # Load peers
+    do_manager2.load_peers()
+    assert len(do_manager2.peers) == 1
+
+    ds_manager2.load_peers()
+    assert len(ds_manager2.peers) == 1
+
+    # Sync DO so we have something in the syftbox and do outbox
+    do_manager2.sync()
+
+    # Verify events in DO cache (inbox was processed)
+    assert len(do_manager2.datasite_owner_syncer.event_cache.get_cached_events()) == 2
+
+    # Create third pair (simulates another restart, tests loading state from storage)
+    ds_manager3, do_manager3 = SyftboxManager.pair_with_in_memory_connection(
+        email1=do_email,
+        email2=ds_email,
+        base_path1=do_folder,
+        base_path2=ds_folder,
+        use_in_memory_cache=False,
+        add_peers=False,
+    )
+
+    # Replace backing store
+    for conn in ds_manager3.connection_router.connections:
+        conn.backing_store = backing_store
+    for conn in do_manager3.connection_router.connections:
+        conn.backing_store = backing_store
+
+    # Load peers (equivalent to load_peers=True in integration test)
+    do_manager3.load_peers()
+    ds_manager3.load_peers()
+
+    # Sync both
+    do_manager3.sync()
+    ds_manager3.sync()
+
+    # Verify events loaded
+    loaded_events_do = do_manager3.datasite_owner_syncer.event_cache.get_cached_events()
+    assert len(loaded_events_do) == 2
+
+    loaded_events_ds = (
+        ds_manager3.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
+    )
+    assert len(loaded_events_ds) == 2
+
+    # Verify datasets were loaded
+    loaded_datasets = do_manager3.datasets.get_all()
+    assert len(loaded_datasets) == 1
+    assert loaded_datasets[0].name == "load_state_dataset"
+
+    # Verify _any_shared_datasets cache was populated during pull_initial_state
+    assert len(do_manager3.datasite_owner_syncer._any_shared_datasets) == 1
+    assert (
+        do_manager3.datasite_owner_syncer._any_shared_datasets[0][0]
+        == "load_state_dataset"
+    )
+
+
+def test_datasets_shared_with_any():
+    """Test that datasets shared with 'any' become discoverable after peer approval.
+
+    Unit test equivalent of integration test_datasets_shared_with_any.
+    """
+    # Create managers WITHOUT auto peer setup
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=False,
+        add_peers=False,
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+
+    # DO creates dataset with users='any' BEFORE peer is approved
+    do_manager.create_dataset(
+        name="any dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="Dataset shared with anyone",
+        readme_path=readme_path,
+        tags=["any"],
+        users="any",
+    )
+
+    # DS should NOT see the dataset yet (not approved)
+    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    assert not any(c["tag"] == "any dataset" for c in ds_collections)
+
+    # DS adds peer, DO approves (this should share 'any' datasets)
+    ds_manager.add_peer(do_manager.email)
+    do_manager.load_peers()
+    do_manager.approve_peer_request(ds_manager.email, peer_must_exist=False)
+
+    # DS should now see the dataset
+    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    assert any(c["tag"] == "any dataset" for c in ds_collections)
