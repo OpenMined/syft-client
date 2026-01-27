@@ -5,11 +5,12 @@ a checkpoint, allowing fresh logins to sync with minimal API calls:
 - Without rolling state: 1 checkpoint download + N individual event downloads
 - With rolling state: 1 checkpoint download + 1 rolling state download
 
-Test scenario:
-- Create 4 accepted events (simulating DO processing 4 file changes from DS)
-- Checkpoint is created at event 3
-- Rolling state accumulates event 4 (1 event)
-- Fresh login should verify event 4 is in rolling state
+Test scenario (two-phase approach to ensure rolling state is populated):
+- PHASE 1: Create EVENTS_BEFORE_CHECKPOINT events, sync DO → creates checkpoint
+           (rolling state is initialized when checkpoint is created)
+- PHASE 2: Create EVENTS_AFTER_CHECKPOINT events, sync DO → events go into rolling state
+           (these events are tracked because rolling state now exists)
+- Fresh login should verify rolling state contains EVENTS_AFTER_CHECKPOINT events
 """
 
 import os
@@ -28,14 +29,18 @@ token_path_ds = CREDENTIALS_DIR / os.environ.get(
     "beach_credentials_fname_ds", "token_ds.json"
 )
 
-NUM_EVENTS = 4  # Total events to create
+EVENTS_BEFORE_CHECKPOINT = 3  # Events to create before checkpoint (triggers checkpoint)
+EVENTS_AFTER_CHECKPOINT = (
+    2  # Events to create after checkpoint (goes into rolling state)
+)
 CHECKPOINT_THRESHOLD = 3  # Checkpoint after 3 events
-EXPECTED_CHECKPOINTS = 1  # Should be 1
 
 
 def benchmark_rolling_state():
     """Benchmark rolling state performance on fresh login with real GDrive."""
     os.environ["PRE_SYNC"] = "false"
+
+    total_events = EVENTS_BEFORE_CHECKPOINT + EVENTS_AFTER_CHECKPOINT
 
     print("=" * 60)
     print("ROLLING STATE BENCHMARK (GDrive)")
@@ -43,12 +48,11 @@ def benchmark_rolling_state():
     print("Configuration:")
     print(f"  DO Email: {EMAIL_DO}")
     print(f"  DS Email: {EMAIL_DS}")
-    print(f"  Total events: {NUM_EVENTS}")
+    print(f"  Events before checkpoint: {EVENTS_BEFORE_CHECKPOINT}")
+    print(f"  Events after checkpoint: {EVENTS_AFTER_CHECKPOINT}")
+    print(f"  Total events: {total_events}")
     print(f"  Checkpoint threshold: {CHECKPOINT_THRESHOLD}")
-    print(f"  Expected checkpoints: {EXPECTED_CHECKPOINTS}")
-    print(
-        f"  Expected rolling state events: {NUM_EVENTS - (EXPECTED_CHECKPOINTS * CHECKPOINT_THRESHOLD)}"
-    )
+    print(f"  Expected rolling state events: {EVENTS_AFTER_CHECKPOINT}")
     print()
 
     # Clean start - delete any existing syftboxes
@@ -74,37 +78,71 @@ def benchmark_rolling_state():
         use_in_memory_cache=False,
     )
 
-    # Submit events from DS and have DO process them
-    print(f"\nSubmitting {NUM_EVENTS} file changes from DS...")
+    # PHASE 1: Submit events to trigger checkpoint creation
+    print(
+        f"\n[PHASE 1] Submitting {EVENTS_BEFORE_CHECKPOINT} file changes to trigger checkpoint..."
+    )
     submit_start = time.time()
 
-    for i in range(NUM_EVENTS):
-        # DS sends a file change
+    for i in range(EVENTS_BEFORE_CHECKPOINT):
         ds.send_file_change(
             f"{do.email}/file_{i:03d}.txt",
             f"content for file {i} - benchmark rolling state test",
         )
-        print(f"  Submitted file {i + 1}/{NUM_EVENTS}")
-
-    submit_time = time.time() - submit_start
-    print(f"File change submission complete: {submit_time:.2f}s")
+        print(f"  Submitted file {i + 1}/{EVENTS_BEFORE_CHECKPOINT}")
 
     # Wait for Google Drive to propagate
     print("\nWaiting for Google Drive propagation...")
     time.sleep(5)
 
-    # DO syncs all events (this creates accepted events and triggers checkpointing)
-    print("\nDO syncing all events (with auto-checkpoint)...")
+    # DO syncs and creates checkpoint (this initializes rolling state)
+    print("\nDO syncing (with auto-checkpoint)...")
     sync_start = time.time()
-    do.sync(auto_checkpoint=True)
-    do_sync_time = time.time() - sync_start
-    print(f"DO sync complete: {do_sync_time:.2f}s")
+    do.sync(auto_checkpoint=True, checkpoint_threshold=CHECKPOINT_THRESHOLD)
+    do_sync_time_phase1 = time.time() - sync_start
+    print(f"DO sync complete: {do_sync_time_phase1:.2f}s")
+
+    # Verify checkpoint was created and rolling state initialized
+    checkpoint_after_phase1 = do.connection_router.get_latest_checkpoint()
+    print("\nAfter Phase 1:")
+    print(f"  Checkpoint exists: {checkpoint_after_phase1 is not None}")
+    print(
+        f"  Rolling state initialized: {do.proposed_file_change_handler._rolling_state is not None}"
+    )
+
+    # PHASE 2: Submit more events AFTER checkpoint (these go into rolling state)
+    print(
+        f"\n[PHASE 2] Submitting {EVENTS_AFTER_CHECKPOINT} file changes after checkpoint..."
+    )
+
+    for i in range(EVENTS_BEFORE_CHECKPOINT, total_events):
+        ds.send_file_change(
+            f"{do.email}/file_{i:03d}.txt",
+            f"content for file {i} - benchmark rolling state test (after checkpoint)",
+        )
+        print(f"  Submitted file {i + 1}/{total_events}")
+
+    # Wait for Google Drive to propagate
+    print("\nWaiting for Google Drive propagation...")
+    time.sleep(5)
+
+    # DO syncs again - these events should go into rolling state
+    print("\nDO syncing (events go into rolling state)...")
+    sync_start = time.time()
+    do.sync(
+        auto_checkpoint=False
+    )  # Don't auto-checkpoint, we want events in rolling state
+    do_sync_time_phase2 = time.time() - sync_start
+    print(f"DO sync complete: {do_sync_time_phase2:.2f}s")
+
+    submit_time = time.time() - submit_start
+    do_sync_time = do_sync_time_phase1 + do_sync_time_phase2
 
     # Verify checkpoint and rolling state were created
     checkpoint = do.connection_router.get_latest_checkpoint()
     rolling_state = do.connection_router.get_rolling_state()
 
-    print(f"\nState after {NUM_EVENTS} events:")
+    print(f"\nState after {total_events} events:")
     print(f"  Checkpoint exists: {checkpoint is not None}")
     if checkpoint:
         print(f"  Checkpoint files: {len(checkpoint.files)}")
@@ -115,6 +153,8 @@ def benchmark_rolling_state():
         print(
             f"  Rolling state base checkpoint: {rolling_state.base_checkpoint_timestamp}"
         )
+    else:
+        print("  WARNING: Rolling state is None - events after checkpoint not tracked!")
 
     # Wait for Google Drive to propagate checkpoint and rolling state
     print("\nWaiting for Google Drive propagation of checkpoint/rolling state...")
@@ -154,23 +194,26 @@ def benchmark_rolling_state():
     print("\n" + "=" * 60)
     print("BENCHMARK RESULTS")
     print("=" * 60)
-    print(f"Total events submitted:         {NUM_EVENTS}")
+    print(f"Events before checkpoint:       {EVENTS_BEFORE_CHECKPOINT}")
+    print(f"Events after checkpoint:        {EVENTS_AFTER_CHECKPOINT}")
+    print(f"Total events submitted:         {total_events}")
     print(f"Checkpoint threshold:           {CHECKPOINT_THRESHOLD}")
-    print(f"Checkpoints created:            {EXPECTED_CHECKPOINTS}")
     print(
         f"Rolling state events:           {rolling_state.event_count if rolling_state else 0}"
     )
     print()
     print("Timing:")
-    print(f"  File change submission:       {submit_time:.2f}s")
-    print(f"  Initial DO sync:              {do_sync_time:.2f}s")
+    print(f"  Total submission + sync:      {submit_time:.2f}s")
+    print(f"  DO sync (phase 1 + 2):        {do_sync_time:.2f}s")
     print(f"  Fresh login sync:             {fresh_sync_time:.2f}s")
     print()
     print(f"Files in cache after sync:      {files_in_cache}")
     print()
 
     return {
-        "total_events": NUM_EVENTS,
+        "total_events": total_events,
+        "events_before_checkpoint": EVENTS_BEFORE_CHECKPOINT,
+        "events_after_checkpoint": EVENTS_AFTER_CHECKPOINT,
         "submit_time": submit_time,
         "do_sync_time": do_sync_time,
         "fresh_sync_time": fresh_sync_time,
