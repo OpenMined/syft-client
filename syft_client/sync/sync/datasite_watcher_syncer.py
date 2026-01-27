@@ -1,10 +1,14 @@
 from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List
+from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
+from typing import List
+
+from pydantic import BaseModel, Field, PrivateAttr
+
 from syft_client.sync.connections.base_connection import ConnectionConfig
 from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
+from syft_client.sync.events.file_change_event import FileChangeEventsMessage
 from syft_client.sync.messages.proposed_filechange import (
     ProposedFileChange,
     ProposedFileChangesMessage,
@@ -15,7 +19,7 @@ from syft_client.sync.sync.caches.datasite_watcher_cache import (
 )
 
 
-class ProposedFileChangePusherConfig(BaseModel):
+class DatasiteWatcherSyncerConfig(BaseModel):
     syftbox_folder: Path | None = None
     email: str | None = None
     connection_configs: List[ConnectionConfig] = []
@@ -24,7 +28,9 @@ class ProposedFileChangePusherConfig(BaseModel):
     )
 
 
-class ProposedFileChangePusher(BaseModelCallbackMixin):
+class DatasiteWatcherSyncer(BaseModelCallbackMixin):
+    """Handles both pushing proposed file changes and pulling from datasite outboxes."""
+
     class Config:
         arbitrary_types_allowed = True
 
@@ -34,8 +40,12 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
     datasite_watcher_cache: DataSiteWatcherCache
     queue: Queue = Field(default_factory=Queue)
 
+    _executor: ThreadPoolExecutor = PrivateAttr(
+        default_factory=lambda: ThreadPoolExecutor(max_workers=10)
+    )
+
     @classmethod
-    def from_config(cls, config: ProposedFileChangePusherConfig):
+    def from_config(cls, config: DatasiteWatcherSyncerConfig):
         return cls(
             syftbox_folder=config.syftbox_folder,
             email=config.email,
@@ -44,6 +54,8 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
                 config.datasite_watcher_cache_config
             ),
         )
+
+    # --- Pushing proposed file changes ---
 
     def get_proposed_file_change_object(
         self, relative_path: Path, content: str, datasite_email: str | None = None
@@ -67,8 +79,6 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
             if content is None:
                 with open(self.syftbox_folder / relative_path, "r") as f:
                     content = f.read()
-
-            # splitted = relative_path.split("/")
 
             datasite_email = relative_path.parts[0]
             path_in_datasite = (
@@ -98,3 +108,32 @@ class ProposedFileChangePusher(BaseModelCallbackMixin):
         self.queue.put((relative_path, content))
         if process_now:
             self.process_file_changes_queue()
+
+    # --- Pulling from datasite outboxes ---
+
+    def download_events_message_with_new_connection(
+        self, file_id: str
+    ) -> FileChangeEventsMessage:
+        """Download from outbox using a new connection (thread-safe)."""
+        connection = self.connection_router.connection_for_parallel_download()
+        return connection.download_events_message_by_id_from_outbox(file_id)
+
+    def download_dataset_file_with_new_connection(self, file_id: str) -> bytes:
+        """Download dataset file using a new connection (thread-safe)."""
+        connection = self.connection_router.connection_for_parallel_download()
+        return connection.download_dataset_file(file_id)
+
+    def sync_down(self, peer_emails: list[str]):
+        for peer_email in peer_emails:
+            # Sync messages with parallel download
+            self.datasite_watcher_cache.sync_down_parallel(
+                peer_email,
+                self._executor,
+                self.download_events_message_with_new_connection,
+            )
+            # Sync datasets with parallel download
+            self.datasite_watcher_cache.sync_down_datasets_parallel(
+                peer_email,
+                self._executor,
+                self.download_dataset_file_with_new_connection,
+            )

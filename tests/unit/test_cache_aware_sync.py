@@ -36,7 +36,7 @@ def test_do_incremental_sync_downloads_only_new_events():
 
     # Verify initial sync
     initial_cache_count = len(
-        do_manager.proposed_file_change_handler.event_cache.events_messages_connection
+        do_manager.datasite_owner_syncer.event_cache.events_messages_connection
     )
     assert initial_cache_count >= 3  # At least 3 from backend
 
@@ -71,7 +71,7 @@ def test_do_incremental_sync_downloads_only_new_events():
     new_do_manager.add_connection(new_do_connection)
 
     # Verify the new manager's cache loaded existing events from disk
-    new_cache = new_do_manager.proposed_file_change_handler.event_cache
+    new_cache = new_do_manager.datasite_owner_syncer.event_cache
     assert len(new_cache.events_messages_connection) == initial_cache_count, (
         f"New manager cache should have loaded {initial_cache_count} events from disk"
     )
@@ -81,17 +81,17 @@ def test_do_incremental_sync_downloads_only_new_events():
 
     # Track download calls on the new manager
     download_call_count = 0
-    original_download = new_do_manager.proposed_file_change_handler.download_events_message_by_id_with_connection
+    original_download = new_do_manager.datasite_owner_syncer.download_events_message_by_id_with_connection
 
     def counted_download(events_message_id):
         nonlocal download_call_count
         download_call_count += 1
         return original_download(events_message_id)
 
-    new_do_manager.proposed_file_change_handler.download_events_message_by_id_with_connection = counted_download
+    new_do_manager.datasite_owner_syncer.download_events_message_by_id_with_connection = counted_download
 
     # Sync the new manager (with recompute_hashes=False to avoid additional local events)
-    new_do_manager.proposed_file_change_handler.sync(
+    new_do_manager.datasite_owner_syncer.sync(
         peer_emails=[ds_manager.email], recompute_hashes=False
     )
 
@@ -135,7 +135,7 @@ def test_ds_incremental_sync_downloads_only_new_events():
     ds_manager.sync()
 
     # Verify initial sync
-    ds_cache = ds_manager.datasite_outbox_puller.datasite_watcher_cache
+    ds_cache = ds_manager.datasite_watcher_syncer.datasite_watcher_cache
     initial_cache_count = len(ds_cache.events_connection)
     assert initial_cache_count == 3
 
@@ -173,7 +173,7 @@ def test_ds_incremental_sync_downloads_only_new_events():
     new_ds_manager.add_connection(new_ds_connection)
 
     # Verify the new manager's cache loaded existing events from disk
-    new_cache = new_ds_manager.datasite_outbox_puller.datasite_watcher_cache
+    new_cache = new_ds_manager.datasite_watcher_syncer.datasite_watcher_cache
     assert len(new_cache.events_connection) == initial_cache_count, (
         f"New manager cache should have loaded {initial_cache_count} events from disk"
     )
@@ -211,7 +211,7 @@ def test_do_cache_handles_deletions_correctly():
     do_manager.sync()
 
     # Verify file is in cache
-    do_cache = do_manager.proposed_file_change_handler.event_cache
+    do_cache = do_manager.datasite_owner_syncer.event_cache
     assert "test_file.txt" in [str(p) for p in do_cache.file_hashes.keys()]
 
     # Delete the file
@@ -230,10 +230,14 @@ def test_do_cache_handles_deletions_correctly():
         DataSiteOwnerEventCacheConfig,
     )
 
+    from syft_client.sync.syftbox_manager import COLLECTION_SUBPATH
+
+    collections_folder = syftbox_folder / do_manager.email / COLLECTION_SUBPATH
     config = DataSiteOwnerEventCacheConfig(
         use_in_memory_cache=False,
         syftbox_folder=syftbox_folder,
         email=do_manager.email,
+        collections_folder=collections_folder,
     )
     new_cache = DataSiteOwnerEventCache.from_config(config)
 
@@ -261,7 +265,7 @@ def test_ds_cache_handles_deletions_correctly():
     do_manager.sync()
     ds_manager.sync()
 
-    ds_cache = ds_manager.datasite_outbox_puller.datasite_watcher_cache
+    ds_cache = ds_manager.datasite_watcher_syncer.datasite_watcher_cache
 
     # Verify file is in DS cache
     expected_path = Path(do_manager.email) / "test_file.txt"
@@ -284,9 +288,12 @@ def test_ds_cache_handles_deletions_correctly():
         DataSiteWatcherCacheConfig,
     )
 
+    from syft_client.sync.syftbox_manager import COLLECTION_SUBPATH
+
     config = DataSiteWatcherCacheConfig(
         use_in_memory_cache=False,
         syftbox_folder=syftbox_folder,
+        collection_subpath=COLLECTION_SUBPATH,
         connection_configs=[],
     )
     new_cache = DataSiteWatcherCache.from_config(config)

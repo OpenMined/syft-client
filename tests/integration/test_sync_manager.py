@@ -50,15 +50,13 @@ def test_google_drive_connection_syncing():
     # this is just for timing purposes, you can ignore it
     # continuing with the test
 
-    manager_do.proposed_file_change_handler.sync(peer_emails=[EMAIL_DS])
-    assert (
-        len(manager_do.proposed_file_change_handler.event_cache.get_cached_events()) > 0
-    )
+    manager_do.datasite_owner_syncer.sync(peer_emails=[EMAIL_DS])
+    assert len(manager_do.datasite_owner_syncer.event_cache.get_cached_events()) > 0
 
     manager_ds.sync()
 
     events = (
-        manager_ds.datasite_outbox_puller.datasite_watcher_cache.get_cached_events()
+        manager_ds.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
     )
     assert len(events) > 0
 
@@ -95,7 +93,7 @@ def test_google_drive_connection_load_state():
 
     # verify dataset was created and cache was populated
     assert len(manager_do1.datasets.get_all()) == 1
-    assert len(manager_do1.proposed_file_change_handler._any_shared_datasets) == 1
+    assert len(manager_do1.datasite_owner_syncer._any_shared_datasets) == 1
 
     # test loading the peers and loading the inbox
     manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
@@ -116,10 +114,7 @@ def test_google_drive_connection_load_state():
     # sync so we have something in the syftbox and do outbox
     manager_do2.sync()
 
-    assert (
-        len(manager_do2.proposed_file_change_handler.event_cache.get_cached_events())
-        == 2
-    )
+    assert len(manager_do2.datasite_owner_syncer.event_cache.get_cached_events()) == 2
 
     # we have created some state now, so now we can log in again and load the state
     # use a fresh syftbox folder to simulate clean filesystem
@@ -135,13 +130,11 @@ def test_google_drive_connection_load_state():
     manager_do3.sync()
     manager_ds3.sync()
 
-    loaded_events_do = (
-        manager_do3.proposed_file_change_handler.event_cache.get_cached_events()
-    )
+    loaded_events_do = manager_do3.datasite_owner_syncer.event_cache.get_cached_events()
     assert len(loaded_events_do) == 2
 
     loaded_events_ds = (
-        manager_ds3.datasite_outbox_puller.datasite_watcher_cache.get_cached_events()
+        manager_ds3.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
     )
     assert len(loaded_events_ds) == 2
 
@@ -151,9 +144,9 @@ def test_google_drive_connection_load_state():
     assert loaded_datasets[0].name == "load_state_dataset"
 
     # verify _any_shared_datasets cache was populated during pull_initial_state
-    assert len(manager_do3.proposed_file_change_handler._any_shared_datasets) == 1
+    assert len(manager_do3.datasite_owner_syncer._any_shared_datasets) == 1
     assert (
-        manager_do3.proposed_file_change_handler._any_shared_datasets[0][0]
+        manager_do3.datasite_owner_syncer._any_shared_datasets[0][0]
         == "load_state_dataset"
     )
 
@@ -170,11 +163,11 @@ def test_google_drive_files():
 
     # syftbox_dir / EMAIL_DO
     datasite_dir_do = (
-        manager_do.proposed_file_change_handler.event_cache.file_connection.base_dir
+        manager_do.datasite_owner_syncer.event_cache.file_connection.base_dir
     )
 
     # syftbox_dir (ds)
-    syftbox_dir_ds = manager_ds.datasite_outbox_puller.datasite_watcher_cache.file_connection.base_dir
+    syftbox_dir_ds = manager_ds.datasite_watcher_syncer.datasite_watcher_cache.file_connection.base_dir
 
     assert datasite_dir_do != syftbox_dir_ds
 
@@ -380,7 +373,7 @@ def test_peer_request_blocks_sync_until_approved():
     do_manager.sync()
 
     # Verify: Cache is empty (no messages processed)
-    do_cache = do_manager.proposed_file_change_handler.event_cache
+    do_cache = do_manager.datasite_owner_syncer.event_cache
     assert len(do_cache.file_hashes) == 0, "Cache should be empty - peer not approved"
 
     # Step 4: DO approves peer request
@@ -456,12 +449,12 @@ def test_file_deletion_do_to_ds():
     )
 
     # Verify hash is removed from caches
-    do_cache = do_manager.proposed_file_change_handler.event_cache
+    do_cache = do_manager.datasite_owner_syncer.event_cache
     assert result_rel_path not in do_cache.file_hashes, (
         "Hash should be removed from DO cache"
     )
 
-    ds_cache = ds_manager.datasite_outbox_puller.datasite_watcher_cache
+    ds_cache = ds_manager.datasite_watcher_syncer.datasite_watcher_cache
     expected_path = Path(do_manager.email) / result_rel_path
     assert expected_path not in ds_cache.file_hashes, (
         "Hash should be removed from DS cache"

@@ -8,6 +8,10 @@ with the main client.
 from pathlib import Path
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
+from google.oauth2.credentials import Credentials as GoogleCredentials
+
+from syft_client.sync.connections.drive.gdrive_transport import build_drive_service
+
 try:
     from .base import Monitor, NotificationSender, StateManager
 except ImportError:
@@ -15,6 +19,9 @@ except ImportError:
 
 if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
+
+# Google Drive constants
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
 class PeerMonitor(Monitor):
@@ -53,15 +60,10 @@ class PeerMonitor(Monitor):
 
     def _create_drive_service(self):
         """Create Google Drive service (must be called from main thread)."""
-        from google.oauth2.credentials import Credentials as GoogleCredentials
-        from googleapiclient.discovery import build
-
-        SCOPES = ["https://www.googleapis.com/auth/drive"]
-
         credentials = GoogleCredentials.from_authorized_user_file(
-            str(self.drive_token_path), SCOPES
+            str(self.drive_token_path), DRIVE_SCOPES
         )
-        return build("drive", "v3", credentials=credentials)
+        return build_drive_service(credentials)
 
     def _load_peers_from_drive(self) -> set:
         """Load peer emails by querying Drive API directly."""

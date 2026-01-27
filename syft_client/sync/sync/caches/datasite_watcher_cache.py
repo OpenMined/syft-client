@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List
 from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConnection
 from pathlib import Path
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
 from syft_client.sync.events.file_change_event import (
     FileChangeEvent,
@@ -23,14 +23,8 @@ class DataSiteWatcherCacheConfig(BaseModel):
     syftbox_folder: Path | None = None
     events_base_path: Path | None = None
     connection_configs: List[ConnectionConfig] = []
-
-    @model_validator(mode="before")
-    def pre_init(cls, data):
-        if data.get("events_base_path") is None and data.get("base_path") is not None:
-            base_path = data["base_path"]
-            base_parent = base_path.parent
-            data["events_base_path"] = base_parent / "events"
-        return data
+    # Subpath from owner_email to collections folder (e.g., "public/syft_datasets")
+    collection_subpath: Path | None = None
 
 
 class DataSiteWatcherCache(BaseModel):
@@ -49,8 +43,12 @@ class DataSiteWatcherCache(BaseModel):
     seconds_before_syncing_down: int = SECONDS_BEFORE_SYNCING_DOWN
     peers: List[str] = []
     last_event_timestamp_per_peer: Dict[str, float] = {}
-    # Cache of dataset collection hashes: "{owner_email}/{tag}" -> content_hash
-    dataset_collection_hashes: Dict[str, str] = {}
+    # Base syftbox folder
+    syftbox_folder: Path | None = None
+    # Subpath from owner_email to collections folder (e.g., "public/syft_datasets")
+    collection_subpath: Path | None = None
+    # Cache of dataset collection hashes: path -> content_hash
+    dataset_collection_hashes: Dict[Path, str] = {}
 
     @classmethod
     def from_config(cls, config: DataSiteWatcherCacheConfig):
@@ -61,11 +59,17 @@ class DataSiteWatcherCache(BaseModel):
                 connection_router=ConnectionRouter.from_configs(
                     connection_configs=config.connection_configs
                 ),
+                syftbox_folder=config.syftbox_folder,
+                collection_subpath=config.collection_subpath,
             )
             return res
         else:
             if config.syftbox_folder is None:
-                raise ValueError("base_path is required for non-in-memory cache")
+                raise ValueError("syftbox_folder is required for non-in-memory cache")
+            if config.collection_subpath is None:
+                raise ValueError(
+                    "collection_subpath is required for non-in-memory cache"
+                )
 
             syftbox_folder_name = Path(config.syftbox_folder).name
             syftbox_parent = Path(config.syftbox_folder).parent
@@ -79,16 +83,23 @@ class DataSiteWatcherCache(BaseModel):
                 connection_router=ConnectionRouter.from_configs(
                     connection_configs=config.connection_configs
                 ),
+                syftbox_folder=config.syftbox_folder,
+                collection_subpath=config.collection_subpath,
             )
             cache._load_cached_state()
             return cache
 
     def _load_cached_state(self):
-        """Load existing events from disk cache and populate last_event_timestamp_per_peer and file_hashes."""
+        """Load cached state from disk: file hashes, timestamps, and dataset hashes."""
+        self._load_file_hashes_from_events()
+        self._load_dataset_hashes_from_disk()
+
+    def _load_file_hashes_from_events(self):
+        """Load file hashes and timestamps from cached events."""
         try:
             cached_messages = self.events_connection.get_all()
         except Exception:
-            return
+            cached_messages = []
 
         if not cached_messages:
             return
@@ -112,6 +123,42 @@ class DataSiteWatcherCache(BaseModel):
                         del self.file_hashes[path_key]
                 else:
                     self.file_hashes[path_key] = event.new_hash
+
+    def _load_dataset_hashes_from_disk(self):
+        """Scan local dataset directories and compute hashes to populate dataset_collection_hashes."""
+        for collection_path in self._get_local_dataset_folders():
+            content_hash = self._compute_local_dataset_hash(collection_path)
+            if content_hash:
+                self.dataset_collection_hashes[collection_path] = content_hash
+
+    def get_collection_path(self, owner_email: str, tag: str) -> Path | None:
+        """Get the full path to a collection for a given owner and tag."""
+        if self.syftbox_folder is None or self.collection_subpath is None:
+            return None
+        return self.syftbox_folder / owner_email / self.collection_subpath / tag
+
+    def _get_local_dataset_folders(self):
+        """Yield paths to all local dataset folders."""
+        if self.syftbox_folder is None or not self.syftbox_folder.exists():
+            return
+        if self.collection_subpath is None:
+            return
+
+        for email_dir in self.syftbox_folder.iterdir():
+            if not email_dir.is_dir() or "@" not in email_dir.name:
+                continue
+            datasets_dir = email_dir / self.collection_subpath
+            if not datasets_dir.exists():
+                continue
+            for tag_dir in datasets_dir.iterdir():
+                if tag_dir.is_dir():
+                    yield tag_dir
+
+    def _compute_local_dataset_hash(self, collection_path: Path) -> str | None:
+        """Compute content hash from local dataset files on disk."""
+        from syft_client.sync.file_utils import compute_directory_hash
+
+        return compute_directory_hash(collection_path)
 
     def clear_cache(self):
         self.events_connection.clear_cache()
@@ -231,8 +278,10 @@ class DataSiteWatcherCache(BaseModel):
             content_hash = collection["content_hash"]
 
             # Check if hash changed - skip download if unchanged
-            cache_key = f"{owner_email}/{tag}"
-            cached_hash = self.dataset_collection_hashes.get(cache_key)
+            collection_path = self.get_collection_path(owner_email, tag)
+            if collection_path is None:
+                continue
+            cached_hash = self.dataset_collection_hashes.get(collection_path)
             if cached_hash == content_hash:
                 continue
 
@@ -241,13 +290,13 @@ class DataSiteWatcherCache(BaseModel):
                 tag, content_hash, owner_email
             )
 
-            # Write files to local cache
+            # Write files to local cache (path relative to syftbox_folder)
             for file_name, content in files.items():
-                file_path = f"{owner_email}/public/syft_datasets/{tag}/{file_name}"
-                self.file_connection.write_file(file_path, content)
+                rel_path = f"{owner_email}/{self.collection_subpath}/{tag}/{file_name}"
+                self.file_connection.write_file(rel_path, content)
 
             # Update hash cache
-            self.dataset_collection_hashes[cache_key] = content_hash
+            self.dataset_collection_hashes[collection_path] = content_hash
 
     def sync_down_datasets_parallel(
         self,
@@ -272,8 +321,10 @@ class DataSiteWatcherCache(BaseModel):
             content_hash = collection["content_hash"]
 
             # Check if hash changed - skip download if unchanged
-            cache_key = f"{owner_email}/{tag}"
-            cached_hash = self.dataset_collection_hashes.get(cache_key)
+            collection_path = self.get_collection_path(owner_email, tag)
+            if collection_path is None:
+                continue
+            cached_hash = self.dataset_collection_hashes.get(collection_path)
             if cached_hash == content_hash:
                 continue
 
@@ -298,15 +349,20 @@ class DataSiteWatcherCache(BaseModel):
         file_ids = [metadata["file_id"] for _, metadata in all_downloads]
         downloaded_contents = list(executor.map(download_fn, file_ids))
 
-        # Write files to local cache
+        # Write files to local cache (path relative to syftbox_folder)
         for (collection, metadata), content in zip(all_downloads, downloaded_contents):
             owner_email = collection["owner_email"]
             tag = collection["tag"]
             file_name = metadata["file_name"]
-            file_path = f"{owner_email}/public/syft_datasets/{tag}/{file_name}"
-            self.file_connection.write_file(file_path, content)
+            rel_path = f"{owner_email}/{self.collection_subpath}/{tag}/{file_name}"
+            self.file_connection.write_file(rel_path, content)
 
         # Update hash cache for all collections
         for collection in collections_to_update:
-            cache_key = f"{collection['owner_email']}/{collection['tag']}"
-            self.dataset_collection_hashes[cache_key] = collection["content_hash"]
+            collection_path = self.get_collection_path(
+                collection["owner_email"], collection["tag"]
+            )
+            if collection_path is not None:
+                self.dataset_collection_hashes[collection_path] = collection[
+                    "content_hash"
+                ]

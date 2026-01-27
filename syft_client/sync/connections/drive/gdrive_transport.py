@@ -1,5 +1,6 @@
 """Google Drive Files transport layer implementation"""
 
+import logging
 import io
 import json
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from typing import TYPE_CHECKING
 from googleapiclient.http import BatchHttpRequest
 from pydantic import BaseModel
+import httplib2
+from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from google.oauth2.credentials import Credentials as GoogleCredentials
@@ -47,10 +50,38 @@ if TYPE_CHECKING:
     )
     from syft_client.sync.version.version_info import VersionInfo
 
+# Timeout for Google API requests (in seconds)
+GOOGLE_API_TIMEOUT = 120  # 2 minutes
+
 SYFTBOX_FOLDER = "SyftBox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 GDRIVE_TRANSPORT_NAME = "gdrive_files"
+
+logging.getLogger("google_auth_httplib2").setLevel(logging.ERROR)
+
+
+def build_drive_service(
+    credentials: GoogleCredentials,
+    timeout: int = GOOGLE_API_TIMEOUT,
+    environment: Environment | None = None,
+):
+    """Build a Google Drive service with timeout-enabled authorized HTTP."""
+    http = httplib2.Http(timeout=timeout)
+    if environment == Environment.COLAB:
+        from google.colab import auth as colab_auth
+        import google.auth
+
+        colab_auth.authenticate_user()
+        creds, _ = google.auth.default()
+        authed_http = AuthorizedHttp(creds, http=http)
+        # Build service without explicit credentials in Colab
+        return build("drive", "v3", http=authed_http)
+    else:
+        authorized_http = AuthorizedHttp(credentials, http=http)
+        return build("drive", "v3", http=authorized_http)
+
+
 GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
 SYFT_PEERS_FILE = "SYFT_peers.json"
 SYFT_VERSION_FILE = "SYFT_version.json"
@@ -104,13 +135,9 @@ class DatasetCollectionFolder(BaseModel):
     @staticmethod
     def compute_hash(files: dict[str, bytes]) -> str:
         """Compute a hash from file contents."""
-        import hashlib
+        from syft_client.sync.file_utils import compute_file_hashes
 
-        hasher = hashlib.sha256()
-        for name in sorted(files.keys()):
-            hasher.update(name.encode())
-            hasher.update(files[name])
-        return hasher.hexdigest()[:12]
+        return compute_file_hashes(files)
 
 
 class GDriveConnection(SyftboxPlatformConnection):
@@ -167,21 +194,53 @@ class GDriveConnection(SyftboxPlatformConnection):
         res.setup(credentials=credentials)
         return res
 
-    def setup(self, credentials: GoogleCredentials | None = None):
-        """Setup Drive transport with OAuth2 credentials or Colab auth"""
-        # Check if we're in Colab and can use automatic auth
+    @classmethod
+    def from_mock_service(cls, email: str, mock_service: Any) -> "GDriveConnection":
+        """Create a GDriveConnection using a mock drive service for testing.
+
+        Args:
+            email: Email of the user
+            mock_service: MockDriveService instance to use instead of real API
+
+        Returns:
+            GDriveConnection configured with the mock service
+        """
+        res = cls(email=email, token_path=None)
+        res.setup(drive_service=mock_service)
+        return res
+
+    def setup(
+        self,
+        credentials: GoogleCredentials | None = None,
+        drive_service: Any | None = None,
+    ):
+        """Setup Drive transport with OAuth2 credentials, Colab auth, or mock service.
+
+        Args:
+            credentials: OAuth2 credentials for real API access
+            drive_service: Drive service instance (e.g., mock for testing)
+        """
         self.credentials = credentials
-        if self.environment == Environment.COLAB:
-            from google.colab import auth as colab_auth
-
-            colab_auth.authenticate_user()
-            # Build service without explicit credentials in Colab
-            self.drive_service = build("drive", "v3")
-
-        self.drive_service = build("drive", "v3", credentials=self.credentials)
+        if drive_service is not None:
+            self.drive_service = drive_service
+        else:
+            self.drive_service = build_drive_service(
+                self.credentials, environment=self.environment
+            )
 
         self.get_personal_syftbox_folder_id()
         self._is_setup = True
+
+    def copy(self) -> "GDriveConnection":
+        # if is mock
+        from syft_client.sync.connections.drive.mock_drive_service import (
+            MockDriveService,
+        )
+
+        if isinstance(self.drive_service, MockDriveService):
+            return GDriveConnection.from_mock_service(self.email, self.drive_service)
+        else:
+            return GDriveConnection.from_token_path(self.email, self.token_path)
 
     @property
     def transport_name(self) -> str:
@@ -883,18 +942,26 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
 
     def delete_multiple_files_by_ids(
-        self, file_ids: List[str], ignore_permissions_errors: bool = True
+        self,
+        file_ids: List[str],
+        ignore_permissions_errors: bool = True,
+        ignore_file_not_found: bool = True,
     ):
         def callback(request_id, response, exception):
             if exception:
-                # insufficientFilePermissions is a common error when deleting files that may already beed removed
-                # I think (!)
-                if ignore_permissions_errors and "insufficientFilePermissions" in str(
-                    exception
+                exception_str = str(exception)
+                # insufficientFilePermissions is a common error when deleting files that may already be removed
+                if (
+                    ignore_permissions_errors
+                    and "insufficientFilePermissions" in exception_str
                 ):
                     return
-                else:
-                    raise exception
+                # 404 errors occur when files are already deleted
+                if ignore_file_not_found and (
+                    "404" in exception_str or "notFound" in exception_str
+                ):
+                    return
+                raise exception
             if (
                 not isinstance(response, str)
                 and response.get("status")
@@ -968,11 +1035,8 @@ class GDriveConnection(SyftboxPlatformConnection):
         return items[0]["id"] if items else None
 
     def download_file(self, file_id: str) -> bytes:
-        # This is likely a message archive
-        drive_service = build("drive", "v3", credentials=self.credentials)
-        request = drive_service.files().get_media(fileId=file_id)
+        request = self.drive_service.files().get_media(fileId=file_id)
 
-        # Download to memory
         file_buffer = io.BytesIO()
         downloader = MediaIoBaseDownload(
             file_buffer, request, chunksize=1024 * 1024 * 10

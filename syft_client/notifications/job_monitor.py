@@ -9,6 +9,10 @@ import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 
+from google.oauth2.credentials import Credentials as GoogleCredentials
+
+from syft_client.sync.connections.drive.gdrive_transport import build_drive_service
+
 try:
     from .base import Monitor, NotificationSender, StateManager
 except ImportError:
@@ -71,13 +75,10 @@ class JobMonitor(Monitor):
 
     def _create_drive_service(self):
         """Create Google Drive service (must be called from main thread)."""
-        from google.oauth2.credentials import Credentials as GoogleCredentials
-        from googleapiclient.discovery import build
-
         credentials = GoogleCredentials.from_authorized_user_file(
             str(self.drive_token_path), DRIVE_SCOPES
         )
-        return build("drive", "v3", credentials=credentials)
+        return build_drive_service(credentials)
 
     def _find_inbox_folders(self) -> List[Tuple[str, str]]:
         """

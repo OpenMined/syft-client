@@ -48,9 +48,8 @@ class ConnectionRouter(BaseModel):
         self, connection: SyftboxPlatformConnection
     ) -> SyftboxPlatformConnection:
         if isinstance(connection, GDriveConnection):
-            return GDriveConnection.from_token_path(
-                connection.email, connection.token_path
-            )
+            # Check if using mock service (no credentials and no token_path)
+            return connection.copy()
         else:
             return connection
 
@@ -98,9 +97,18 @@ class ConnectionRouter(BaseModel):
     #     connection = self.connection_for_own_syftbox()
     #     connection.delete_syftbox()
 
-    def delete_multiple_files_by_ids(self, file_ids: List[str]):
+    def delete_multiple_files_by_ids(
+        self,
+        file_ids: List[str],
+        ignore_permissions_errors: bool = True,
+        ignore_file_not_found: bool = True,
+    ):
         connection = self.connection_for_own_syftbox()
-        connection.delete_multiple_files_by_ids(file_ids)
+        connection.delete_multiple_files_by_ids(
+            file_ids,
+            ignore_permissions_errors=ignore_permissions_errors,
+            ignore_file_not_found=ignore_file_not_found,
+        )
 
     def get_all_accepted_event_file_ids_do(
         self, since_timestamp: float | None = None
