@@ -619,7 +619,7 @@ class SyftboxManager(BaseModel):
         # so we can store events in memory
         # we also make sure we write to the same backing store so we get consistent state
         # sender_receiver_function = (
-        #     sender_manager.proposed_file_change_handler.on_proposed_filechange_receive
+        #     sender_manager.datasite_owner_syncer.on_proposed_filechange_receive
         # )
         def sender_receiver_function(*args, **kwargs):
             pass
@@ -1158,7 +1158,7 @@ class SyftboxManager(BaseModel):
         """
         if not self.is_do:
             raise ValueError("Checkpoints can only be created by Data Owners")
-        return self.proposed_file_change_handler.create_checkpoint()
+        return self.datasite_owner_syncer.create_checkpoint()
 
     def should_create_checkpoint(self, threshold: int = 50) -> bool:
         """
@@ -1172,7 +1172,7 @@ class SyftboxManager(BaseModel):
         """
         if not self.is_do:
             return False
-        return self.proposed_file_change_handler.should_create_checkpoint(threshold)
+        return self.datasite_owner_syncer.should_create_checkpoint(threshold)
 
     def try_create_checkpoint(self, threshold: int = 50):
         """
@@ -1188,7 +1188,7 @@ class SyftboxManager(BaseModel):
         """
         if not self.is_do:
             return None
-        return self.proposed_file_change_handler.try_create_checkpoint(threshold)
+        return self.datasite_owner_syncer.try_create_checkpoint(threshold)
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
         all_platforms = set(

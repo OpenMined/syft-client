@@ -36,7 +36,7 @@ def test_checkpoint_create_and_upload():
     manager_do.sync(auto_checkpoint=False)
 
     # Verify files are in cache
-    do_cache = manager_do.proposed_file_change_handler.event_cache
+    do_cache = manager_do.datasite_owner_syncer.event_cache
     assert len(do_cache.file_hashes) == 2
 
     # Create checkpoint
@@ -88,7 +88,7 @@ def test_checkpoint_restore_on_fresh_login():
     manager_do2.sync(auto_checkpoint=False)
 
     # Verify state was restored
-    do_cache = manager_do2.proposed_file_change_handler.event_cache
+    do_cache = manager_do2.datasite_owner_syncer.event_cache
     assert len(do_cache.file_hashes) == 3, (
         f"Expected 3 files, got {len(do_cache.file_hashes)}"
     )
@@ -127,7 +127,7 @@ def test_checkpoint_with_incremental_events():
     manager_do1.sync(auto_checkpoint=False)
 
     # Verify DO1 has all 4 files
-    assert len(manager_do1.proposed_file_change_handler.event_cache.file_hashes) == 4
+    assert len(manager_do1.datasite_owner_syncer.event_cache.file_hashes) == 4
 
     # Fresh login should restore checkpoint + incremental events
     manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
@@ -143,7 +143,7 @@ def test_checkpoint_with_incremental_events():
     manager_do2.sync(auto_checkpoint=False)
 
     # Should have all 4 files (2 from checkpoint + 2 from incremental)
-    do_cache = manager_do2.proposed_file_change_handler.event_cache
+    do_cache = manager_do2.datasite_owner_syncer.event_cache
     assert len(do_cache.file_hashes) == 4, (
         f"Expected 4 files, got {len(do_cache.file_hashes)}"
     )

@@ -26,7 +26,7 @@ def test_checkpoint_create_and_restore():
     ds_manager.send_file_change(f"{do_email}/test2.txt", "Content 2")
 
     # Verify files are in cache
-    do_cache = do_manager.proposed_file_change_handler.event_cache
+    do_cache = do_manager.datasite_owner_syncer.event_cache
     assert len(do_cache.file_hashes) == 2
 
     # Create checkpoint
@@ -111,14 +111,14 @@ def test_checkpoint_restore_on_sync():
     assert len(checkpoint.files) == 2
 
     # Clear cache to simulate fresh login
-    do_manager.proposed_file_change_handler.event_cache.clear_cache()
-    do_manager.proposed_file_change_handler.initial_sync_done = False
+    do_manager.datasite_owner_syncer.event_cache.clear_cache()
+    do_manager.datasite_owner_syncer.initial_sync_done = False
 
     # Sync should restore from checkpoint
     do_manager.sync(auto_checkpoint=False)
 
     # Verify state was restored
-    do_cache = do_manager.proposed_file_change_handler.event_cache
+    do_cache = do_manager.datasite_owner_syncer.event_cache
     assert len(do_cache.file_hashes) == 2
 
 

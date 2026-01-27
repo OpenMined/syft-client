@@ -268,14 +268,18 @@ class TestRollingStateIntegration:
 
         # Track how many individual events are downloaded
         download_count = 0
-        original_download = fresh_do.proposed_file_change_handler.download_events_message_by_id_with_connection
+        original_download = (
+            fresh_do.datasite_owner_syncer.download_events_message_by_id_with_connection
+        )
 
         def counted_download(event_id):
             nonlocal download_count
             download_count += 1
             return original_download(event_id)
 
-        fresh_do.proposed_file_change_handler.download_events_message_by_id_with_connection = counted_download
+        fresh_do.datasite_owner_syncer.download_events_message_by_id_with_connection = (
+            counted_download
+        )
 
         # Sync should use checkpoint + rolling state
         fresh_do.sync(auto_checkpoint=False)
@@ -288,7 +292,7 @@ class TestRollingStateIntegration:
         )
 
         # Verify checkpoint files are in the cache (at minimum)
-        cache = fresh_do.proposed_file_change_handler.event_cache
+        cache = fresh_do.datasite_owner_syncer.event_cache
         assert len(cache.file_hashes) >= 2, (
             f"Expected at least 2 files from checkpoint, got {len(cache.file_hashes)}"
         )

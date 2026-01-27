@@ -107,7 +107,7 @@ def benchmark_rolling_state():
     print("\nAfter Phase 1:")
     print(f"  Checkpoint exists: {checkpoint_after_phase1 is not None}")
     print(
-        f"  Rolling state initialized: {do.proposed_file_change_handler._rolling_state is not None}"
+        f"  Rolling state initialized: {do.datasite_owner_syncer._rolling_state is not None}"
     )
 
     # PHASE 2: Submit more events AFTER checkpoint (these go into rolling state)
@@ -176,8 +176,8 @@ def benchmark_rolling_state():
 
     # Verify we're using a different cache directory
     assert (
-        fresh_do.proposed_file_change_handler.event_cache.file_connection.base_dir
-        != do.proposed_file_change_handler.event_cache.file_connection.base_dir
+        fresh_do.datasite_owner_syncer.event_cache.file_connection.base_dir
+        != do.datasite_owner_syncer.event_cache.file_connection.base_dir
     )
 
     # Benchmark fresh login sync
@@ -187,7 +187,7 @@ def benchmark_rolling_state():
     fresh_sync_time = time.time() - sync_start
 
     # Get cache state
-    cache = fresh_do.proposed_file_change_handler.event_cache
+    cache = fresh_do.datasite_owner_syncer.event_cache
     files_in_cache = len(cache.file_hashes)
 
     # Print results

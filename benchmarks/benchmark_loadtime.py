@@ -67,7 +67,7 @@ def benchmark_gdrive_load_state():
         add_peers=False,
         load_peers=True,
     )
-    print(len(manager_do2.proposed_file_change_handler.event_cache.get_cached_events()))
+    print(len(manager_do2.datasite_owner_syncer.event_cache.get_cached_events()))
 
     print("initial sync")
     start = time.time()
@@ -77,10 +77,7 @@ def benchmark_gdrive_load_state():
 
     end = time.time()
 
-    assert (
-        len(manager_do2.proposed_file_change_handler.event_cache.get_cached_events())
-        == 10
-    )
+    assert len(manager_do2.datasite_owner_syncer.event_cache.get_cached_events()) == 10
 
     print(f"Time taken to load state: {round(end - start, 2)} seconds")
 
