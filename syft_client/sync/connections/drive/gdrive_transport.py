@@ -187,7 +187,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         return res
 
     @classmethod
-    def from_mock_service(cls, email: str, mock_service: Any) -> "GDriveConnection":
+    def from_service(cls, email: str, mock_service: Any) -> "GDriveConnection":
         """Create a GDriveConnection using a mock drive service for testing.
 
         Args:
@@ -230,7 +230,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
 
         if isinstance(self.drive_service, MockDriveService):
-            return GDriveConnection.from_mock_service(self.email, self.drive_service)
+            return GDriveConnection.from_service(self.email, self.drive_service)
         else:
             return GDriveConnection.from_token_path(self.email, self.token_path)
 

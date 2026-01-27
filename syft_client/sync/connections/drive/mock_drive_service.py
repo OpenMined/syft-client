@@ -24,9 +24,9 @@ Usage:
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
-
+from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 
@@ -820,3 +820,20 @@ class MockDriveService:
     def permissions(self) -> MockPermissionsResource:
         """Get the permissions resource."""
         return self._permissions_resource
+
+
+def pair_with_mock_service(
+    email1: str, email2: str
+) -> Tuple[GDriveConnection, GDriveConnection]:
+    """Pair two GDriveConnections using mock services.
+
+    Args:
+        email1: Email for the first user
+        email2: Email for the second user
+    """
+    backing_store = MockDriveBackingStore()
+    service1 = MockDriveService(backing_store, email1)
+    service2 = MockDriveService(backing_store, email2)
+    return GDriveConnection.from_service(
+        email1, service1
+    ), GDriveConnection.from_service(email2, service2)

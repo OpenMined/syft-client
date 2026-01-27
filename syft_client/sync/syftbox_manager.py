@@ -1,6 +1,7 @@
 from pathlib import Path
 import copy
 import warnings
+from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.utils import resolve_path
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -35,11 +36,7 @@ from syft_client.sync.job_file_change_handler import JobFileChangeHandler
 from syft_client.sync.connections.connection_router import ConnectionRouter
 
 from syft_client.sync.connections.drive.grdrive_config import GdriveConnectionConfig
-from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
-from syft_client.sync.connections.drive.mock_drive_service import (
-    MockDriveBackingStore,
-    MockDriveService,
-)
+from syft_client.sync.connections.drive import mock_drive_service
 from syft_client.sync.connections.inmemory_connection import (
     InMemoryPlatformConnection,
 )
@@ -707,34 +704,15 @@ class SyftboxManager(BaseModel):
         do_manager = cls.from_config(do_config)
         ds_manager = cls.from_config(ds_config)
 
-        # Create shared backing store for mock services
-        shared_backing_store = MockDriveBackingStore()
-
-        # Create mock services (share same backing store, different current_user)
-        do_mock_service = MockDriveService(shared_backing_store, do_manager.email)
-        ds_mock_service = MockDriveService(shared_backing_store, ds_manager.email)
-
         # Create GDriveConnection instances with mock services
-        do_connection = GDriveConnection.from_mock_service(
-            do_manager.email, do_mock_service
-        )
-        ds_connection = GDriveConnection.from_mock_service(
-            ds_manager.email, ds_mock_service
+        do_connection, ds_connection = mock_drive_service.pair_with_mock_service(
+            do_manager.email, ds_manager.email
         )
 
         # Add connections to managers
-        # For DO: add connection to datasite_owner_syncer and version_manager
-        do_manager.datasite_owner_syncer.connection_router.add_connection(do_connection)
-        do_manager.version_manager.connection_router.add_connection(do_connection)
+        do_manager.add_connection(do_connection)
 
-        # For DS: add connection to datasite_watcher_syncer and version_manager
-        ds_manager.datasite_watcher_syncer.connection_router.add_connection(
-            ds_connection
-        )
-        ds_manager.datasite_watcher_syncer.datasite_watcher_cache.connection_router.add_connection(
-            ds_connection
-        )
-        ds_manager.version_manager.connection_router.add_connection(ds_connection)
+        ds_manager.add_connection(ds_connection)
 
         # Set up callbacks for DS -> DO communication
         ds_manager.file_writer.add_callback(
@@ -944,9 +922,14 @@ class SyftboxManager(BaseModel):
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
-        if not isinstance(connection, InMemoryPlatformConnection):
+        if not isinstance(connection, InMemoryPlatformConnection) and not (
+            isinstance(connection, GDriveConnection)
+            and isinstance(
+                connection.drive_service, mock_drive_service.MockDriveService
+            )
+        ):
             raise ValueError(
-                "Only InMemoryPlatformConnections can be added to the manager"
+                "Only InMemoryPlatformConnections and MockDriveServices can be added to the manager"
             )
 
         if self.datasite_owner_syncer is not None:
