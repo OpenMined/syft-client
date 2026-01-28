@@ -174,7 +174,10 @@ class NotificationOrchestrator:
             drive_token_path=self.drive_token_path,
         )
 
-        if self.drive_token_path and self.drive_token_path.exists():
+        # Create peer monitor if we have a token file OR if we're in Colab (native auth)
+        from syft_notify.core.base import is_colab
+
+        if is_colab() or (self.drive_token_path and self.drive_token_path.exists()):
             self._peer_monitor = PeerMonitor(
                 do_email=self.do_email,
                 drive_token_path=self.drive_token_path,

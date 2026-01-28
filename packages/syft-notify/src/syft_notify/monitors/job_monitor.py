@@ -3,13 +3,13 @@ from typing import Any, Optional
 
 import yaml
 
+from syft_notify.core.base import create_drive_service, is_colab
 from syft_notify.handlers import JobHandler
 from syft_notify.monitors.base import Monitor
 from syft_notify.state import JsonStateManager
 
 GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
-DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
 class JobMonitor(Monitor):
@@ -29,17 +29,10 @@ class JobMonitor(Monitor):
         self.drive_token_path = Path(drive_token_path) if drive_token_path else None
         self._drive_service = None
 
-        if self.drive_token_path and self.drive_token_path.exists():
-            self._drive_service = self._create_drive_service()
-
-    def _create_drive_service(self):
-        from google.oauth2.credentials import Credentials as GoogleCredentials
-        from googleapiclient.discovery import build
-
-        credentials = GoogleCredentials.from_authorized_user_file(
-            str(self.drive_token_path), DRIVE_SCOPES
-        )
-        return build("drive", "v3", credentials=credentials)
+        # In Colab, always try to create drive service (uses native auth)
+        # In local, only create if token exists
+        if is_colab() or (self.drive_token_path and self.drive_token_path.exists()):
+            self._drive_service = create_drive_service(self.drive_token_path)
 
     def _check_all_entities(self):
         if self._drive_service:
