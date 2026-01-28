@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
-from typing import ClassVar, Self
+from typing import ClassVar
+from typing_extensions import Self
 from uuid import UUID, uuid4
 
 import yaml
