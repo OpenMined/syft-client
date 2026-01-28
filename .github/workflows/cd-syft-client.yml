@@ -35,6 +35,7 @@ jobs:
   call-integration-tests:
     if: github.event.inputs.run_tests == 'true'
     uses: OpenMined/syft-client/.github/workflows/integration-tests.yml@main
+    secrets: inherit
 
   deploy-syft-client:
     needs: [call-linting-tests, call-unit-tests, call-integration-tests]
