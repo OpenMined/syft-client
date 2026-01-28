@@ -1,14 +1,12 @@
 import logging
 import os
 import signal
+import subprocess
 import sys
 import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
-
-import daemon
-import daemon.pidfile
 
 from syft_approve.core.config import get_default_paths
 
@@ -32,26 +30,36 @@ class DaemonManager:
         print("🔐 Starting syft-approve daemon...")
         print(f"   Config: {self.config_path}")
         print(f"   Logs: {self.log_file}")
-        print()
-        print("✅ Daemon starting in background...")
-        sys.stdout.flush()
 
-        with open(self.log_file, "a") as log_file:
-            context = daemon.DaemonContext(
-                working_directory=str(Path.home()),
-                pidfile=daemon.pidfile.PIDLockFile(str(self.pid_file)),
-                umask=0o002,
-                signal_map={
-                    signal.SIGTERM: self._shutdown_handler,
-                },
-                stdout=log_file,
-                stderr=log_file,
-            )
+        # Build command - use python -u for unbuffered output
+        cmd = [sys.executable, "-u", "-m", "syft_approve.cli.commands", "run"]
+        if interval:
+            cmd.extend(["--interval", str(interval)])
 
-            with context:
-                self._run(interval)
+        # Start process in background with output to log file
+        # Note: Don't use context manager - keep file handle open for subprocess
+        log_fd = open(self.log_file, "a")
+        process = subprocess.Popen(
+            cmd,
+            stdout=log_fd,
+            stderr=log_fd,
+            start_new_session=True,  # Detach from terminal
+            cwd=str(Path.home()),
+        )
+        # Don't close log_fd - subprocess needs it
 
-        return True
+        # Write PID file
+        self.pid_file.write_text(str(process.pid))
+
+        # Wait briefly and verify it's running
+        time.sleep(1)
+        if self.is_running():
+            print(f"✅ Daemon started (PID {process.pid})")
+            return True
+        else:
+            print("❌ Daemon failed to start. Check logs:")
+            print(f"   {self.log_file}")
+            return False
 
     def stop(self) -> bool:
         pid = self.get_pid()
