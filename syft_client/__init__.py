@@ -6,7 +6,7 @@ from pathlib import Path
 from syft_client.sync.login import login_do, login_ds, login  # noqa: F401
 from syft_client.utils import resolve_path, resolve_dataset_file_path  # noqa: F401
 
-__version__ = "0.1.94"
+__version__ = "0.1.95"
 
 SYFT_CLIENT_DIR = Path(__file__).parent.parent
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
