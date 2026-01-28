@@ -6,7 +6,6 @@ from syft_client.sync.version.version_info import VersionInfo
 from syft_client.sync.version.exceptions import (
     VersionUnknownError,
 )
-from tests.unit.utils import setup_mock_peer_version
 
 
 class TestVersionInfo:
@@ -110,62 +109,75 @@ class TestVersionManager:
 
     def test_version_manager_writes_own_version(self):
         """Test that VersionManager writes version file on initialization."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+        ds_manager, do_manager = (
+            SyftboxManager.pair_with_mock_drive_service_connection()
+        )
 
-        # Version should be written during initialization
-        store = ds_manager.connection_router.connections[0].backing_store
-        assert ds_manager.email in store.version_files
-        assert do_manager.email in store.version_files
+        # Version should be written during initialization - verify via public API
+        # DS can read DO's version after peer setup (they're auto-added as peers)
+        ds_version = do_manager.version_manager.load_peer_version(ds_manager.email)
+        do_version = ds_manager.version_manager.load_peer_version(do_manager.email)
+
+        assert ds_version is not None, "DS version should be readable by DO"
+        assert do_version is not None, "DO version should be readable by DS"
 
     def test_version_shared_on_add_peer(self):
         """Test that version file is shared when adding a peer."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             add_peers=False
         )
 
-        store = ds_manager.connection_router.connections[0].backing_store
-
-        # Before adding peer, DS version is not shared with DO
-        ds_version_file = store.version_files.get(ds_manager.email)
-        ds_permissions = ds_version_file.allowed_readers if ds_version_file else []
-        assert do_manager.email not in ds_permissions
+        # Before adding peer, DO cannot read DS's version
+        ds_version_before = do_manager.version_manager.load_peer_version(
+            ds_manager.email
+        )
+        assert ds_version_before is None, "DO should not be able to read DS version yet"
 
         # DS adds DO as peer
         ds_manager.add_peer(do_manager.email)
 
-        # Now DS version should be shared with DO
-        ds_version_file = store.version_files.get(ds_manager.email)
-        assert ds_version_file is not None
-        assert do_manager.email in ds_version_file.allowed_readers
+        # Now DO should be able to read DS's version (shared on add_peer)
+        ds_version_after = do_manager.version_manager.load_peer_version(
+            ds_manager.email
+        )
+        assert ds_version_after is not None, (
+            "DO should be able to read DS version after add_peer"
+        )
 
     def test_version_shared_on_approve_peer(self):
         """Test that version file is shared when approving a peer request."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             add_peers=False
         )
-
-        store = ds_manager.connection_router.connections[0].backing_store
 
         # DS adds DO as peer (creates pending request)
         ds_manager.add_peer(do_manager.email)
         do_manager.load_peers()
 
-        # Before approval, DO version is not shared with DS
-        do_version_file = store.version_files.get(do_manager.email)
-        do_permissions = do_version_file.allowed_readers if do_version_file else []
-        assert ds_manager.email not in do_permissions
+        # Before approval, DS cannot read DO's version
+        do_version_before = ds_manager.version_manager.load_peer_version(
+            do_manager.email
+        )
+        assert do_version_before is None, (
+            "DS should not be able to read DO version before approval"
+        )
 
         # DO approves DS
         do_manager.approve_peer_request(ds_manager.email)
 
-        # Now DO version should be shared with DS
-        do_version_file = store.version_files.get(do_manager.email)
-        assert do_version_file is not None
-        assert ds_manager.email in do_version_file.allowed_readers
+        # Now DS should be able to read DO's version (shared on approve)
+        do_version_after = ds_manager.version_manager.load_peer_version(
+            do_manager.email
+        )
+        assert do_version_after is not None, (
+            "DS should be able to read DO version after approval"
+        )
 
     def test_load_peer_version(self):
         """Test that peer version can be loaded."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+        ds_manager, do_manager = (
+            SyftboxManager.pair_with_mock_drive_service_connection()
+        )
 
         # DS should be able to load DO's version
         version = ds_manager.version_manager.load_peer_version(do_manager.email)
@@ -174,7 +186,7 @@ class TestVersionManager:
 
     def test_load_peer_version_without_permission(self):
         """Test that peer version returns None without permission."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             add_peers=False
         )
 
@@ -184,21 +196,58 @@ class TestVersionManager:
 
     def test_load_peer_versions_parallel(self):
         """Test that multiple peer versions can be loaded in parallel."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+        from syft_client.sync.connections.drive.mock_drive_service import (
+            MockDriveFile,
+            MockPermission,
+        )
+        from syft_client.sync.connections.drive.gdrive_transport import (
+            SYFT_VERSION_FILE,
+        )
 
-        store = ds_manager.connection_router.connections[0].backing_store
+        ds_manager, do_manager = (
+            SyftboxManager.pair_with_mock_drive_service_connection()
+        )
 
-        # Create additional mock peers with version files
-        setup_mock_peer_version(store, "peer1@test.com", ds_manager.email)
-        setup_mock_peer_version(store, "peer2@test.com", ds_manager.email)
+        # Get the backing store to manually insert a version file for a third peer
+        backing_store = ds_manager.connection_router.connections[
+            0
+        ].drive_service._backing_store
 
-        peer_emails = ["peer1@test.com", "peer2@test.com", do_manager.email]
+        # Create a version file for a third peer manually in the backing store
+        third_peer_email = "third_peer@test.com"
+        third_peer_version = VersionInfo.current()
+        version_file = MockDriveFile(
+            name=SYFT_VERSION_FILE,
+            mimeType="application/json",
+            parents=[],  # Root level, owned by third peer
+            owners=[{"emailAddress": third_peer_email}],
+            content=third_peer_version.to_json(),
+        )
+        backing_store.add_file(version_file)
+
+        # Share the version file with DS (add read permission)
+        backing_store.add_permission(
+            version_file.id,
+            MockPermission(
+                type="user",
+                role="reader",
+                emailAddress=ds_manager.email,
+            ),
+        )
+
+        # Load peer versions for both DO and the third peer in parallel
+        peer_emails = [do_manager.email, third_peer_email]
         versions = ds_manager.version_manager.load_peer_versions_parallel(
             peer_emails, force=True
         )
 
-        assert len(versions) == 3
-        assert all(v is not None for v in versions.values())
+        assert len(versions) == 2
+        assert versions[do_manager.email] is not None
+        assert versions[third_peer_email] is not None
+        assert (
+            versions[third_peer_email].syft_client_version
+            == third_peer_version.syft_client_version
+        )
 
 
 class TestForceSubmission:
@@ -206,7 +255,7 @@ class TestForceSubmission:
 
     def test_job_submission_blocked_without_version(self):
         """Test that job submission is blocked when peer version is unknown."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             add_peers=False,
             sync_automatically=False,
             check_versions=True,
@@ -229,7 +278,7 @@ class TestForceSubmission:
 
     def test_job_submission_allowed_with_force(self):
         """Test that job submission works with force_submission=True when version is unknown."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             add_peers=False,
             sync_automatically=False,
             check_versions=True,
@@ -276,10 +325,11 @@ class TestIgnoreVersionFlags:
 
     def test_ignore_client_version(self):
         """Test that ignore_client_version bypasses client version check."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+        ds_manager, do_manager = (
+            SyftboxManager.pair_with_mock_drive_service_connection()
+        )
 
-        # Manually set a different client version in the backing store
-        store = ds_manager.connection_router.connections[0].backing_store
+        # Write an incompatible client version for DO using public API
         current = VersionInfo.current()
         different_version = VersionInfo(
             syft_client_version="0.0.1",  # Different
@@ -288,29 +338,29 @@ class TestIgnoreVersionFlags:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        store.version_files[do_manager.email].content = different_version.to_json()
+        do_manager.connection_router.write_version_file(different_version)
+
+        # Clear DS's cached version of DO and reload
+        ds_manager.version_manager.clear_peer_version(do_manager.email)
+        ds_manager.version_manager.load_peer_version(do_manager.email)
 
         # Without ignore flag, should be incompatible
         ds_manager.version_manager.ignore_client_version = False
-        ds_manager.version_manager.load_peer_version(do_manager.email)
-        assert (
-            ds_manager.version_manager.is_peer_version_compatible(do_manager.email)
-            is False
+        assert not ds_manager.version_manager.is_peer_version_compatible(
+            do_manager.email
         )
 
         # With ignore flag, should be compatible
         ds_manager.version_manager.ignore_client_version = True
-        assert (
-            ds_manager.version_manager.is_peer_version_compatible(do_manager.email)
-            is True
-        )
+        assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email)
 
     def test_ignore_protocol_version(self):
         """Test that ignore_protocol_version bypasses protocol version check."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+        ds_manager, do_manager = (
+            SyftboxManager.pair_with_mock_drive_service_connection()
+        )
 
-        # Manually set a different protocol version in the backing store
-        store = ds_manager.connection_router.connections[0].backing_store
+        # Write an incompatible protocol version for DO using public API
         current = VersionInfo.current()
         different_version = VersionInfo(
             syft_client_version=current.syft_client_version,
@@ -319,11 +369,14 @@ class TestIgnoreVersionFlags:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        store.version_files[do_manager.email].content = different_version.to_json()
+        do_manager.connection_router.write_version_file(different_version)
+
+        # Clear DS's cached version of DO and reload
+        ds_manager.version_manager.clear_peer_version(do_manager.email)
+        ds_manager.version_manager.load_peer_version(do_manager.email)
 
         # Without ignore flag, should be incompatible
         ds_manager.version_manager.ignore_protocol_version = False
-        ds_manager.version_manager.load_peer_version(do_manager.email)
         assert (
             ds_manager.version_manager.is_peer_version_compatible(do_manager.email)
             is False
@@ -338,10 +391,11 @@ class TestIgnoreVersionFlags:
 
     def test_ignore_both_versions(self):
         """Test that ignoring both versions makes any peer compatible."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+        ds_manager, do_manager = (
+            SyftboxManager.pair_with_mock_drive_service_connection()
+        )
 
-        # Manually set completely different versions
-        store = ds_manager.connection_router.connections[0].backing_store
+        # Write completely different versions for DO using public API
         current = VersionInfo.current()
         different_version = VersionInfo(
             syft_client_version="0.0.1",
@@ -350,8 +404,10 @@ class TestIgnoreVersionFlags:
             min_supported_protocol_version="0.0.1",
             updated_at=current.updated_at,
         )
-        store.version_files[do_manager.email].content = different_version.to_json()
+        do_manager.connection_router.write_version_file(different_version)
 
+        # Clear DS's cached version and reload
+        ds_manager.version_manager.clear_peer_version(do_manager.email)
         ds_manager.version_manager.ignore_client_version = True
         ds_manager.version_manager.ignore_protocol_version = True
         ds_manager.version_manager.load_peer_version(do_manager.email)
@@ -367,12 +423,11 @@ class TestVersionMismatchBehavior:
 
     def test_sync_skips_incompatible_peers(self):
         """Test that sync skips peers with incompatible versions (DO side)."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
 
-        # Set incompatible version for DS
-        store = ds_manager.connection_router.connections[0].backing_store
+        # Write an incompatible version for DS using public API
         current = VersionInfo.current()
         incompatible = VersionInfo(
             syft_client_version="0.0.1",
@@ -381,7 +436,7 @@ class TestVersionMismatchBehavior:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        store.version_files[ds_manager.email].content = incompatible.to_json()
+        ds_manager.connection_router.write_version_file(incompatible)
 
         # Clear cached version so it sees the incompatible version
         do_manager.version_manager.clear_peer_version(ds_manager.email)
@@ -402,7 +457,7 @@ class TestVersionMismatchBehavior:
     )
     def test_job_execution_skipped_with_incompatible_version(self):
         """Test that job execution is skipped (with warning) when submitter version is incompatible."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             sync_automatically=False,
             use_in_memory_cache=False,
             check_versions=True,
@@ -424,8 +479,7 @@ class TestVersionMismatchBehavior:
         job = do_manager.job_client.jobs[0]
         job.approve()
 
-        # Now change DS version to be incompatible
-        store = ds_manager.connection_router.connections[0].backing_store
+        # Now change DS version to be incompatible using public API
         current = VersionInfo.current()
         incompatible = VersionInfo(
             syft_client_version="0.0.1",
@@ -434,7 +488,7 @@ class TestVersionMismatchBehavior:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        store.version_files[ds_manager.email].content = incompatible.to_json()
+        ds_manager.connection_router.write_version_file(incompatible)
 
         # Clear cached version so it sees the incompatible version
         do_manager.version_manager.clear_peer_version(ds_manager.email)
@@ -456,7 +510,7 @@ class TestVersionMismatchBehavior:
 
     def test_job_execution_forced_with_incompatible_version(self):
         """Test that job execution can be forced even when submitter version is incompatible."""
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             sync_automatically=False,
             use_in_memory_cache=False,
         )
@@ -477,8 +531,7 @@ class TestVersionMismatchBehavior:
         job = do_manager.job_client.jobs[0]
         job.approve()
 
-        # Now change DS version to be incompatible
-        store = ds_manager.connection_router.connections[0].backing_store
+        # Now change DS version to be incompatible using public API
         current = VersionInfo.current()
         incompatible = VersionInfo(
             syft_client_version="0.0.1",
@@ -487,7 +540,7 @@ class TestVersionMismatchBehavior:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        store.version_files[ds_manager.email].content = incompatible.to_json()
+        ds_manager.connection_router.write_version_file(incompatible)
 
         # Clear cached version so it sees the incompatible version
         do_manager.version_manager.clear_peer_version(ds_manager.email)
@@ -521,7 +574,7 @@ class TestVersionMismatchBehavior:
         3. Reload the version and verify peers are now incompatible
         """
         # Phase 1: Create managers with compatible versions
-        ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
 
@@ -537,8 +590,6 @@ class TestVersionMismatchBehavior:
         ), "DO should see DS as compatible initially"
 
         # Phase 2: Simulate DS "upgrading" to a new incompatible version
-        store = ds_manager.connection_router.connections[0].backing_store
-
         current = VersionInfo.current()
         new_version = VersionInfo(
             syft_client_version="99.0.0",  # Incompatible version
@@ -548,8 +599,8 @@ class TestVersionMismatchBehavior:
             updated_at=current.updated_at,
         )
 
-        # Write the new version to backing store (simulating DS upgrading their client)
-        store.version_files[ds_manager.email].content = new_version.to_json()
+        # Write the new version using public API (simulating DS upgrading their client)
+        ds_manager.connection_router.write_version_file(new_version)
 
         # Phase 3: Clear DO's cached version of DS and reload
         do_manager.version_manager.clear_peer_version(ds_manager.email)

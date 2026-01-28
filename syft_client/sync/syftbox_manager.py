@@ -366,6 +366,7 @@ class SyftboxManager(BaseModel):
     job_client: JobClient | None = None
     job_runner: SyftJobRunner | None = None
     version_manager: VersionManager | None = None
+    config: SyftboxManagerConfig | None = None
 
     _executor: ThreadPoolExecutor = PrivateAttr(
         default_factory=lambda: ThreadPoolExecutor(max_workers=10)
@@ -438,6 +439,7 @@ class SyftboxManager(BaseModel):
             job_client=job_client,
             job_runner=job_runner,
             version_manager=version_manager,
+            config=config,
         )
 
         return manager_res
@@ -657,7 +659,7 @@ class SyftboxManager(BaseModel):
         email2: str | None = None,
         base_path1: str | None = None,
         base_path2: str | None = None,
-        sync_automatically: bool = True,
+        sync_automatically: bool = False,
         add_peers: bool = True,
         use_in_memory_cache: bool = True,
         check_versions: bool = False,
@@ -1122,6 +1124,23 @@ class SyftboxManager(BaseModel):
             if dataset.name == dataset_name:
                 matches.append(dataset.owner)
         return matches
+
+    def copy(self):
+        from copy import deepcopy
+
+        new_config = deepcopy(self.config)
+        new_manager = SyftboxManager.from_config(new_config)
+        if not isinstance(self.connection_router.connections[0], GDriveConnection):
+            raise ValueError("Only GDriveConnections can be copied")
+        if isinstance(
+            self.connection_router.connections[0].drive_service,
+            mock_drive_service.MockDriveService,
+        ):
+            # Create new connection pointing to the same backing store
+            drive_service = self.connection_router.connections[0].drive_service
+            new_do_connection = GDriveConnection.from_service(self.email, drive_service)
+            new_manager.add_connection(new_do_connection)
+        return new_manager
 
     # def resolve_dataset_path(
     #     self, dataset_name: str, owner_email: str | None = None
