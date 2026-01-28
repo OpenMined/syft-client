@@ -42,7 +42,8 @@ jobs:
       always() &&
       needs.call-linting-tests.result == 'success' &&
       needs.call-unit-tests.result == 'success' &&
-      needs.call-integration-tests.result == 'success'
+      needs.call-integration-tests.result == 'success' ||
+      github.event.inputs.run_tests == 'false'
 
     runs-on: ubuntu-latest
     permissions:
