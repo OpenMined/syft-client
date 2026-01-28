@@ -76,6 +76,7 @@ members = ["packages/*"]
 "syft-dataset" = { workspace = true }
 "syft-notify" = { workspace = true }
 "syft-approve" = { workspace = true }
+"syft-bg" = { workspace = true }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"
