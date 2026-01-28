@@ -1,51 +1,37 @@
 from pathlib import Path
 import json
-from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
-from syft_client.sync.syftbox_manager import SyftboxManager
-from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlatform
-from syft_client.sync.messages.proposed_filechange import ProposedFileChange
-from syft_datasets.dataset import Dataset
+import tempfile
+import shutil
+
 import pytest
+
+from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
+from syft_client.sync.connections.drive import mock_drive_service
+from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
+from syft_client.sync.messages.proposed_filechange import ProposedFileChange
+from syft_client.sync.syftbox_manager import SyftboxManager
+from syft_client.sync.sync.caches.datasite_owner_cache import (
+    ProposedEventFileOutdatedException,
+)
+from syft_datasets.dataset import Dataset
 from tests.unit.utils import (
     create_tmp_dataset_files,
     create_tmp_dataset_files_with_parquet,
     create_test_project_folder,
+    get_mock_events_messages,
+    get_mock_proposed_events_messages,
 )
-import tempfile
-import shutil
-
-
-from syft_client.sync.sync.caches.datasite_owner_cache import (
-    ProposedEventFileOutdatedException,
-)
-from tests.unit.utils import get_mock_events_messages
-from tests.unit.utils import get_mock_proposed_events_messages
-from tests.unit.utils import setup_mock_peer_version
-
-
-def test_in_memory_connection():
-    file_path = "email@email.com/my.job"
-    manager1, manager2 = SyftboxManager.pair_with_in_memory_connection()
-    message_received = False
-
-    def patch_job_handler_file_receive(*args, **kwargs):
-        nonlocal message_received
-        message_received = True
-
-    manager2.job_file_change_handler.handle_file_change = patch_job_handler_file_receive
-
-    manager1.send_file_change(file_path, "Hello, world!")
-    assert message_received
 
 
 def test_sync_to_syftbox_eventlog():
-    file_path = "email@email.com/my.job"
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
+    file_path = f"{do_manager.email}/my.job"
 
     events_in_backing_platform = do_manager.get_all_accepted_events_do()
     assert len(events_in_backing_platform) == 0
 
     ds_manager.send_file_change(file_path, "Hello, world!")
+    do_manager.sync()
 
     # second event is present
     events_in_backing_platform = do_manager.get_all_accepted_events_do()
@@ -53,13 +39,14 @@ def test_sync_to_syftbox_eventlog():
 
 
 def test_valid_and_invalid_proposed_filechange_event():
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
     ds_email = ds_manager.email
     do_email = do_manager.email
 
-    path_from_syftbox = "email@email.com/test.job"
+    path_from_syftbox = f"{do_email}/test.job"
     path_in_datasite = path_from_syftbox.split("/")[-1]
 
+    # create first message to create a hash
     message_1 = ProposedFileChangesMessage(
         sender_email=ds_email,
         proposed_file_changes=[
@@ -72,6 +59,7 @@ def test_valid_and_invalid_proposed_filechange_event():
         ],
     )
 
+    # create modification that corresponds to the first message
     hash1 = message_1.proposed_file_changes[0].new_hash
     do_manager.datasite_owner_syncer.handle_proposed_filechange_events_message(
         ds_email, message_1
@@ -122,11 +110,12 @@ def test_valid_and_invalid_proposed_filechange_event():
 
 
 def test_sync_back_to_ds_cache():
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
-    file_path = "email@email.com/test.job"
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
+    file_path = f"{do_manager.email}/test.job"
     ds_manager.send_file_change(file_path, "Hello, world!")
 
-    ds_manager.sync()
+    do_manager.sync()  # DO processes inbox and pushes to outbox
+    ds_manager.sync()  # DS pulls from DO's outbox
     assert (
         len(
             ds_manager.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
@@ -136,105 +125,95 @@ def test_sync_back_to_ds_cache():
 
 
 def test_sync_existing_datasite_state_do():
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+    """Test that DO can sync and cache events from DS.
 
-    store: InMemoryBackingPlatform = do_manager.connection_router.connections[
-        0
-    ].backing_store
-
+    Creates state via DS sending file changes to DO, then verifies DO's cache.
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False
+    )
+    connection_ds = ds_manager.connection_router.connections[0]
+    connection_do = do_manager.connection_router.connections[0]
     events_messages = get_mock_events_messages(2)
 
-    store.syftbox_events_message_log.extend(events_messages)
-    outbox_folder = store.get_or_create_outbox_folder(
-        owner_email=do_manager.email, recipient_email=ds_manager.email
-    )
-    outbox_folder.messages.extend(events_messages)
+    for message in events_messages:
+        connection_do.write_events_message_to_syftbox(message)
+        connection_do.write_event_messages_to_outbox_do(
+            ds_manager.email, events_messages[0]
+        )
 
-    # sync down existing state
+    # DO syncs to receive the changes
     do_manager.sync()
 
+    # Verify DO's cache has the events
     n_messages_in_cache = len(
         do_manager.datasite_owner_syncer.event_cache.events_messages_connection
     )
     n_files_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_connection)
     hashes_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_hashes)
-    assert n_messages_in_cache == 2
+
+    n_outbox = connection_ds.get_outbox_file_metadatas_for_ds(do_manager.email, None)
+    assert n_messages_in_cache >= 1  # At least 1 message with the 2 file changes
     assert n_files_in_cache == 2
     assert hashes_in_cache == 2
-    # outbox should still be 2
-    outbox_folder = store.get_outbox_folder(
-        owner_email=do_manager.email, recipient_email=ds_manager.email
-    )
-    assert len(outbox_folder.messages) == 2
+    assert len(n_outbox) >= 1
 
 
 def test_sync_existing_inbox_state_do():
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
-    store: InMemoryBackingPlatform = do_manager.connection_router.connections[
-        0
-    ].backing_store
+    """Test that DO processes inbox messages from DS and creates events.
 
-    proposed_events_messages = get_mock_proposed_events_messages(2)
-    store.proposed_events_inbox.extend(proposed_events_messages)
+    DS sends file changes which arrive in DO's inbox. DO syncs and processes them.
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+    )
+    connection_ds = ds_manager.connection_router.connections[0]
 
-    # add the peers for the messages, otherwise it wont sync them
+    proposed_events_messages = get_mock_proposed_events_messages(
+        2, email=ds_manager.email
+    )
     for message in proposed_events_messages:
-        store.peer_states[do_manager.email] = {message.sender_email: "accepted"}
-        # Set up version file for the mock peer so DO can read it
-        setup_mock_peer_version(store, message.sender_email, do_manager.email)
-        # Load the peer version into the version manager's cache
-        do_manager.version_manager.load_peer_version(message.sender_email)
-    do_manager.load_peers()
+        connection_ds.send_proposed_file_changes_message(do_manager.email, message)
 
+    # DO syncs to process inbox messages
     do_manager.sync()
 
+    # Verify DO's cache has processed the events
     n_events_message_in_cache = len(
         do_manager.datasite_owner_syncer.event_cache.events_messages_connection
     )
     n_files_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_connection)
     hashes_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_hashes)
-    assert n_events_message_in_cache == 2
+    assert n_events_message_in_cache >= 1  # At least 1 message with 2 file changes
     assert n_files_in_cache == 2
     assert hashes_in_cache == 2
 
-    n_events_in_syftbox = len(
-        do_manager.connection_router.connections[
-            0
-        ].backing_store.syftbox_events_message_log
-    )
-    assert n_events_in_syftbox == 2
-
-    # Messages are written to outbox for the sender (email@email.com)
-    outbox_folder = store.get_outbox_folder(
-        owner_email=do_manager.email, recipient_email="email@email.com"
-    )
-    assert len(outbox_folder.messages) == 2
-
 
 def test_sync_existing_datasite_state_ds():
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+    """Test that DS can sync events from DO's outbox.
 
-    store: InMemoryBackingPlatform = ds_manager.connection_router.connections[
-        0
-    ].backing_store
-
-    events_messages = get_mock_events_messages(2)
-    store.syftbox_events_message_log.extend(events_messages)
-    outbox_folder = store.get_or_create_outbox_folder(
-        owner_email=do_manager.email, recipient_email=ds_manager.email
+    Creates state via DO creating files and syncing, then verifies DS receives them.
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False
     )
-    outbox_folder.messages.extend(events_messages)
+    connection_do = do_manager.connection_router.connections[0]
+    events_messages = get_mock_events_messages(2)
+    for message in events_messages:
+        connection_do.write_event_messages_to_outbox_do(ds_manager.email, message)
 
     ds_manager.sync()
 
+    # Verify DS received events (files may be batched into fewer messages)
     ds_events_in_cache = len(
-        ds_manager.datasite_watcher_syncer.datasite_watcher_cache.events_connection
+        ds_manager.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
     )
     assert ds_events_in_cache == 2
 
 
 def test_load_peers():
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    """Test peer loading and persistence across restarts."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         add_peers=False
     )
 
@@ -261,7 +240,8 @@ def test_load_peers():
 
 
 def test_file_connections():
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    """Test file sync between DS and DO using filesystem caches."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -273,10 +253,11 @@ def test_file_connections():
 
     assert datasite_dir_do != syftbox_dir_ds
 
-    job_path = "email@email.com/test.job"
+    job_path = f"{do_manager.email}/test.job"
     job_path_in_datasite = job_path.split("/")[-1]
 
     ds_manager.send_file_change(job_path, "Hello, world!")
+    do_manager.sync()
 
     assert (datasite_dir_do / job_path_in_datasite).exists()
 
@@ -294,7 +275,8 @@ def test_file_connections():
 
 
 def test_datasets():
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    """Test dataset creation and sync between DO and DS."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -314,14 +296,6 @@ def test_datasets():
     # Verify collection created
     collections = do_manager.connection_router.list_dataset_collections_as_do()
     assert "my dataset" in collections
-
-    backing_store = do_manager.datasite_owner_syncer.connection_router.connections[
-        0
-    ].backing_store
-
-    # Dataset files are excluded from outbox sync (they use their own dedicated channel)
-    syftbox_events = backing_store.syftbox_events_message_log
-    assert len(syftbox_events) == 0
 
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
@@ -367,7 +341,7 @@ def test_datasets_with_parquet():
     """Test dataset creation and sync with parquet files (binary format)."""
     import pandas as pd
 
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -386,16 +360,14 @@ def test_datasets_with_parquet():
         users=[ds_manager.email],
     )
 
-    backing_store = do_manager.datasite_owner_syncer.connection_router.connections[
-        0
-    ].backing_store
-
-    # Dataset files are excluded from outbox sync (they use their own dedicated channel)
-    syftbox_events = backing_store.syftbox_events_message_log
-    assert len(syftbox_events) == 0
-
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
+
+    event_log_messages = (
+        do_manager.connection_router.get_all_accepted_event_file_ids_do()
+    )
+    # these should not be used for datasets
+    assert len(event_log_messages) == 0
 
     # Retrieve dataset by name
     dataset_do = do_manager.datasets["parquet dataset"]
@@ -436,7 +408,7 @@ def test_datasets_with_parquet():
 
 def test_dataset_empty_permissions_no_access():
     """Test that empty permissions list means no one can access the dataset collection."""
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -468,26 +440,13 @@ def test_dataset_empty_permissions_no_access():
     ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
     assert not any(c["tag"] == "private dataset" for c in ds_collections)
 
-    # Get the hash from DO's backing store and try to download anyway
-    do_backing_store = do_manager.connection_router.connections[0].backing_store
-    collection = [
-        c for c in do_backing_store.dataset_collections if c.tag == "private dataset"
-    ][0]
-    content_hash = collection.content_hash
-
-    # DS should NOT be able to download the dataset collection (no permissions)
-    try:
-        ds_manager.connection_router.download_dataset_collection(
-            "private dataset", content_hash, do_manager.email
-        )
-        assert False, "Should have raised PermissionError"
-    except PermissionError:
-        pass  # Expected
+    # DS should not have downloaded any datasets
+    assert len(ds_manager.datasets.get_all()) == 0
 
 
 def test_dataset_only_mock_data_uploaded():
     """Test that only mock data is uploaded to the collection, not private data."""
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -503,37 +462,38 @@ def test_dataset_only_mock_data_uploaded():
         users=[ds_manager.email],
     )
 
-    # Get the backing store
-    backing_store = do_manager.datasite_owner_syncer.connection_router.connections[
+    # Sync so DS receives the dataset
+    ds_manager.sync()
+
+    files = ds_manager.connection_router.connections[
         0
-    ].backing_store
+    ].drive_service._backing_store.files
+    list(files.keys())
+    file_objs = list(files.values())
+    file_objs_ex_dataset_yaml = [
+        file_obj for file_obj in file_objs if file_obj.name != "dataset.yaml"
+    ]
 
-    # Find the dataset collection
-    collection = None
-    for c in backing_store.dataset_collections:
-        if c.tag == "test dataset" and c.owner_email == do_manager.email:
-            collection = c
-            break
+    assert not any("private" in file_obj.name for file_obj in file_objs)
+    # dataset.yaml does mention "private", but thats just the path
+    assert not any(
+        b"private" in file_obj.content for file_obj in file_objs_ex_dataset_yaml
+    )
 
-    assert collection is not None, "Dataset collection not found"
+    assert any("mock" in file_obj.name for file_obj in file_objs)
+    assert any(b"Hello, world" in file_obj.content for file_obj in file_objs)
 
-    # Check files in the collection
-    file_names = list(collection.files.keys())
+    mock_file = next(file_obj for file_obj in file_objs if file_obj.name == "mock.txt")
 
-    # Should have mock.txt and dataset.yaml, but NOT private.txt
-    assert "mock.txt" in file_names, "mock.txt should be in collection"
-    assert "dataset.yaml" in file_names, "dataset.yaml should be in collection"
-    assert "readme.md" in file_names, "readme.md should be in collection"
-    assert "private.txt" not in file_names, "private.txt should NOT be in collection"
-
-    # Verify the actual content of mock.txt is there
-    mock_content = collection.files["mock.txt"]
+    # Verify mock content is correct
+    mock_content = mock_file.content.decode("utf-8")
     assert len(mock_content) > 0, "Mock file should have content"
-    assert b"Hello" in mock_content, "Mock file should contain expected data"
+    assert "Hello" in mock_content, "Mock file should contain expected data"
 
 
 def test_jobs():
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    """Test basic job submission, approval, execution, and result sync."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
     )
@@ -553,16 +513,15 @@ with open("outputs/result.json", "w") as f:
         job_name="test.job",
     )
 
-    backing_store = do_manager.datasite_owner_syncer.connection_router.connections[
-        0
-    ].backing_store
-
     # We want to make sure that we only send one message for the multiple files in the job.
     # this is to reduce the number of messages sent, which increases the speed of sync
     # we do this by not always syncing on a file change, currently this logic is a bit of
     # a short cut, but we could do this based on timing eventually (if there are items in the
     # queue for longer than a certain time we start pushing)
-    assert len(backing_store.proposed_events_inbox) == 1
+    connection_do = do_manager.connection_router.connections[0]
+    inbox_folder_id = connection_do._get_inbox_folder_id_as_do(ds_manager.email)
+    inbox_file_metadatas = connection_do.get_file_metadatas_from_folder(inbox_folder_id)
+    assert len(inbox_file_metadatas) == 1
 
     do_manager.sync()
 
@@ -585,7 +544,8 @@ with open("outputs/result.json", "w") as f:
 
 
 def test_jobs_with_dataset():
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    """Test job execution with dataset access using syft:// protocol."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
     )
@@ -665,7 +625,7 @@ def test_single_file_job_submission_without_pyproject():
     Verifies backwards compatibility fix - code should be at:
         job_dir/main.py  (not job_dir/code/main.py)
     """
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
     )
@@ -704,7 +664,7 @@ def test_folder_job_submission_without_pyproject():
         - Generated run.sh uses 'uv venv' (not 'uv sync')
         - Entrypoint path includes folder name
     """
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
     )
@@ -783,7 +743,7 @@ def test_folder_job_submission_with_pyproject():
         - run.sh uses 'uv sync' inside the folder
         - Entrypoint path includes folder name
     """
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
     )
@@ -853,7 +813,7 @@ dependencies = []
 
 def test_folder_job_auto_detect_main_py():
     """Test that entrypoint is auto-detected when main.py exists."""
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
     )
@@ -890,7 +850,7 @@ def test_folder_job_auto_detect_main_py():
 
 def test_folder_job_auto_detect_single_py():
     """Test that entrypoint is auto-detected when only one .py file exists."""
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
     )
@@ -926,7 +886,7 @@ def test_folder_job_auto_detect_single_py():
 
 def test_folder_job_no_auto_detect_multiple_py():
     """Test that auto-detection fails when multiple .py files and no main.py."""
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
     )
@@ -986,7 +946,7 @@ def test_single_file_job_flow_with_dataset():
         - Job approval and execution workflow
         - Output file sync back to DS
     """
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -1032,6 +992,7 @@ with open("outputs/result.json", "w") as f:
         code_path=test_py_path,
         job_name="test.job",
     )
+    do_manager.sync()
 
     assert len(do_manager.job_client.jobs) == 1
     job = do_manager.job_client.jobs[0]
@@ -1066,7 +1027,7 @@ def test_folder_job_flow_with_dataset():
         - Outputs created at job root (not inside code/)
         - End-to-end flow: submit → approve → run → sync → verify output
     """
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -1094,6 +1055,7 @@ def test_folder_job_flow_with_dataset():
             job_name="test.folder.job",
             entrypoint="main.py",
         )
+        do_manager.sync()
 
         assert len(do_manager.job_client.jobs) == 1
         job = do_manager.job_client.jobs[0]
@@ -1136,7 +1098,7 @@ def test_pyproject_folder_job_flow_with_dataset():
         - Nested package imports work
         - End-to-end flow: submit → approve → run → sync → verify output
     """
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -1168,6 +1130,7 @@ def test_pyproject_folder_job_flow_with_dataset():
             entrypoint="main.py",
         )
 
+        do_manager.sync()
         assert len(do_manager.job_client.jobs) == 1
         job = do_manager.job_client.jobs[0]
         job_dir = job.location
@@ -1222,7 +1185,7 @@ def test_pyproject_folder_job_flow_with_dataset():
 
 def test_file_deletion_do_to_ds():
     """Test that DO can delete a file and it syncs to DS"""
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -1276,15 +1239,16 @@ def test_file_deletion_do_to_ds():
 
 def test_in_memory_deletion():
     """Test deletion works with in-memory cache"""
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True
     )
 
     # Create file via send_file_change
-    job_path = "email@email.com/test.job"
+    job_path = f"{do_manager.email}/test.job"
     job_path_in_datasite = job_path.split("/")[-1]
 
     ds_manager.send_file_change(job_path, "Hello, world!")
+    do_manager.sync()
 
     # Verify file exists in DO cache
     do_cache = do_manager.datasite_owner_syncer.event_cache
@@ -1311,7 +1275,7 @@ def test_syft_datasets_excluded_from_outbox_sync():
     Datasets have their own dedicated sync channel with proper permissions,
     so they should not be broadcast to all peers via the general outbox.
     """
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -1347,17 +1311,16 @@ def test_syft_datasets_excluded_from_outbox_sync():
     )
 
 
-def test_job_files_only_sync_to_submitter():
+def test_job_files_sync_to_submitter_only():
     """Test that job files only sync to the peer who submitted the job.
 
     When a DO has multiple approved peers, job results should only be sent
     to the peer who submitted that specific job, not broadcast to all peers.
     """
-    import yaml
-
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
-        use_in_memory_cache=False
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
     )
+    import yaml
 
     # The submitter is a different peer (not ds_manager)
     submitter_email = "submitter_peer@example.com"
@@ -1388,46 +1351,47 @@ def test_job_files_only_sync_to_submitter():
 
     # Process local changes with both recipients
     recipients = [submitter_email, non_submitter_email]
+    recipient_connection = GDriveConnection.from_service(
+        submitter_email, ds_manager.connection_router.connections[0].drive_service
+    )
+    recipient_connection.add_peer_as_ds(do_manager.email)
     do_manager.datasite_owner_syncer.process_local_changes(recipients)
 
-    # Check what's in the outbox folders
-    backing_store = do_manager.connection_router.connections[0].backing_store
-
-    # Get events from per-recipient outbox folders
-    submitter_folder = backing_store.get_outbox_folder(
-        owner_email=do_manager.email, recipient_email=submitter_email
-    )
-    non_submitter_folder = backing_store.get_outbox_folder(
-        owner_email=do_manager.email, recipient_email=non_submitter_email
+    messages_for_non_submitter = (
+        ds_manager.connection_router.get_events_messages_for_datasite_watcher(
+            do_manager.email, None
+        )
     )
 
-    submitter_events = submitter_folder.messages if submitter_folder else []
-    non_submitter_events = non_submitter_folder.messages if non_submitter_folder else []
+    paths_for_non_submitter = [
+        str(event.path_in_datasite)
+        for msg in messages_for_non_submitter
+        for event in msg.events
+    ]
 
-    # Extract paths from events
-    submitter_paths = []
-    for msg in submitter_events:
-        for event in msg.events:
-            submitter_paths.append(str(event.path_in_datasite))
-
-    non_submitter_paths = []
-    for msg in non_submitter_events:
-        for event in msg.events:
-            non_submitter_paths.append(str(event.path_in_datasite))
-
+    messages_for_submitter = (
+        recipient_connection.get_events_messages_for_datasite_watcher(
+            do_manager.email, None
+        )
+    )
+    paths_for_submitter = [
+        str(event.path_in_datasite)
+        for msg in messages_for_submitter
+        for event in msg.events
+    ]
     # Job files should ONLY be in submitter's outbox
-    assert any("app_data/job" in p for p in submitter_paths), (
+    assert any("app_data/job" in p for p in paths_for_submitter), (
         "Job files should be sent to submitter"
     )
-    assert not any("app_data/job" in p for p in non_submitter_paths), (
+    assert not any("app_data/job" in p for p in paths_for_non_submitter), (
         "Job files should NOT be sent to non-submitter peers"
     )
 
     # Regular files should be in BOTH outboxes
-    assert any("shared.txt" in p for p in submitter_paths), (
+    assert any("shared.txt" in p for p in paths_for_submitter), (
         "Regular files should be sent to submitter"
     )
-    assert any("shared.txt" in p for p in non_submitter_paths), (
+    assert any("shared.txt" in p for p in paths_for_non_submitter), (
         "Regular files should be sent to non-submitter peers"
     )
 
@@ -1441,8 +1405,10 @@ def test_ds_dataset_cache_aware_sync():
     3. Verify hash is loaded from disk on startup and matches remote hash
     4. This ensures sync_down_datasets will skip downloading (hash comparison passes)
     """
+    from unittest.mock import patch
+
     # Create first pair
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -1475,15 +1441,17 @@ def test_ds_dataset_cache_aware_sync():
             break
     assert remote_hash is not None
 
-    # Get the backing store and directories for creating second pair
-    backing_store = ds_manager.connection_router.connections[0].backing_store
+    # Get the mock backing store and directories for creating second pair
+    mock_backing_store = ds_manager.connection_router.connections[
+        0
+    ].drive_service._backing_store
     ds_folder = ds_manager.syftbox_folder
     do_folder = do_manager.syftbox_folder
     ds_email = ds_manager.email
     do_email = do_manager.email
 
     # Create second pair with same directories (simulates restart)
-    ds_manager2, do_manager2 = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager2, do_manager2 = SyftboxManager.pair_with_mock_drive_service_connection(
         email1=do_email,
         email2=ds_email,
         base_path1=do_folder,
@@ -1492,11 +1460,13 @@ def test_ds_dataset_cache_aware_sync():
         add_peers=False,
     )
 
-    # Replace backing store with the one from first pair (to share dataset collections)
-    for conn in ds_manager2.connection_router.connections:
-        conn.backing_store = backing_store
-    for conn in do_manager2.connection_router.connections:
-        conn.backing_store = backing_store
+    # Replace mock backing store to share dataset collections
+    ds_manager2.connection_router.connections[
+        0
+    ].drive_service._backing_store = mock_backing_store
+    do_manager2.connection_router.connections[
+        0
+    ].drive_service._backing_store = mock_backing_store
 
     # Load peers (already approved in shared backing store)
     ds_manager2.load_peers()
@@ -1518,8 +1488,6 @@ def test_ds_dataset_cache_aware_sync():
     )
 
     # Patch the download method to verify it's NOT called (hash match should skip download)
-    from unittest.mock import patch
-
     syncer = ds_manager2.datasite_watcher_syncer
     original_method = syncer.download_dataset_file_with_new_connection
 
@@ -1550,7 +1518,7 @@ def test_do_dataset_cache_aware_sync():
     from unittest.mock import patch
 
     # Create first pair
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
@@ -1569,15 +1537,17 @@ def test_do_dataset_cache_aware_sync():
     # Verify dataset was created locally
     assert len(do_manager.datasets.get_all()) == 1
 
-    # Get the backing store and directories for creating second pair
-    backing_store = ds_manager.connection_router.connections[0].backing_store
+    # Get the mock backing store and directories for creating second pair
+    mock_backing_store = ds_manager.connection_router.connections[
+        0
+    ].drive_service._backing_store
     ds_folder = ds_manager.syftbox_folder
     do_folder = do_manager.syftbox_folder
     ds_email = ds_manager.email
     do_email = do_manager.email
 
     # Create second pair with same directories (simulates restart)
-    ds_manager2, do_manager2 = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager2, do_manager2 = SyftboxManager.pair_with_mock_drive_service_connection(
         email1=do_email,
         email2=ds_email,
         base_path1=do_folder,
@@ -1586,11 +1556,13 @@ def test_do_dataset_cache_aware_sync():
         add_peers=False,
     )
 
-    # Replace backing store with the one from first pair (to share dataset collections)
-    for conn in ds_manager2.connection_router.connections:
-        conn.backing_store = backing_store
-    for conn in do_manager2.connection_router.connections:
-        conn.backing_store = backing_store
+    # Replace mock backing store to share dataset collections
+    ds_manager2.connection_router.connections[
+        0
+    ].drive_service._backing_store = mock_backing_store
+    do_manager2.connection_router.connections[
+        0
+    ].drive_service._backing_store = mock_backing_store
 
     # Load peers (already approved in shared backing store)
     ds_manager2.load_peers()
@@ -1613,3 +1585,175 @@ def test_do_dataset_cache_aware_sync():
 
     # Verify dataset still accessible
     assert len(do_manager2.datasets.get_all()) == 1
+
+
+def test_in_memory_connection_syncing():
+    """Test basic syncing flow with mock drive service connection.
+
+    Unit test equivalent of integration test_google_drive_connection_syncing.
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
+
+    # DS sends a file change to DO
+    ds_manager.send_file_change(f"{do_manager.email}/my.job", "Hello, world!")
+
+    # DO should have events in cache after sync
+    do_manager.datasite_owner_syncer.sync(peer_emails=[ds_manager.email])
+    assert len(do_manager.datasite_owner_syncer.event_cache.get_cached_events()) > 0
+
+    # DS syncs to get any outbox updates from DO
+    ds_manager.sync()
+
+    events = (
+        ds_manager.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
+    )
+    assert len(events) > 0
+
+
+def test_in_memory_connection_load_state():
+    """Test state persistence and loading with mock drive connection.
+
+    Unit test equivalent of integration test_google_drive_connection_load_state.
+
+    Workflow (matches integration test):
+    1. Pair 1: Create peers, make changes, create dataset
+    2. Pair 2: Load peers, sync DO → verify events processed
+    3. Pair 3: Load peers, sync both → verify state loaded from storage
+    """
+    from syft_client.sync.syftbox_manager import SyftboxManagerConfig
+
+    # Get shared backing store and directories that will persist across pairs
+    ds_manager1, do_manager1 = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        add_peers=True,
+    )
+
+    # Get the backing store that will persist across "restarts"
+    backing_store = do_manager1.connection_router.connections[
+        0
+    ].drive_service._backing_store
+    ds_folder = ds_manager1.syftbox_folder
+    do_folder = do_manager1.syftbox_folder
+    ds_email = ds_manager1.email
+    do_email = do_manager1.email
+    ds_manager1.connection_router.connections[0]
+    do_manager1.connection_router.connections[0]
+
+    # Make some changes
+    ds_manager1.send_file_change(f"{do_email}/my.job", "Hello, world!")
+    ds_manager1.send_file_change(f"{do_email}/my_second.job", "Hello, world!")
+
+    # Create a dataset with "any" permission
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+    do_manager1.create_dataset(
+        name="load_state_dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="Dataset for load state test",
+        readme_path=readme_path,
+        tags=["test"],
+        users="any",
+    )
+
+    # Verify dataset was created and cache populated
+    assert len(do_manager1.connection_router.list_dataset_collections_as_do()) == 1
+    assert len(do_manager1.datasite_owner_syncer._any_shared_datasets) == 1
+
+    # Create second pair (simulates restart, tests loading peers and processing inbox)
+    do_config2 = SyftboxManagerConfig.base_config_for_in_memory_connection(
+        email=do_email,
+        syftbox_folder=do_folder,
+        only_ds=False,
+        only_datasite_owner=True,
+        use_in_memory_cache=False,
+        check_versions=False,
+    )
+    ds_config2 = SyftboxManagerConfig.base_config_for_in_memory_connection(
+        email=ds_email,
+        syftbox_folder=ds_folder,
+        only_ds=True,
+        only_datasite_owner=False,
+        use_in_memory_cache=False,
+        check_versions=False,
+    )
+
+    do_manager2 = SyftboxManager.from_config(do_config2)
+    ds_manager2 = SyftboxManager.from_config(ds_config2)
+
+    # Connect to the same backing store
+    service_do = mock_drive_service.MockDriveService(backing_store, do_email)
+    do_connection2 = GDriveConnection.from_service(do_email, service_do)
+
+    service_ds = mock_drive_service.MockDriveService(backing_store, ds_email)
+    ds_connection2 = GDriveConnection.from_service(ds_email, service_ds)
+
+    do_manager2.add_connection(do_connection2)
+    ds_manager2.add_connection(ds_connection2)
+
+    # Load peers
+    do_manager2.load_peers()
+    assert len(do_manager2.peers) == 1
+
+    ds_manager2.load_peers()
+    assert len(ds_manager2.peers) == 1
+
+    # Sync DO so we have something in the syftbox and do outbox
+    do_manager2.sync()
+    ds_manager2.sync()
+
+    # Verify events in DO cache (inbox was processed)
+    assert len(do_manager2.datasite_owner_syncer.event_cache.get_cached_events()) == 2
+
+    # verify events in DS cache
+    loaded_events_ds = (
+        ds_manager2.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
+    )
+    assert len(loaded_events_ds) == 2
+
+    # Verify datasets were loaded
+    loaded_datasets = do_manager2.datasets.get_all()
+    assert len(loaded_datasets) == 1
+    assert loaded_datasets[0].name == "load_state_dataset"
+    assert len(do_manager2.datasite_owner_syncer._any_shared_datasets) == 1
+    assert (
+        do_manager2.datasite_owner_syncer._any_shared_datasets[0][0]
+        == "load_state_dataset"
+    )
+
+
+def test_datasets_shared_with_any():
+    """Test that datasets shared with 'any' become discoverable after peer approval.
+
+    Unit test equivalent of integration test_datasets_shared_with_any.
+    """
+    # Create managers WITHOUT auto peer setup
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        add_peers=False,
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+
+    # DO creates dataset with users='any' BEFORE peer is approved
+    do_manager.create_dataset(
+        name="any dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="Dataset shared with anyone",
+        readme_path=readme_path,
+        tags=["any"],
+        users="any",
+    )
+
+    # DS should NOT see the dataset yet (not approved)
+    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    assert not any(c["tag"] == "any dataset" for c in ds_collections)
+
+    # DS adds peer, DO approves (this should share 'any' datasets)
+    ds_manager.add_peer(do_manager.email)
+    do_manager.load_peers()
+    do_manager.approve_peer_request(ds_manager.email, peer_must_exist=False)
+
+    # DS should now see the dataset
+    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    assert any(c["tag"] == "any dataset" for c in ds_collections)

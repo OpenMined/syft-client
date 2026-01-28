@@ -14,9 +14,9 @@ def test_peer_request_blocks_sync_until_approved():
     4. DO approves peer request
     5. DO syncs - job should now sync
     """
-    # Create managers with in-memory connection, no auto-add peers
+    # Create managers with mock drive service connection, no auto-add peers
     # Note: email1 becomes DO, email2 becomes DS
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         email1="do@test.com",  # email1 → DO manager
         email2="ds@test.com",  # email2 → DS manager
         add_peers=False,  # Don't auto-add - we'll test the request flow
@@ -72,7 +72,7 @@ def test_peer_request_blocks_sync_until_approved():
 def test_peer_request_rejection():
     """Test that rejected peer requests don't allow syncing"""
     # Note: email1 becomes DO, email2 becomes DS
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         email1="do@test.com",  # email1 → DO manager
         email2="ds@test.com",  # email2 → DS manager
         add_peers=False,

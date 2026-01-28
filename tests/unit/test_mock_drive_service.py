@@ -439,9 +439,7 @@ class TestGDriveConnectionWithMock:
         store = MockDriveBackingStore()
         mock_service = MockDriveService(store, "user@example.com")
 
-        connection = GDriveConnection.from_mock_service(
-            "user@example.com", mock_service
-        )
+        connection = GDriveConnection.from_service("user@example.com", mock_service)
 
         assert connection.email == "user@example.com"
         assert connection._is_setup is True
@@ -449,9 +447,7 @@ class TestGDriveConnectionWithMock:
     def test_create_folder(self):
         store = MockDriveBackingStore()
         mock_service = MockDriveService(store, "user@example.com")
-        connection = GDriveConnection.from_mock_service(
-            "user@example.com", mock_service
-        )
+        connection = GDriveConnection.from_service("user@example.com", mock_service)
 
         folder_id = connection.create_folder("TestFolder", None)
         assert folder_id is not None
@@ -468,9 +464,7 @@ class TestGDriveConnectionWithMock:
         store.add_file(file)
 
         mock_service = MockDriveService(store, "user@example.com")
-        connection = GDriveConnection.from_mock_service(
-            "user@example.com", mock_service
-        )
+        connection = GDriveConnection.from_service("user@example.com", mock_service)
 
         content = connection.download_file(file.id)
         assert content == b"Test content"

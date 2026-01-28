@@ -17,7 +17,7 @@ def test_auto_approve_and_run_jobs():
     - The exact Python script content (newline agnostic)
     - Exactly the required files (no more, no less)
     """
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
     )
