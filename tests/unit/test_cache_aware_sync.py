@@ -7,57 +7,7 @@ events they don't already have locally, avoiding redundant re-downloads on resta
 from pathlib import Path
 
 from syft_client.sync.syftbox_manager import SyftboxManager
-from syft_client.sync.connections.drive.mock_drive_service import (
-    MockDriveFile,
-    MockDriveBackingStore,
-)
 from tests.unit.utils import get_mock_events_messages
-
-
-def _add_event_to_personal_folder(
-    eventlog_folder_id: str,
-    email: str,
-    backing_store: MockDriveBackingStore,
-    event_message,
-) -> str:
-    """Add an event message file to the personal SyftBox folder in the backing store.
-
-    Returns the file ID.
-    """
-
-    file = MockDriveFile(
-        name=event_message.message_filepath.as_string(),
-        mimeType="application/gzip",
-        parents=[eventlog_folder_id],
-        owners=[{"emailAddress": email}],
-        content=event_message.as_compressed_data(),
-    )
-    backing_store.add_file(file)
-    return file.id
-
-
-def _add_event_to_outbox(
-    do_manager: SyftboxManager,
-    ds_manager: SyftboxManager,
-    backing_store: MockDriveBackingStore,
-    event_message,
-) -> str:
-    """Add an event message file to the DO's outbox for DS in the backing store.
-
-    Returns the file ID.
-    """
-    connection = do_manager.connection_router.connections[0]
-    outbox_folder_id = connection._get_outbox_folder_id_as_do(ds_manager.email)
-
-    file = MockDriveFile(
-        name=event_message.message_filepath.as_string(),
-        mimeType="application/gzip",
-        parents=[outbox_folder_id],
-        owners=[{"emailAddress": do_manager.email}],
-        content=event_message.as_compressed_data(),
-    )
-    backing_store.add_file(file)
-    return file.id
 
 
 def test_do_incremental_sync_downloads_only_new_events():
