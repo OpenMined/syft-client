@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 
 from syft_approve.core.config import ApproveConfig, get_default_paths
 from syft_approve.monitors import JobMonitor, PeerMonitor
+from syft_approve.state import JsonStateManager
 
 if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
@@ -22,6 +23,10 @@ class ApprovalOrchestrator:
         self.client = client
         self.config = config
 
+        # Initialize state manager to track approved jobs/peers
+        paths = get_default_paths()
+        self._state = JsonStateManager(paths["state"])
+
         self._job_monitor: Optional[JobMonitor] = None
         self._peer_monitor: Optional[PeerMonitor] = None
         self._threads: list[threading.Thread] = []
@@ -34,6 +39,7 @@ class ApprovalOrchestrator:
             self._job_monitor = JobMonitor(
                 client=self.client,
                 config=self.config.jobs,
+                state=self._state,
                 verbose=True,
             )
 
@@ -41,6 +47,7 @@ class ApprovalOrchestrator:
             self._peer_monitor = PeerMonitor(
                 client=self.client,
                 config=self.config.peers,
+                state=self._state,
                 verbose=True,
             )
 
@@ -82,12 +89,21 @@ class ApprovalOrchestrator:
         token_path = config.drive_token_path or paths["drive_token"]
 
         from syft_client.sync.syftbox_manager import SyftboxManager
+        from syft_client.sync.utils.syftbox_utils import check_env
+        from syft_client.sync.environments.environment import Environment
 
-        client = SyftboxManager.for_jupyter(
-            email=config.do_email,
-            only_datasite_owner=True,
-            token_path=token_path,
-        )
+        env = check_env()
+        if env == Environment.COLAB:
+            client = SyftboxManager.for_colab(
+                email=config.do_email,
+                only_datasite_owner=True,
+            )
+        else:
+            client = SyftboxManager.for_jupyter(
+                email=config.do_email,
+                only_datasite_owner=True,
+                token_path=token_path,
+            )
 
         return cls(client=client, config=config)
 
