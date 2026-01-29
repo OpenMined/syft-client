@@ -9,10 +9,12 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "syft-approve",
     "syft-client",
     "syft-dataset",
     "syft-job",
     "syft-notebook-ui",
+    "syft-notify",
 ]
 
 [[package]]
@@ -2404,6 +2406,25 @@ wheels = [
 ]
 
 [[package]]
+name = "syft-approve"
+version = "0.1.0"
+source = { editable = "packages/syft-approve" }
+dependencies = [
+    { name = "click" },
+    { name = "python-daemon" },
+    { name = "pyyaml" },
+    { name = "syft-job" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0.0" },
+    { name = "python-daemon", specifier = ">=3.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "syft-job", editable = "packages/syft-job" },
+]
+
+[[package]]
 name = "syft-client"
 source = { editable = "." }
 dependencies = [
@@ -2418,8 +2439,10 @@ dependencies = [
     { name = "python-daemon" },
     { name = "pyyaml" },
     { name = "rich" },
+    { name = "syft-approve" },
     { name = "syft-dataset" },
     { name = "syft-job" },
+    { name = "syft-notify" },
 ]
 
 [package.optional-dependencies]
@@ -2489,9 +2512,11 @@ requires-dist = [
     { name = "python-daemon", specifier = ">=3.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13.0.0" },
+    { name = "syft-approve", editable = "packages/syft-approve" },
     { name = "syft-client", extras = ["dev", "job", "test"], marker = "extra == 'all'" },
     { name = "syft-dataset", editable = "packages/syft-datasets" },
     { name = "syft-job", editable = "packages/syft-job" },
+    { name = "syft-notify", editable = "packages/syft-notify" },
     { name = "tqdm", marker = "extra == 'dev'", specifier = ">=4.64.0" },
 ]
 provides-extras = ["test", "dev", "all"]
@@ -2560,6 +2585,31 @@ requires-dist = [
     { name = "nh3", specifier = ">=0.2.21" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.10.4" },
     { name = "rich", specifier = ">=13.9.4" },
+]
+
+[[package]]
+name = "syft-notify"
+version = "0.1.0"
+source = { editable = "packages/syft-notify" }
+dependencies = [
+    { name = "click" },
+    { name = "google-api-python-client" },
+    { name = "google-auth" },
+    { name = "google-auth-oauthlib" },
+    { name = "jinja2" },
+    { name = "python-daemon" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0.0" },
+    { name = "google-api-python-client", specifier = ">=2.95.0" },
+    { name = "google-auth", specifier = ">=2.22.0" },
+    { name = "google-auth-oauthlib", specifier = ">=1.0.0" },
+    { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "python-daemon", specifier = ">=3.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 
 [[package]]

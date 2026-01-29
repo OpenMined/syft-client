@@ -7,30 +7,22 @@ events they don't already have locally, avoiding redundant re-downloads on resta
 from pathlib import Path
 
 from syft_client.sync.syftbox_manager import SyftboxManager
-from syft_client.sync.connections.inmemory_connection import InMemoryBackingPlatform
 from tests.unit.utils import get_mock_events_messages
 
 
 def test_do_incremental_sync_downloads_only_new_events():
     """Pre-populate cache with first n events, create new manager with same cache dir,
     sync with n+m in backend, verify only m new events are downloaded."""
-    from syft_client.sync.syftbox_manager import SyftboxManagerConfig
-    from syft_client.sync.connections.inmemory_connection import (
-        InMemoryPlatformConnection,
-    )
 
     # Create initial pair with filesystem cache
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
-    store: InMemoryBackingPlatform = do_manager.connection_router.connections[
-        0
-    ].backing_store
-
-    # Add initial 3 events and sync
+    # Add initial 3 events to the personal SyftBox folder
     initial_events = get_mock_events_messages(3)
-    store.syftbox_events_message_log.extend(initial_events)
+    for event in initial_events:
+        do_manager.connection_router.write_events_message_to_syftbox(event)
 
     do_manager.sync()
 
@@ -40,35 +32,13 @@ def test_do_incremental_sync_downloads_only_new_events():
     )
     assert initial_cache_count >= 3  # At least 3 from backend
 
-    # Save the syftbox_folder and email for creating a new manager
-    syftbox_folder = do_manager.syftbox_folder
-    do_email = do_manager.email
-
     # Add 2 more events to backend
     additional_events = get_mock_events_messages(2)
     for event in additional_events:
-        # Ensure they have unique paths
-        event.events[0].path_in_datasite = f"new_path_{event.timestamp}.job"
-    store.syftbox_events_message_log.extend(additional_events)
+        do_manager.connection_router.write_events_message_to_syftbox(event)
 
     # Create a NEW SyftboxManager with the same cache directory (simulating restart)
-    new_do_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
-        email=do_email,
-        syftbox_folder=syftbox_folder,
-        only_ds=False,
-        only_datasite_owner=True,
-        use_in_memory_cache=False,  # Use filesystem cache
-        check_versions=False,
-    )
-    new_do_manager = SyftboxManager.from_config(new_do_config)
-
-    # Connect new manager to the same backing store
-    new_do_connection = InMemoryPlatformConnection(
-        receiver_function=None,
-        backing_store=store,
-        owner_email=do_email,
-    )
-    new_do_manager.add_connection(new_do_connection)
+    new_do_manager = do_manager.copy()
 
     # Verify the new manager's cache loaded existing events from disk
     new_cache = new_do_manager.datasite_owner_syncer.event_cache
@@ -111,26 +81,18 @@ def test_ds_incremental_sync_downloads_only_new_events():
     """Pre-populate cache with first n events, create new manager with same cache dir,
     sync with n+m in outbox, verify only m new events are downloaded."""
     import time
-    from syft_client.sync.syftbox_manager import SyftboxManagerConfig
-    from syft_client.sync.connections.inmemory_connection import (
-        InMemoryPlatformConnection,
-    )
 
     # Create initial pair with filesystem cache
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
 
-    store: InMemoryBackingPlatform = ds_manager.connection_router.connections[
-        0
-    ].backing_store
-
-    # Add initial 3 events and sync
+    # Add initial 3 events to DO's outbox for DS
     initial_events = get_mock_events_messages(3)
-    outbox_folder = store.get_or_create_outbox_folder(
-        owner_email=do_manager.email, recipient_email=ds_manager.email
-    )
-    outbox_folder.messages.extend(initial_events)
+    for event in initial_events:
+        do_manager.connection_router.write_event_messages_to_outbox_do(
+            ds_manager.email, event
+        )
 
     ds_manager.sync()
 
@@ -144,33 +106,16 @@ def test_ds_incremental_sync_downloads_only_new_events():
         "last_event_timestamp_per_peer should be populated"
     )
 
-    # Save the syftbox_folder and email for creating a new manager
-    syftbox_folder = ds_manager.syftbox_folder
-    ds_email = ds_manager.email
-
     # Add 2 more events to outbox
     time.sleep(0.01)  # Ensure new events have later timestamps
     additional_events = get_mock_events_messages(2)
-    outbox_folder.messages.extend(additional_events)
+    for event in additional_events:
+        do_manager.connection_router.write_event_messages_to_outbox_do(
+            ds_manager.email, event
+        )
 
     # Create a NEW SyftboxManager with the same cache directory (simulating restart)
-    new_ds_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
-        email=ds_email,
-        syftbox_folder=syftbox_folder,
-        only_ds=True,
-        only_datasite_owner=False,
-        use_in_memory_cache=False,  # Use filesystem cache
-        check_versions=False,
-    )
-    new_ds_manager = SyftboxManager.from_config(new_ds_config)
-
-    # Connect new manager to the same backing store
-    new_ds_connection = InMemoryPlatformConnection(
-        receiver_function=None,
-        backing_store=store,
-        owner_email=ds_email,
-    )
-    new_ds_manager.add_connection(new_ds_connection)
+    new_ds_manager = ds_manager.copy()
 
     # Verify the new manager's cache loaded existing events from disk
     new_cache = new_ds_manager.datasite_watcher_syncer.datasite_watcher_cache
@@ -195,11 +140,9 @@ def test_ds_incremental_sync_downloads_only_new_events():
 
 def test_do_cache_handles_deletions_correctly():
     """Test that file_hashes properly reflects deletions when loading from cache."""
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
-
-    do_manager.connection_router.connections[0].backing_store
 
     datasite_dir_do = do_manager.syftbox_folder / do_manager.email
 
@@ -249,11 +192,9 @@ def test_do_cache_handles_deletions_correctly():
 
 def test_ds_cache_handles_deletions_correctly():
     """Test that DS file_hashes properly reflects deletions when loading from cache."""
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
-
-    ds_manager.connection_router.connections[0].backing_store
 
     datasite_dir_do = do_manager.syftbox_folder / do_manager.email
 

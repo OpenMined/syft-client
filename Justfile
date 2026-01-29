@@ -19,6 +19,11 @@ test-unit:
     uv run pytest -n auto ./tests/unit
 
 
+test-unit-fast:
+    #!/bin/bash
+    uv run pytest ./tests/unit --ignore=tests/unit/test_job_auto_approval.py -k "not (test_jobs or job_flow_with_dataset)"
+
+
 test-integration:
     #!/bin/bash
     uv run pytest -s ./tests/integration

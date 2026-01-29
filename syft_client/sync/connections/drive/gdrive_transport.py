@@ -187,7 +187,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         return res
 
     @classmethod
-    def from_mock_service(cls, email: str, mock_service: Any) -> "GDriveConnection":
+    def from_service(cls, email: str, mock_service: Any) -> "GDriveConnection":
         """Create a GDriveConnection using a mock drive service for testing.
 
         Args:
@@ -197,7 +197,13 @@ class GDriveConnection(SyftboxPlatformConnection):
         Returns:
             GDriveConnection configured with the mock service
         """
+        from syft_client.sync.connections.drive.mock_drive_service import (
+            MockDriveService,
+        )
+
         res = cls(email=email, token_path=None)
+        if isinstance(mock_service, MockDriveService):
+            mock_service = MockDriveService(mock_service._backing_store, email)
         res.setup(drive_service=mock_service)
         return res
 
@@ -230,7 +236,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
 
         if isinstance(self.drive_service, MockDriveService):
-            return GDriveConnection.from_mock_service(self.email, self.drive_service)
+            return GDriveConnection.from_service(self.email, self.drive_service)
         else:
             return GDriveConnection.from_token_path(self.email, self.token_path)
 
@@ -587,7 +593,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             sender_email=peer_email, recipient_email=self.email
         )
         folder_name = peer_inbox_folder.as_string()
-        print(f"Creating inbox folder for {peer_email} in {parent_id}")
+        print(f"Creating inbox folder for {peer_email} to {self.email} in {parent_id}")
         _id = self.create_folder(folder_name, parent_id)
         return _id
 
@@ -597,7 +603,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             sender_email=self.email, recipient_email=peer_email
         )
         folder_name = peer_inbox_folder.as_string()
-        print(f"Creating inbox folder for {peer_email} in {parent_id}")
+        print(f"Creating outbox folder for {peer_email} in {parent_id}")
         return self.create_folder(folder_name, parent_id)
 
     def get_personal_syftbox_folder_id(self) -> str:
@@ -1151,7 +1157,14 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
 
         folders = results.get("files", [])
-        return [f["name"].replace(f"{DATASET_COLLECTION_PREFIX}_", "") for f in folders]
+        result = []
+        for folder in folders:
+            try:
+                folder_obj = DatasetCollectionFolder.from_name(folder["name"])
+                result.append(folder_obj.tag)
+            except ValueError:
+                continue
+        return result
 
     def list_all_dataset_collections_as_do_with_permissions(
         self,
