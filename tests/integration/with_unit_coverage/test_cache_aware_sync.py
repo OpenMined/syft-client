@@ -13,7 +13,7 @@ import pytest
 from syft_client.sync.syftbox_manager import SyftboxManager, SyftboxManagerConfig
 
 
-SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent
+SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent.parent
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
 
 FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")

@@ -1,3 +1,18 @@
+"""
+Integration tests that have near-duplicate unit test coverage.
+
+These tests verify the same logic as their unit test counterparts but use
+real Google Drive connections instead of mocked connections.
+
+Unit test equivalents:
+- test_google_drive_connection_syncing -> test_in_memory_connection_syncing
+- test_google_drive_files -> test_file_connections
+- test_datasets -> test_datasets
+- test_datasets_shared_with_any -> test_datasets_shared_with_any
+- test_jobs -> test_jobs
+- test_file_deletion_do_to_ds -> test_file_deletion_do_to_ds
+"""
+
 from syft_datasets.dataset import Dataset
 from syft_client.sync.syftbox_manager import SyftboxManager
 import os
@@ -11,7 +26,7 @@ from tests.unit.utils import create_tmp_dataset_files
 # from tests.integration.utils import get_mock_events
 
 
-SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent
+SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent.parent
 # These are in gitignore, create yourself
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
 
@@ -59,96 +74,6 @@ def test_google_drive_connection_syncing():
         manager_ds.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
     )
     assert len(events) > 0
-
-
-@pytest.mark.usefixtures("setup_delete_syftboxes")
-def test_google_drive_connection_load_state():
-    # create the state
-
-    # load the clients and add the peers
-    manager_ds1, manager_do1 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=True,
-        load_peers=False,
-    )
-
-    # make some changes
-    manager_ds1.send_file_change(f"{EMAIL_DO}/my.job", "Hello, world!")
-    manager_ds1.send_file_change(f"{EMAIL_DO}/my_second.job", "Hello, world!")
-
-    # create a dataset with "any" permission to test loading and cache
-    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
-    manager_do1.create_dataset(
-        name="load_state_dataset",
-        mock_path=mock_dset_path,
-        private_path=private_dset_path,
-        summary="Dataset for load state test",
-        readme_path=readme_path,
-        tags=["test"],
-        users="any",
-    )
-
-    # verify dataset was created and cache was populated
-    assert len(manager_do1.datasets.get_all()) == 1
-    assert len(manager_do1.datasite_owner_syncer._any_shared_datasets) == 1
-
-    # test loading the peers and loading the inbox
-    manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-        load_peers=False,
-    )
-
-    manager_do2.load_peers()
-    assert len(manager_do2.peers) == 1
-
-    manager_ds2.load_peers()
-    assert len(manager_ds2.peers) == 1
-
-    # sync so we have something in the syftbox and do outbox
-    manager_do2.sync()
-
-    assert len(manager_do2.datasite_owner_syncer.event_cache.get_cached_events()) == 2
-
-    # we have created some state now, so now we can log in again and load the state
-    # use a fresh syftbox folder to simulate clean filesystem
-    manager_ds3, manager_do3 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-        load_peers=True,
-    )
-
-    manager_do3.sync()
-    manager_ds3.sync()
-
-    loaded_events_do = manager_do3.datasite_owner_syncer.event_cache.get_cached_events()
-    assert len(loaded_events_do) == 2
-
-    loaded_events_ds = (
-        manager_ds3.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
-    )
-    assert len(loaded_events_ds) == 2
-
-    # verify datasets were loaded from GDrive
-    loaded_datasets = manager_do3.datasets.get_all()
-    assert len(loaded_datasets) == 1
-    assert loaded_datasets[0].name == "load_state_dataset"
-
-    # verify _any_shared_datasets cache was populated during pull_initial_state
-    assert len(manager_do3.datasite_owner_syncer._any_shared_datasets) == 1
-    assert (
-        manager_do3.datasite_owner_syncer._any_shared_datasets[0][0]
-        == "load_state_dataset"
-    )
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
@@ -329,80 +254,6 @@ with open("outputs/result.json", "w") as f:
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
-def test_peer_request_blocks_sync_until_approved():
-    """
-    Integration test: Files don't sync until peer request is approved.
-
-    Workflow:
-    1. DS adds DO as peer (creates peer request)
-    2. DS submits a job
-    3. DO syncs - nothing should sync (peer not approved)
-    4. DO approves peer request
-    5. DO syncs - job should now sync
-    """
-    # Create managers with Google Drive connection, no auto-add peers
-    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,  # Don't auto-add - we'll test the request flow
-    )
-
-    # Step 1: DS makes peer request by adding DO
-    ds_manager.add_peer(do_manager.email)
-
-    # Wait for sync
-    sleep(1)
-
-    # Verify: DO sees this as a pending request
-    do_manager.load_peers()
-    assert len(do_manager.version_manager.pending_peers) == 1
-    assert len(do_manager.version_manager.approved_peers) == 0
-    assert do_manager.version_manager.pending_peers[0].email == ds_manager.email
-
-    # Step 2: DS submits a simple job
-    job_file_path = f"{do_manager.email}/test.job"
-    job_content = "print('Hello from DS')"
-    ds_manager.send_file_change(job_file_path, job_content)
-
-    # Wait for message to be sent
-    sleep(1)
-
-    # Step 3: DO syncs WITHOUT accepting - nothing should sync
-    do_manager.sync()
-
-    # Verify: Cache is empty (no messages processed)
-    do_cache = do_manager.datasite_owner_syncer.event_cache
-    assert len(do_cache.file_hashes) == 0, "Cache should be empty - peer not approved"
-
-    # Step 4: DO approves peer request
-    do_manager.approve_peer_request(ds_manager.email)
-
-    # Verify: Peer moved from requests to approved
-    assert len(do_manager.version_manager.pending_peers) == 0
-    assert len(do_manager.version_manager.approved_peers) == 1
-    assert do_manager.version_manager.approved_peers[0].email == ds_manager.email
-
-    # Step 5: DO syncs again - now it should work
-    do_manager.sync()
-
-    # Verify: File synced and in cache
-    assert len(do_cache.file_hashes) > 0, "Cache should have content after approval"
-
-    # Verify: File is tracked in cache with correct path (stored as PosixPath)
-    expected_cache_path = Path("test.job")
-    assert expected_cache_path in do_cache.file_hashes, (
-        f"File {expected_cache_path} should be in cache"
-    )
-
-    # Verify: Content is correct
-    assert do_cache.file_hashes[expected_cache_path] is not None, (
-        "File should have a hash"
-    )
-
-
-@pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_file_deletion_do_to_ds():
     """Test that DO can delete a file and it syncs to DS"""
     ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
@@ -458,6 +309,96 @@ def test_file_deletion_do_to_ds():
     expected_path = Path(do_manager.email) / result_rel_path
     assert expected_path not in ds_cache.file_hashes, (
         "Hash should be removed from DS cache"
+    )
+
+
+@pytest.mark.usefixtures("setup_delete_syftboxes")
+def test_google_drive_connection_load_state():
+    # create the state
+
+    # load the clients and add the peers
+    manager_ds1, manager_do1 = SyftboxManager.pair_with_google_drive_testing_connection(
+        do_email=EMAIL_DO,
+        ds_email=EMAIL_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
+        add_peers=True,
+        load_peers=False,
+    )
+
+    # make some changes
+    manager_ds1.send_file_change(f"{EMAIL_DO}/my.job", "Hello, world!")
+    manager_ds1.send_file_change(f"{EMAIL_DO}/my_second.job", "Hello, world!")
+
+    # create a dataset with "any" permission to test loading and cache
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+    manager_do1.create_dataset(
+        name="load_state_dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="Dataset for load state test",
+        readme_path=readme_path,
+        tags=["test"],
+        users="any",
+    )
+
+    # verify dataset was created and cache was populated
+    assert len(manager_do1.datasets.get_all()) == 1
+    assert len(manager_do1.datasite_owner_syncer._any_shared_datasets) == 1
+
+    # test loading the peers and loading the inbox
+    manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
+        do_email=EMAIL_DO,
+        ds_email=EMAIL_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
+        add_peers=False,
+        load_peers=False,
+    )
+
+    manager_do2.load_peers()
+    assert len(manager_do2.peers) == 1
+
+    manager_ds2.load_peers()
+    assert len(manager_ds2.peers) == 1
+
+    # sync so we have something in the syftbox and do outbox
+    manager_do2.sync()
+
+    assert len(manager_do2.datasite_owner_syncer.event_cache.get_cached_events()) == 2
+
+    # we have created some state now, so now we can log in again and load the state
+    # use a fresh syftbox folder to simulate clean filesystem
+    manager_ds3, manager_do3 = SyftboxManager.pair_with_google_drive_testing_connection(
+        do_email=EMAIL_DO,
+        ds_email=EMAIL_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
+        add_peers=False,
+        load_peers=True,
+    )
+
+    manager_do3.sync()
+    manager_ds3.sync()
+
+    loaded_events_do = manager_do3.datasite_owner_syncer.event_cache.get_cached_events()
+    assert len(loaded_events_do) == 2
+
+    loaded_events_ds = (
+        manager_ds3.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
+    )
+    assert len(loaded_events_ds) == 2
+
+    # verify datasets were loaded from GDrive
+    loaded_datasets = manager_do3.datasets.get_all()
+    assert len(loaded_datasets) == 1
+    assert loaded_datasets[0].name == "load_state_dataset"
+
+    # verify _any_shared_datasets cache was populated during pull_initial_state
+    assert len(manager_do3.datasite_owner_syncer._any_shared_datasets) == 1
+    assert (
+        manager_do3.datasite_owner_syncer._any_shared_datasets[0][0]
+        == "load_state_dataset"
     )
 
 

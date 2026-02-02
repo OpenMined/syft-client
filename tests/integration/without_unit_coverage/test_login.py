@@ -14,7 +14,7 @@ import syft_client as sc
 from syft_client.sync.syftbox_manager import SyftboxManager
 
 
-SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent
+SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent.parent
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
 
 # Credentials from CI environment
