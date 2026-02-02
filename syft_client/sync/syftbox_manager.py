@@ -1101,12 +1101,34 @@ class SyftboxManager(BaseModel):
             self.datasite_watcher_syncer.datasite_watcher_cache.clear_cache()
 
     def delete_syftbox(self, verbose: bool = True):
-        file_ids = self.connection_router.gather_all_file_and_folder_ids()
+        """
+        Delete the SyftBox folder and all its contents, including orphaned files.
+
+        Due to Google Drive's eventual consistency, files can become orphaned when
+        their parent folder is deleted before they're fully registered. We use two
+        strategies to ensure complete cleanup:
+        1. Gather all files by traversing the SyftBox folder hierarchy
+        2. Find message files by name pattern (catches orphaned files from any location)
+        """
+        # Get files by folder hierarchy
+        folder_file_ids = set(self.connection_router.gather_all_file_and_folder_ids())
+
+        # Also find message files by name pattern (catches orphaned files)
+        orphaned_file_ids = set(self.connection_router.find_orphaned_message_files())
+
+        # Combine both sets
+        all_file_ids = list(folder_file_ids | orphaned_file_ids)
+
         start = time.time()
-        self.connection_router.delete_multiple_files_by_ids(file_ids)
+        self.connection_router.delete_multiple_files_by_ids(all_file_ids)
         end = time.time()
         if verbose:
-            print(f"Deleted {len(file_ids)} files and folders in {end - start}s")
+            orphan_count = len(orphaned_file_ids - folder_file_ids)
+            print(f"Deleted {len(all_file_ids)} files/folders in {end - start:.2f}s", end="")
+            if orphan_count > 0:
+                print(f" (including {orphan_count} orphaned)")
+            else:
+                print()
         self.connection_router.reset_caches()
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
