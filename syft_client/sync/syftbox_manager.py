@@ -872,7 +872,7 @@ class SyftboxManager(BaseModel):
             stream_output: If True (default), stream output in real-time.
                         If False, capture output at end.
             timeout: Timeout in seconds per job. Defaults to 300 (5 minutes).
-                    Can also be set via SYFT_JOB_TIMEOUT_SECONDS env var.
+                    Can also be set via SYFT_DEFAULT_JOB_TIMEOUT_SECONDS env var.
             force_execution: If True, process all approved jobs regardless of
                            version compatibility. If False (default), skip jobs
                            from peers with incompatible or unknown versions.
