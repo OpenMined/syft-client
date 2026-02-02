@@ -8,8 +8,19 @@ from . import __version__
 from .config import SyftJobConfig
 
 # Default timeout for job execution (5 minutes)
-# Can be overridden by setting SYFT_JOB_TIMEOUT_SECONDS environment variable
-DEFAULT_JOB_TIMEOUT_SECONDS = int(os.environ.get("SYFT_JOB_TIMEOUT_SECONDS", "300"))
+DEFAULT_JOB_TIMEOUT_SECONDS = 300
+
+
+def get_job_timeout_seconds() -> int:
+    """Get job timeout from environment variable or use default.
+
+    Can be overridden by setting SYFT_DEFAULT_JOB_TIMEOUT_SECONDS environment variable.
+    """
+    return int(
+        os.environ.get("SYFT_DEFAULT_JOB_TIMEOUT_SECONDS", DEFAULT_JOB_TIMEOUT_SECONDS)
+    )
+
+
 IS_IN_JOB_ENV_VAR = "SYFT_IS_IN_JOB"
 
 
@@ -349,13 +360,13 @@ class SyftJobRunner:
             stream_output: If True (default), stream output in real-time.
                         If False, capture output at end (CI-friendly).
             timeout: Timeout in seconds. Defaults to 300 (5 minutes).
-                    Can also be set via SYFT_JOB_TIMEOUT_SECONDS env var.
+                    Can also be set via SYFT_DEFAULT_JOB_TIMEOUT_SECONDS env var.
 
         Returns:
             bool: True if execution was successful, False otherwise
         """
         if timeout is None:
-            timeout = DEFAULT_JOB_TIMEOUT_SECONDS
+            timeout = get_job_timeout_seconds()
         job_dir = self.config.get_job_dir(self.config.email) / job_name
         run_script = job_dir / "run.sh"
 
@@ -417,7 +428,7 @@ class SyftJobRunner:
             stream_output: If True (default), stream output in real-time.
                         If False, capture output at end (CI-friendly).
             timeout: Timeout in seconds per job. Defaults to 300 (5 minutes).
-                    Can also be set via SYFT_JOB_TIMEOUT_SECONDS env var.
+                    Can also be set via SYFT_DEFAULT_JOB_TIMEOUT_SECONDS env var.
             skip_job_names: Optional list of job names to skip.
         """
         approved_jobs = self._get_jobs_in_approved()
