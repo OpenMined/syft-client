@@ -12,7 +12,7 @@ DEFAULT_PATHS = get_default_paths()
 
 
 def _resolve_config_path(config: Optional[str]) -> Path:
-    config_path = Path(config).expanduser() if config else DEFAULT_PATHS["config"]
+    config_path = Path(config).expanduser() if config else DEFAULT_PATHS.config
 
     if not config_path.exists():
         click.echo(f"❌ Config file not found: {config_path}", err=True)
@@ -37,7 +37,7 @@ def init():
     click.echo("=" * 50)
     click.echo()
 
-    creds_path = DEFAULT_PATHS["credentials"]
+    creds_path = DEFAULT_PATHS.credentials
     if not creds_path.exists():
         click.echo(f"❌ credentials.json not found at {creds_path}")
         click.echo()
@@ -60,7 +60,7 @@ def init():
     click.echo()
 
     # Setup Gmail token
-    gmail_token = DEFAULT_PATHS["gmail_token"]
+    gmail_token = DEFAULT_PATHS.gmail_token
     if gmail_token.exists():
         click.echo(f"✅ Gmail token exists: {gmail_token}")
     else:
@@ -87,7 +87,7 @@ def init():
         },
     }
 
-    config_path = DEFAULT_PATHS["config"]
+    config_path = DEFAULT_PATHS.config
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with open(config_path, "w") as f:
         yaml.dump(config, f, default_flow_style=False)
@@ -115,7 +115,7 @@ def stop():
     """Stop the running daemon."""
     from syft_notify.cli.daemon import DaemonManager
 
-    manager = DaemonManager(DEFAULT_PATHS["config"])
+    manager = DaemonManager(DEFAULT_PATHS.config)
     manager.stop()
 
 
@@ -124,7 +124,7 @@ def status():
     """Check daemon status."""
     from syft_notify.cli.daemon import DaemonManager
 
-    manager = DaemonManager(DEFAULT_PATHS["config"])
+    manager = DaemonManager(DEFAULT_PATHS.config)
     manager.status()
 
 
@@ -148,7 +148,7 @@ def logs(follow: bool, lines: int):
     """View daemon logs."""
     from syft_notify.cli.daemon import DaemonManager
 
-    manager = DaemonManager(DEFAULT_PATHS["config"])
+    manager = DaemonManager(DEFAULT_PATHS.config)
     manager.logs(follow=follow, lines=lines)
 
 

@@ -25,7 +25,7 @@ class ApprovalOrchestrator:
 
         # Initialize state manager to track approved jobs/peers
         paths = get_default_paths()
-        self._state = JsonStateManager(paths["state"])
+        self._state = JsonStateManager(paths.state)
 
         self._job_monitor: Optional[JobMonitor] = None
         self._peer_monitor: Optional[PeerMonitor] = None
@@ -86,7 +86,7 @@ class ApprovalOrchestrator:
             config.interval = interval
 
         paths = get_default_paths()
-        token_path = config.drive_token_path or paths["drive_token"]
+        token_path = config.drive_token_path or paths.drive_token
 
         from syft_client.sync.syftbox_manager import SyftboxManager
         from syft_client.sync.utils.syftbox_utils import check_env

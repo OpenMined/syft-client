@@ -16,8 +16,8 @@ class DaemonManager:
         self.config_path = Path(config_path).expanduser()
 
         paths = get_default_paths()
-        self.pid_file = paths["pid"]
-        self.log_file = paths["log"]
+        self.pid_file = paths.pid
+        self.log_file = paths.log
 
         self.pid_file.parent.mkdir(parents=True, exist_ok=True)
 

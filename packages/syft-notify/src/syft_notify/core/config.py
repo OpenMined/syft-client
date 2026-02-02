@@ -14,17 +14,28 @@ def get_creds_dir() -> Path:
     return Path.home() / f".{CREDS_DIR_NAME}"
 
 
-def get_default_paths() -> dict:
+@dataclass
+class DefaultPaths:
+    config: Path
+    credentials: Path
+    gmail_token: Path
+    drive_token: Path
+    state: Path
+    pid: Path
+    log: Path
+
+
+def get_default_paths() -> DefaultPaths:
     creds = get_creds_dir()
-    return {
-        "config": creds / "config.yaml",
-        "credentials": creds / "credentials.json",
-        "gmail_token": creds / "gmail_token.json",
-        "drive_token": creds / "token_do.json",
-        "state": creds / "notify" / "state.json",
-        "pid": creds / "notify" / "daemon.pid",
-        "log": creds / "notify" / "daemon.log",
-    }
+    return DefaultPaths(
+        config=creds / "config.yaml",
+        credentials=creds / "credentials.json",
+        gmail_token=creds / "gmail_token.json",
+        drive_token=creds / "token_do.json",
+        state=creds / "notify" / "state.json",
+        pid=creds / "notify" / "daemon.pid",
+        log=creds / "notify" / "daemon.log",
+    )
 
 
 @dataclass
@@ -41,7 +52,7 @@ class NotifyConfig:
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "NotifyConfig":
         if config_path is None:
-            config_path = get_default_paths()["config"]
+            config_path = get_default_paths().config
 
         if not config_path.exists():
             return cls()
@@ -74,7 +85,7 @@ class NotifyConfig:
 
     def save(self, config_path: Optional[Path] = None) -> None:
         if config_path is None:
-            config_path = get_default_paths()["config"]
+            config_path = get_default_paths().config
 
         config_path.parent.mkdir(parents=True, exist_ok=True)
 

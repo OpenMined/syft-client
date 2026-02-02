@@ -29,16 +29,14 @@ class NotificationOrchestrator:
         self.drive_token_path = (
             Path(drive_token_path).expanduser()
             if drive_token_path
-            else paths["drive_token"]
+            else paths.drive_token
         )
         self.gmail_token_path = (
             Path(gmail_token_path).expanduser()
             if gmail_token_path
-            else paths["gmail_token"]
+            else paths.gmail_token
         )
-        self.state_path = (
-            Path(state_path).expanduser() if state_path else paths["state"]
-        )
+        self.state_path = Path(state_path).expanduser() if state_path else paths.state
 
         self._job_monitor: Optional[JobMonitor] = None
         self._peer_monitor: Optional[PeerMonitor] = None
@@ -48,10 +46,8 @@ class NotificationOrchestrator:
     @classmethod
     def setup(cls, credentials_path: Optional[str] = None) -> None:
         paths = get_default_paths()
-        creds_path = (
-            Path(credentials_path) if credentials_path else paths["credentials"]
-        )
-        token_path = paths["gmail_token"]
+        creds_path = Path(credentials_path) if credentials_path else paths.credentials
+        token_path = paths.gmail_token
 
         if token_path.exists():
             print(f"✅ Gmail token already exists: {token_path}")
@@ -89,7 +85,7 @@ class NotificationOrchestrator:
         gmail_path = (
             Path(gmail_token_path).expanduser()
             if gmail_token_path
-            else paths["gmail_token"]
+            else paths.gmail_token
         )
         if not gmail_path.exists():
             raise FileNotFoundError(
@@ -120,8 +116,8 @@ class NotificationOrchestrator:
             pass
 
         paths = get_default_paths()
-        if paths["drive_token"].exists():
-            return paths["drive_token"]
+        if paths.drive_token.exists():
+            return paths.drive_token
 
         return None
 

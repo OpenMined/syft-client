@@ -14,15 +14,24 @@ def get_creds_dir() -> Path:
     return Path.home() / f".{CREDS_DIR_NAME}"
 
 
-def get_default_paths() -> dict:
+@dataclass
+class DefaultPaths:
+    config: Path
+    drive_token: Path
+    state: Path
+    pid: Path
+    log: Path
+
+
+def get_default_paths() -> DefaultPaths:
     creds = get_creds_dir()
-    return {
-        "config": creds / "config.yaml",
-        "drive_token": creds / "token_do.json",
-        "state": creds / "approve" / "state.json",
-        "pid": creds / "approve" / "daemon.pid",
-        "log": creds / "approve" / "daemon.log",
-    }
+    return DefaultPaths(
+        config=creds / "config.yaml",
+        drive_token=creds / "token_do.json",
+        state=creds / "approve" / "state.json",
+        pid=creds / "approve" / "daemon.pid",
+        log=creds / "approve" / "daemon.log",
+    )
 
 
 @dataclass
@@ -73,7 +82,7 @@ class ApproveConfig:
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "ApproveConfig":
         if config_path is None:
-            config_path = get_default_paths()["config"]
+            config_path = get_default_paths().config
         else:
             config_path = Path(config_path).expanduser()
 
@@ -104,7 +113,7 @@ class ApproveConfig:
 
     def save(self, config_path: Optional[Path] = None) -> None:
         if config_path is None:
-            config_path = get_default_paths()["config"]
+            config_path = get_default_paths().config
         else:
             config_path = Path(config_path).expanduser()
 
