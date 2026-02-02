@@ -1124,7 +1124,10 @@ class SyftboxManager(BaseModel):
         end = time.time()
         if verbose:
             orphan_count = len(orphaned_file_ids - folder_file_ids)
-            print(f"Deleted {len(all_file_ids)} files/folders in {end - start:.2f}s", end="")
+            print(
+                f"Deleted {len(all_file_ids)} files/folders in {end - start:.2f}s",
+                end="",
+            )
             if orphan_count > 0:
                 print(f" (including {orphan_count} orphaned)")
             else:
