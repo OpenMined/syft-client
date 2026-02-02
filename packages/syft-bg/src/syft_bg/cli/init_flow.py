@@ -16,14 +16,12 @@ def get_creds_dir() -> Path:
 
 def run_init_flow(
     cli_filenames: list[str] | None = None,
-    cli_json_keys: dict[str, list[str]] | None = None,
     cli_allowed_users: list[str] | None = None,
 ):
     """Run unified setup for all background services.
 
     Args:
         cli_filenames: Required filenames from CLI (None = prompt user)
-        cli_json_keys: Required JSON keys from CLI (None = prompt user)
         cli_allowed_users: Allowed users from CLI (None = prompt user)
     """
     click.echo()
@@ -211,7 +209,6 @@ def run_init_flow(
     )
     jobs_peers_only = False
     required_filenames = []
-    required_json_keys = {}
     allowed_users = []
 
     if approve_jobs:
@@ -239,29 +236,6 @@ def run_init_flow(
             required_filenames = [
                 f.strip() for f in filenames_input.split(",") if f.strip()
             ]
-
-        # Required JSON keys
-        if cli_json_keys is not None:
-            required_json_keys = cli_json_keys
-            for fname, keys in required_json_keys.items():
-                click.echo(f"     Using CLI JSON keys for {fname}: {', '.join(keys)}")
-        else:
-            # Check if params.json is in required files and prompt for keys
-            json_files = [f for f in required_filenames if f.endswith(".json")]
-            for json_file in json_files:
-                default_keys = existing_jobs.get("required_json_keys", {}).get(
-                    json_file, []
-                )
-                default_keys_str = ",".join(default_keys) if default_keys else ""
-                keys_input = click.prompt(
-                    f"     Required keys in {json_file} (comma-separated, empty for none)",
-                    default=default_keys_str,
-                    show_default=bool(default_keys_str),
-                )
-                if keys_input.strip():
-                    required_json_keys[json_file] = [
-                        k.strip() for k in keys_input.split(",") if k.strip()
-                    ]
 
         # Allowed users
         click.echo()
@@ -320,7 +294,6 @@ def run_init_flow(
                 "peers_only": jobs_peers_only,
                 "required_scripts": existing_jobs.get("required_scripts", {}),
                 "required_filenames": required_filenames,
-                "required_json_keys": required_json_keys,
                 "allowed_users": allowed_users,
             },
             "peers": {

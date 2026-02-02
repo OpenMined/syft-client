@@ -44,11 +44,7 @@ approve:
         # expected script content
     required_filenames:
       - main.py
-      - data.json
-    required_json_keys:
-      data.json:
-        - SIMILARITY_PROMPT
-        - SIMILARITY_THRESHOLD
+      - params.json
 
   peers:
     enabled: false

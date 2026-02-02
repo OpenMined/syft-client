@@ -70,7 +70,6 @@ def init():
                 "peers_only": peers_only,
                 "required_scripts": {},
                 "required_filenames": [],
-                "required_json_keys": {},
                 "allowed_users": [],
             },
             "peers": {
@@ -91,7 +90,6 @@ def init():
     click.echo("Edit the config file to add:")
     click.echo("  - required_scripts: exact script content to match")
     click.echo("  - required_filenames: list of required files")
-    click.echo("  - required_json_keys: JSON files and their required keys")
     click.echo()
     click.echo("Then run 'syft-approve start' to begin.")
 

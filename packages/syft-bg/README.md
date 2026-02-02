@@ -35,11 +35,10 @@ syft-bg stop approve
 Skip interactive prompts for job validation:
 
 ```bash
-syft-bg init -f main.py,params.json -j params.json:epsilon,delta -u alice@example.com
+syft-bg init -f main.py,params.json -u alice@example.com
 ```
 
 - `-f, --filenames`: Required files in jobs
-- `-j, --json-keys`: Required keys in JSON files (`file:key1,key2`)
 - `-u, --allowed-users`: Restrict to specific users
 
 ## Config

@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 from syft_job.client import JobInfo
@@ -37,20 +36,6 @@ def _find_file_by_name(job: JobInfo, filename: str) -> Path | None:
         if f.name == filename:
             return f
     return None
-
-
-def _json_has_required_keys(
-    file_path: Path, required_keys: list[str]
-) -> tuple[bool, list[str]]:
-    try:
-        with open(file_path) as f:
-            data = json.load(f)
-        missing = [k for k in required_keys if k not in data]
-        return (len(missing) == 0, missing)
-    except json.JSONDecodeError:
-        return (False, ["<invalid JSON>"])
-    except Exception:
-        return (False, required_keys)
 
 
 def job_matches_criteria(
@@ -103,15 +88,5 @@ def job_matches_criteria(
         extra_files = job_filenames - required_set
         if extra_files:
             return (False, f"unexpected files: {', '.join(sorted(extra_files))}")
-
-    # Check required JSON keys
-    for filename, required_keys in config.required_json_keys.items():
-        file_path = _find_file_by_name(job, filename)
-        if file_path is None:
-            return (False, f"JSON file not found: {filename}")
-
-        has_keys, missing_keys = _json_has_required_keys(file_path, required_keys)
-        if not has_keys:
-            return (False, f"missing keys in {filename}: {', '.join(missing_keys)}")
 
     return (True, "ok")

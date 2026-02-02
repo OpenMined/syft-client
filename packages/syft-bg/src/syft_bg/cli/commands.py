@@ -193,17 +193,11 @@ def logs(service: str, follow: bool, lines: int):
     help="Required filenames (comma-separated). Default: main.py,params.json",
 )
 @click.option(
-    "--json-keys",
-    "-j",
-    multiple=True,
-    help="Required JSON keys as file:key1,key2 (can repeat). Example: -j params.json:epsilon,delta",
-)
-@click.option(
     "--allowed-users",
     "-u",
     help="Allowed users (comma-separated). Empty means all peers allowed.",
 )
-def init(filenames: str | None, json_keys: tuple[str, ...], allowed_users: str | None):
+def init(filenames: str | None, allowed_users: str | None):
     """Initialize all services with unified setup.
 
     Examples:
@@ -212,7 +206,7 @@ def init(filenames: str | None, json_keys: tuple[str, ...], allowed_users: str |
 
       syft-bg init --filenames main.py,params.json
 
-      syft-bg init -f main.py,data.json -j params.json:epsilon,delta -u alice@example.com
+      syft-bg init -f main.py,params.json -u alice@example.com
     """
     from syft_bg.cli.init_flow import run_init_flow
 
@@ -220,16 +214,6 @@ def init(filenames: str | None, json_keys: tuple[str, ...], allowed_users: str |
     parsed_filenames = None
     if filenames:
         parsed_filenames = [f.strip() for f in filenames.split(",") if f.strip()]
-
-    parsed_json_keys = None
-    if json_keys:
-        parsed_json_keys = {}
-        for entry in json_keys:
-            if ":" in entry:
-                filename, keys = entry.split(":", 1)
-                parsed_json_keys[filename.strip()] = [
-                    k.strip() for k in keys.split(",") if k.strip()
-                ]
 
     parsed_allowed_users = None
     if allowed_users is not None:
@@ -239,7 +223,6 @@ def init(filenames: str | None, json_keys: tuple[str, ...], allowed_users: str |
 
     run_init_flow(
         cli_filenames=parsed_filenames,
-        cli_json_keys=parsed_json_keys,
         cli_allowed_users=parsed_allowed_users,
     )
 

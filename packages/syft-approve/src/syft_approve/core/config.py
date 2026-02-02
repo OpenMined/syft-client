@@ -40,7 +40,6 @@ class JobApprovalConfig:
     peers_only: bool = True
     required_scripts: dict[str, str] = field(default_factory=dict)
     required_filenames: list[str] = field(default_factory=list)
-    required_json_keys: dict[str, list[str]] = field(default_factory=dict)
     allowed_users: list[str] = field(default_factory=list)
 
     @classmethod
@@ -50,7 +49,6 @@ class JobApprovalConfig:
             peers_only=data.get("peers_only", True),
             required_scripts=data.get("required_scripts", {}),
             required_filenames=data.get("required_filenames", []),
-            required_json_keys=data.get("required_json_keys", {}),
             allowed_users=data.get("allowed_users", []),
         )
 
@@ -138,7 +136,6 @@ class ApproveConfig:
                 "peers_only": self.jobs.peers_only,
                 "required_scripts": self.jobs.required_scripts,
                 "required_filenames": self.jobs.required_filenames,
-                "required_json_keys": self.jobs.required_json_keys,
                 "allowed_users": self.jobs.allowed_users,
             },
             "peers": {
