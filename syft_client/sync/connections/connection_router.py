@@ -118,6 +118,11 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_own_syftbox()
         return connection.gather_all_file_and_folder_ids()
 
+    def find_orphaned_message_files(self) -> List[str]:
+        """Find message files by name pattern (catches orphaned files)."""
+        connection = self.connection_for_own_syftbox()
+        return connection.find_orphaned_message_files()
+
     def reset_caches(self):
         connection = self.connection_for_own_syftbox()
         connection.reset_caches()

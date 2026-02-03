@@ -11,6 +11,13 @@ def listify(obj: Any) -> List[Any]:
 
 
 def gather_all_file_and_folder_ids_recursive(service, folder_id) -> List[str]:
+    """
+    Gather all file and folder IDs recursively.
+
+    NOTE: Due to Google Drive eventual consistency, recently created files may
+    not appear in query results. For deletion, it's safer to just delete the
+    parent folder and rely on Google Drive's cascade deletion.
+    """
     res = set([folder_id])
     query = f"'{folder_id}' in parents"
     results = (
