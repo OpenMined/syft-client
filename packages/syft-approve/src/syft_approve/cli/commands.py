@@ -1,3 +1,4 @@
+import hashlib
 import signal
 import sys
 from pathlib import Path
@@ -88,10 +89,25 @@ def init():
     click.echo(f"✅ Config saved: {config_path}")
     click.echo()
     click.echo("Edit the config file to add:")
-    click.echo("  - required_scripts: exact script content to match")
+    click.echo("  - required_scripts: script hashes (use 'syft-approve hash <file>')")
     click.echo("  - required_filenames: list of required files")
     click.echo()
     click.echo("Then run 'syft-approve start' to begin.")
+
+
+@main.command()
+@click.argument("file", type=click.Path(exists=True))
+def hash(file: str):
+    """Generate hash for a script file."""
+    file_path = Path(file).expanduser()
+    content = file_path.read_text(encoding="utf-8")
+    full_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    short_hash = full_hash[:16]
+    click.echo(f"sha256:{short_hash}")
+    click.echo()
+    click.echo("Add to config.yaml:")
+    click.echo("  required_scripts:")
+    click.echo(f"    {file_path.name}: sha256:{short_hash}")
 
 
 @main.command()
