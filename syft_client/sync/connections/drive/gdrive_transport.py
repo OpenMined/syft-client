@@ -969,13 +969,16 @@ class GDriveConnection(SyftboxPlatformConnection):
                     f"Failed to delete {request_id}: error status {response.get('status')}"
                 )
 
-        batch = BatchHttpRequest(
-            callback=callback, batch_uri="https://www.googleapis.com/batch/drive/v3"
-        )
-
-        for file_id in file_ids:
-            batch.add(self.drive_service.files().delete(fileId=file_id))
-        batch.execute()
+        # Google Drive batch API has a limit of 100 requests per batch
+        BATCH_SIZE = 100
+        for i in range(0, len(file_ids), BATCH_SIZE):
+            chunk = file_ids[i : i + BATCH_SIZE]
+            batch = BatchHttpRequest(
+                callback=callback, batch_uri="https://www.googleapis.com/batch/drive/v3"
+            )
+            for file_id in chunk:
+                batch.add(self.drive_service.files().delete(fileId=file_id))
+            batch.execute()
 
     def delete_file_by_id(
         self, file_id: str, verbose: bool = False, raise_on_error: bool = False
@@ -988,6 +991,43 @@ class GDriveConnection(SyftboxPlatformConnection):
             else:
                 if verbose:
                     print(f"Error deleting file: {file_id}")
+
+    def find_orphaned_message_files(self) -> list[str]:
+        """
+        Find message files (syfteventsmessagev3_*, msgv2_*) owned by user.
+
+        Due to Google Drive's eventual consistency, files can become orphaned when
+        their parent folder is deleted before they're fully registered. This method
+        finds such files by searching for name patterns regardless of parent.
+
+        Returns list of file IDs.
+        """
+        patterns = ["syfteventsmessagev3_", "msgv2_"]
+        file_ids = []
+
+        for pattern in patterns:
+            query = f"name contains '{pattern}' and 'me' in owners and trashed=false"
+            page_token = None
+
+            while True:
+                results = (
+                    self.drive_service.files()
+                    .list(
+                        q=query,
+                        fields="files(id), nextPageToken",
+                        pageToken=page_token,
+                    )
+                    .execute()
+                )
+
+                for item in results.get("files", []):
+                    file_ids.append(item["id"])
+
+                page_token = results.get("nextPageToken")
+                if not page_token:
+                    break
+
+        return file_ids
 
     def create_file_payload(self, data: Any) -> Tuple[MediaIoBaseUpload, str]:
         """Create a file payload for the GDrive"""
