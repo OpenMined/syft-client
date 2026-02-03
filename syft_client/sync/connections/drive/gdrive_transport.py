@@ -1007,11 +1007,25 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         for pattern in patterns:
             query = f"name contains '{pattern}' and 'me' in owners and trashed=false"
-            results = (
-                self.drive_service.files().list(q=query, fields="files(id)").execute()
-            )
-            for item in results.get("files", []):
-                file_ids.append(item["id"])
+            page_token = None
+
+            while True:
+                results = (
+                    self.drive_service.files()
+                    .list(
+                        q=query,
+                        fields="files(id), nextPageToken",
+                        pageToken=page_token,
+                    )
+                    .execute()
+                )
+
+                for item in results.get("files", []):
+                    file_ids.append(item["id"])
+
+                page_token = results.get("nextPageToken")
+                if not page_token:
+                    break
 
         return file_ids
 
