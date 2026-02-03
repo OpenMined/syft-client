@@ -50,6 +50,7 @@ test = [
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.0.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-rerunfailures>=14.0",
     "black>=23.0.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
@@ -98,7 +99,8 @@ markers = [
     "unit: Unit tests (fast, mocked)",
     "integration: Integration tests (slow, real API)",
     "cleanup: Tests that require cleanup",
-    "slow: Tests that take a long time to run"
+    "slow: Tests that take a long time to run",
+    "flaky: Tests that may fail intermittently and should be retried"
 ]
 addopts = [
     "--strict-markers",

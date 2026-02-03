@@ -1,16 +1,7 @@
-name: 'Nightly: Integration Tests'
+name: 'PR: Integration Tests'
 
 on:
-  push:
-    branches: [main]
-
-  # Nightly run at midnight EU time (23:00 UTC for CET, 22:00 UTC for CEST)
-  # Using 23:00 UTC to cover CET midnight
-  schedule:
-    - cron: '0 23 * * *'
-
-  # Allow manual trigger
-  workflow_dispatch:
+  pull_request:
 
   workflow_call:
 
@@ -48,8 +39,8 @@ jobs:
           TOKEN_DS_JSON: ${{ secrets.TOKEN_DS_JSON }}
         run: printf '%s' "$TOKEN_DS_JSON" > credentials/token_ds.json
 
-      - name: Run integration tests
+      - name: Run integration tests (without unit coverage)
         env:
           BEACH_EMAIL_DO: ${{ secrets.BEACH_EMAIL_DO }}
           BEACH_EMAIL_DS: ${{ secrets.BEACH_EMAIL_DS }}
-        run: just test-integration
+        run: just test-integration-without-unit-coverage

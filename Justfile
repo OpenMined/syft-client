@@ -29,6 +29,16 @@ test-integration:
     uv run pytest -s ./tests/integration
 
 
+test-integration-with-unit-coverage:
+    #!/bin/bash
+    uv run pytest -s ./tests/integration/with_unit_coverage
+
+
+test-integration-without-unit-coverage:
+    #!/bin/bash
+    uv run pytest -s ./tests/integration/without_unit_coverage
+
+
 benchmark:
     #!/bin/bash
     python ./benchmarks/benchmark_loadtime.py
