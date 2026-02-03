@@ -1,5 +1,7 @@
 from typing import Any, List
 
+from syft_client.sync.connections.drive.gdrive_retry import execute_with_retries
+
 GDRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 
 
@@ -20,8 +22,8 @@ def gather_all_file_and_folder_ids_recursive(service, folder_id) -> List[str]:
     """
     res = set([folder_id])
     query = f"'{folder_id}' in parents"
-    results = (
-        service.files().list(q=query, fields="files(id, name, mimeType)").execute()
+    results = execute_with_retries(
+        service.files().list(q=query, fields="files(id, name, mimeType)")
     )
     for item in results.get("files", []):
         if item["mimeType"] == GDRIVE_FOLDER_MIME_TYPE:
