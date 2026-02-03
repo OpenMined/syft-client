@@ -45,6 +45,16 @@ syft-bg init -f main.py,params.json -u alice@example.com
 
 Stored at `~/.syft-creds/config.yaml` (Colab: `/content/drive/MyDrive/syft-creds/config.yaml`).
 
+After editing the config, restart services for changes to take effect:
+
+```bash
+syft-bg restart
+```
+
+## Future Work
+
+- `syft-bg validate` - Validate config file without restarting services
+
 ## Colab
 
 Drive auth is handled natively:
