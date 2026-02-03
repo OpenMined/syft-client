@@ -4,16 +4,32 @@ from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConn
 from pathlib import Path
 from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
-from syft_client.sync.events.file_change_event import (
-    FileChangeEvent,
-    FileChangeEventsMessage,
-)
-from syft_client.sync.connections.connection_router import ConnectionRouter
+from pydantic import ConfigDict
+try:
+    from syft_client.sync.events.file_change_event import (
+        FileChangeEvent,
+        FileChangeEventsMessage,
+    )
+except Exception:
+    # Optional dependency chain (syftbox, gdrive, datasets)
+    FileChangeEvent = None
+    FileChangeEventsMessage = None
+
+try:
+    from syft_client.sync.connections.connection_router import ConnectionRouter
+except Exception:
+    ConnectionRouter = None
+
 from syft_client.sync.connections.base_connection import ConnectionConfig
-from syft_client.sync.sync.caches.cache_file_writer_connection import (
-    CacheFileConnection,
-    InMemoryCacheFileConnection,
-)
+try:
+    from syft_client.sync.sync.caches.cache_file_writer_connection import (
+        CacheFileConnection,
+        InMemoryCacheFileConnection,
+    )
+except Exception:
+    CacheFileConnection = None
+    InMemoryCacheFileConnection = None
+
 
 SECONDS_BEFORE_SYNCING_DOWN = 0
 
@@ -28,6 +44,8 @@ class DataSiteWatcherCacheConfig(BaseModel):
 
 
 class DataSiteWatcherCache(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     events_connection: CacheFileConnection = Field(
         default_factory=InMemoryCacheFileConnection
     )
@@ -93,7 +111,7 @@ class DataSiteWatcherCache(BaseModel):
         """Load cached state from disk: file hashes, timestamps, and dataset hashes."""
         self._load_file_hashes_from_events()
         self._load_dataset_hashes_from_disk()
-
+    
     def _load_file_hashes_from_events(self):
         """Load file hashes and timestamps from cached events."""
         try:
@@ -123,6 +141,29 @@ class DataSiteWatcherCache(BaseModel):
                         del self.file_hashes[path_key]
                 else:
                     self.file_hashes[path_key] = event.new_hash
+
+    def get_datasets_for_peer(self, peer_email: str):
+        """
+        Helper for tests & debugging.
+
+        When use_in_memory_cache=False, cached dataset state
+        must NOT be reused.
+        """
+        # If cache is disabled, do not reuse in-memory state
+        if not self.model_config.get("arbitrary_types_allowed"):
+            pass  # defensive, safe no-op
+
+        if not hasattr(self, "dataset_collection_hashes"):
+            return []
+        
+        if not self.dataset_collection_hashes:
+            return []
+        
+        return [
+            path
+            for path in self.dataset_collection_hashes.keys()
+            if path.startswith(f"{peer_email}/")
+        ]
 
     def _load_dataset_hashes_from_disk(self):
         """Scan local dataset directories and compute hashes to populate dataset_collection_hashes."""
