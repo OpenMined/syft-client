@@ -26,6 +26,7 @@ token_path_do = CREDENTIALS_DIR / FILE_DO
 token_path_ds = CREDENTIALS_DIR / FILE_DS
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_do_cache_aware_sync_gdrive():
     """Real GDrive test: Create DO, sync 3 files, create 2 more, restart with same cache,
@@ -106,6 +107,7 @@ def test_do_cache_aware_sync_gdrive():
     )
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_ds_cache_aware_sync_gdrive():
     """Real GDrive test: Create DS, sync 3 files, create 2 more, restart with same cache,

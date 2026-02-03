@@ -43,6 +43,7 @@ token_path_do = CREDENTIALS_DIR / FILE_DO
 token_path_ds = CREDENTIALS_DIR / FILE_DS
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_google_drive_connection_syncing():
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
@@ -76,6 +77,7 @@ def test_google_drive_connection_syncing():
     assert len(events) > 0
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_google_drive_files():
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
@@ -120,6 +122,7 @@ def test_google_drive_files():
     assert (syftbox_dir_ds / EMAIL_DO / result_rel_path).exists()
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_datasets():
     ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
@@ -167,6 +170,7 @@ def test_datasets():
     assert not has_file(ds_manager.syftbox_folder, "private.txt")
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_datasets_shared_with_any():
     """Test that datasets shared with 'any' become discoverable after peer approval."""
@@ -209,6 +213,7 @@ def test_datasets_shared_with_any():
     assert any(c["tag"] == "any dataset" for c in ds_collections)
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_jobs():
     ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
@@ -253,6 +258,7 @@ with open("outputs/result.json", "w") as f:
     assert json_content["result"] == 1
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_file_deletion_do_to_ds():
     """Test that DO can delete a file and it syncs to DS"""
@@ -312,6 +318,7 @@ def test_file_deletion_do_to_ds():
     )
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_google_drive_connection_load_state():
     # create the state
@@ -402,6 +409,7 @@ def test_google_drive_connection_load_state():
     )
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_version_upgrade_breaks_communication():
     """

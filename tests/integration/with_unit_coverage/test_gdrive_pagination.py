@@ -11,6 +11,7 @@ from tests.integration.utils import (
 from syft_client.sync.syftbox_manager import SyftboxManager
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_pagination_and_early_termination():
     """Test pagination with small page size and early termination with since_timestamp"""
