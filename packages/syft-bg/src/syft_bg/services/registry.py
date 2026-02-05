@@ -1,35 +1,25 @@
-from pathlib import Path
+"""Service registry for background services."""
 
+from syft_bg.common.config import get_default_paths
 from syft_bg.services.base import Service
-
-# Default paths (same as syft-notify and syft-approve)
-COLAB_DRIVE_PATH = Path("/content/drive/MyDrive")
-CREDS_DIR_NAME = "syft-creds"
-
-
-def get_creds_dir() -> Path:
-    if COLAB_DRIVE_PATH.exists():
-        return COLAB_DRIVE_PATH / CREDS_DIR_NAME
-    return Path.home() / f".{CREDS_DIR_NAME}"
 
 
 def _create_services() -> dict[str, Service]:
-    creds = get_creds_dir()
+    """Create service definitions using unified paths."""
+    paths = get_default_paths()
 
     return {
         "notify": Service(
             name="notify",
-            command="syft-notify",
             description="Email notifications for job and peer events",
-            pid_file=creds / "notify" / "daemon.pid",
-            log_file=creds / "notify" / "daemon.log",
+            pid_file=paths.notify_pid,
+            log_file=paths.notify_log,
         ),
         "approve": Service(
             name="approve",
-            command="syft-approve",
             description="Auto-approve jobs and peer requests",
-            pid_file=creds / "approve" / "daemon.pid",
-            log_file=creds / "approve" / "daemon.log",
+            pid_file=paths.approve_pid,
+            log_file=paths.approve_log,
         ),
     }
 

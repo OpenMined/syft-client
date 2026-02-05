@@ -1,9 +1,13 @@
+"""Base service definition for background services."""
+
+import os
+import signal
+import subprocess
+import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Optional
-import os
-import subprocess
 
 
 class ServiceStatus(Enum):
@@ -22,21 +26,22 @@ class ServiceInfo:
 
 
 class Service:
+    """A background service that runs as a subprocess."""
+
     def __init__(
         self,
         name: str,
-        command: str,
         description: str,
         pid_file: Path,
         log_file: Path,
     ):
         self.name = name
-        self.command = command
         self.description = description
         self.pid_file = pid_file
         self.log_file = log_file
 
     def get_pid(self) -> Optional[int]:
+        """Get the PID from the pid file."""
         if not self.pid_file.exists():
             return None
         try:
@@ -45,6 +50,7 @@ class Service:
             return None
 
     def is_running(self) -> bool:
+        """Check if the service is running."""
         pid = self.get_pid()
         if not pid:
             return False
@@ -55,6 +61,7 @@ class Service:
             return False
 
     def get_status(self) -> ServiceInfo:
+        """Get the current service status."""
         pid = self.get_pid()
         if pid and self.is_running():
             return ServiceInfo(
@@ -64,62 +71,86 @@ class Service:
         return ServiceInfo(status=ServiceStatus.STOPPED)
 
     def start(self) -> tuple[bool, str]:
+        """Start the service as a background subprocess."""
         if self.is_running():
             return (False, f"{self.name} is already running")
 
         try:
-            result = subprocess.run(
-                [self.command, "start"],
-                capture_output=True,
-                text=True,
-                timeout=30,
+            # Ensure directories exist
+            self.pid_file.parent.mkdir(parents=True, exist_ok=True)
+            self.log_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Open log file for output
+            log_fd = open(self.log_file, "a")
+
+            # Spawn syft-bg run --service <name> as a daemon
+            process = subprocess.Popen(
+                [sys.executable, "-m", "syft_bg", "run", "--service", self.name],
+                stdout=log_fd,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,  # Detach from parent process group
             )
-            if result.returncode == 0:
-                return (True, f"{self.name} started")
-            return (False, result.stderr or result.stdout or "Unknown error")
-        except subprocess.TimeoutExpired:
-            return (False, "Timeout starting service")
-        except FileNotFoundError:
-            return (False, f"Command not found: {self.command}")
+
+            # Write PID file
+            self.pid_file.write_text(str(process.pid))
+
+            return (True, f"{self.name} started (PID {process.pid})")
+
         except Exception as e:
             return (False, str(e))
 
     def stop(self) -> tuple[bool, str]:
+        """Stop the service."""
         if not self.is_running():
+            # Clean up stale PID file
+            if self.pid_file.exists():
+                self.pid_file.unlink()
             return (False, f"{self.name} is not running")
 
+        pid = self.get_pid()
+        if not pid:
+            return (False, "Could not get PID")
+
         try:
-            result = subprocess.run(
-                [self.command, "stop"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.returncode == 0:
-                return (True, f"{self.name} stopped")
-            return (False, result.stderr or result.stdout or "Unknown error")
-        except subprocess.TimeoutExpired:
-            return (False, "Timeout stopping service")
-        except Exception as e:
-            return (False, str(e))
+            # Send SIGTERM for graceful shutdown
+            os.kill(pid, signal.SIGTERM)
+
+            # Wait briefly for process to terminate
+            import time
+
+            for _ in range(10):  # Wait up to 1 second
+                time.sleep(0.1)
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    break  # Process terminated
+            else:
+                # Force kill if still running
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+
+            # Clean up PID file
+            if self.pid_file.exists():
+                self.pid_file.unlink()
+
+            return (True, f"{self.name} stopped")
+
+        except OSError as e:
+            return (False, f"Failed to stop: {e}")
 
     def restart(self) -> tuple[bool, str]:
-        try:
-            result = subprocess.run(
-                [self.command, "restart"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            if result.returncode == 0:
-                return (True, f"{self.name} restarted")
-            return (False, result.stderr or result.stdout or "Unknown error")
-        except subprocess.TimeoutExpired:
-            return (False, "Timeout restarting service")
-        except Exception as e:
-            return (False, str(e))
+        """Restart the service."""
+        if self.is_running():
+            success, msg = self.stop()
+            if not success:
+                return (False, f"Failed to stop: {msg}")
+
+        return self.start()
 
     def get_logs(self, lines: int = 50) -> list[str]:
+        """Get recent log lines."""
         if not self.log_file.exists():
             return []
         try:

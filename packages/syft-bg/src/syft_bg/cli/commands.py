@@ -1,3 +1,6 @@
+"""CLI commands for syft-bg."""
+
+import hashlib
 from typing import Optional
 
 import click
@@ -5,17 +8,8 @@ import click
 from syft_bg.services import ServiceManager, ServiceStatus
 
 
-def get_status_symbol(status: ServiceStatus) -> str:
-    if status == ServiceStatus.RUNNING:
-        return "[green]●[/green]"
-    elif status == ServiceStatus.STOPPED:
-        return "[dim]○[/dim]"
-    elif status == ServiceStatus.ERROR:
-        return "[red]✗[/red]"
-    return "[yellow]?[/yellow]"
-
-
 def get_status_text(status: ServiceStatus) -> str:
+    """Get human-readable status text."""
     if status == ServiceStatus.RUNNING:
         return "Running"
     elif status == ServiceStatus.STOPPED:
@@ -208,7 +202,7 @@ def init(filenames: str | None, allowed_users: str | None):
 
       syft-bg init -f main.py,params.json -u alice@example.com
     """
-    from syft_bg.cli.init_flow import run_init_flow
+    from syft_bg.cli.init import run_init_flow
 
     # Parse CLI options
     parsed_filenames = None
@@ -237,9 +231,94 @@ def tui():
 
     # Handle special exit codes
     if result == 2:
-        from syft_bg.cli.init_flow import run_init_flow
+        from syft_bg.cli.init import run_init_flow
 
         run_init_flow()
+
+
+@main.command()
+@click.option(
+    "--service",
+    "-s",
+    type=click.Choice(["notify", "approve"]),
+    required=True,
+    help="Service to run",
+)
+@click.option("--once", is_flag=True, help="Run single check cycle and exit")
+def run(service: str, once: bool):
+    """Run a service in foreground.
+
+    This command is used internally by 'syft-bg start' to spawn services
+    as subprocesses. You can also use it directly for debugging.
+
+    Examples:
+
+      syft-bg run --service notify
+
+      syft-bg run --service approve --once
+    """
+    if service == "notify":
+        from syft_bg.notify import NotificationOrchestrator
+
+        try:
+            orchestrator = NotificationOrchestrator.from_config()
+            if once:
+                orchestrator.check()
+            else:
+                orchestrator.run()
+        except FileNotFoundError as e:
+            click.echo(f"Error: {e}", err=True)
+            click.echo("Run 'syft-bg init' first to configure the service.", err=True)
+            raise SystemExit(1)
+
+    elif service == "approve":
+        from syft_bg.approve import ApprovalOrchestrator
+
+        try:
+            orchestrator = ApprovalOrchestrator.from_config()
+            if once:
+                orchestrator.check()
+            else:
+                orchestrator.run()
+        except FileNotFoundError as e:
+            click.echo(f"Error: {e}", err=True)
+            click.echo("Run 'syft-bg init' first to configure the service.", err=True)
+            raise SystemExit(1)
+
+
+@main.command()
+@click.argument("file", type=click.Path(exists=True))
+@click.option(
+    "--length",
+    "-l",
+    type=int,
+    default=16,
+    help="Hash length (default: 16 characters)",
+)
+def hash(file: str, length: int):
+    """Generate SHA256 hash for a script file.
+
+    Use this to create hash values for the 'required_scripts' config option.
+
+    Examples:
+
+      syft-bg hash main.py
+
+      syft-bg hash main.py --length 8
+
+    Output format: sha256:<hash>
+    """
+    from pathlib import Path
+
+    file_path = Path(file)
+    try:
+        content = file_path.read_text(encoding="utf-8")
+        full_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        short_hash = full_hash[:length]
+        click.echo(f"sha256:{short_hash}")
+    except Exception as e:
+        click.echo(f"Error reading file: {e}", err=True)
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
