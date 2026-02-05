@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 
 import yaml
 from pydantic import ConfigDict, Field, BaseModel, PrivateAttr
@@ -7,6 +8,7 @@ from queue import Queue
 from typing import List, Tuple
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessage,
+    FileChangeEvent,
 )
 from syft_client.sync.connections.base_connection import (
     ConnectionConfig,
@@ -19,10 +21,16 @@ from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.sync.caches.datasite_owner_cache import DataSiteOwnerEventCache
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
-from syft_client.sync.checkpoints.checkpoint import Checkpoint
+from syft_client.sync.checkpoints.checkpoint import (
+    Checkpoint,
+    CheckpointFile,
+    IncrementalCheckpoint,
+    compact_incremental_checkpoints,
+    DEFAULT_COMPACTING_THRESHOLD,
+)
 from syft_client.sync.checkpoints.rolling_state import RollingState
 
-# Default threshold for auto-checkpoint creation
+# Default threshold for creating incremental checkpoint from rolling state
 DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50
 
 # Default: upload rolling state to GDrive after this many events
@@ -126,85 +134,116 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         """
         Pull initial state from Google Drive.
 
-        Uses checkpoint + rolling state for fastest sync:
-        1. Download checkpoint (if exists)
-        2. Download rolling state (if exists and matches checkpoint)
-        3. Apply both to restore complete state
-        4. Download only events newer than rolling state (usually 0-few)
+        Flow:
+        1. Check for full (compacted) checkpoint → apply it
+        2. Check for incremental checkpoints → apply them in order
+        3. Check for rolling state → apply if valid
+        4. Download any remaining events since last timestamp
         """
-        # Try to use checkpoint for faster sync
-        checkpoint = self.connection_router.get_latest_checkpoint()
+        events_since_timestamp: float | None = None
+
+        # Step 1: Check for full (compacted) checkpoint
+        full_checkpoint = self.connection_router.get_latest_checkpoint()
+        if full_checkpoint is not None:
+            print(
+                f"Found full checkpoint with {len(full_checkpoint.files)} files, "
+                "restoring..."
+            )
+            self.event_cache.apply_checkpoint(
+                full_checkpoint, write_files=self.write_files
+            )
+            events_since_timestamp = full_checkpoint.last_event_timestamp
+
+        # Step 2: Check for incremental checkpoints
+        incremental_cps = self.connection_router.get_all_incremental_checkpoints()
+        if incremental_cps:
+            print(f"Found {len(incremental_cps)} incremental checkpoints, applying...")
+            for inc_cp in incremental_cps:
+                self._apply_incremental_checkpoint_to_cache(inc_cp)
+                # Update timestamp to the latest event in this checkpoint
+                for event in inc_cp.events:
+                    if event.timestamp is not None:
+                        if (
+                            events_since_timestamp is None
+                            or event.timestamp > events_since_timestamp
+                        ):
+                            events_since_timestamp = event.timestamp
+
+        # Step 3: Check for rolling state
         rolling_state = self.connection_router.get_rolling_state()
+        if rolling_state is not None and rolling_state.event_count > 0:
+            print(
+                f"Found rolling state with {rolling_state.event_count} events, "
+                "applying..."
+            )
+            self._apply_rolling_state_to_cache(rolling_state)
+            self._rolling_state = rolling_state
 
-        # Get latest cached timestamp to only download new events
-        since_timestamp = self.event_cache.latest_cached_timestamp
-
-        if checkpoint is not None:
-            # Restore from checkpoint
-            print(f"Found checkpoint with {len(checkpoint.files)} files, restoring...")
-            self.event_cache.apply_checkpoint(checkpoint, write_files=self.write_files)
-
-            # Initialize in-memory rolling state
-            base_timestamp = checkpoint.last_event_timestamp or checkpoint.timestamp
+            # Update timestamp from rolling state
+            if rolling_state.last_event_timestamp is not None:
+                if (
+                    events_since_timestamp is None
+                    or rolling_state.last_event_timestamp > events_since_timestamp
+                ):
+                    events_since_timestamp = rolling_state.last_event_timestamp
+        else:
+            # Initialize empty rolling state
+            base_timestamp = events_since_timestamp or 0.0
             self._rolling_state = RollingState(
                 email=self.email,
                 base_checkpoint_timestamp=base_timestamp,
             )
 
-            # Determine the timestamp to sync from
-            events_since_timestamp = checkpoint.last_event_timestamp
-
-            # Check if rolling state matches this checkpoint
-            if rolling_state is not None:
-                if rolling_state.base_checkpoint_timestamp == base_timestamp:
-                    # Rolling state is valid - apply it
-                    print(
-                        f"Found rolling state with {rolling_state.event_count} events, "
-                        "applying..."
-                    )
-                    self._apply_rolling_state_to_cache(rolling_state)
-                    self._rolling_state = rolling_state
-
-                    # Only need events AFTER the rolling state
-                    if rolling_state.last_event_timestamp is not None:
-                        events_since_timestamp = rolling_state.last_event_timestamp
-                else:
-                    # Rolling state is stale (different checkpoint) - ignore it
-                    print("Rolling state is stale, ignoring...")
-
-            # Download any remaining events since checkpoint/rolling state
-            if events_since_timestamp is not None:
-                events_messages = (
-                    self.connection_router.get_events_messages_since_timestamp(
-                        events_since_timestamp
-                    )
+        # Step 4: Download any remaining events since last timestamp
+        if events_since_timestamp is not None:
+            events_messages = (
+                self.connection_router.get_events_messages_since_timestamp(
+                    events_since_timestamp
                 )
-                if events_messages:
-                    print(
-                        f"Downloading {len(events_messages)} events since "
-                        "checkpoint/rolling state..."
-                    )
-                    for events_message in events_messages:
-                        self.event_cache.add_events_message_to_local_cache(
-                            events_message
-                        )
-                        # Add to rolling state for future syncs
-                        self._add_events_to_rolling_state(events_message)
-        else:
-            # No checkpoint - download all events (fallback)
-            print("No checkpoint found, downloading all events...")
-            events_messages: list[FileChangeEventsMessage] = (
+            )
+            if events_messages:
+                print(
+                    f"Downloading {len(events_messages)} events since "
+                    "checkpoint/rolling state..."
+                )
+                for events_message in events_messages:
+                    self.event_cache.add_events_message_to_local_cache(events_message)
+                    self._add_events_to_rolling_state(events_message)
+        elif full_checkpoint is None and not incremental_cps:
+            # No checkpoints at all - download all events (fallback)
+            print("No checkpoints found, downloading all events...")
+            since_timestamp = self.event_cache.latest_cached_timestamp
+            events_messages_list: list[FileChangeEventsMessage] = (
                 self.get_all_accepted_events_messages_do(
                     since_timestamp=since_timestamp
                 )
             )
-            for events_message in events_messages:
+            for events_message in events_messages_list:
                 self.event_cache.add_events_message_to_local_cache(events_message)
 
-            # load datasets from connection and populate cache
+            # Load datasets from connection and populate cache
             self._pull_datasets_for_initial_sync()
 
         self.initial_sync_done = True
+
+    def _apply_incremental_checkpoint_to_cache(
+        self, checkpoint: IncrementalCheckpoint
+    ) -> None:
+        """Apply events from an incremental checkpoint to the cache."""
+        for event in checkpoint.events:
+            if event.is_deleted:
+                if event.path_in_datasite in self.event_cache.file_hashes:
+                    del self.event_cache.file_hashes[event.path_in_datasite]
+                if self.write_files:
+                    self.event_cache.file_connection.delete_file(
+                        str(event.path_in_datasite)
+                    )
+            else:
+                self.event_cache.file_hashes[event.path_in_datasite] = event.new_hash
+                if self.write_files:
+                    self.event_cache.file_connection.write_file(
+                        str(event.path_in_datasite), event.content
+                    )
 
     def _pull_datasets_for_initial_sync(self):
         """Load datasets from GDrive when DO connects.
@@ -487,28 +526,81 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     # CHECKPOINT METHODS
     # =========================================================================
 
+    def create_incremental_checkpoint(self) -> IncrementalCheckpoint:
+        """
+        Create an incremental checkpoint from the current rolling state.
+
+        Deduplicates events by path (keeps only latest version per file),
+        then converts to an incremental checkpoint, uploads it,
+        and deletes the rolling state.
+
+        Returns:
+            The created IncrementalCheckpoint object.
+        """
+        if self._rolling_state is None or self._rolling_state.event_count == 0:
+            raise ValueError("No rolling state to create checkpoint from")
+
+        # Get the next sequence number
+        seq_number = self.connection_router.get_next_incremental_sequence_number()
+
+        # Deduplicate events: keep only latest version per file path
+        # This reduces storage when the same file changes multiple times
+        latest_events: dict[str, "FileChangeEvent"] = {}
+        for event in self._rolling_state.events:
+            path_key = str(event.path_in_datasite)
+            latest_events[path_key] = event
+
+        # Create incremental checkpoint with deduplicated events
+        deduplicated_events = list(latest_events.values())
+        incremental_cp = IncrementalCheckpoint(
+            email=self.email,
+            sequence_number=seq_number,
+            events=deduplicated_events,
+        )
+
+        # Upload to Google Drive
+        original_count = self._rolling_state.event_count
+        deduplicated_count = len(deduplicated_events)
+        print(
+            f"Creating incremental checkpoint #{seq_number} "
+            f"with {deduplicated_count} events "
+            f"(deduplicated from {original_count})..."
+        )
+        self.connection_router.upload_incremental_checkpoint(incremental_cp)
+
+        # Delete rolling state from GDrive and reset in-memory state
+        self.connection_router.delete_rolling_state()
+        base_timestamp = (
+            self._rolling_state.last_event_timestamp or incremental_cp.timestamp
+        )
+        self._rolling_state = RollingState(
+            email=self.email,
+            base_checkpoint_timestamp=base_timestamp,
+        )
+        self._events_since_rolling_state_upload = 0
+
+        print("Incremental checkpoint created, rolling state reset!")
+
+        return incremental_cp
+
     def create_checkpoint(self) -> Checkpoint:
         """
-        Create a checkpoint from current state and upload to Google Drive.
+        Create a full checkpoint from current cache state.
 
-        Also deletes the rolling state and resets in-memory tracking.
+        This creates a full checkpoint and resets the rolling state.
+        Used for legacy compatibility and when manually creating checkpoints.
 
         Returns:
             The created Checkpoint object.
         """
-        # Get the latest event timestamp
         last_event_timestamp = self.event_cache.get_latest_event_timestamp()
-
-        # Create checkpoint from current cache state
         checkpoint = self.event_cache.create_checkpoint(
             last_event_timestamp=last_event_timestamp
         )
-
-        # Upload to Google Drive
-        print(f"Creating checkpoint with {len(checkpoint.files)} files...")
+        print(f"Creating full checkpoint with {len(checkpoint.files)} files...")
         self.connection_router.upload_checkpoint(checkpoint)
 
-        # Delete rolling state from GDrive and reset in-memory state
+        # Reset rolling state after checkpoint creation
         self.connection_router.delete_rolling_state()
         base_timestamp = last_event_timestamp or checkpoint.timestamp
         self._rolling_state = RollingState(
@@ -517,45 +609,164 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         )
         self._events_since_rolling_state_upload = 0
 
-        print("Checkpoint uploaded, rolling state reset!")
-
         return checkpoint
 
     def should_create_checkpoint(
         self, threshold: int = DEFAULT_CHECKPOINT_EVENT_THRESHOLD
     ) -> bool:
         """
-        Check if we should create a checkpoint based on event count.
+        Check if we should create an incremental checkpoint.
+
+        Based on rolling state event count (not GDrive event files).
 
         Args:
-            threshold: Create checkpoint if events since last checkpoint >= threshold.
+            threshold: Create checkpoint if rolling state has >= threshold events.
 
         Returns:
             True if checkpoint should be created.
         """
-        # Get latest checkpoint timestamp
-        checkpoint = self.connection_router.get_latest_checkpoint()
-        checkpoint_timestamp = checkpoint.last_event_timestamp if checkpoint else None
+        if self._rolling_state is None:
+            return False
+        return self._rolling_state.event_count >= threshold
 
-        # Count events since checkpoint
-        events_count = self.connection_router.get_events_count_since_checkpoint(
-            checkpoint_timestamp
-        )
-
-        return events_count >= threshold
-
-    def try_create_checkpoint(
-        self, threshold: int = DEFAULT_CHECKPOINT_EVENT_THRESHOLD
-    ) -> Checkpoint | None:
+    def should_compact_checkpoints(
+        self, threshold: int = DEFAULT_COMPACTING_THRESHOLD
+    ) -> bool:
         """
-        Try to create checkpoint if event count exceeds threshold.
+        Check if we should compact incremental checkpoints into a full checkpoint.
 
         Args:
-            threshold: Create checkpoint if events since last checkpoint >= threshold.
+            threshold: Compact if number of incremental checkpoints >= threshold.
 
         Returns:
-            The created Checkpoint, or None if checkpoint was not needed.
+            True if compacting should happen.
         """
+        count = self.connection_router.get_incremental_checkpoint_count()
+        return count >= threshold
+
+    def compact_checkpoints(self) -> Checkpoint:
+        """
+        Compact all incremental checkpoints into a single full checkpoint.
+
+        If an existing full checkpoint exists, it is merged with all incremental
+        checkpoints to create the new full checkpoint. This ensures no data loss.
+
+        Downloads existing full checkpoint (if any) and all incremental checkpoints,
+        merges them, uploads the compacted full checkpoint, and deletes all
+        incremental checkpoints.
+
+        Returns:
+            The compacted Checkpoint object.
+        """
+        print("Compacting incremental checkpoints...")
+
+        # Download existing full checkpoint (if exists)
+        existing_checkpoint = self.connection_router.get_latest_checkpoint()
+
+        # Download all incremental checkpoints
+        incremental_cps = self.connection_router.get_all_incremental_checkpoints()
+
+        if not incremental_cps:
+            raise ValueError("No incremental checkpoints to compact")
+
+        print(f"Found {len(incremental_cps)} incremental checkpoints to compact")
+
+        # Start with existing checkpoint files (if any)
+        if existing_checkpoint:
+            print(
+                f"Merging with existing full checkpoint "
+                f"({len(existing_checkpoint.files)} files)..."
+            )
+            # Convert existing checkpoint files to events for merging
+            merged_events: dict[str, FileChangeEvent] = {}
+
+            # Add existing checkpoint files as events
+            for checkpoint_file in existing_checkpoint.files:
+                # Create a FileChangeEvent from CheckpointFile
+                event = FileChangeEvent(
+                    id=uuid4(),
+                    path_in_datasite=Path(checkpoint_file.path),
+                    datasite_email=self.email,
+                    content=checkpoint_file.content,
+                    old_hash=None,
+                    new_hash=checkpoint_file.hash,
+                    is_deleted=False,
+                    submitted_timestamp=existing_checkpoint.timestamp,
+                    timestamp=existing_checkpoint.timestamp,
+                )
+                merged_events[checkpoint_file.path] = event
+
+            # Merge incremental checkpoints on top (later events overwrite)
+            for inc_cp in sorted(incremental_cps, key=lambda c: c.sequence_number):
+                for event in inc_cp.events:
+                    merged_events[str(event.path_in_datasite)] = event
+
+            # Create full checkpoint from merged events
+            files = []
+            for event in merged_events.values():
+                if not event.is_deleted and event.content is not None:
+                    files.append(
+                        CheckpointFile(
+                            path=str(event.path_in_datasite),
+                            hash=str(event.new_hash),
+                            content=event.content,
+                        )
+                    )
+
+            # Find latest timestamp
+            last_event_timestamp = existing_checkpoint.last_event_timestamp
+            for inc_cp in incremental_cps:
+                for event in inc_cp.events:
+                    if event.timestamp is not None:
+                        if (
+                            last_event_timestamp is None
+                            or event.timestamp > last_event_timestamp
+                        ):
+                            last_event_timestamp = event.timestamp
+
+            compacted = Checkpoint(
+                email=self.email,
+                files=files,
+                last_event_timestamp=last_event_timestamp,
+            )
+        else:
+            # No existing checkpoint, just merge incremental checkpoints
+            compacted = compact_incremental_checkpoints(incremental_cps, self.email)
+
+        # Upload the compacted checkpoint (this deletes old full checkpoints)
+        print(f"Uploading compacted checkpoint with {len(compacted.files)} files...")
+        self.connection_router.upload_checkpoint(compacted)
+
+        # Delete all incremental checkpoints
+        self.connection_router.delete_all_incremental_checkpoints()
+
+        print("Compacting complete!")
+
+        return compacted
+
+    def try_create_checkpoint(
+        self,
+        threshold: int = DEFAULT_CHECKPOINT_EVENT_THRESHOLD,
+        compacting_threshold: int = DEFAULT_COMPACTING_THRESHOLD,
+    ) -> IncrementalCheckpoint | Checkpoint | None:
+        """
+        Try to create incremental checkpoint and/or compact if thresholds exceeded.
+
+        Args:
+            threshold: Create incremental checkpoint if rolling state has >= events.
+            compacting_threshold: Compact if >= this many incremental checkpoints.
+
+        Returns:
+            The created checkpoint (incremental or compacted), or None.
+        """
+        result = None
+
+        # First, check if we should create an incremental checkpoint
         if self.should_create_checkpoint(threshold):
-            return self.create_checkpoint()
-        return None
+            result = self.create_incremental_checkpoint()
+
+            # After creating, check if we should compact
+            if self.should_compact_checkpoints(compacting_threshold):
+                result = self.compact_checkpoints()
+
+        return result

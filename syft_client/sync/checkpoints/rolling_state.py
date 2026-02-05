@@ -1,13 +1,13 @@
 """
 Rolling state data models for syft-client.
 
-A rolling state accumulates events since the last checkpoint, enabling
-fast sync by downloading checkpoint + rolling_state instead of many
+A rolling state keeps the latest state of each file since the last checkpoint,
+enabling fast sync by downloading checkpoint + rolling_state instead of many
 individual event files.
 
 Flow:
 1. Checkpoint created at event N (threshold reached)
-2. Events N+1 to M are accumulated in rolling state
+2. Events N+1 to M update rolling state (keeping only latest per file)
 3. On fresh login: download checkpoint + rolling_state = 2 API calls
 4. When new checkpoint is created, rolling state is deleted and reset
 """
@@ -31,7 +31,7 @@ ROLLING_STATE_VERSION = 1
 
 class RollingState(BaseModel):
     """
-    Rolling state accumulates events since the last checkpoint.
+    Rolling state keeps the latest state of each file since the last checkpoint.
 
     This provides an optimization for initial sync:
     - Without rolling state: download checkpoint + N individual event files
@@ -59,14 +59,33 @@ class RollingState(BaseModel):
         return len(self.events)
 
     def add_event(self, event: FileChangeEvent) -> None:
-        """Add a single event to the rolling state."""
+        """
+        Add a single event to the rolling state.
+
+        Only keeps the latest event per file path. If an event for the same
+        path already exists, it is replaced with the new event.
+        """
+        # Remove any existing event for the same file path
+        self.events = [
+            e for e in self.events if e.path_in_datasite != event.path_in_datasite
+        ]
         self.events.append(event)
         self.last_event_timestamp = event.timestamp
         self.timestamp = create_event_timestamp()
 
     def add_events_message(self, events_message: FileChangeEventsMessage) -> None:
-        """Add all events from a message to the rolling state."""
+        """
+        Add all events from a message to the rolling state.
+
+        Only keeps the latest event per file path. Events within the message
+        are processed in order, and later events for the same path replace
+        earlier ones.
+        """
         for event in events_message.events:
+            # Remove any existing event for the same file path
+            self.events = [
+                e for e in self.events if e.path_in_datasite != event.path_in_datasite
+            ]
             self.events.append(event)
         if events_message.events:
             self.last_event_timestamp = max(e.timestamp for e in events_message.events)

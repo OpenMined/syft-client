@@ -16,7 +16,7 @@ from syft_datasets.dataset_manager import SHARE_WITH_ANY
 
 if TYPE_CHECKING:
     from syft_client.sync.version.version_info import VersionInfo
-from syft_client.sync.checkpoints.checkpoint import Checkpoint
+from syft_client.sync.checkpoints.checkpoint import Checkpoint, IncrementalCheckpoint
 from syft_client.sync.checkpoints.rolling_state import RollingState
 
 
@@ -76,8 +76,13 @@ class InMemoryBackingPlatform(BaseModel):
     # Version files storage: {owner_email: InMemoryVersionFile}
     version_files: Dict[str, InMemoryVersionFile] = Field(default_factory=dict)
 
-    # Checkpoint storage
+    # Full checkpoint storage (compacted checkpoints)
     checkpoints: List[Checkpoint] = Field(default_factory=lambda: [])
+
+    # Incremental checkpoint storage
+    incremental_checkpoints: List[IncrementalCheckpoint] = Field(
+        default_factory=lambda: []
+    )
 
     # Rolling state storage
     rolling_states: List[RollingState] = Field(default_factory=lambda: [])
@@ -550,7 +555,14 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
     # =========================================================================
 
     def upload_checkpoint(self, checkpoint: Checkpoint) -> str:
-        """Upload a checkpoint to in-memory storage."""
+        """
+        Upload a checkpoint to in-memory storage.
+
+        Deletes any existing checkpoints first (keep only latest), matching GDrive behavior.
+        """
+        # Delete existing checkpoints first
+        self.backing_store.checkpoints.clear()
+        # Upload new checkpoint
         self.backing_store.checkpoints.append(checkpoint)
         return checkpoint.filename
 
@@ -581,6 +593,51 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             msg
             for msg in self.backing_store.syftbox_events_message_log
             if msg.timestamp > since_timestamp
+        ]
+
+    # =========================================================================
+    # INCREMENTAL CHECKPOINT METHODS
+    # =========================================================================
+
+    def upload_incremental_checkpoint(self, checkpoint: IncrementalCheckpoint) -> str:
+        """Upload an incremental checkpoint to in-memory storage."""
+        self.backing_store.incremental_checkpoints.append(checkpoint)
+        return checkpoint.filename
+
+    def get_all_incremental_checkpoints(self) -> List[IncrementalCheckpoint]:
+        """Get all incremental checkpoints, sorted by sequence number."""
+        checkpoints = [
+            cp
+            for cp in self.backing_store.incremental_checkpoints
+            if cp.email == self.owner_email
+        ]
+        return sorted(checkpoints, key=lambda c: c.sequence_number)
+
+    def get_incremental_checkpoint_count(self) -> int:
+        """Get the number of incremental checkpoints for this email."""
+        return sum(
+            1
+            for cp in self.backing_store.incremental_checkpoints
+            if cp.email == self.owner_email
+        )
+
+    def get_next_incremental_sequence_number(self) -> int:
+        """Get the next sequence number for incremental checkpoints."""
+        checkpoints = [
+            cp
+            for cp in self.backing_store.incremental_checkpoints
+            if cp.email == self.owner_email
+        ]
+        if not checkpoints:
+            return 1
+        return max(cp.sequence_number for cp in checkpoints) + 1
+
+    def delete_all_incremental_checkpoints(self) -> None:
+        """Delete all incremental checkpoints for this email."""
+        self.backing_store.incremental_checkpoints = [
+            cp
+            for cp in self.backing_store.incremental_checkpoints
+            if cp.email != self.owner_email
         ]
 
     # =========================================================================

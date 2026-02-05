@@ -9,7 +9,7 @@ from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessage,
 )
-from syft_client.sync.checkpoints.checkpoint import Checkpoint
+from syft_client.sync.checkpoints.checkpoint import Checkpoint, IncrementalCheckpoint
 from syft_client.sync.checkpoints.rolling_state import RollingState
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
@@ -326,6 +326,35 @@ class ConnectionRouter(BaseModel):
         """Get events created after a specific timestamp."""
         connection = self.connection_for_eventlog()
         return connection.get_events_messages_since_timestamp(since_timestamp)
+
+    # =========================================================================
+    # INCREMENTAL CHECKPOINT METHODS
+    # =========================================================================
+
+    def upload_incremental_checkpoint(self, checkpoint: IncrementalCheckpoint) -> str:
+        """Upload an incremental checkpoint to the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        return connection.upload_incremental_checkpoint(checkpoint)
+
+    def get_all_incremental_checkpoints(self) -> List[IncrementalCheckpoint]:
+        """Get all incremental checkpoints from the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        return connection.get_all_incremental_checkpoints()
+
+    def get_incremental_checkpoint_count(self) -> int:
+        """Get the number of incremental checkpoints."""
+        connection = self.connection_for_own_syftbox()
+        return connection.get_incremental_checkpoint_count()
+
+    def get_next_incremental_sequence_number(self) -> int:
+        """Get the next sequence number for incremental checkpoints."""
+        connection = self.connection_for_own_syftbox()
+        return connection.get_next_incremental_sequence_number()
+
+    def delete_all_incremental_checkpoints(self) -> None:
+        """Delete all incremental checkpoints from the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        connection.delete_all_incremental_checkpoints()
 
     # =========================================================================
     # ROLLING STATE METHODS

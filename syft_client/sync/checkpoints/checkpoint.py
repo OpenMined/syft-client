@@ -1,11 +1,17 @@
 """
 Checkpoint data models for syft-client.
 
-A checkpoint is a snapshot of the current state (all files + their hashes)
-saved as a single compressed file on Google Drive.
+Two types of checkpoints:
+1. IncrementalCheckpoint - stores events for a range (e.g., events 1-50)
+2. Checkpoint - full state snapshot (used after compacting)
+
+Flow:
+- Events accumulate in RollingState
+- At threshold (e.g., 50 events): RollingState → IncrementalCheckpoint
+- After N incremental checkpoints: compact into single full Checkpoint
 """
 
-from typing import List, Dict
+from typing import List, Dict, TYPE_CHECKING
 from pydantic import BaseModel, Field
 from pathlib import Path
 from syft_client.sync.utils.syftbox_utils import (
@@ -14,9 +20,16 @@ from syft_client.sync.utils.syftbox_utils import (
     uncompress_data,
 )
 
+if TYPE_CHECKING:
+    from syft_client.sync.events.file_change_event import FileChangeEvent
+
 
 CHECKPOINT_FILENAME_PREFIX = "checkpoint"
+INCREMENTAL_CHECKPOINT_PREFIX = "incremental_checkpoint"
 CHECKPOINT_VERSION = 1
+
+# Default compacting threshold: merge after this many incremental checkpoints
+DEFAULT_COMPACTING_THRESHOLD = 4
 
 
 class CheckpointFile(BaseModel):
@@ -112,3 +125,119 @@ class Checkpoint(BaseModel):
         """Load checkpoint from compressed data."""
         uncompressed_data = uncompress_data(data)
         return cls.model_validate_json(uncompressed_data)
+
+
+class IncrementalCheckpoint(BaseModel):
+    """
+    An incremental checkpoint stores events for a specific range.
+
+    Unlike a full Checkpoint (which stores complete file state), an incremental
+    checkpoint stores FileChangeEvent objects - the same structure as RollingState.
+    This enables efficient storage and simple compacting.
+
+    Example: If checkpoint threshold is 50:
+    - IncrementalCheckpoint #1: events 1-50
+    - IncrementalCheckpoint #2: events 51-100
+    - After compacting: single full Checkpoint with merged state
+    """
+
+    version: int = CHECKPOINT_VERSION
+    timestamp: float = Field(default_factory=create_event_timestamp)
+    email: str
+    sequence_number: int  # 1, 2, 3, ... (which checkpoint this is)
+    events: List["FileChangeEvent"] = Field(default_factory=list)
+
+    @property
+    def filename(self) -> str:
+        """Generate filename: incremental_checkpoint_{seq}_{timestamp}.tar.gz"""
+        return f"{INCREMENTAL_CHECKPOINT_PREFIX}_{self.sequence_number}_{self.timestamp}.tar.gz"
+
+    @property
+    def event_count(self) -> int:
+        """Number of events in this checkpoint."""
+        return len(self.events)
+
+    @classmethod
+    def filename_to_sequence_number(cls, filename: str) -> int | None:
+        """Extract sequence number from filename."""
+        try:
+            if not filename.startswith(INCREMENTAL_CHECKPOINT_PREFIX):
+                return None
+            # Format: incremental_checkpoint_{seq}_{timestamp}.tar.gz
+            parts = filename.replace(".tar.gz", "").split("_")
+            # parts = ["incremental", "checkpoint", "{seq}", "{timestamp}"]
+            if len(parts) >= 4:
+                return int(parts[2])
+            return None
+        except (ValueError, IndexError):
+            return None
+
+    def as_compressed_data(self) -> bytes:
+        """Compress for storage."""
+        return compress_data(self.model_dump_json().encode("utf-8"))
+
+    @classmethod
+    def from_compressed_data(cls, data: bytes) -> "IncrementalCheckpoint":
+        """Load from compressed data."""
+        uncompressed_data = uncompress_data(data)
+        return cls.model_validate_json(uncompressed_data)
+
+
+def compact_incremental_checkpoints(
+    checkpoints: List[IncrementalCheckpoint],
+    email: str,
+) -> Checkpoint:
+    """
+    Merge multiple incremental checkpoints into a single full Checkpoint.
+
+    Events are merged in order (by sequence number), with later events
+    overwriting earlier ones for the same file path. Deleted files are excluded.
+
+    Args:
+        checkpoints: List of incremental checkpoints to merge.
+        email: Email for the resulting checkpoint.
+
+    Returns:
+        A full Checkpoint with the merged state.
+    """
+    # Sort by sequence number to process in order
+    sorted_checkpoints = sorted(checkpoints, key=lambda c: c.sequence_number)
+
+    # Merge events: later events overwrite earlier ones for same path
+    merged_events: Dict[str, "FileChangeEvent"] = {}
+    last_event_timestamp = None
+
+    for cp in sorted_checkpoints:
+        for event in cp.events:
+            merged_events[str(event.path_in_datasite)] = event
+            if event.timestamp is not None:
+                if (
+                    last_event_timestamp is None
+                    or event.timestamp > last_event_timestamp
+                ):
+                    last_event_timestamp = event.timestamp
+
+    # Convert to full Checkpoint (only non-deleted files)
+    files = []
+    for event in merged_events.values():
+        if not event.is_deleted and event.content is not None:
+            files.append(
+                CheckpointFile(
+                    path=str(event.path_in_datasite),
+                    hash=str(event.new_hash),
+                    content=event.content,
+                )
+            )
+
+    return Checkpoint(
+        email=email,
+        files=files,
+        last_event_timestamp=last_event_timestamp,
+    )
+
+
+# Import here to avoid circular imports
+from syft_client.sync.events.file_change_event import FileChangeEvent  # noqa: E402
+
+# Update forward references
+IncrementalCheckpoint.model_rebuild()

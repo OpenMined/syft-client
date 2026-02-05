@@ -66,8 +66,8 @@ def test_checkpoint_restore_on_fresh_login():
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_checkpoint_with_incremental_events():
-    """Test that checkpoint + incremental events works correctly."""
-    # First session: create initial state and checkpoint
+    """Test that full checkpoint + incremental checkpoints + rolling state works correctly."""
+    # First session: create initial state and full checkpoint
     manager_ds1, manager_do1 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
@@ -82,23 +82,37 @@ def test_checkpoint_with_incremental_events():
 
     manager_do1.sync(auto_checkpoint=False)
 
-    # Create checkpoint
-    checkpoint = manager_do1.create_checkpoint()
-    assert len(checkpoint.files) == 2
-    checkpoint_timestamp = checkpoint.last_event_timestamp
-    print(f"Checkpoint created with last_event_timestamp: {checkpoint_timestamp}")
+    # Create full checkpoint (legacy behavior)
+    full_checkpoint = manager_do1.create_checkpoint()
+    assert len(full_checkpoint.files) == 2
+    checkpoint_timestamp = full_checkpoint.last_event_timestamp
+    print(f"Full checkpoint created with last_event_timestamp: {checkpoint_timestamp}")
 
-    # Send more files AFTER checkpoint
-    manager_ds1.send_file_change(f"{EMAIL_DO}/after1.txt", "After checkpoint 1")
-    manager_ds1.send_file_change(f"{EMAIL_DO}/after2.txt", "After checkpoint 2")
+    # Send more files to create incremental checkpoint
+    manager_ds1.send_file_change(f"{EMAIL_DO}/inc1.txt", "Incremental 1")
+    manager_ds1.send_file_change(f"{EMAIL_DO}/inc2.txt", "Incremental 2")
     sleep(1)
 
     manager_do1.sync(auto_checkpoint=False)
 
-    # Verify DO1 has all 4 files
-    assert len(manager_do1.datasite_owner_syncer.event_cache.file_hashes) == 4
+    # Create incremental checkpoint (new flow)
+    manager_do1.try_create_checkpoint(threshold=2)
 
-    # Fresh login should restore checkpoint + incremental events
+    # Verify incremental checkpoint was created
+    inc_cps = manager_do1.connection_router.get_all_incremental_checkpoints()
+    assert len(inc_cps) >= 1, "Should have at least 1 incremental checkpoint"
+    print(f"Created {len(inc_cps)} incremental checkpoint(s)")
+
+    # Send more files for rolling state
+    manager_ds1.send_file_change(f"{EMAIL_DO}/rolling1.txt", "Rolling 1")
+    sleep(1)
+
+    manager_do1.sync(auto_checkpoint=False)
+
+    # Verify DO1 has all 5 files
+    assert len(manager_do1.datasite_owner_syncer.event_cache.file_hashes) == 5
+
+    # Fresh login should restore: full checkpoint + incremental checkpoints + rolling state
     manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
@@ -111,17 +125,19 @@ def test_checkpoint_with_incremental_events():
 
     manager_do2.sync(auto_checkpoint=False)
 
-    # Should have all 4 files (2 from checkpoint + 2 from incremental)
+    # Should have all 5 files (2 from full checkpoint + 2 from incremental + 1 from rolling state)
     do_cache = manager_do2.datasite_owner_syncer.event_cache
-    assert len(do_cache.file_hashes) == 4, (
-        f"Expected 4 files, got {len(do_cache.file_hashes)}"
+    assert len(do_cache.file_hashes) == 5, (
+        f"Expected 5 files, got {len(do_cache.file_hashes)}"
     )
-    print(f"Restored {len(do_cache.file_hashes)} files (checkpoint + incremental)")
+    print(
+        f"Restored {len(do_cache.file_hashes)} files (full checkpoint + incremental + rolling state)"
+    )
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_auto_checkpoint_on_sync():
-    """Test automatic checkpoint creation during sync."""
+    """Test automatic incremental checkpoint creation and compacting during sync."""
     manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
@@ -129,7 +145,7 @@ def test_auto_checkpoint_on_sync():
         ds_token_path=token_path_ds,
     )
 
-    # Send enough files to trigger auto-checkpoint (threshold=5)
+    # Send enough files to trigger auto-incremental-checkpoint (threshold=5)
     for i in range(6):
         manager_ds.send_file_change(f"{EMAIL_DO}/auto{i}.txt", f"Auto content {i}")
     sleep(1)
@@ -137,7 +153,33 @@ def test_auto_checkpoint_on_sync():
     # Sync with auto_checkpoint enabled and low threshold
     manager_do.sync(auto_checkpoint=True, checkpoint_threshold=5)
 
-    # Verify checkpoint was created by checking if fresh login can restore
+    # Verify incremental checkpoint was created
+    inc_cps = manager_do.connection_router.get_all_incremental_checkpoints()
+    assert len(inc_cps) >= 1, "Auto-incremental-checkpoint should have been created"
+    print(f"Auto-created {len(inc_cps)} incremental checkpoint(s)")
+
+    # Test compacting: Create more incremental checkpoints
+    for i in range(6, 12):
+        manager_ds.send_file_change(f"{EMAIL_DO}/auto{i}.txt", f"Auto content {i}")
+    sleep(1)
+
+    manager_do.sync(auto_checkpoint=False)
+    manager_do.try_create_checkpoint(threshold=5)  # Create 2nd incremental checkpoint
+
+    # Manually compact to test merging
+    compacted = manager_do.datasite_owner_syncer.compact_checkpoints()
+    assert len(compacted.files) == 12, (
+        f"Expected 12 files after compacting, got {len(compacted.files)}"
+    )
+    print(f"Compacted checkpoint has {len(compacted.files)} files")
+
+    # Verify incremental checkpoints were deleted after compacting
+    inc_cps_after = manager_do.connection_router.get_all_incremental_checkpoints()
+    assert len(inc_cps_after) == 0, (
+        "Incremental checkpoints should be deleted after compacting"
+    )
+
+    # Fresh login should restore from compacted checkpoint
     manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
@@ -148,8 +190,11 @@ def test_auto_checkpoint_on_sync():
         clear_caches=True,
     )
 
-    # Get latest checkpoint
-    checkpoint = manager_do2.connection_router.get_latest_checkpoint()
-    assert checkpoint is not None, "Auto-checkpoint should have been created"
-    assert len(checkpoint.files) == 6
-    print(f"Auto-checkpoint found with {len(checkpoint.files)} files")
+    manager_do2.sync(auto_checkpoint=False)
+
+    # Should have all 12 files from compacted checkpoint
+    do_cache = manager_do2.datasite_owner_syncer.event_cache
+    assert len(do_cache.file_hashes) == 12, (
+        f"Expected 12 files from compacted checkpoint, got {len(do_cache.file_hashes)}"
+    )
+    print(f"Restored {len(do_cache.file_hashes)} files from compacted checkpoint")
