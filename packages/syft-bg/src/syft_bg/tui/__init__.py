@@ -1,3 +1,5 @@
-from syft_bg.tui.app import SyftBgApp
+"""TUI dashboard for syft-bg services."""
 
-__all__ = ["SyftBgApp"]
+from syft_bg.tui.app import SyftBgApp, run_tui
+
+__all__ = ["SyftBgApp", "run_tui"]
