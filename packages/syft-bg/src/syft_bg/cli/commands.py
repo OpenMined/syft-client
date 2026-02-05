@@ -321,5 +321,61 @@ def hash(file: str, length: int):
         raise SystemExit(1)
 
 
+@main.command()
+def install():
+    """Install syft-bg as a systemd user service.
+
+    This enables syft-bg to start automatically on login.
+
+    Examples:
+
+      syft-bg install
+
+    After installation:
+
+      systemctl --user start syft-bg    # Start now
+      systemctl --user status syft-bg   # Check status
+      systemctl --user stop syft-bg     # Stop
+    """
+    from syft_bg.systemd import install_service
+
+    click.echo("Installing syft-bg systemd user service...")
+    success, msg = install_service()
+
+    if success:
+        click.echo(f"✅ {msg}")
+        click.echo()
+        click.echo("To start the service now:")
+        click.echo("  systemctl --user start syft-bg")
+        click.echo()
+        click.echo("To check status:")
+        click.echo("  systemctl --user status syft-bg")
+    else:
+        click.echo(f"❌ {msg}", err=True)
+        raise SystemExit(1)
+
+
+@main.command()
+def uninstall():
+    """Uninstall syft-bg systemd user service.
+
+    This stops the service and removes it from systemd.
+
+    Example:
+
+      syft-bg uninstall
+    """
+    from syft_bg.systemd import uninstall_service
+
+    click.echo("Uninstalling syft-bg systemd user service...")
+    success, msg = uninstall_service()
+
+    if success:
+        click.echo(f"✅ {msg}")
+    else:
+        click.echo(f"❌ {msg}", err=True)
+        raise SystemExit(1)
+
+
 if __name__ == "__main__":
     main()
