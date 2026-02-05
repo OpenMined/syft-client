@@ -39,8 +39,7 @@ dependencies = [
     "python-daemon>=3.0.0",
     "syft-job",
     "syft-dataset", # Shift back to optional-dependencies after adding lazy imports
-    "syft-notify",
-    "syft-approve",
+    "syft-bg",
 ]
 
 [project.optional-dependencies]
@@ -74,8 +73,6 @@ members = ["packages/*"]
 "syft-job" = { workspace = true }
 "syft-notebook-ui" = { workspace = true }
 "syft-dataset" = { workspace = true }
-"syft-notify" = { workspace = true }
-"syft-approve" = { workspace = true }
 "syft-bg" = { workspace = true }
 
 [project.urls]
