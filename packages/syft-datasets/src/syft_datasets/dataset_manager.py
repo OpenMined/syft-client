@@ -1,7 +1,7 @@
 import re
 import shutil
 from pathlib import Path
-from typing import Self
+from typing_extensions import Self
 
 from .types import PathLike, to_path
 from syft_notebook_ui.types import TableList
