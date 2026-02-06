@@ -1,11 +1,39 @@
-from pathlib import Path
+"""
+Integration tests without unit test coverage.
+
+These tests are unique to integration testing and verify behavior that
+cannot be adequately tested with mocked connections.
+"""
 
 from syft_client.sync.syftbox_manager import SyftboxManager
+import os
+from pathlib import Path
+from time import sleep
+import pytest
 
 
+SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent.parent
+# These are in gitignore, create yourself
+CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
+
+# koen gmail
+FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
+EMAIL_DO = os.environ["BEACH_EMAIL_DO"]
+
+# koen openmined mail
+FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
+EMAIL_DS = os.environ["BEACH_EMAIL_DS"]
+
+
+token_path_do = CREDENTIALS_DIR / FILE_DO
+token_path_ds = CREDENTIALS_DIR / FILE_DS
+
+
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
+@pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_peer_request_blocks_sync_until_approved():
     """
-    Test that files don't sync until peer request is approved.
+    Integration test: Files don't sync until peer request is approved.
 
     Workflow:
     1. DS adds DO as peer (creates peer request)
@@ -14,16 +42,20 @@ def test_peer_request_blocks_sync_until_approved():
     4. DO approves peer request
     5. DO syncs - job should now sync
     """
-    # Create managers with mock drive service connection, no auto-add peers
-    # Note: email1 becomes DO, email2 becomes DS
-    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
-        email1="do@test.com",  # email1 → DO manager
-        email2="ds@test.com",  # email2 → DS manager
+    # Create managers with Google Drive connection, no auto-add peers
+    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
+        do_email=EMAIL_DO,
+        ds_email=EMAIL_DS,
+        do_token_path=token_path_do,
+        ds_token_path=token_path_ds,
         add_peers=False,  # Don't auto-add - we'll test the request flow
     )
 
     # Step 1: DS makes peer request by adding DO
     ds_manager.add_peer(do_manager.email)
+
+    # Wait for sync
+    sleep(1)
 
     # Verify: DO sees this as a pending request
     do_manager.load_peers()
@@ -35,6 +67,9 @@ def test_peer_request_blocks_sync_until_approved():
     job_file_path = f"{do_manager.email}/test.job"
     job_content = "print('Hello from DS')"
     ds_manager.send_file_change(job_file_path, job_content)
+
+    # Wait for message to be sent
+    sleep(1)
 
     # Step 3: DO syncs WITHOUT accepting - nothing should sync
     do_manager.sync()
@@ -67,31 +102,3 @@ def test_peer_request_blocks_sync_until_approved():
     assert do_cache.file_hashes[expected_cache_path] is not None, (
         "File should have a hash"
     )
-
-
-def test_peer_request_rejection():
-    """Test that rejected peer requests don't allow syncing"""
-    # Note: email1 becomes DO, email2 becomes DS
-    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
-        email1="do@test.com",  # email1 → DO manager
-        email2="ds@test.com",  # email2 → DS manager
-        add_peers=False,
-    )
-
-    # DS makes peer request
-    ds_manager.add_peer(do_manager.email)
-    do_manager.load_peers()
-
-    # DS sends a job
-    job_file_path = f"{do_manager.email}/test.job"
-    ds_manager.send_file_change(job_file_path, "print('test')")
-
-    # DO rejects the peer request
-    do_manager.reject_peer_request(ds_manager.email)
-
-    # DO syncs
-    do_manager.sync()
-
-    # Verify: Nothing synced - cache should remain empty
-    do_cache = do_manager.datasite_owner_syncer.event_cache
-    assert len(do_cache.file_hashes) == 0, "Cache should be empty - peer rejected"

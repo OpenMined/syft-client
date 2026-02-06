@@ -1,0 +1,89 @@
+name: CD - Syft Client
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: Run pre-release tests
+        type: boolean
+        default: true
+
+      bump_type:
+        description: Bump bersion by
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+# Prevents concurrent runs of the same workflow
+# while the previous run is still in progress
+concurrency:
+  group: 'CD - Syft-Client'
+  cancel-in-progress: false
+
+jobs:
+  call-linting-tests:
+    if: github.event.inputs.run_tests == 'true'
+    uses: OpenMined/syft-client/.github/workflows/ci.yml@main
+
+  call-unit-tests:
+    if: github.event.inputs.run_tests == 'true'
+    uses: OpenMined/syft-client/.github/workflows/unit-tests.yml@main
+
+  call-integration-tests:
+    if: github.event.inputs.run_tests == 'true'
+    uses: OpenMined/syft-client/.github/workflows/integration-tests.yml@main
+    secrets: inherit
+
+  deploy-syft-client:
+    needs: [call-linting-tests, call-unit-tests, call-integration-tests]
+    if: |
+      always() &&
+      needs.call-linting-tests.result == 'success' &&
+      needs.call-unit-tests.result == 'success' &&
+      needs.call-integration-tests.result == 'success' ||
+      github.event.inputs.run_tests == 'false'
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      # Checkout Syft-Client Repo
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Just
+        uses: extractions/setup-just@v3
+
+      - name: Configure git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Upload to PyPI
+        env:
+          TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_CLIENT }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_CLIENT }}
+        run: |
+          just bump-and-publish ${{ github.event.inputs.bump_type }}
+
+      - name: Push changes to syft-client repo
+        run: |
+          git push origin --follow-tags
+
+  # Always good to have post-release tests to verify the release
+  # currently commented until post release tests are implemented
+  # # Can we remove the always flag from the below job?
+  # call-cd-post-release-tests:
+  #   needs: [deploy-syft-client]
+  #   if: always() && needs.deploy-syft-client.result == 'success'

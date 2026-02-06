@@ -1,6 +1,7 @@
 from pathlib import Path
 import copy
 import warnings
+from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.utils import resolve_path
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -35,11 +36,7 @@ from syft_client.sync.job_file_change_handler import JobFileChangeHandler
 from syft_client.sync.connections.connection_router import ConnectionRouter
 
 from syft_client.sync.connections.drive.grdrive_config import GdriveConnectionConfig
-from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
-from syft_client.sync.connections.drive.mock_drive_service import (
-    MockDriveBackingStore,
-    MockDriveService,
-)
+from syft_client.sync.connections.drive import mock_drive_service
 from syft_client.sync.connections.inmemory_connection import (
     InMemoryPlatformConnection,
 )
@@ -369,6 +366,7 @@ class SyftboxManager(BaseModel):
     job_client: JobClient | None = None
     job_runner: SyftJobRunner | None = None
     version_manager: VersionManager | None = None
+    config: SyftboxManagerConfig | None = None
 
     _executor: ThreadPoolExecutor = PrivateAttr(
         default_factory=lambda: ThreadPoolExecutor(max_workers=10)
@@ -441,6 +439,7 @@ class SyftboxManager(BaseModel):
             job_client=job_client,
             job_runner=job_runner,
             version_manager=version_manager,
+            config=config,
         )
 
         return manager_res
@@ -660,7 +659,7 @@ class SyftboxManager(BaseModel):
         email2: str | None = None,
         base_path1: str | None = None,
         base_path2: str | None = None,
-        sync_automatically: bool = True,
+        sync_automatically: bool = False,
         add_peers: bool = True,
         use_in_memory_cache: bool = True,
         check_versions: bool = False,
@@ -707,34 +706,15 @@ class SyftboxManager(BaseModel):
         do_manager = cls.from_config(do_config)
         ds_manager = cls.from_config(ds_config)
 
-        # Create shared backing store for mock services
-        shared_backing_store = MockDriveBackingStore()
-
-        # Create mock services (share same backing store, different current_user)
-        do_mock_service = MockDriveService(shared_backing_store, do_manager.email)
-        ds_mock_service = MockDriveService(shared_backing_store, ds_manager.email)
-
         # Create GDriveConnection instances with mock services
-        do_connection = GDriveConnection.from_mock_service(
-            do_manager.email, do_mock_service
-        )
-        ds_connection = GDriveConnection.from_mock_service(
-            ds_manager.email, ds_mock_service
+        do_connection, ds_connection = mock_drive_service.pair_with_mock_service(
+            do_manager.email, ds_manager.email
         )
 
         # Add connections to managers
-        # For DO: add connection to datasite_owner_syncer and version_manager
-        do_manager.datasite_owner_syncer.connection_router.add_connection(do_connection)
-        do_manager.version_manager.connection_router.add_connection(do_connection)
+        do_manager.add_connection(do_connection)
 
-        # For DS: add connection to datasite_watcher_syncer and version_manager
-        ds_manager.datasite_watcher_syncer.connection_router.add_connection(
-            ds_connection
-        )
-        ds_manager.datasite_watcher_syncer.datasite_watcher_cache.connection_router.add_connection(
-            ds_connection
-        )
-        ds_manager.version_manager.connection_router.add_connection(ds_connection)
+        ds_manager.add_connection(ds_connection)
 
         # Set up callbacks for DS -> DO communication
         ds_manager.file_writer.add_callback(
@@ -892,7 +872,7 @@ class SyftboxManager(BaseModel):
             stream_output: If True (default), stream output in real-time.
                         If False, capture output at end.
             timeout: Timeout in seconds per job. Defaults to 300 (5 minutes).
-                    Can also be set via SYFT_JOB_TIMEOUT_SECONDS env var.
+                    Can also be set via SYFT_DEFAULT_JOB_TIMEOUT_SECONDS env var.
             force_execution: If True, process all approved jobs regardless of
                            version compatibility. If False (default), skip jobs
                            from peers with incompatible or unknown versions.
@@ -944,9 +924,14 @@ class SyftboxManager(BaseModel):
 
     def add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
-        if not isinstance(connection, InMemoryPlatformConnection):
+        if not isinstance(connection, InMemoryPlatformConnection) and not (
+            isinstance(connection, GDriveConnection)
+            and isinstance(
+                connection.drive_service, mock_drive_service.MockDriveService
+            )
+        ):
             raise ValueError(
-                "Only InMemoryPlatformConnections can be added to the manager"
+                "Only InMemoryPlatformConnections and MockDriveServices can be added to the manager"
             )
 
         if self.datasite_owner_syncer is not None:
@@ -1116,12 +1101,37 @@ class SyftboxManager(BaseModel):
             self.datasite_watcher_syncer.datasite_watcher_cache.clear_cache()
 
     def delete_syftbox(self, verbose: bool = True):
-        file_ids = self.connection_router.gather_all_file_and_folder_ids()
+        """
+        Delete the SyftBox folder and all its contents, including orphaned files.
+
+        Due to Google Drive's eventual consistency, files can become orphaned when
+        their parent folder is deleted before they're fully registered. We use two
+        strategies to ensure complete cleanup:
+        1. Gather all files by traversing the SyftBox folder hierarchy
+        2. Find message files by name pattern (catches orphaned files from any location)
+        """
+        # Get files by folder hierarchy
+        folder_file_ids = set(self.connection_router.gather_all_file_and_folder_ids())
+
+        # Also find message files by name pattern (catches orphaned files)
+        orphaned_file_ids = set(self.connection_router.find_orphaned_message_files())
+
+        # Combine both sets
+        all_file_ids = list(folder_file_ids | orphaned_file_ids)
+
         start = time.time()
-        self.connection_router.delete_multiple_files_by_ids(file_ids)
+        self.connection_router.delete_multiple_files_by_ids(all_file_ids)
         end = time.time()
         if verbose:
-            print(f"Deleted {len(file_ids)} files and folders in {end - start}s")
+            orphan_count = len(orphaned_file_ids - folder_file_ids)
+            print(
+                f"Deleted {len(all_file_ids)} files/folders in {end - start:.2f}s",
+                end="",
+            )
+            if orphan_count > 0:
+                print(f" (including {orphan_count} orphaned)")
+            else:
+                print()
         self.connection_router.reset_caches()
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
@@ -1139,6 +1149,23 @@ class SyftboxManager(BaseModel):
             if dataset.name == dataset_name:
                 matches.append(dataset.owner)
         return matches
+
+    def copy(self):
+        from copy import deepcopy
+
+        new_config = deepcopy(self.config)
+        new_manager = SyftboxManager.from_config(new_config)
+        if not isinstance(self.connection_router.connections[0], GDriveConnection):
+            raise ValueError("Only GDriveConnections can be copied")
+        if isinstance(
+            self.connection_router.connections[0].drive_service,
+            mock_drive_service.MockDriveService,
+        ):
+            # Create new connection pointing to the same backing store
+            drive_service = self.connection_router.connections[0].drive_service
+            new_do_connection = GDriveConnection.from_service(self.email, drive_service)
+            new_manager.add_connection(new_do_connection)
+        return new_manager
 
     # def resolve_dataset_path(
     #     self, dataset_name: str, owner_email: str | None = None

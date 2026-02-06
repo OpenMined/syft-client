@@ -24,9 +24,9 @@ Usage:
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
-
+from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 
@@ -121,6 +121,14 @@ class MockDriveBackingStore(BaseModel):
     def get_permissions(self, file_id: str) -> List[MockPermission]:
         """Get permissions for a file."""
         return self.permissions.get(file_id, [])
+
+    def _folders(self) -> List[MockDriveFile]:
+        """Get all folders for a user."""
+        return [
+            file
+            for file in self.files.values()
+            if file.mimeType == GOOGLE_FOLDER_MIME_TYPE
+        ]
 
 
 def parse_gdrive_query(
@@ -248,28 +256,49 @@ def parse_gdrive_query(
 
 
 def _check_file_access(
-    backing_store: MockDriveBackingStore, file_id: str, current_user: str
+    backing_store: MockDriveBackingStore,
+    file_id: str,
+    current_user: str,
+    for_search: bool = False,
 ) -> bool:
     """Check if the current user has access to the file.
 
     Access is granted if:
-    1. The file has direct permission for the user
-    2. The file is in a folder the user has access to (inherited access)
-    3. The file has "anyone" permission
+    1. The user is the owner of the file
+    2. The file has direct permission for the user
+    3. The file is in a folder the user has access to (inherited access)
+    4. The file has "anyone" permission (only for direct access, not search)
+
+    Args:
+        backing_store: The mock drive backing store
+        file_id: The file ID to check
+        current_user: The email of the current user
+        for_search: If True, "anyone" permissions don't grant search visibility
+                   (mimics real GDrive where "anyone with link" files don't
+                   appear in search results)
     """
+    # Check if user is the owner (owners always have access)
+    file = backing_store.get_file(file_id)
+    if file is not None:
+        for owner in file.owners:
+            if owner.get("emailAddress") == current_user:
+                return True
+
     # Check direct permissions on the file
     permissions = backing_store.get_permissions(file_id)
     for perm in permissions:
-        if perm.type == "anyone":
+        # "anyone" permissions grant direct access but not search visibility
+        if perm.type == "anyone" and not for_search:
             return True
         if perm.type == "user" and perm.emailAddress == current_user:
             return True
 
     # Check inherited permissions from parent folders
-    file = backing_store.get_file(file_id)
     if file is not None:
         for parent_id in file.parents:
-            if _check_file_access(backing_store, parent_id, current_user):
+            if _check_file_access(
+                backing_store, parent_id, current_user, for_search=for_search
+            ):
                 return True
 
     return False
@@ -343,11 +372,11 @@ class MockListRequest:
         """Execute the list request."""
         filter_func = parse_gdrive_query(self._q, self._current_user)
 
-        # Filter files and check access
+        # Filter files and check access (use for_search=True to exclude "anyone" from search)
         matching_files = []
         for file in self._backing_store.files.values():
             if filter_func(file) and _check_file_access(
-                self._backing_store, file.id, self._current_user
+                self._backing_store, file.id, self._current_user, for_search=True
             ):
                 matching_files.append(file)
 
@@ -820,3 +849,20 @@ class MockDriveService:
     def permissions(self) -> MockPermissionsResource:
         """Get the permissions resource."""
         return self._permissions_resource
+
+
+def pair_with_mock_service(
+    email1: str, email2: str
+) -> Tuple[GDriveConnection, GDriveConnection]:
+    """Pair two GDriveConnections using mock services.
+
+    Args:
+        email1: Email for the first user
+        email2: Email for the second user
+    """
+    backing_store = MockDriveBackingStore()
+    service1 = MockDriveService(backing_store, email1)
+    service2 = MockDriveService(backing_store, email2)
+    return GDriveConnection.from_service(
+        email1, service1
+    ), GDriveConnection.from_service(email2, service2)

@@ -14,7 +14,7 @@ import syft_client as sc
 from syft_client.sync.syftbox_manager import SyftboxManager
 
 
-SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent
+SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent.parent
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
 
 # Credentials from CI environment
@@ -40,6 +40,7 @@ def check_credentials():
     yield
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("check_credentials")
 def test_login_ds():
     """Test that login_ds works with Jupyter environment and token credentials.
@@ -58,6 +59,7 @@ def test_login_ds():
     assert client.email == EMAIL_DS
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("check_credentials")
 def test_login_do():
     """Test that login_do works with Jupyter environment and token credentials.
@@ -76,6 +78,7 @@ def test_login_do():
     assert client.email == EMAIL_DO
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("check_credentials")
 def test_login_ds_with_sync_and_load_peers():
     """Test that login_ds works with sync and load_peers enabled."""
@@ -94,6 +97,7 @@ def test_login_ds_with_sync_and_load_peers():
     assert hasattr(client, "job_client")
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("check_credentials")
 def test_login_do_with_sync_and_load_peers():
     """Test that login_do works with sync and load_peers enabled."""
@@ -112,6 +116,7 @@ def test_login_do_with_sync_and_load_peers():
     assert hasattr(client, "job_client")
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 def test_login_ds_missing_token_path_raises(monkeypatch):
     """Test that login_ds raises error when token_path is missing in Jupyter env."""
     # Unset the env var so the test can verify the error is raised
@@ -125,6 +130,7 @@ def test_login_ds_missing_token_path_raises(monkeypatch):
         )
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 def test_login_do_missing_token_path_raises(monkeypatch):
     """Test that login_do raises error when token_path is missing in Jupyter env."""
     # Unset the env var so the test can verify the error is raised

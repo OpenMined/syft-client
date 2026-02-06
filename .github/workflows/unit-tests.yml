@@ -1,9 +1,11 @@
-name: Unit Tests
+name: 'PR: Unit Tests'
 
 on:
   pull_request:
   push:
     branches: [main]
+
+  workflow_call:
 
 jobs:
   unit-tests:
