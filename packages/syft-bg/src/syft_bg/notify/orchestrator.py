@@ -47,7 +47,10 @@ class NotificationOrchestrator(BaseOrchestrator):
         interval: Optional[int] = None,
     ) -> "NotificationOrchestrator":
         """Create orchestrator from config file."""
+        from syft_bg.common.config import get_default_paths
+
         config = NotifyConfig.load(Path(config_path) if config_path else None)
+        paths = get_default_paths()
 
         if not config.do_email:
             raise ValueError("Config missing 'email' field")
@@ -57,8 +60,9 @@ class NotificationOrchestrator(BaseOrchestrator):
         return cls(
             do_email=config.do_email,
             syftbox_root=config.syftbox_root,
-            drive_token_path=config.drive_token_path,
-            gmail_token_path=config.gmail_token_path,
+            drive_token_path=config.drive_token_path or paths.drive_token,
+            gmail_token_path=config.gmail_token_path or paths.gmail_token,
+            state_path=paths.notify_state,
             interval=interval or config.interval,
         )
 

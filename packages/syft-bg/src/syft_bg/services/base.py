@@ -84,11 +84,15 @@ class Service:
             log_fd = open(self.log_file, "a")
 
             # Spawn syft-bg run --service <name> as a daemon
+            # Use -u for unbuffered output so logs appear immediately
+            env = os.environ.copy()
+            env["PYTHONUNBUFFERED"] = "1"
             process = subprocess.Popen(
-                [sys.executable, "-m", "syft_bg", "run", "--service", self.name],
+                [sys.executable, "-u", "-m", "syft_bg", "run", "--service", self.name],
                 stdout=log_fd,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,  # Detach from parent process group
+                env=env,
             )
 
             # Write PID file

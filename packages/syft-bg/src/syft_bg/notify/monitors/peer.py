@@ -1,5 +1,6 @@
 """Peer monitor for detecting new peer requests."""
 
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,7 @@ from syft_bg.notify.handlers.peer import PeerHandler
 
 GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
+SYFT_PEERS_FILE = "SYFT_peers.json"
 
 
 class PeerMonitor(Monitor):
@@ -30,17 +32,66 @@ class PeerMonitor(Monitor):
         self._drive_service = create_drive_service(self.drive_token_path)
 
     def _check_all_entities(self):
+        # Check for new peer requests
         current_peer_emails = self._load_peers_from_drive()
         previous_peer_emails = set(self.state.get_data("peer_snapshot", []))
         new_peer_emails = current_peer_emails - previous_peer_emails
 
         if new_peer_emails:
-            print(f"[PeerMonitor] Detected {len(new_peer_emails)} new peer(s)")
+            print(f"🔍 PeerMonitor: Detected {len(new_peer_emails)} new peer(s)")
 
         for peer_email in new_peer_emails:
             self._handle_new_peer(peer_email)
 
         self.state.set_data("peer_snapshot", list(current_peer_emails))
+
+        # Check for newly approved peers
+        self._check_approved_peers()
+
+    def _check_approved_peers(self):
+        """Check SYFT_peers.json for newly approved peers and notify them."""
+        approved_peers = self._load_approved_peers_from_drive()
+
+        for peer_email in approved_peers:
+            state_key = f"peer_granted_{peer_email}"
+            if not self.state.was_notified(state_key, "peer_granted"):
+                success = self.handler.on_peer_granted(peer_email, self.do_email)
+                if success:
+                    print(
+                        f"🔔 PeerMonitor: Sent peer granted notification to {peer_email}"
+                    )
+
+    def _load_approved_peers_from_drive(self) -> set[str]:
+        """Read SYFT_peers.json from Drive and return approved peer emails."""
+        if not self._drive_service:
+            return set()
+
+        try:
+            # Find SYFT_peers.json in SyftBox folder
+            query = f"name = '{SYFT_PEERS_FILE}' and trashed = false"
+            results = (
+                self._drive_service.files().list(q=query, fields="files(id)").execute()
+            )
+            files = results.get("files", [])
+            if not files:
+                return set()
+
+            # Download and parse the file
+            file_id = files[0]["id"]
+            request = self._drive_service.files().get_media(fileId=file_id)
+            content = request.execute()
+            peers_data = json.loads(content.decode("utf-8"))
+
+            # Return emails with state=accepted
+            return {
+                email
+                for email, data in peers_data.items()
+                if data.get("state") == "accepted"
+            }
+
+        except Exception as e:
+            print(f"[PeerMonitor] Error loading approved peers: {e}")
+            return set()
 
     def _load_peers_from_drive(self) -> set[str]:
         if not self._drive_service:

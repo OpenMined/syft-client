@@ -111,6 +111,16 @@ class JsonStateManager:
         """Get all approved peers."""
         return self._load_all().get("approved_peers", {})
 
+    # --- State inspection ---
+
+    def is_empty(self) -> bool:
+        """Check if state has no tracked entities (fresh state)."""
+        data = self._load_all()
+        # Consider empty if no notifications or approvals tracked
+        has_notified = bool(data.get("notified_jobs"))
+        has_approved = bool(data.get("approved_jobs") or data.get("approved_peers"))
+        return not (has_notified or has_approved)
+
     # --- Generic data storage ---
 
     def get_data(self, key: str, default: Optional[Any] = None) -> Any:

@@ -1,5 +1,6 @@
 """Job monitor for detecting new jobs and status changes."""
 
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -33,6 +34,8 @@ class JobMonitor(Monitor):
         self.job_dir = self.syftbox_root / do_email / "app_data" / "job"
         self.drive_token_path = Path(drive_token_path) if drive_token_path else None
         self._drive_service = None
+        self._startup_time = time.time()  # Track when monitor started
+        self._is_fresh_state = self.state.is_empty()  # True if no prior state
 
         if is_colab() or (self.drive_token_path and self.drive_token_path.exists()):
             self._drive_service = create_drive_service(self.drive_token_path)
@@ -176,18 +179,31 @@ class JobMonitor(Monitor):
         if not ds_email:
             return
 
+        # Skip old jobs on fresh state (avoid spamming about pre-existing jobs)
+        # But process normally on restart (state exists) to catch missed notifications
+        if self._is_fresh_state:
+            config_file = job_path / "config.yaml"
+            if config_file.exists():
+                job_created = config_file.stat().st_mtime
+                if job_created < self._startup_time:
+                    # Fresh state + old job = skip (first-time setup scenario)
+                    return
+
+        # Check for new job (if not already notified)
         if not self.state.was_notified(job_name, "new"):
-            return
+            success = self.handler.on_new_job(self.do_email, job_name, ds_email)
+            if success:
+                print(f"📬 JobMonitor: Sent new job notification: {job_name}")
 
         if (job_path / "approved").exists():
             success = self.handler.on_job_approved(ds_email, job_name)
             if success:
-                print(f"[JobMonitor] Sent job approved notification: {job_name}")
+                print(f"✅ JobMonitor: Sent job approved notification: {job_name}")
 
         if (job_path / "done").exists():
             success = self.handler.on_job_executed(ds_email, job_name)
             if success:
-                print(f"[JobMonitor] Sent job executed notification: {job_name}")
+                print(f"🎉 JobMonitor: Sent job executed notification: {job_name}")
 
     def _load_job_config(self, job_path: Path) -> Optional[dict]:
         config_file = job_path / "config.yaml"
