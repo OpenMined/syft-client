@@ -47,7 +47,29 @@ def setup_drive(credentials_path: Path, token_path: Path) -> bool:
         flow = InstalledAppFlow.from_client_secrets_file(
             str(credentials_path), DRIVE_SCOPES
         )
-        creds = flow.run_local_server(port=0)
+
+        # Manual OAuth flow for headless environments (Colab, SSH, containers)
+        # Set redirect URI for out-of-band (manual) flow
+        flow.redirect_uri = "http://localhost:1"
+
+        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+
+        click.echo()
+        click.echo("Please visit this URL to authorize the application:")
+        click.echo()
+        click.echo(f"    {auth_url}")
+        click.echo()
+        click.echo("After authorizing, you'll be redirected to a page that won't load.")
+        click.echo(
+            "Copy the 'code' parameter from the URL in your browser's address bar."
+        )
+        click.echo("The URL will look like: http://localhost:1/?code=XXXXX&scope=...")
+        click.echo()
+
+        code = input("Enter the authorization code: ").strip()
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text(creds.to_json())
         click.echo(f"Drive token saved: {token_path}")
