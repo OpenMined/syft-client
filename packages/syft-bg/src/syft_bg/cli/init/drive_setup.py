@@ -47,7 +47,7 @@ def setup_drive(credentials_path: Path, token_path: Path) -> bool:
         flow = InstalledAppFlow.from_client_secrets_file(
             str(credentials_path), DRIVE_SCOPES
         )
-        creds = flow.run_local_server(port=0)
+        creds = flow.run_console()
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text(creds.to_json())
         click.echo(f"Drive token saved: {token_path}")
