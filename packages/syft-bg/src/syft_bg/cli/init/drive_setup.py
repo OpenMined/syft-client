@@ -47,7 +47,20 @@ def setup_drive(credentials_path: Path, token_path: Path) -> bool:
         flow = InstalledAppFlow.from_client_secrets_file(
             str(credentials_path), DRIVE_SCOPES
         )
-        creds = flow.run_console()
+
+        # Manual OAuth flow for headless environments (Colab, SSH, containers)
+        auth_url, _ = flow.authorization_url(prompt="consent")
+
+        click.echo()
+        click.echo("Please visit this URL to authorize the application:")
+        click.echo()
+        click.echo(f"    {auth_url}")
+        click.echo()
+
+        code = input("Enter the authorization code: ").strip()
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text(creds.to_json())
         click.echo(f"Drive token saved: {token_path}")
