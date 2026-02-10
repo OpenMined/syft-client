@@ -49,12 +49,19 @@ def setup_drive(credentials_path: Path, token_path: Path) -> bool:
         )
 
         # Manual OAuth flow for headless environments (Colab, SSH, containers)
-        auth_url, _ = flow.authorization_url(prompt="consent")
+        # Set redirect URI for out-of-band (manual) flow
+        flow.redirect_uri = "http://localhost:1"
+
+        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
 
         click.echo()
         click.echo("Please visit this URL to authorize the application:")
         click.echo()
         click.echo(f"    {auth_url}")
+        click.echo()
+        click.echo("After authorizing, you'll be redirected to a page that won't load.")
+        click.echo("Copy the 'code' parameter from the URL in your browser's address bar.")
+        click.echo("The URL will look like: http://localhost:1/?code=XXXXX&scope=...")
         click.echo()
 
         code = input("Enter the authorization code: ").strip()
