@@ -18,7 +18,7 @@ class GmailAuth:
         flow = InstalledAppFlow.from_client_secrets_file(
             str(credentials_path), GMAIL_SCOPES
         )
-        creds = flow.run_local_server(port=0)
+        creds = flow.run_console()
         return creds
 
     def load_credentials(self, token_path: Path) -> Credentials:
