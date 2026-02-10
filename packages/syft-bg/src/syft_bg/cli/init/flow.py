@@ -12,12 +12,16 @@ from syft_bg.common.drive import is_colab
 
 
 def run_init_flow(
+    cli_email: str | None = None,
+    cli_syftbox_root: str | None = None,
     cli_filenames: list[str] | None = None,
     cli_allowed_users: list[str] | None = None,
 ):
     """Run unified setup for all background services.
 
     Args:
+        cli_email: Data Owner email from CLI (None = prompt user)
+        cli_syftbox_root: SyftBox root directory from CLI (None = prompt user)
         cli_filenames: Required filenames from CLI (None = prompt user)
         cli_allowed_users: Allowed users from CLI (None = prompt user)
     """
@@ -49,12 +53,22 @@ def run_init_flow(
     click.echo()
 
     default_email = existing_config.get("do_email", "")
-    do_email = click.prompt("Data Owner email address", default=default_email or None)
+    if cli_email is not None:
+        do_email = cli_email
+        click.echo(f"Data Owner email address: {do_email}")
+    else:
+        do_email = click.prompt(
+            "Data Owner email address", default=default_email or None
+        )
 
     default_syftbox = existing_config.get(
         "syftbox_root", str(Path.home() / f"SyftBox_{do_email}")
     )
-    syftbox_root = click.prompt("SyftBox root directory", default=default_syftbox)
+    if cli_syftbox_root is not None:
+        syftbox_root = cli_syftbox_root
+        click.echo(f"SyftBox root directory: {syftbox_root}")
+    else:
+        syftbox_root = click.prompt("SyftBox root directory", default=default_syftbox)
 
     # Gmail setup
     click.echo()

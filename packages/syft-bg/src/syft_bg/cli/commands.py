@@ -182,6 +182,16 @@ def logs(service: str, follow: bool, lines: int):
 
 @main.command()
 @click.option(
+    "--email",
+    "-e",
+    help="Data Owner email address (skip interactive prompt).",
+)
+@click.option(
+    "--syftbox-root",
+    "-r",
+    help="SyftBox root directory (skip interactive prompt).",
+)
+@click.option(
     "--filenames",
     "-f",
     help="Required filenames (comma-separated). Default: main.py,params.json",
@@ -191,12 +201,21 @@ def logs(service: str, follow: bool, lines: int):
     "-u",
     help="Allowed users (comma-separated). Empty means all peers allowed.",
 )
-def init(filenames: str | None, allowed_users: str | None):
+def init(
+    email: str | None,
+    syftbox_root: str | None,
+    filenames: str | None,
+    allowed_users: str | None,
+):
     """Initialize all services with unified setup.
 
     Examples:
 
       syft-bg init
+
+      syft-bg init --email user@example.com
+
+      syft-bg init -e user@example.com -r ~/SyftBox
 
       syft-bg init --filenames main.py,params.json
 
@@ -216,6 +235,8 @@ def init(filenames: str | None, allowed_users: str | None):
         ]
 
     run_init_flow(
+        cli_email=email,
+        cli_syftbox_root=syftbox_root,
         cli_filenames=parsed_filenames,
         cli_allowed_users=parsed_allowed_users,
     )
