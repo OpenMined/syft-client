@@ -60,7 +60,9 @@ def setup_drive(credentials_path: Path, token_path: Path) -> bool:
         click.echo(f"    {auth_url}")
         click.echo()
         click.echo("After authorizing, you'll be redirected to a page that won't load.")
-        click.echo("Copy the 'code' parameter from the URL in your browser's address bar.")
+        click.echo(
+            "Copy the 'code' parameter from the URL in your browser's address bar."
+        )
         click.echo("The URL will look like: http://localhost:1/?code=XXXXX&scope=...")
         click.echo()
 
