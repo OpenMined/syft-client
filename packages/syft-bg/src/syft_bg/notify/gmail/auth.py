@@ -9,6 +9,28 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
 
+def run_oauth_flow_manual(flow: InstalledAppFlow) -> Credentials:
+    """Run OAuth flow manually without browser auto-launch.
+
+    This works in headless environments like Colab, SSH, and containers.
+    """
+    # Generate authorization URL
+    auth_url, _ = flow.authorization_url(prompt="consent")
+
+    print()
+    print("Please visit this URL to authorize the application:")
+    print()
+    print(f"    {auth_url}")
+    print()
+
+    # Get the authorization code from user
+    code = input("Enter the authorization code: ").strip()
+
+    # Exchange code for credentials
+    flow.fetch_token(code=code)
+    return flow.credentials
+
+
 class GmailAuth:
     """Handles Gmail OAuth authentication."""
 
@@ -18,8 +40,7 @@ class GmailAuth:
         flow = InstalledAppFlow.from_client_secrets_file(
             str(credentials_path), GMAIL_SCOPES
         )
-        creds = flow.run_console()
-        return creds
+        return run_oauth_flow_manual(flow)
 
     def load_credentials(self, token_path: Path) -> Credentials:
         """Load credentials from token file, refreshing if needed."""
