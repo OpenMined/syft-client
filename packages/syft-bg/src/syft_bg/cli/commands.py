@@ -181,31 +181,122 @@ def logs(service: str, follow: bool, lines: int):
 
 
 @main.command()
+# Core settings
 @click.option(
     "--email",
     "-e",
-    help="Data Owner email address (skip interactive prompt).",
+    help="Data Owner email address.",
 )
 @click.option(
     "--syftbox-root",
     "-r",
-    help="SyftBox root directory (skip interactive prompt).",
+    help="SyftBox root directory.",
+)
+# Control flags
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    help="Auto-confirm update of existing configuration.",
+)
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    help="Run with defaults, no prompts. Implies --skip-oauth.",
+)
+@click.option(
+    "--skip-oauth",
+    is_flag=True,
+    help="Skip OAuth setup. Tokens must already exist.",
+)
+# Notification settings
+@click.option(
+    "--notify-jobs/--no-notify-jobs",
+    default=None,
+    help="Enable/disable email notifications for new jobs.",
+)
+@click.option(
+    "--notify-peers/--no-notify-peers",
+    default=None,
+    help="Enable/disable email notifications for peer requests.",
+)
+@click.option(
+    "--notify-interval",
+    type=int,
+    help="Notification check interval in seconds. Default: 30.",
+)
+# Job approval settings
+@click.option(
+    "--approve-jobs/--no-approve-jobs",
+    default=None,
+    help="Enable/disable automatic job approval.",
+)
+@click.option(
+    "--jobs-peers-only/--no-jobs-peers-only",
+    default=None,
+    help="Only approve jobs from approved peers.",
 )
 @click.option(
     "--filenames",
     "-f",
-    help="Required filenames (comma-separated). Default: main.py,params.json",
+    help="Required filenames for job validation (comma-separated).",
 )
 @click.option(
     "--allowed-users",
     "-u",
-    help="Allowed users (comma-separated). Empty means all peers allowed.",
+    help="Allowed users for job submission (comma-separated). Empty = all peers.",
+)
+# Peer approval settings
+@click.option(
+    "--approve-peers/--no-approve-peers",
+    default=None,
+    help="Enable/disable automatic peer approval.",
+)
+@click.option(
+    "--approved-domains",
+    help="Approved domains for peer auto-approval (comma-separated).",
+)
+@click.option(
+    "--approve-interval",
+    type=int,
+    help="Approval check interval in seconds. Default: 5.",
+)
+# OAuth/credentials paths
+@click.option(
+    "--credentials-path",
+    type=click.Path(),
+    help="Path to credentials.json for OAuth.",
+)
+@click.option(
+    "--gmail-token",
+    type=click.Path(),
+    help="Path to pre-existing Gmail token.",
+)
+@click.option(
+    "--drive-token",
+    type=click.Path(),
+    help="Path to pre-existing Drive token.",
 )
 def init(
     email: str | None,
     syftbox_root: str | None,
+    yes: bool,
+    quiet: bool,
+    skip_oauth: bool,
+    notify_jobs: bool | None,
+    notify_peers: bool | None,
+    notify_interval: int | None,
+    approve_jobs: bool | None,
+    jobs_peers_only: bool | None,
     filenames: str | None,
     allowed_users: str | None,
+    approve_peers: bool | None,
+    approved_domains: str | None,
+    approve_interval: int | None,
+    credentials_path: str | None,
+    gmail_token: str | None,
+    drive_token: str | None,
 ):
     """Initialize all services with unified setup.
 
@@ -215,15 +306,15 @@ def init(
 
       syft-bg init --email user@example.com
 
-      syft-bg init -e user@example.com -r ~/SyftBox
+      syft-bg init -e user@example.com -r ~/SyftBox --quiet --skip-oauth
 
-      syft-bg init --filenames main.py,params.json
+      syft-bg init --notify-jobs --no-notify-peers --approve-jobs
 
       syft-bg init -f main.py,params.json -u alice@example.com
     """
-    from syft_bg.cli.init import run_init_flow
+    from syft_bg.cli.init import InitConfig, run_init_flow
 
-    # Parse CLI options
+    # Parse comma-separated options
     parsed_filenames = None
     if filenames:
         parsed_filenames = [f.strip() for f in filenames.split(",") if f.strip()]
@@ -234,12 +325,35 @@ def init(
             u.strip() for u in allowed_users.split(",") if u.strip()
         ]
 
-    run_init_flow(
-        cli_email=email,
-        cli_syftbox_root=syftbox_root,
-        cli_filenames=parsed_filenames,
-        cli_allowed_users=parsed_allowed_users,
+    parsed_approved_domains = None
+    if approved_domains:
+        parsed_approved_domains = [
+            d.strip() for d in approved_domains.split(",") if d.strip()
+        ]
+
+    # Build InitConfig
+    config = InitConfig(
+        email=email,
+        syftbox_root=syftbox_root,
+        yes=yes,
+        quiet=quiet,
+        skip_oauth=skip_oauth,
+        notify_jobs=notify_jobs,
+        notify_peers=notify_peers,
+        notify_interval=notify_interval,
+        approve_jobs=approve_jobs,
+        jobs_peers_only=jobs_peers_only,
+        required_filenames=parsed_filenames,
+        allowed_users=parsed_allowed_users,
+        approve_peers=approve_peers,
+        approved_domains=parsed_approved_domains,
+        approve_interval=approve_interval,
+        credentials_path=credentials_path,
+        gmail_token_path=gmail_token,
+        drive_token_path=drive_token,
     )
+
+    run_init_flow(config=config)
 
 
 @main.command()
