@@ -133,6 +133,9 @@ def run_init_flow(
         # In quiet mode, email is required
         if not default_email:
             click.echo("Error: --email is required in quiet mode")
+            click.echo()
+            click.echo("Usage:")
+            click.echo("  syft-bg init --email user@example.com --quiet")
             return False
         do_email = default_email
     else:
