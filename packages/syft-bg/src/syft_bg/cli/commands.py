@@ -372,6 +372,111 @@ def tui():
 
 
 @main.command()
+def setup():
+    """Check environment and show setup status.
+
+    Verifies that all required credentials and tokens are in place.
+
+    Examples:
+
+      syft-bg setup
+    """
+    from syft_bg.common.config import get_creds_dir
+    from syft_bg.common.drive import is_colab
+
+    creds_dir = get_creds_dir()
+
+    click.echo()
+    click.echo("SYFT-BG ENVIRONMENT CHECK")
+    click.echo("=" * 50)
+    click.echo()
+
+    issues = []
+
+    # Check credentials.json
+    credentials_path = creds_dir / "credentials.json"
+    click.echo("Checking credentials...")
+    if credentials_path.exists():
+        click.echo(f"  ✓ credentials.json found at {credentials_path}")
+    else:
+        click.echo(f"  ✗ credentials.json MISSING at {credentials_path}")
+        issues.append(
+            "Missing credentials.json:\n"
+            "  1. Go to Google Cloud Console → APIs & Services → Credentials\n"
+            "  2. Create OAuth 2.0 Client ID (Desktop app)\n"
+            "  3. Download as credentials.json\n"
+            f"  4. Place at: {credentials_path}"
+        )
+
+    # Check authentication tokens
+    click.echo()
+    click.echo("Checking authentication tokens...")
+
+    gmail_token_path = creds_dir / "gmail_token.json"
+    if gmail_token_path.exists():
+        click.echo(f"  ✓ Gmail token: {gmail_token_path}")
+    else:
+        click.echo("  ✗ Gmail token: MISSING")
+        issues.append(
+            "Missing Gmail token:\n"
+            "  Run 'syft-bg init' to complete Gmail authentication"
+        )
+
+    if not is_colab():
+        drive_token_path = creds_dir / "token_do.json"
+        if drive_token_path.exists():
+            click.echo(f"  ✓ Drive token: {drive_token_path}")
+        else:
+            click.echo("  ✗ Drive token: MISSING")
+            issues.append(
+                "Missing Drive token:\n"
+                "  Run 'syft-bg init' to complete Drive authentication"
+            )
+    else:
+        click.echo("  ✓ Drive token: Colab (native)")
+
+    # Check configuration
+    click.echo()
+    click.echo("Checking configuration...")
+
+    config_path = creds_dir / "config.yaml"
+    if config_path.exists():
+        click.echo(f"  ✓ Config file: {config_path}")
+        # Try to load and show email
+        try:
+            import yaml
+
+            with open(config_path) as f:
+                config = yaml.safe_load(f) or {}
+            if "do_email" in config:
+                click.echo(f"  ✓ Email: {config['do_email']}")
+            if "syftbox_root" in config:
+                click.echo(f"  ✓ SyftBox root: {config['syftbox_root']}")
+        except Exception:
+            pass
+    else:
+        click.echo("  ✗ Config file: MISSING")
+        issues.append(
+            "Missing config file:\n  Run 'syft-bg init' to create configuration"
+        )
+
+    # Summary
+    click.echo()
+    click.echo("-" * 50)
+
+    if issues:
+        click.echo(f"⚠️  {len(issues)} issue(s) found")
+        click.echo()
+        for issue in issues:
+            click.echo(issue)
+            click.echo()
+    else:
+        click.echo("✅ Environment ready! Run 'syft-bg start' to begin.")
+
+    click.echo()
+
+
+@main.command()
 @click.option(
     "--service",
     "-s",
