@@ -181,30 +181,140 @@ def logs(service: str, follow: bool, lines: int):
 
 
 @main.command()
+# Core settings
+@click.option(
+    "--email",
+    "-e",
+    help="Data Owner email address.",
+)
+@click.option(
+    "--syftbox-root",
+    "-r",
+    help="SyftBox root directory.",
+)
+# Control flags
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    help="Auto-confirm update of existing configuration.",
+)
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    help="Run with defaults, no prompts. Implies --skip-oauth.",
+)
+@click.option(
+    "--skip-oauth",
+    is_flag=True,
+    help="Skip OAuth setup. Tokens must already exist.",
+)
+# Notification settings
+@click.option(
+    "--notify-jobs/--no-notify-jobs",
+    default=None,
+    help="Enable/disable email notifications for new jobs.",
+)
+@click.option(
+    "--notify-peers/--no-notify-peers",
+    default=None,
+    help="Enable/disable email notifications for peer requests.",
+)
+@click.option(
+    "--notify-interval",
+    type=int,
+    help="Notification check interval in seconds. Default: 30.",
+)
+# Job approval settings
+@click.option(
+    "--approve-jobs/--no-approve-jobs",
+    default=None,
+    help="Enable/disable automatic job approval.",
+)
+@click.option(
+    "--jobs-peers-only/--no-jobs-peers-only",
+    default=None,
+    help="Only approve jobs from approved peers.",
+)
 @click.option(
     "--filenames",
     "-f",
-    help="Required filenames (comma-separated). Default: main.py,params.json",
+    help="Required filenames for job validation (comma-separated).",
 )
 @click.option(
     "--allowed-users",
     "-u",
-    help="Allowed users (comma-separated). Empty means all peers allowed.",
+    help="Allowed users for job submission (comma-separated). Empty = all peers.",
 )
-def init(filenames: str | None, allowed_users: str | None):
+# Peer approval settings
+@click.option(
+    "--approve-peers/--no-approve-peers",
+    default=None,
+    help="Enable/disable automatic peer approval.",
+)
+@click.option(
+    "--approved-domains",
+    help="Approved domains for peer auto-approval (comma-separated).",
+)
+@click.option(
+    "--approve-interval",
+    type=int,
+    help="Approval check interval in seconds. Default: 5.",
+)
+# OAuth/credentials paths
+@click.option(
+    "--credentials-path",
+    type=click.Path(),
+    help="Path to credentials.json for OAuth.",
+)
+@click.option(
+    "--gmail-token",
+    type=click.Path(),
+    help="Path to pre-existing Gmail token.",
+)
+@click.option(
+    "--drive-token",
+    type=click.Path(),
+    help="Path to pre-existing Drive token.",
+)
+def init(
+    email: str | None,
+    syftbox_root: str | None,
+    yes: bool,
+    quiet: bool,
+    skip_oauth: bool,
+    notify_jobs: bool | None,
+    notify_peers: bool | None,
+    notify_interval: int | None,
+    approve_jobs: bool | None,
+    jobs_peers_only: bool | None,
+    filenames: str | None,
+    allowed_users: str | None,
+    approve_peers: bool | None,
+    approved_domains: str | None,
+    approve_interval: int | None,
+    credentials_path: str | None,
+    gmail_token: str | None,
+    drive_token: str | None,
+):
     """Initialize all services with unified setup.
 
     Examples:
 
       syft-bg init
 
-      syft-bg init --filenames main.py,params.json
+      syft-bg init --email user@example.com
+
+      syft-bg init -e user@example.com -r ~/SyftBox --quiet --skip-oauth
+
+      syft-bg init --notify-jobs --no-notify-peers --approve-jobs
 
       syft-bg init -f main.py,params.json -u alice@example.com
     """
-    from syft_bg.cli.init import run_init_flow
+    from syft_bg.cli.init import InitConfig, run_init_flow
 
-    # Parse CLI options
+    # Parse comma-separated options
     parsed_filenames = None
     if filenames:
         parsed_filenames = [f.strip() for f in filenames.split(",") if f.strip()]
@@ -215,10 +325,35 @@ def init(filenames: str | None, allowed_users: str | None):
             u.strip() for u in allowed_users.split(",") if u.strip()
         ]
 
-    run_init_flow(
-        cli_filenames=parsed_filenames,
-        cli_allowed_users=parsed_allowed_users,
+    parsed_approved_domains = None
+    if approved_domains:
+        parsed_approved_domains = [
+            d.strip() for d in approved_domains.split(",") if d.strip()
+        ]
+
+    # Build InitConfig
+    config = InitConfig(
+        email=email,
+        syftbox_root=syftbox_root,
+        yes=yes,
+        quiet=quiet,
+        skip_oauth=skip_oauth,
+        notify_jobs=notify_jobs,
+        notify_peers=notify_peers,
+        notify_interval=notify_interval,
+        approve_jobs=approve_jobs,
+        jobs_peers_only=jobs_peers_only,
+        required_filenames=parsed_filenames,
+        allowed_users=parsed_allowed_users,
+        approve_peers=approve_peers,
+        approved_domains=parsed_approved_domains,
+        approve_interval=approve_interval,
+        credentials_path=credentials_path,
+        gmail_token_path=gmail_token,
+        drive_token_path=drive_token,
     )
+
+    run_init_flow(config=config)
 
 
 @main.command()
@@ -234,6 +369,111 @@ def tui():
         from syft_bg.cli.init import run_init_flow
 
         run_init_flow()
+
+
+@main.command()
+def setup():
+    """Check environment and show setup status.
+
+    Verifies that all required credentials and tokens are in place.
+
+    Examples:
+
+      syft-bg setup
+    """
+    from syft_bg.common.config import get_creds_dir
+    from syft_bg.common.drive import is_colab
+
+    creds_dir = get_creds_dir()
+
+    click.echo()
+    click.echo("SYFT-BG ENVIRONMENT CHECK")
+    click.echo("=" * 50)
+    click.echo()
+
+    issues = []
+
+    # Check credentials.json
+    credentials_path = creds_dir / "credentials.json"
+    click.echo("Checking credentials...")
+    if credentials_path.exists():
+        click.echo(f"  ✓ credentials.json found at {credentials_path}")
+    else:
+        click.echo(f"  ✗ credentials.json MISSING at {credentials_path}")
+        issues.append(
+            "Missing credentials.json:\n"
+            "  1. Go to Google Cloud Console → APIs & Services → Credentials\n"
+            "  2. Create OAuth 2.0 Client ID (Desktop app)\n"
+            "  3. Download as credentials.json\n"
+            f"  4. Place at: {credentials_path}"
+        )
+
+    # Check authentication tokens
+    click.echo()
+    click.echo("Checking authentication tokens...")
+
+    gmail_token_path = creds_dir / "gmail_token.json"
+    if gmail_token_path.exists():
+        click.echo(f"  ✓ Gmail token: {gmail_token_path}")
+    else:
+        click.echo("  ✗ Gmail token: MISSING")
+        issues.append(
+            "Missing Gmail token:\n"
+            "  Run 'syft-bg init' to complete Gmail authentication"
+        )
+
+    if not is_colab():
+        drive_token_path = creds_dir / "token_do.json"
+        if drive_token_path.exists():
+            click.echo(f"  ✓ Drive token: {drive_token_path}")
+        else:
+            click.echo("  ✗ Drive token: MISSING")
+            issues.append(
+                "Missing Drive token:\n"
+                "  Run 'syft-bg init' to complete Drive authentication"
+            )
+    else:
+        click.echo("  ✓ Drive token: Colab (native)")
+
+    # Check configuration
+    click.echo()
+    click.echo("Checking configuration...")
+
+    config_path = creds_dir / "config.yaml"
+    if config_path.exists():
+        click.echo(f"  ✓ Config file: {config_path}")
+        # Try to load and show email
+        try:
+            import yaml
+
+            with open(config_path) as f:
+                config = yaml.safe_load(f) or {}
+            if "do_email" in config:
+                click.echo(f"  ✓ Email: {config['do_email']}")
+            if "syftbox_root" in config:
+                click.echo(f"  ✓ SyftBox root: {config['syftbox_root']}")
+        except Exception:
+            pass
+    else:
+        click.echo("  ✗ Config file: MISSING")
+        issues.append(
+            "Missing config file:\n  Run 'syft-bg init' to create configuration"
+        )
+
+    # Summary
+    click.echo()
+    click.echo("-" * 50)
+
+    if issues:
+        click.echo(f"⚠️  {len(issues)} issue(s) found")
+        click.echo()
+        for issue in issues:
+            click.echo(issue)
+            click.echo()
+    else:
+        click.echo("✅ Environment ready! Run 'syft-bg start' to begin.")
+
+    click.echo()
 
 
 @main.command()
