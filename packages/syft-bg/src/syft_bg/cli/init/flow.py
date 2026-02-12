@@ -153,28 +153,50 @@ def run_init_flow(
         syftbox_root = click.prompt("SyftBox root directory", default=default_syftbox)
 
     # Gmail setup
-    click.echo()
-    click.echo("-" * 50)
-    click.echo("GMAIL AUTHENTICATION")
-    click.echo("-" * 50)
-    click.echo()
+    if not config.quiet:
+        click.echo()
+        click.echo("-" * 50)
+        click.echo("GMAIL AUTHENTICATION")
+        click.echo("-" * 50)
+        click.echo()
 
     gmail_token_path = creds_dir / "gmail_token.json"
     credentials_path = creds_dir / "credentials.json"
-    setup_gmail(credentials_path, gmail_token_path)
+
+    # Allow custom token/credentials paths from config
+    if config.gmail_token_path:
+        gmail_token_path = Path(config.gmail_token_path).expanduser()
+    if config.credentials_path:
+        credentials_path = Path(config.credentials_path).expanduser()
+
+    if not setup_gmail(
+        credentials_path, gmail_token_path, skip=config.skip_oauth, quiet=config.quiet
+    ):
+        return False
 
     # Drive setup (only needed outside Colab)
-    click.echo()
-    click.echo("-" * 50)
-    click.echo("GOOGLE DRIVE AUTHENTICATION")
-    click.echo("-" * 50)
-    click.echo()
+    if not config.quiet:
+        click.echo()
+        click.echo("-" * 50)
+        click.echo("GOOGLE DRIVE AUTHENTICATION")
+        click.echo("-" * 50)
+        click.echo()
 
     if is_colab():
-        click.echo("Colab detected - Drive authentication handled natively")
+        if not config.quiet:
+            click.echo("Colab detected - Drive authentication handled natively")
     else:
         drive_token_path = creds_dir / "token_do.json"
-        setup_drive(credentials_path, drive_token_path)
+        if config.drive_token_path:
+            drive_token_path = Path(config.drive_token_path).expanduser()
+
+        if not setup_drive(
+            credentials_path,
+            drive_token_path,
+            skip=config.skip_oauth,
+            quiet=config.quiet,
+        ):
+            return False
 
     # Notification settings
     if not config.quiet:
