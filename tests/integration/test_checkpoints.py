@@ -1,7 +1,13 @@
 """
 Integration tests for checkpoint functionality with Google Drive.
 
-Tests checkpoint creation, upload, download, and restore against actual Google Drive.
+Tests GDrive-specific checkpoint behavior that can't be tested with in-memory connections.
+Core checkpoint logic (create, restore, threshold, deduplication, compacting) is
+covered by unit tests.
+
+These tests validate:
+1. Full checkpoint + incremental + rolling state restoration on real GDrive
+2. Auto-checkpoint creation + compacting + fresh login restore on real GDrive
 """
 
 import os
@@ -15,53 +21,6 @@ from tests.integration.utils import token_path_do, token_path_ds
 
 EMAIL_DO = os.environ.get("BEACH_EMAIL_DO", "")
 EMAIL_DS = os.environ.get("BEACH_EMAIL_DS", "")
-
-
-@pytest.mark.usefixtures("setup_delete_syftboxes")
-def test_checkpoint_restore_on_fresh_login():
-    """Test that a fresh login restores state from checkpoint instead of downloading all events."""
-    # First session: create state and checkpoint
-    manager_ds1, manager_do1 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-    )
-
-    # Send file changes
-    manager_ds1.send_file_change(f"{EMAIL_DO}/file1.txt", "File 1 content")
-    manager_ds1.send_file_change(f"{EMAIL_DO}/file2.txt", "File 2 content")
-    manager_ds1.send_file_change(f"{EMAIL_DO}/file3.txt", "File 3 content")
-    sleep(1)
-
-    # DO syncs to receive the files
-    manager_do1.sync(auto_checkpoint=False)
-
-    # Create checkpoint
-    checkpoint = manager_do1.create_checkpoint()
-    assert len(checkpoint.files) == 3
-    print(f"Created checkpoint with timestamp: {checkpoint.timestamp}")
-
-    # Second session: fresh login should restore from checkpoint
-    manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-        load_peers=True,
-        clear_caches=True,  # Clear local caches to simulate fresh login
-    )
-
-    # Sync should restore from checkpoint
-    manager_do2.sync(auto_checkpoint=False)
-
-    # Verify state was restored
-    do_cache = manager_do2.datasite_owner_syncer.event_cache
-    assert len(do_cache.file_hashes) == 3, (
-        f"Expected 3 files, got {len(do_cache.file_hashes)}"
-    )
-    print(f"Restored {len(do_cache.file_hashes)} files from checkpoint")
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")

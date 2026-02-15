@@ -2,15 +2,26 @@
 Unit tests for checkpoint functionality.
 
 Tests checkpoint creation, restore, threshold-based creation,
+compacting (with merges, overwrites, deletions), deduplication,
 and in-memory checkpoint methods.
 """
 
-from syft_client.sync.syftbox_manager import SyftboxManager
-from syft_client.sync.connections.inmemory_connection import (
-    InMemoryPlatformConnection,
-    InMemoryBackingPlatform,
+import time
+from pathlib import Path
+from uuid import uuid4
+
+from syft_client.sync.checkpoints.checkpoint import (
+    Checkpoint,
+    IncrementalCheckpoint,
 )
-from syft_client.sync.checkpoints.checkpoint import Checkpoint
+from syft_client.sync.checkpoints.rolling_state import RollingState
+from syft_client.sync.connections.inmemory_connection import (
+    InMemoryBackingPlatform,
+    InMemoryPlatformConnection,
+)
+from syft_client.sync.events.file_change_event import FileChangeEvent
+from syft_client.sync.syftbox_manager import SyftboxManager
+from tests.unit.utils import get_mock_event
 
 
 def test_checkpoint_create_and_restore():
@@ -347,3 +358,244 @@ def test_compact_with_no_existing_full_checkpoint():
 
     # Verify incremental checkpoints are deleted
     assert len(backing_store.incremental_checkpoints) == 0
+
+
+def test_incremental_checkpoint_deduplication():
+    """Test that incremental checkpoint deduplicates events by path."""
+    _, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=True,
+        sync_automatically=False,
+    )
+
+    do_email = do_manager.email
+
+    # Manually build rolling state with duplicate paths (bypasses hash conflict check)
+    rs = RollingState(
+        email=do_email,
+        base_checkpoint_timestamp=0.0,
+    )
+
+    event1 = get_mock_event(f"{do_email}/changing.txt")
+    event1.content = "version1"
+    rs.add_event(event1)
+
+    event2 = get_mock_event(f"{do_email}/changing.txt")
+    event2.content = "version2"
+    rs.add_event(event2)
+
+    event3 = get_mock_event(f"{do_email}/changing.txt")
+    event3.content = "version3"
+    rs.add_event(event3)
+
+    stable_event = get_mock_event(f"{do_email}/stable.txt")
+    stable_event.content = "stable_content"
+    rs.add_event(stable_event)
+
+    # Rolling state should have 2 events (deduplicated at add time)
+    assert rs.event_count == 2
+
+    # Inject rolling state into the syncer and create incremental checkpoint
+    do_manager.datasite_owner_syncer._rolling_state = rs
+    inc_cp = do_manager.datasite_owner_syncer.create_incremental_checkpoint()
+
+    # Should only have 2 events (1 for changing.txt latest, 1 for stable.txt)
+    assert inc_cp.event_count == 2
+
+    # The changing.txt event should have the latest content
+    changing_events = [
+        e for e in inc_cp.events if "changing.txt" in str(e.path_in_datasite)
+    ]
+    assert len(changing_events) == 1
+    assert changing_events[0].content == "version3"
+
+
+def test_compact_with_file_overwrites_across_incrementals():
+    """Test compacting where the same file is modified across incremental checkpoints."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=True,
+        sync_automatically=False,
+    )
+
+    do_email = do_manager.email
+    backing_store = do_manager.connection_router.connections[0].backing_store
+
+    # Create full checkpoint with file1
+    ds_manager.send_file_change(f"{do_email}/file1.txt", "original")
+    do_manager.sync(auto_checkpoint=False)
+    do_manager.create_checkpoint()
+
+    # Manually construct incremental #1: modify file1 + add file2
+    inc1_events = [
+        FileChangeEvent(
+            id=uuid4(),
+            path_in_datasite=Path("file1.txt"),
+            datasite_email=do_email,
+            content="modified_v2",
+            old_hash=None,
+            new_hash="hash_v2",
+            is_deleted=False,
+            submitted_timestamp=time.time(),
+            timestamp=time.time(),
+        ),
+        FileChangeEvent(
+            id=uuid4(),
+            path_in_datasite=Path("file2.txt"),
+            datasite_email=do_email,
+            content="content2",
+            old_hash=None,
+            new_hash="hash_file2",
+            is_deleted=False,
+            submitted_timestamp=time.time(),
+            timestamp=time.time(),
+        ),
+    ]
+    inc_cp1 = IncrementalCheckpoint(
+        email=do_email,
+        sequence_number=1,
+        events=inc1_events,
+    )
+    do_manager.connection_router.upload_incremental_checkpoint(inc_cp1)
+
+    # Manually construct incremental #2: modify file1 again
+    inc2_events = [
+        FileChangeEvent(
+            id=uuid4(),
+            path_in_datasite=Path("file1.txt"),
+            datasite_email=do_email,
+            content="modified_v3",
+            old_hash="hash_v2",
+            new_hash="hash_v3",
+            is_deleted=False,
+            submitted_timestamp=time.time(),
+            timestamp=time.time(),
+        ),
+    ]
+    inc_cp2 = IncrementalCheckpoint(
+        email=do_email,
+        sequence_number=2,
+        events=inc2_events,
+    )
+    do_manager.connection_router.upload_incremental_checkpoint(inc_cp2)
+
+    assert len(backing_store.incremental_checkpoints) == 2
+
+    # Compact
+    compacted = do_manager.datasite_owner_syncer.compact_checkpoints()
+
+    # Should have 2 files: file1 (latest version) and file2
+    assert len(compacted.files) == 2
+    file1 = next(f for f in compacted.files if f.path == "file1.txt")
+    assert file1.content == "modified_v3"
+
+
+def test_compact_with_file_deletions():
+    """Test compacting excludes files marked as deleted in incremental checkpoints."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=True,
+        sync_automatically=False,
+    )
+
+    do_email = do_manager.email
+    do_manager.connection_router.connections[0].backing_store
+
+    # Create full checkpoint with file1 and file2
+    ds_manager.send_file_change(f"{do_email}/file1.txt", "content1")
+    ds_manager.send_file_change(f"{do_email}/file2.txt", "content2")
+    do_manager.sync(auto_checkpoint=False)
+    do_manager.create_checkpoint()
+
+    # Incremental #1: add file3
+    ds_manager.send_file_change(f"{do_email}/file3.txt", "content3")
+    do_manager.sync(auto_checkpoint=False)
+    do_manager.try_create_checkpoint(threshold=1)
+
+    # Manually create incremental #2 with a deletion event for file1
+    deletion_event = FileChangeEvent(
+        id=uuid4(),
+        path_in_datasite=Path("file1.txt"),
+        datasite_email=do_email,
+        content=None,
+        old_hash="some_hash",
+        new_hash=None,
+        is_deleted=True,
+        submitted_timestamp=time.time(),
+        timestamp=time.time(),
+    )
+    inc_cp = IncrementalCheckpoint(
+        email=do_email,
+        sequence_number=do_manager.connection_router.get_next_incremental_sequence_number(),
+        events=[deletion_event],
+    )
+    do_manager.connection_router.upload_incremental_checkpoint(inc_cp)
+
+    # Compact
+    compacted = do_manager.datasite_owner_syncer.compact_checkpoints()
+
+    # Should have 2 files: file2 and file3 (file1 was deleted)
+    checkpoint_paths = {f.path for f in compacted.files}
+    assert "file1.txt" not in checkpoint_paths
+    assert "file2.txt" in checkpoint_paths
+    assert "file3.txt" in checkpoint_paths
+    assert len(compacted.files) == 2
+
+
+def test_try_create_checkpoint_triggers_compacting():
+    """Test that try_create_checkpoint triggers compacting when both thresholds are met."""
+    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection(
+        use_in_memory_cache=True,
+        sync_automatically=False,
+    )
+
+    do_email = do_manager.email
+    backing_store = do_manager.connection_router.connections[0].backing_store
+    syncer = do_manager.datasite_owner_syncer
+
+    # Create 2 incremental checkpoints (use high compacting_threshold to prevent early compacting)
+    for batch in range(2):
+        for i in range(3):
+            ds_manager.send_file_change(
+                f"{do_email}/batch{batch}_file{i}.txt", f"content_{batch}_{i}"
+            )
+        do_manager.sync(auto_checkpoint=False)
+        syncer.try_create_checkpoint(threshold=3, compacting_threshold=999)
+
+    assert len(backing_store.incremental_checkpoints) == 2
+    assert len(backing_store.checkpoints) == 0
+
+    # Now send more events and call try_create_checkpoint with low compacting threshold
+    for i in range(3):
+        ds_manager.send_file_change(f"{do_email}/batch2_file{i}.txt", f"content_2_{i}")
+    do_manager.sync(auto_checkpoint=False)
+
+    # This should create incremental #3 AND trigger compacting (threshold=3, compacting=3)
+    result = syncer.try_create_checkpoint(threshold=3, compacting_threshold=3)
+
+    # Result should be a full Checkpoint (from compacting), not IncrementalCheckpoint
+    assert isinstance(result, Checkpoint)
+
+    # All incrementals should be deleted, full checkpoint created
+    assert len(backing_store.incremental_checkpoints) == 0
+    assert len(backing_store.checkpoints) == 1
+    assert len(result.files) == 9  # 3 batches × 3 files
+
+
+def test_upload_checkpoint_write_then_delete():
+    """Test that upload_checkpoint writes new checkpoint before deleting old one."""
+    backing_store = InMemoryBackingPlatform()
+    connection = InMemoryPlatformConnection(
+        owner_email="test@test.com",
+        backing_store=backing_store,
+    )
+
+    # Upload first checkpoint
+    cp1 = Checkpoint(email="test@test.com", timestamp=100.0)
+    connection.upload_checkpoint(cp1)
+    assert len(backing_store.checkpoints) == 1
+
+    # Upload second checkpoint — old one should be replaced
+    cp2 = Checkpoint(email="test@test.com", timestamp=200.0)
+    connection.upload_checkpoint(cp2)
+
+    # Should have exactly 1 checkpoint (the new one)
+    assert len(backing_store.checkpoints) == 1
+    assert backing_store.checkpoints[0].timestamp == 200.0

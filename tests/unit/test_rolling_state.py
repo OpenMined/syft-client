@@ -210,3 +210,50 @@ def test_checkpoint_resets_rolling_state():
     # Rolling state should be deleted/reset
     rs = do_manager.connection_router.get_rolling_state()
     assert rs is None or rs.event_count == 0
+
+
+def test_rolling_state_deduplicates_by_path():
+    """Test that rolling state only keeps the latest event per file path."""
+    rs = RollingState(
+        email="test@test.com",
+        base_checkpoint_timestamp=1000.0,
+    )
+
+    # Add multiple events for the same file
+    event1 = get_mock_event("test@test.com/file.txt")
+    event1.content = "version1"
+    rs.add_event(event1)
+    assert rs.event_count == 1
+
+    event2 = get_mock_event("test@test.com/file.txt")
+    event2.content = "version2"
+    rs.add_event(event2)
+
+    # Should still be 1 event (replaced, not appended)
+    assert rs.event_count == 1
+    assert rs.events[0].content == "version2"
+
+    # Add a different file
+    event3 = get_mock_event("test@test.com/other.txt")
+    rs.add_event(event3)
+    assert rs.event_count == 2
+
+
+def test_rolling_state_clear_resets_base_timestamp():
+    """Test that clear() resets events and updates base_checkpoint_timestamp."""
+    rs = RollingState(
+        email="test@test.com",
+        base_checkpoint_timestamp=1000.0,
+    )
+
+    event = get_mock_event("test@test.com/file.txt")
+    rs.add_event(event)
+    assert rs.event_count == 1
+    assert rs.base_checkpoint_timestamp == 1000.0
+
+    # Clear with new timestamp
+    rs.clear(new_base_checkpoint_timestamp=2000.0)
+
+    assert rs.event_count == 0
+    assert rs.base_checkpoint_timestamp == 2000.0
+    assert rs.last_event_timestamp is None
