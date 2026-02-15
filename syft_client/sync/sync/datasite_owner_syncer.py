@@ -221,8 +221,8 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             for events_message in events_messages_list:
                 self.event_cache.add_events_message_to_local_cache(events_message)
 
-            # Load datasets from connection and populate cache
-            self._pull_datasets_for_initial_sync()
+        # Load datasets from connection and populate _any_shared_datasets cache
+        self._pull_datasets_for_initial_sync()
 
         self.initial_sync_done = True
 
