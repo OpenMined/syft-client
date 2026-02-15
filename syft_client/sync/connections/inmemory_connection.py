@@ -565,12 +565,12 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         """
         Upload a checkpoint to in-memory storage.
 
-        Deletes any existing checkpoints first (keep only latest), matching GDrive behavior.
+        Uploads first, then removes old checkpoints (write-then-delete).
         """
-        # Delete existing checkpoints first
-        self.backing_store.checkpoints.clear()
-        # Upload new checkpoint
+        # Upload new checkpoint first
         self.backing_store.checkpoints.append(checkpoint)
+        # Remove old checkpoints (keep only the new one)
+        self.backing_store.checkpoints[:] = [checkpoint]
         return checkpoint.filename
 
     def get_latest_checkpoint(self) -> Checkpoint | None:

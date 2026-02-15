@@ -1478,18 +1478,16 @@ class GDriveConnection(SyftboxPlatformConnection):
         """
         Upload a checkpoint to Google Drive.
 
-        Deletes any existing checkpoints first (keep only latest).
+        Uploads the new checkpoint first, then deletes old ones.
+        This ensures we never lose checkpoint data if the upload fails.
 
         Returns:
             The Google Drive file ID of the uploaded checkpoint.
         """
-        # Delete existing checkpoints first
-        self.delete_all_checkpoints()
-
         # Get or create checkpoints folder
         folder_id = self._get_or_create_checkpoints_folder_id()
 
-        # Compress and upload
+        # Compress and upload new checkpoint first
         compressed_data = checkpoint.as_compressed_data()
         payload, _ = self.create_file_payload(compressed_data)
 
@@ -1503,6 +1501,10 @@ class GDriveConnection(SyftboxPlatformConnection):
             .create(body=file_metadata, media_body=payload, fields="id")
             .execute()
         )
+
+        # Only delete old checkpoints after successful upload
+        self.delete_all_checkpoints(exclude_file_id=result.get("id"))
+
         return result.get("id")
 
     def get_latest_checkpoint(self) -> Checkpoint | None:
@@ -1550,8 +1552,13 @@ class GDriveConnection(SyftboxPlatformConnection):
             print(f"Warning: Failed to load checkpoint: {e}")
             return None
 
-    def delete_all_checkpoints(self):
-        """Delete all existing full checkpoints (not incremental ones)."""
+    def delete_all_checkpoints(self, exclude_file_id: str | None = None):
+        """Delete all existing full checkpoints (not incremental ones).
+
+        Args:
+            exclude_file_id: If provided, skip deleting this file ID
+                (used to preserve a newly uploaded checkpoint).
+        """
         folder_id = self._get_checkpoints_folder_id()
         if folder_id is None:
             return
@@ -1570,6 +1577,8 @@ class GDriveConnection(SyftboxPlatformConnection):
         for item in items:
             if item["name"].startswith(INCREMENTAL_CHECKPOINT_PREFIX):
                 continue  # Skip incremental checkpoints
+            if item["id"] == exclude_file_id:
+                continue  # Skip the newly uploaded checkpoint
             try:
                 self.drive_service.files().delete(fileId=item["id"]).execute()
             except Exception as e:
