@@ -1,9 +1,18 @@
-name: Integration Tests
+name: 'Nightly: Integration Tests'
 
 on:
-  pull_request:
   push:
     branches: [main]
+
+  # Nightly run at midnight EU time (23:00 UTC for CET, 22:00 UTC for CEST)
+  # Using 23:00 UTC to cover CET midnight
+  schedule:
+    - cron: '0 23 * * *'
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+  workflow_call:
 
 jobs:
   integration-tests:

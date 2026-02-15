@@ -120,6 +120,11 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_own_syftbox()
         return connection.gather_all_file_and_folder_ids()
 
+    def find_orphaned_message_files(self) -> List[str]:
+        """Find message files by name pattern (catches orphaned files)."""
+        connection = self.connection_for_own_syftbox()
+        return connection.find_orphaned_message_files()
+
     def reset_caches(self):
         connection = self.connection_for_own_syftbox()
         connection.reset_caches()
@@ -133,10 +138,10 @@ class ConnectionRouter(BaseModel):
         connection.write_events_message_to_syftbox(events_message)
 
     def write_event_messages_to_outbox_do(
-        self, sender_email: str, events_message: FileChangeEventsMessage
+        self, recipient_email: str, events_message: FileChangeEventsMessage
     ):
         connection = self.connection_for_outbox()
-        connection.write_event_messages_to_outbox_do(sender_email, events_message)
+        connection.write_event_messages_to_outbox_do(recipient_email, events_message)
 
     def get_all_accepted_events_messages_do(self) -> List[FileChangeEventsMessage]:
         connection = self.connection_for_eventlog()

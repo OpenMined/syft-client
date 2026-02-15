@@ -39,8 +39,7 @@ dependencies = [
     "python-daemon>=3.0.0",
     "syft-job",
     "syft-dataset", # Shift back to optional-dependencies after adding lazy imports
-    "syft-notify",
-    "syft-approve",
+    "syft-bg",
 ]
 
 [project.optional-dependencies]
@@ -50,6 +49,7 @@ test = [
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.0.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-rerunfailures>=14.0",
     "black>=23.0.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
@@ -74,8 +74,7 @@ members = ["packages/*"]
 "syft-job" = { workspace = true }
 "syft-notebook-ui" = { workspace = true }
 "syft-dataset" = { workspace = true }
-"syft-notify" = { workspace = true }
-"syft-approve" = { workspace = true }
+"syft-bg" = { workspace = true }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"
@@ -98,7 +97,8 @@ markers = [
     "unit: Unit tests (fast, mocked)",
     "integration: Integration tests (slow, real API)",
     "cleanup: Tests that require cleanup",
-    "slow: Tests that take a long time to run"
+    "slow: Tests that take a long time to run",
+    "flaky: Tests that may fail intermittently and should be retried"
 ]
 addopts = [
     "--strict-markers",

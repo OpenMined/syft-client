@@ -7,13 +7,10 @@ from typing import List, Optional, Tuple
 import yaml
 
 from .config import SyftJobConfig
+from .install_source import get_syft_client_install_source
 
 # Python version used when creating virtual environments for job execution
 RUN_SCRIPT_PYTHON_VERSION = "3.12"
-
-# Default syft-client dependency (can be overridden via env var for testing with
-# local syft-client code instead of the package on PyPI - https://pypi.org/project/syft-client/)
-SYFT_CLIENT_DEP = os.environ.get("SYFT_CLIENT_INSTALL_SOURCE", "syft-client")
 
 
 class StdoutViewer:
@@ -1963,7 +1960,7 @@ class JobClient:
         Returns:
             Bash script content
         """
-        all_dependencies = [SYFT_CLIENT_DEP] + dependencies
+        all_dependencies = [get_syft_client_install_source()] + dependencies
 
         if has_pyproject:
             # For projects with pyproject.toml, run uv sync inside the project folder
@@ -2083,7 +2080,7 @@ python {entrypoint_path}
         )
 
         # Compute all_dependencies for config.yaml
-        all_dependencies = [SYFT_CLIENT_DEP] + dependencies
+        all_dependencies = [get_syft_client_install_source()] + dependencies
 
         # Create run.sh file
         run_script_path = job_dir / "run.sh"

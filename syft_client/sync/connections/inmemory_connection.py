@@ -391,6 +391,14 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         return result
 
     def list_dataset_collections_as_ds(self) -> list[dict]:
+        """List dataset collections visible to DS via search.
+
+        Note: To mimic GDrive behavior, datasets with users='any' are only
+        discoverable via search if the user has also been explicitly shared to.
+        This simulates how GDrive search only returns files the user has access to,
+        even if the file is shared with 'anyone with the link'.
+        Direct download by ID still works for 'any' datasets (see download_dataset_collection).
+        """
         result = []
         for collection in self.backing_store.dataset_collections:
             if collection.owner_email == self.owner_email:
@@ -400,10 +408,9 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             if not collection.allowed_users:
                 continue
 
-            if (
-                SHARE_WITH_ANY in collection.allowed_users
-                or self.owner_email in collection.allowed_users
-            ):
+            # Only show in listing if user is explicitly in allowed_users
+            # (SHARE_WITH_ANY alone is not enough for discoverability, mimics GDrive)
+            if self.owner_email in collection.allowed_users:
                 result.append(
                     {
                         "owner_email": collection.owner_email,
