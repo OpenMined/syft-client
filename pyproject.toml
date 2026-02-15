@@ -37,35 +37,24 @@ dependencies = [
     "jinja2>=3.1.0",
     "click>=8.0.0",
     "python-daemon>=3.0.0",
-    "syft-job",
-    "syft-dataset", # Shift back to optional-dependencies after adding lazy imports
     "syft-bg",
+    "syft-job",     # TODO: move to optional-dependencies after adding lazy imports
+    "syft-dataset", # TODO: move to optional-dependencies after adding lazy imports
 ]
 
 [project.optional-dependencies]
-test = [
-    "pytest>=7.0.0",
-    "pytest-mock>=3.10.0",
-    "pytest-cov>=4.0.0",
-    "pytest-xdist>=3.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-rerunfailures>=14.0",
-    "black>=23.0.0",
-    "flake8>=6.0.0",
-    "mypy>=1.0.0",
-    "isort>=5.12.0",
-    "coverage>=7.0.0"
+datasets = [
+    "syft-dataset",
 ]
-dev = [
-    "jupyter>=1.0.0",
-    "notebook>=6.5.0",
-    "ipython>=8.0.0",
-    "tqdm>=4.64.0"
+job = [
+    "syft-job",
 ]
 all = [
-    "syft-client[test,dev,job]"
+    "syft-client[datasets,job]",
 ]
 
+[tool.uv]
+default-groups = ["dev", "test"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -165,4 +154,18 @@ skips = ["*/test_*.py", "*/tests/*"]
 [dependency-groups]
 dev = [
     "pre-commit>=4.3.0",
+    "jupyter>=1.0.0",
+    "notebook>=6.5.0",
+    "ipython>=8.0.0",
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.0.0",
+    "pytest-rerunfailures>=14.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "isort>=5.12.0",
+    "coverage>=7.0.0",
 ]
