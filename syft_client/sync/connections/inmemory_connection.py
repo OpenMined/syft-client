@@ -16,6 +16,8 @@ from syft_datasets.dataset_manager import SHARE_WITH_ANY
 
 if TYPE_CHECKING:
     from syft_client.sync.version.version_info import VersionInfo
+from syft_client.sync.checkpoints.checkpoint import Checkpoint, IncrementalCheckpoint
+from syft_client.sync.checkpoints.rolling_state import RollingState
 
 
 class InMemoryPlatformConnectionConfig(ConnectionConfig):
@@ -73,6 +75,17 @@ class InMemoryBackingPlatform(BaseModel):
 
     # Version files storage: {owner_email: InMemoryVersionFile}
     version_files: Dict[str, InMemoryVersionFile] = Field(default_factory=dict)
+
+    # Full checkpoint storage (compacted checkpoints)
+    checkpoints: List[Checkpoint] = Field(default_factory=lambda: [])
+
+    # Incremental checkpoint storage
+    incremental_checkpoints: List[IncrementalCheckpoint] = Field(
+        default_factory=lambda: []
+    )
+
+    # Rolling state storage
+    rolling_states: List[RollingState] = Field(default_factory=lambda: [])
 
     def get_or_create_outbox_folder(
         self, owner_email: str, recipient_email: str
@@ -543,3 +556,128 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
             self.backing_store.version_files[self.owner_email] = version_file
         if peer_email not in version_file.allowed_readers:
             version_file.allowed_readers.append(peer_email)
+
+    # =========================================================================
+    # CHECKPOINT METHODS
+    # =========================================================================
+
+    def upload_checkpoint(self, checkpoint: Checkpoint) -> str:
+        """
+        Upload a checkpoint to in-memory storage.
+
+        Uploads first, then removes old checkpoints (write-then-delete).
+        """
+        # Upload new checkpoint first
+        self.backing_store.checkpoints.append(checkpoint)
+        # Remove old checkpoints (keep only the new one)
+        self.backing_store.checkpoints[:] = [checkpoint]
+        return checkpoint.filename
+
+    def get_latest_checkpoint(self) -> Checkpoint | None:
+        """Get the latest checkpoint from in-memory storage."""
+        if not self.backing_store.checkpoints:
+            return None
+        # Return checkpoint with highest timestamp
+        return max(self.backing_store.checkpoints, key=lambda c: c.timestamp)
+
+    def get_events_count_since_checkpoint(
+        self, checkpoint_timestamp: float | None
+    ) -> int:
+        """Count events created after the checkpoint timestamp."""
+        if checkpoint_timestamp is None:
+            return len(self.backing_store.syftbox_events_message_log)
+        return sum(
+            1
+            for msg in self.backing_store.syftbox_events_message_log
+            if msg.timestamp > checkpoint_timestamp
+        )
+
+    def get_events_messages_since_timestamp(
+        self, since_timestamp: float
+    ) -> List[FileChangeEventsMessage]:
+        """Get events created after a specific timestamp."""
+        return [
+            msg
+            for msg in self.backing_store.syftbox_events_message_log
+            if msg.timestamp > since_timestamp
+        ]
+
+    # =========================================================================
+    # INCREMENTAL CHECKPOINT METHODS
+    # =========================================================================
+
+    def upload_incremental_checkpoint(self, checkpoint: IncrementalCheckpoint) -> str:
+        """Upload an incremental checkpoint to in-memory storage."""
+        self.backing_store.incremental_checkpoints.append(checkpoint)
+        return checkpoint.filename
+
+    def get_all_incremental_checkpoints(self) -> List[IncrementalCheckpoint]:
+        """Get all incremental checkpoints, sorted by sequence number."""
+        checkpoints = [
+            cp
+            for cp in self.backing_store.incremental_checkpoints
+            if cp.email == self.owner_email
+        ]
+        return sorted(checkpoints, key=lambda c: c.sequence_number)
+
+    def get_incremental_checkpoint_count(self) -> int:
+        """Get the number of incremental checkpoints for this email."""
+        return sum(
+            1
+            for cp in self.backing_store.incremental_checkpoints
+            if cp.email == self.owner_email
+        )
+
+    def get_next_incremental_sequence_number(self) -> int:
+        """Get the next sequence number for incremental checkpoints."""
+        checkpoints = [
+            cp
+            for cp in self.backing_store.incremental_checkpoints
+            if cp.email == self.owner_email
+        ]
+        if not checkpoints:
+            return 1
+        return max(cp.sequence_number for cp in checkpoints) + 1
+
+    def delete_all_incremental_checkpoints(self) -> None:
+        """Delete all incremental checkpoints for this email."""
+        self.backing_store.incremental_checkpoints = [
+            cp
+            for cp in self.backing_store.incremental_checkpoints
+            if cp.email != self.owner_email
+        ]
+
+    # =========================================================================
+    # ROLLING STATE METHODS
+    # =========================================================================
+
+    def upload_rolling_state(self, rolling_state: RollingState) -> str:
+        """
+        Upload rolling state to in-memory storage.
+
+        Removes any existing rolling state for this email first (keeps only one).
+        """
+        # Remove existing rolling states for this email
+        self.backing_store.rolling_states = [
+            rs
+            for rs in self.backing_store.rolling_states
+            if rs.email != rolling_state.email
+        ]
+        # Add new rolling state
+        self.backing_store.rolling_states.append(rolling_state)
+        return rolling_state.filename
+
+    def get_rolling_state(self) -> RollingState | None:
+        """Get the rolling state for this email from in-memory storage."""
+        for rs in self.backing_store.rolling_states:
+            if rs.email == self.owner_email:
+                return rs
+        return None
+
+    def delete_rolling_state(self) -> None:
+        """Delete all rolling states for this email."""
+        self.backing_store.rolling_states = [
+            rs
+            for rs in self.backing_store.rolling_states
+            if rs.email != self.owner_email
+        ]

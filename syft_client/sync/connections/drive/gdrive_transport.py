@@ -40,6 +40,16 @@ from syft_client.sync.messages.proposed_filechange import (
     ProposedFileChangesMessage,
 )
 from syft_client.sync.environments.environment import Environment
+from syft_client.sync.checkpoints.checkpoint import (
+    Checkpoint,
+    IncrementalCheckpoint,
+    CHECKPOINT_FILENAME_PREFIX,
+    INCREMENTAL_CHECKPOINT_PREFIX,
+)
+from syft_client.sync.checkpoints.rolling_state import (
+    RollingState,
+    ROLLING_STATE_FILENAME_PREFIX,
+)
 
 if TYPE_CHECKING:
     from syft_client.sync.connections.drive.grdrive_config import (
@@ -174,6 +184,10 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     # tag -> dataset collection folder id
     dataset_collection_folder_id_cache: Dict[str, str] = {}
+
+    # Rolling state caches for single-API-call optimization
+    _rolling_state_folder_id: str | None = None
+    _rolling_state_file_id: str | None = None
 
     @classmethod
     def from_config(cls, config: "GdriveConnectionConfig") -> "GDriveConnection":
@@ -945,6 +959,8 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.ds_outbox_folder_id_cache.clear()
         self.archive_folder_id_cache.clear()
         self.personal_syftbox_event_id_cache.clear()
+        self._rolling_state_folder_id = None
+        self._rolling_state_file_id = None
 
     def gather_all_file_and_folder_ids(self) -> List[str]:
         syftbox_folder_id = self.get_syftbox_folder_id()
@@ -1427,3 +1443,522 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         if file_id:
             self.add_permission(file_id, peer_email, write=False)
+
+    # =========================================================================
+    # CHECKPOINT METHODS
+    # =========================================================================
+
+    def _get_checkpoints_folder_name(self) -> str:
+        """Get the checkpoints folder name: {email}-checkpoints"""
+        return f"{self.email}-checkpoints"
+
+    def _get_checkpoints_folder_id(self) -> str | None:
+        """Find the checkpoints folder ID from Google Drive."""
+        folder_name = self._get_checkpoints_folder_name()
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        query = (
+            f"name='{folder_name}' and mimeType='{GOOGLE_FOLDER_MIME_TYPE}' "
+            f"and '{syftbox_folder_id}' in parents and trashed=false"
+        )
+        results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+        items = results.get("files", [])
+        return items[0]["id"] if items else None
+
+    def _get_or_create_checkpoints_folder_id(self) -> str:
+        """Get or create the checkpoints folder."""
+        folder_id = self._get_checkpoints_folder_id()
+        if folder_id is not None:
+            return folder_id
+        # Create the folder
+        folder_name = self._get_checkpoints_folder_name()
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        return self.create_folder(folder_name, syftbox_folder_id)
+
+    def upload_checkpoint(self, checkpoint: Checkpoint) -> str:
+        """
+        Upload a checkpoint to Google Drive.
+
+        Uploads the new checkpoint first, then deletes old ones.
+        This ensures we never lose checkpoint data if the upload fails.
+
+        Returns:
+            The Google Drive file ID of the uploaded checkpoint.
+        """
+        # Get or create checkpoints folder
+        folder_id = self._get_or_create_checkpoints_folder_id()
+
+        # Compress and upload new checkpoint first
+        compressed_data = checkpoint.as_compressed_data()
+        payload, _ = self.create_file_payload(compressed_data)
+
+        file_metadata = {
+            "name": checkpoint.filename,
+            "parents": [folder_id],
+        }
+
+        result = (
+            self.drive_service.files()
+            .create(body=file_metadata, media_body=payload, fields="id")
+            .execute()
+        )
+
+        # Only delete old checkpoints after successful upload
+        self.delete_all_checkpoints(exclude_file_id=result.get("id"))
+
+        return result.get("id")
+
+    def get_latest_checkpoint(self) -> Checkpoint | None:
+        """
+        Download the latest checkpoint from Google Drive.
+
+        Returns:
+            The Checkpoint object, or None if no checkpoint exists.
+        """
+        folder_id = self._get_checkpoints_folder_id()
+        if folder_id is None:
+            return None
+
+        # List checkpoint files
+        query = (
+            f"'{folder_id}' in parents and trashed=false "
+            f"and name contains '{CHECKPOINT_FILENAME_PREFIX}'"
+        )
+        results = (
+            self.drive_service.files().list(q=query, fields="files(id, name)").execute()
+        )
+        items = results.get("files", [])
+
+        if not items:
+            return None
+
+        # Find the latest checkpoint by timestamp in filename
+        latest_file = None
+        latest_timestamp = -1.0
+
+        for item in items:
+            timestamp = Checkpoint.filename_to_timestamp(item["name"])
+            if timestamp is not None and timestamp > latest_timestamp:
+                latest_timestamp = timestamp
+                latest_file = item
+
+        if latest_file is None:
+            return None
+
+        # Download the checkpoint
+        try:
+            file_data = self.download_file(latest_file["id"])
+            return Checkpoint.from_compressed_data(file_data)
+        except Exception as e:
+            print(f"Warning: Failed to load checkpoint: {e}")
+            return None
+
+    def delete_all_checkpoints(self, exclude_file_id: str | None = None):
+        """Delete all existing full checkpoints (not incremental ones).
+
+        Args:
+            exclude_file_id: If provided, skip deleting this file ID
+                (used to preserve a newly uploaded checkpoint).
+        """
+        folder_id = self._get_checkpoints_folder_id()
+        if folder_id is None:
+            return
+
+        # List only full checkpoint files (start with "checkpoint_" not "incremental_checkpoint_")
+        query = (
+            f"'{folder_id}' in parents and trashed=false "
+            f"and name contains '{CHECKPOINT_FILENAME_PREFIX}'"
+        )
+        results = (
+            self.drive_service.files().list(q=query, fields="files(id, name)").execute()
+        )
+        items = results.get("files", [])
+
+        # Delete only full checkpoints (not incremental ones)
+        for item in items:
+            if item["name"].startswith(INCREMENTAL_CHECKPOINT_PREFIX):
+                continue  # Skip incremental checkpoints
+            if item["id"] == exclude_file_id:
+                continue  # Skip the newly uploaded checkpoint
+            try:
+                self.drive_service.files().delete(fileId=item["id"]).execute()
+            except Exception as e:
+                print(f"Warning: Failed to delete checkpoint {item['name']}: {e}")
+
+    # =========================================================================
+    # INCREMENTAL CHECKPOINT METHODS
+    # =========================================================================
+
+    def upload_incremental_checkpoint(self, checkpoint: IncrementalCheckpoint) -> str:
+        """
+        Upload an incremental checkpoint to Google Drive.
+
+        Does NOT delete existing incremental checkpoints - they accumulate
+        until compacting is triggered.
+
+        Returns:
+            The Google Drive file ID of the uploaded checkpoint.
+        """
+        folder_id = self._get_or_create_checkpoints_folder_id()
+
+        compressed_data = checkpoint.as_compressed_data()
+        payload, _ = self.create_file_payload(compressed_data)
+
+        file_metadata = {
+            "name": checkpoint.filename,
+            "parents": [folder_id],
+        }
+
+        result = (
+            self.drive_service.files()
+            .create(body=file_metadata, media_body=payload, fields="id")
+            .execute()
+        )
+        return result.get("id")
+
+    def get_all_incremental_checkpoints(self) -> List[IncrementalCheckpoint]:
+        """
+        Download all incremental checkpoints from Google Drive.
+
+        Returns:
+            List of IncrementalCheckpoint objects, sorted by sequence number.
+        """
+        folder_id = self._get_checkpoints_folder_id()
+        if folder_id is None:
+            return []
+
+        # List only incremental checkpoint files
+        query = (
+            f"'{folder_id}' in parents and trashed=false "
+            f"and name contains '{INCREMENTAL_CHECKPOINT_PREFIX}'"
+        )
+        results = (
+            self.drive_service.files().list(q=query, fields="files(id, name)").execute()
+        )
+        items = results.get("files", [])
+
+        if not items:
+            return []
+
+        checkpoints = []
+        for item in items:
+            try:
+                file_data = self.download_file(item["id"])
+                cp = IncrementalCheckpoint.from_compressed_data(file_data)
+                checkpoints.append(cp)
+            except Exception as e:
+                print(
+                    f"Warning: Failed to load incremental checkpoint {item['name']}: {e}"
+                )
+                continue
+
+        # Sort by sequence number
+        return sorted(checkpoints, key=lambda c: c.sequence_number)
+
+    def get_incremental_checkpoint_count(self) -> int:
+        """Get the number of incremental checkpoints on Google Drive."""
+        folder_id = self._get_checkpoints_folder_id()
+        if folder_id is None:
+            return 0
+
+        query = (
+            f"'{folder_id}' in parents and trashed=false "
+            f"and name contains '{INCREMENTAL_CHECKPOINT_PREFIX}'"
+        )
+        results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+        return len(results.get("files", []))
+
+    def get_next_incremental_sequence_number(self) -> int:
+        """Get the next sequence number for incremental checkpoints."""
+        folder_id = self._get_checkpoints_folder_id()
+        if folder_id is None:
+            return 1
+
+        query = (
+            f"'{folder_id}' in parents and trashed=false "
+            f"and name contains '{INCREMENTAL_CHECKPOINT_PREFIX}'"
+        )
+        results = (
+            self.drive_service.files().list(q=query, fields="files(name)").execute()
+        )
+        items = results.get("files", [])
+
+        if not items:
+            return 1
+
+        # Find highest sequence number
+        max_seq = 0
+        for item in items:
+            seq = IncrementalCheckpoint.filename_to_sequence_number(item["name"])
+            if seq is not None and seq > max_seq:
+                max_seq = seq
+
+        return max_seq + 1
+
+    def delete_all_incremental_checkpoints(self) -> None:
+        """Delete all incremental checkpoints (called after compacting)."""
+        folder_id = self._get_checkpoints_folder_id()
+        if folder_id is None:
+            return
+
+        query = (
+            f"'{folder_id}' in parents and trashed=false "
+            f"and name contains '{INCREMENTAL_CHECKPOINT_PREFIX}'"
+        )
+        results = (
+            self.drive_service.files().list(q=query, fields="files(id, name)").execute()
+        )
+        items = results.get("files", [])
+
+        for item in items:
+            try:
+                self.drive_service.files().delete(fileId=item["id"]).execute()
+            except Exception as e:
+                print(
+                    f"Warning: Failed to delete incremental checkpoint {item['name']}: {e}"
+                )
+
+    def get_events_count_since_checkpoint(
+        self, checkpoint_timestamp: float | None
+    ) -> int:
+        """
+        Count events created after the checkpoint timestamp.
+
+        Args:
+            checkpoint_timestamp: The timestamp of the checkpoint, or None for all events.
+
+        Returns:
+            Number of events since the checkpoint.
+        """
+        personal_folder_id = self.get_personal_syftbox_folder_id()
+        file_metadatas = self.get_file_metadatas_from_folder(personal_folder_id)
+
+        if checkpoint_timestamp is None:
+            # Count all events
+            return len(
+                [
+                    f
+                    for f in file_metadatas
+                    if f["name"].startswith("syfteventsmessagev3_")
+                ]
+            )
+
+        # Count events after checkpoint
+        count = 0
+        for f in file_metadatas:
+            if not f["name"].startswith("syfteventsmessagev3_"):
+                continue
+            event_timestamp = self._extract_timestamp_from_filename(f["name"])
+            if event_timestamp is not None and event_timestamp > checkpoint_timestamp:
+                count += 1
+        return count
+
+    def get_events_messages_since_timestamp(
+        self, since_timestamp: float
+    ) -> List[FileChangeEventsMessage]:
+        """
+        Get events created after a specific timestamp.
+
+        Used to get events created after a checkpoint.
+
+        Args:
+            since_timestamp: Only return events with timestamp > this value.
+
+        Returns:
+            List of FileChangeEventsMessage created after the timestamp.
+        """
+        personal_folder_id = self.get_personal_syftbox_folder_id()
+        file_metadatas = self.get_file_metadatas_from_folder(
+            personal_folder_id, since_timestamp=since_timestamp
+        )
+
+        # Filter to valid event files
+        valid_fname_objs = self._get_valid_events_from_file_metadatas(file_metadatas)
+
+        result = []
+        for fname_obj in valid_fname_objs:
+            # Only include events after the timestamp
+            if fname_obj.timestamp <= since_timestamp:
+                continue
+
+            gdrive_id = [
+                f for f in file_metadatas if f["name"] == fname_obj.as_string()
+            ][0]["id"]
+
+            try:
+                file_data = self.download_file(gdrive_id)
+                event = FileChangeEventsMessage.from_compressed_data(file_data)
+                result.append(event)
+            except Exception as e:
+                print(f"Warning: Failed to download event: {e}")
+                continue
+
+        return result
+
+    # =========================================================================
+    # ROLLING STATE METHODS
+    # =========================================================================
+
+    def _get_rolling_state_folder_name(self) -> str:
+        """Get the rolling state folder name: {email}-rolling-state"""
+        return f"{self.email}-rolling-state"
+
+    def _get_rolling_state_folder_id(self, use_cache: bool = True) -> str | None:
+        """
+        Find the rolling state folder ID from Google Drive.
+
+        Args:
+            use_cache: If True, return cached value if available.
+        """
+        if use_cache and self._rolling_state_folder_id is not None:
+            return self._rolling_state_folder_id
+
+        folder_name = self._get_rolling_state_folder_name()
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        query = (
+            f"name='{folder_name}' and mimeType='{GOOGLE_FOLDER_MIME_TYPE}' "
+            f"and '{syftbox_folder_id}' in parents and trashed=false"
+        )
+        results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+        items = results.get("files", [])
+        if items:
+            self._rolling_state_folder_id = items[0]["id"]
+            return self._rolling_state_folder_id
+        return None
+
+    def _get_or_create_rolling_state_folder_id(self) -> str:
+        """Get or create the rolling state folder."""
+        folder_id = self._get_rolling_state_folder_id()
+        if folder_id is not None:
+            return folder_id
+        # Create the folder
+        folder_name = self._get_rolling_state_folder_name()
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        folder_id = self.create_folder(folder_name, syftbox_folder_id)
+        self._rolling_state_folder_id = folder_id
+        return folder_id
+
+    def upload_rolling_state(self, rolling_state: RollingState) -> str:
+        """
+        Upload rolling state to Google Drive.
+
+        Optimized to use a single API call when possible:
+        - If file ID is cached, uses update() (1 API call)
+        - If file ID not cached, uses create() (1-2 API calls)
+        - Falls back to create() if update() fails
+
+        Args:
+            rolling_state: The RollingState object to upload.
+
+        Returns:
+            The Google Drive file ID of the uploaded rolling state.
+        """
+        compressed_data = rolling_state.as_compressed_data()
+        payload, _ = self.create_file_payload(compressed_data)
+
+        # Try to update existing file if we have a cached ID
+        if self._rolling_state_file_id is not None:
+            try:
+                # Update existing file (1 API call)
+                self.drive_service.files().update(
+                    fileId=self._rolling_state_file_id,
+                    media_body=payload,
+                ).execute()
+                return self._rolling_state_file_id
+            except Exception:
+                # File was deleted externally, fall back to create
+                self._rolling_state_file_id = None
+
+        # Get or create rolling state folder
+        folder_id = self._get_or_create_rolling_state_folder_id()
+
+        # Create new file
+        file_metadata = {
+            "name": rolling_state.filename,
+            "parents": [folder_id],
+        }
+
+        result = (
+            self.drive_service.files()
+            .create(body=file_metadata, media_body=payload, fields="id")
+            .execute()
+        )
+        file_id = result.get("id")
+        self._rolling_state_file_id = file_id
+        return file_id
+
+    def get_rolling_state(self) -> RollingState | None:
+        """
+        Download the rolling state from Google Drive.
+
+        Also populates the folder and file ID caches for subsequent uploads.
+
+        Returns:
+            The RollingState object, or None if no rolling state exists.
+        """
+        folder_id = self._get_rolling_state_folder_id()
+        if folder_id is None:
+            return None
+
+        # List rolling state files
+        query = (
+            f"'{folder_id}' in parents and trashed=false "
+            f"and name contains '{ROLLING_STATE_FILENAME_PREFIX}'"
+        )
+        results = (
+            self.drive_service.files().list(q=query, fields="files(id, name)").execute()
+        )
+        items = results.get("files", [])
+
+        if not items:
+            return None
+
+        # Find the latest rolling state by timestamp in filename
+        latest_file = None
+        latest_timestamp = -1.0
+
+        for item in items:
+            timestamp = RollingState.filename_to_timestamp(item["name"])
+            if timestamp is not None and timestamp > latest_timestamp:
+                latest_timestamp = timestamp
+                latest_file = item
+
+        if latest_file is None:
+            return None
+
+        # Cache the file ID for subsequent uploads
+        self._rolling_state_file_id = latest_file["id"]
+
+        # Download the rolling state
+        try:
+            file_data = self.download_file(latest_file["id"])
+            return RollingState.from_compressed_data(file_data)
+        except Exception as e:
+            print(f"Warning: Failed to load rolling state: {e}")
+            self._rolling_state_file_id = None
+            return None
+
+    def delete_rolling_state(self) -> None:
+        """Delete all existing rolling state files and clear cache."""
+        # Clear the file ID cache
+        self._rolling_state_file_id = None
+
+        folder_id = self._get_rolling_state_folder_id()
+        if folder_id is None:
+            return
+
+        # List all rolling state files
+        query = (
+            f"'{folder_id}' in parents and trashed=false "
+            f"and name contains '{ROLLING_STATE_FILENAME_PREFIX}'"
+        )
+        results = (
+            self.drive_service.files().list(q=query, fields="files(id, name)").execute()
+        )
+        items = results.get("files", [])
+
+        # Delete each rolling state file
+        for item in items:
+            try:
+                self.drive_service.files().delete(fileId=item["id"]).execute()
+            except Exception as e:
+                print(f"Warning: Failed to delete rolling state {item['name']}: {e}")
