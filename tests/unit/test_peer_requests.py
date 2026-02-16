@@ -34,7 +34,7 @@ def test_peer_request_blocks_sync_until_approved():
     # Step 2: DS submits a simple job
     job_file_path = f"{do_manager.email}/test.job"
     job_content = "print('Hello from DS')"
-    ds_manager.send_file_change(job_file_path, job_content)
+    ds_manager._send_file_change(job_file_path, job_content)
 
     # Step 3: DO syncs WITHOUT accepting - nothing should sync
     do_manager.sync()
@@ -84,7 +84,7 @@ def test_peer_request_rejection():
 
     # DS sends a job
     job_file_path = f"{do_manager.email}/test.job"
-    ds_manager.send_file_change(job_file_path, "print('test')")
+    ds_manager._send_file_change(job_file_path, "print('test')")
 
     # DO rejects the peer request
     do_manager.reject_peer_request(ds_manager.email)

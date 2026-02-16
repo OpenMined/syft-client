@@ -57,7 +57,7 @@ def benchmark_rolling_state():
 
     # Clean start - delete any existing syftboxes
     print("Cleaning up existing syftboxes...")
-    ds, do = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds, do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -70,7 +70,7 @@ def benchmark_rolling_state():
 
     # Fresh pair for event submission
     print("Creating fresh DS/DO pair...")
-    ds, do = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds, do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -85,7 +85,7 @@ def benchmark_rolling_state():
     submit_start = time.time()
 
     for i in range(EVENTS_BEFORE_CHECKPOINT):
-        ds.send_file_change(
+        ds._send_file_change(
             f"{do.email}/file_{i:03d}.txt",
             f"content for file {i} - benchmark rolling state test",
         )
@@ -103,7 +103,7 @@ def benchmark_rolling_state():
     print(f"DO sync complete: {do_sync_time_phase1:.2f}s")
 
     # Verify checkpoint was created and rolling state initialized
-    checkpoint_after_phase1 = do.connection_router.get_latest_checkpoint()
+    checkpoint_after_phase1 = do._connection_router.get_latest_checkpoint()
     print("\nAfter Phase 1:")
     print(f"  Checkpoint exists: {checkpoint_after_phase1 is not None}")
     print(
@@ -116,7 +116,7 @@ def benchmark_rolling_state():
     )
 
     for i in range(EVENTS_BEFORE_CHECKPOINT, total_events):
-        ds.send_file_change(
+        ds._send_file_change(
             f"{do.email}/file_{i:03d}.txt",
             f"content for file {i} - benchmark rolling state test (after checkpoint)",
         )
@@ -139,8 +139,8 @@ def benchmark_rolling_state():
     do_sync_time = do_sync_time_phase1 + do_sync_time_phase2
 
     # Verify checkpoint and rolling state were created
-    checkpoint = do.connection_router.get_latest_checkpoint()
-    rolling_state = do.connection_router.get_rolling_state()
+    checkpoint = do._connection_router.get_latest_checkpoint()
+    rolling_state = do._connection_router.get_rolling_state()
 
     print(f"\nState after {total_events} events:")
     print(f"  Checkpoint exists: {checkpoint is not None}")
@@ -165,7 +165,7 @@ def benchmark_rolling_state():
     print("SIMULATING FRESH LOGIN")
     print("-" * 60)
 
-    _, fresh_do = SyftboxManager.pair_with_google_drive_testing_connection(
+    _, fresh_do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,

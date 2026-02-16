@@ -35,7 +35,7 @@ def benchmark():
     os.environ["PRE_SYNC"] = "false"
 
     # Clean start
-    ds, do = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds, do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -47,7 +47,7 @@ def benchmark():
     do.delete_syftbox()
 
     # Fresh managers
-    ds, do = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds, do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
