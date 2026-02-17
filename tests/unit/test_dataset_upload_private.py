@@ -1,4 +1,6 @@
+from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.sync.syftbox_manager import SyftboxManager
+from syft_datasets.dataset_manager import PRIVATE_DATASET_COLLECTION_PREFIX
 from tests.unit.utils import create_tmp_dataset_files
 
 
@@ -117,3 +119,51 @@ class TestDatasetUploadPrivate:
             do_manager._connection_router.list_dataset_collections_as_do()
         )
         assert "testdataset" in mock_collections
+
+    def test_ds_cannot_find_private_folders_via_gdrive_query(self):
+        """DS searching GDrive directly for private collection prefix should find nothing."""
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+            use_in_memory_cache=False,
+        )
+
+        mock_path, private_path, readme_path = create_tmp_dataset_files()
+
+        do_manager.create_dataset(
+            name="testdataset",
+            mock_path=mock_path,
+            private_path=private_path,
+            summary="Test dataset",
+            readme_path=readme_path,
+            users=[ds_manager.email],
+            upload_private=True,
+        )
+
+        # Get the DS's raw GDrive connection and search for private folders
+        ds_connection: GDriveConnection = ds_manager._connection_router.connections[0]
+        results = (
+            ds_connection.drive_service.files()
+            .list(
+                q=(
+                    f"name contains '{PRIVATE_DATASET_COLLECTION_PREFIX}_' "
+                    f"and trashed=false"
+                ),
+                fields="files(id,name)",
+            )
+            .execute()
+        )
+        assert len(results.get("files", [])) == 0
+
+        # DO should find it with the same query
+        do_connection: GDriveConnection = do_manager._connection_router.connections[0]
+        do_results = (
+            do_connection.drive_service.files()
+            .list(
+                q=(
+                    f"name contains '{PRIVATE_DATASET_COLLECTION_PREFIX}_' "
+                    f"and trashed=false"
+                ),
+                fields="files(id,name)",
+            )
+            .execute()
+        )
+        assert len(do_results.get("files", [])) == 1
