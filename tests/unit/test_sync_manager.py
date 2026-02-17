@@ -27,14 +27,14 @@ def test_sync_to_syftbox_eventlog():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
     file_path = f"{do_manager.email}/my.job"
 
-    events_in_backing_platform = do_manager.get_all_accepted_events_do()
+    events_in_backing_platform = do_manager._get_all_accepted_events_do()
     assert len(events_in_backing_platform) == 0
 
-    ds_manager.send_file_change(file_path, "Hello, world!")
+    ds_manager._send_file_change(file_path, "Hello, world!")
     do_manager.sync()
 
     # second event is present
-    events_in_backing_platform = do_manager.get_all_accepted_events_do()
+    events_in_backing_platform = do_manager._get_all_accepted_events_do()
     assert len(events_in_backing_platform) > 0
 
 
@@ -112,7 +112,7 @@ def test_valid_and_invalid_proposed_filechange_event():
 def test_sync_back_to_ds_cache():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
     file_path = f"{do_manager.email}/test.job"
-    ds_manager.send_file_change(file_path, "Hello, world!")
+    ds_manager._send_file_change(file_path, "Hello, world!")
 
     do_manager.sync()  # DO processes inbox and pushes to outbox
     ds_manager.sync()  # DS pulls from DO's outbox
@@ -132,8 +132,8 @@ def test_sync_existing_datasite_state_do():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
-    connection_ds = ds_manager.connection_router.connections[0]
-    connection_do = do_manager.connection_router.connections[0]
+    connection_ds = ds_manager._connection_router.connections[0]
+    connection_do = do_manager._connection_router.connections[0]
     events_messages = get_mock_events_messages(2)
 
     for message in events_messages:
@@ -167,7 +167,7 @@ def test_sync_existing_inbox_state_do():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
     )
-    connection_ds = ds_manager.connection_router.connections[0]
+    connection_ds = ds_manager._connection_router.connections[0]
 
     proposed_events_messages = get_mock_proposed_events_messages(
         2, email=ds_manager.email
@@ -197,7 +197,7 @@ def test_sync_existing_datasite_state_ds():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
-    connection_do = do_manager.connection_router.connections[0]
+    connection_do = do_manager._connection_router.connections[0]
     events_messages = get_mock_events_messages(2)
     for message in events_messages:
         connection_do.write_event_messages_to_outbox_do(ds_manager.email, message)
@@ -256,7 +256,7 @@ def test_file_connections():
     job_path = f"{do_manager.email}/test.job"
     job_path_in_datasite = job_path.split("/")[-1]
 
-    ds_manager.send_file_change(job_path, "Hello, world!")
+    ds_manager._send_file_change(job_path, "Hello, world!")
     do_manager.sync()
 
     assert (datasite_dir_do / job_path_in_datasite).exists()
@@ -294,7 +294,7 @@ def test_datasets():
     )
 
     # Verify collection created
-    collections = do_manager.connection_router.list_dataset_collections_as_do()
+    collections = do_manager._connection_router.list_dataset_collections_as_do()
     assert "my dataset" in collections
 
     datasets = do_manager.datasets.get_all()
@@ -309,7 +309,7 @@ def test_datasets():
     ds_manager.sync()
 
     # Verify DS can see collection
-    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
     assert any(c["tag"] == "my dataset" for c in ds_collections)
 
     assert len(ds_manager.datasets.get_all()) == 1
@@ -364,7 +364,7 @@ def test_datasets_with_parquet():
     assert len(datasets) == 1
 
     event_log_messages = (
-        do_manager.connection_router.get_all_accepted_event_file_ids_do()
+        do_manager._connection_router.get_all_accepted_event_file_ids_do()
     )
     # these should not be used for datasets
     assert len(event_log_messages) == 0
@@ -426,7 +426,7 @@ def test_dataset_empty_permissions_no_access():
     )
 
     # Verify collection created
-    collections = do_manager.connection_router.list_dataset_collections_as_do()
+    collections = do_manager._connection_router.list_dataset_collections_as_do()
     assert "private dataset" in collections
 
     # DO should be able to see their own dataset
@@ -437,7 +437,7 @@ def test_dataset_empty_permissions_no_access():
     ds_manager.sync()
 
     # DS should NOT see the collection (no permissions)
-    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
     assert not any(c["tag"] == "private dataset" for c in ds_collections)
 
     # DS should not have downloaded any datasets
@@ -465,7 +465,7 @@ def test_dataset_only_mock_data_uploaded():
     # Sync so DS receives the dataset
     ds_manager.sync()
 
-    files = ds_manager.connection_router.connections[
+    files = ds_manager._connection_router.connections[
         0
     ].drive_service._backing_store.files
     list(files.keys())
@@ -518,7 +518,7 @@ with open("outputs/result.json", "w") as f:
     # we do this by not always syncing on a file change, currently this logic is a bit of
     # a short cut, but we could do this based on timing eventually (if there are items in the
     # queue for longer than a certain time we start pushing)
-    connection_do = do_manager.connection_router.connections[0]
+    connection_do = do_manager._connection_router.connections[0]
     inbox_folder_id = connection_do._get_inbox_folder_id_as_do(ds_manager.email)
     inbox_file_metadatas = connection_do.get_file_metadatas_from_folder(inbox_folder_id)
     assert len(inbox_file_metadatas) == 1
@@ -1247,7 +1247,7 @@ def test_in_memory_deletion():
     job_path = f"{do_manager.email}/test.job"
     job_path_in_datasite = job_path.split("/")[-1]
 
-    ds_manager.send_file_change(job_path, "Hello, world!")
+    ds_manager._send_file_change(job_path, "Hello, world!")
     do_manager.sync()
 
     # Verify file exists in DO cache
@@ -1352,13 +1352,13 @@ def test_job_files_sync_to_submitter_only():
     # Process local changes with both recipients
     recipients = [submitter_email, non_submitter_email]
     recipient_connection = GDriveConnection.from_service(
-        submitter_email, ds_manager.connection_router.connections[0].drive_service
+        submitter_email, ds_manager._connection_router.connections[0].drive_service
     )
     recipient_connection.add_peer_as_ds(do_manager.email)
     do_manager.datasite_owner_syncer.process_local_changes(recipients)
 
     messages_for_non_submitter = (
-        ds_manager.connection_router.get_events_messages_for_datasite_watcher(
+        ds_manager._connection_router.get_events_messages_for_datasite_watcher(
             do_manager.email, None
         )
     )
@@ -1433,7 +1433,7 @@ def test_ds_dataset_cache_aware_sync():
     assert dataset.mock_files[0].exists()
 
     # Get the original hash from the collection
-    collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    collections = ds_manager._connection_router.list_dataset_collections_as_ds()
     remote_hash = None
     for c in collections:
         if c["tag"] == "cached dataset":
@@ -1442,7 +1442,7 @@ def test_ds_dataset_cache_aware_sync():
     assert remote_hash is not None
 
     # Get the mock backing store and directories for creating second pair
-    mock_backing_store = ds_manager.connection_router.connections[
+    mock_backing_store = ds_manager._connection_router.connections[
         0
     ].drive_service._backing_store
     ds_folder = ds_manager.syftbox_folder
@@ -1461,10 +1461,10 @@ def test_ds_dataset_cache_aware_sync():
     )
 
     # Replace mock backing store to share dataset collections
-    ds_manager2.connection_router.connections[
+    ds_manager2._connection_router.connections[
         0
     ].drive_service._backing_store = mock_backing_store
-    do_manager2.connection_router.connections[
+    do_manager2._connection_router.connections[
         0
     ].drive_service._backing_store = mock_backing_store
 
@@ -1538,7 +1538,7 @@ def test_do_dataset_cache_aware_sync():
     assert len(do_manager.datasets.get_all()) == 1
 
     # Get the mock backing store and directories for creating second pair
-    mock_backing_store = ds_manager.connection_router.connections[
+    mock_backing_store = ds_manager._connection_router.connections[
         0
     ].drive_service._backing_store
     ds_folder = ds_manager.syftbox_folder
@@ -1557,10 +1557,10 @@ def test_do_dataset_cache_aware_sync():
     )
 
     # Replace mock backing store to share dataset collections
-    ds_manager2.connection_router.connections[
+    ds_manager2._connection_router.connections[
         0
     ].drive_service._backing_store = mock_backing_store
-    do_manager2.connection_router.connections[
+    do_manager2._connection_router.connections[
         0
     ].drive_service._backing_store = mock_backing_store
 
@@ -1595,7 +1595,7 @@ def test_in_memory_connection_syncing():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
 
     # DS sends a file change to DO
-    ds_manager.send_file_change(f"{do_manager.email}/my.job", "Hello, world!")
+    ds_manager._send_file_change(f"{do_manager.email}/my.job", "Hello, world!")
 
     # DO should have events in cache after sync
     do_manager.datasite_owner_syncer.sync(peer_emails=[ds_manager.email])
@@ -1629,19 +1629,19 @@ def test_in_memory_connection_load_state():
     )
 
     # Get the backing store that will persist across "restarts"
-    backing_store = do_manager1.connection_router.connections[
+    backing_store = do_manager1._connection_router.connections[
         0
     ].drive_service._backing_store
     ds_folder = ds_manager1.syftbox_folder
     do_folder = do_manager1.syftbox_folder
     ds_email = ds_manager1.email
     do_email = do_manager1.email
-    ds_manager1.connection_router.connections[0]
-    do_manager1.connection_router.connections[0]
+    ds_manager1._connection_router.connections[0]
+    do_manager1._connection_router.connections[0]
 
     # Make some changes
-    ds_manager1.send_file_change(f"{do_email}/my.job", "Hello, world!")
-    ds_manager1.send_file_change(f"{do_email}/my_second.job", "Hello, world!")
+    ds_manager1._send_file_change(f"{do_email}/my.job", "Hello, world!")
+    ds_manager1._send_file_change(f"{do_email}/my_second.job", "Hello, world!")
 
     # Create a dataset with "any" permission
     mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
@@ -1656,7 +1656,7 @@ def test_in_memory_connection_load_state():
     )
 
     # Verify dataset was created and cache populated
-    assert len(do_manager1.connection_router.list_dataset_collections_as_do()) == 1
+    assert len(do_manager1._connection_router.list_dataset_collections_as_do()) == 1
     assert len(do_manager1.datasite_owner_syncer._any_shared_datasets) == 1
 
     # Create second pair (simulates restart, tests loading peers and processing inbox)
@@ -1687,8 +1687,8 @@ def test_in_memory_connection_load_state():
     service_ds = mock_drive_service.MockDriveService(backing_store, ds_email)
     ds_connection2 = GDriveConnection.from_service(ds_email, service_ds)
 
-    do_manager2.add_connection(do_connection2)
-    ds_manager2.add_connection(ds_connection2)
+    do_manager2._add_connection(do_connection2)
+    ds_manager2._add_connection(ds_connection2)
 
     # Load peers
     do_manager2.load_peers()
@@ -1746,7 +1746,7 @@ def test_datasets_shared_with_any():
     )
 
     # DS should NOT see the dataset yet (not approved)
-    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
     assert not any(c["tag"] == "any dataset" for c in ds_collections)
 
     # DS adds peer, DO approves (this should share 'any' datasets)
@@ -1755,7 +1755,7 @@ def test_datasets_shared_with_any():
     do_manager.approve_peer_request(ds_manager.email, peer_must_exist=False)
 
     # DS should now see the dataset
-    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
     assert any(c["tag"] == "any dataset" for c in ds_collections)
 
 

@@ -17,7 +17,7 @@ def test_pagination_and_early_termination():
     """Test pagination with small page size and early termination with since_timestamp"""
     from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
+    manager_ds, manager_do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -26,7 +26,7 @@ def test_pagination_and_early_termination():
 
     # Send 2 initial file changes
     for i in range(2):
-        manager_ds.send_file_change(f"{EMAIL_DO}/job_{i}.job", f"Job {i}")
+        manager_ds._send_file_change(f"{EMAIL_DO}/job_{i}.job", f"Job {i}")
         sleep(0.3)
 
     sleep(1)
@@ -54,7 +54,7 @@ def test_pagination_and_early_termination():
 
     # Send 2 more file changes
     for i in range(2, 4):
-        manager_ds.send_file_change(f"{EMAIL_DO}/job_{i}.job", f"Job {i}")
+        manager_ds._send_file_change(f"{EMAIL_DO}/job_{i}.job", f"Job {i}")
         sleep(0.5)
 
     sleep(2)

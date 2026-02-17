@@ -480,7 +480,7 @@ class SyftboxManager(BaseModel):
         return manager
 
     @classmethod
-    def pair_with_google_drive_testing_connection(
+    def _pair_with_google_drive_testing_connection(
         cls,
         do_email: str,
         ds_email: str,
@@ -556,14 +556,14 @@ class SyftboxManager(BaseModel):
             sender_manager.load_peers()
 
         if clear_caches:
-            receiver_manager.clear_caches()
-            sender_manager.clear_caches()
+            receiver_manager._clear_caches()
+            sender_manager._clear_caches()
 
         # create inbox folder
         return sender_manager, receiver_manager
 
     @classmethod
-    def pair_with_in_memory_connection(
+    def _pair_with_in_memory_connection(
         cls,
         email1: str | None = None,
         email2: str | None = None,
@@ -612,7 +612,7 @@ class SyftboxManager(BaseModel):
             receiver_function=receiver_receive_function,
             owner_email=ds_manager.email,
         )
-        ds_manager.add_connection(sender_in_memory_connection)
+        ds_manager._add_connection(sender_in_memory_connection)
 
         # this make sure we can do communication the other way, it also makes sure we have a fake backing store for the receiver
         # so we can store events in memory
@@ -629,7 +629,7 @@ class SyftboxManager(BaseModel):
             backing_store=sender_backing_store,
             owner_email=do_manager.email,
         )
-        do_manager.add_connection(receiver_connection)
+        do_manager._add_connection(receiver_connection)
 
         # Write version files after connections are set up
         ds_manager.version_manager.write_own_version()
@@ -712,9 +712,9 @@ class SyftboxManager(BaseModel):
         )
 
         # Add connections to managers
-        do_manager.add_connection(do_connection)
+        do_manager._add_connection(do_connection)
 
-        ds_manager.add_connection(ds_connection)
+        ds_manager._add_connection(ds_connection)
 
         # Set up callbacks for DS -> DO communication
         ds_manager.file_writer.add_callback(
@@ -816,7 +816,7 @@ class SyftboxManager(BaseModel):
         """Load peers from connection router. Delegates to VersionManager."""
         cast(VersionManager, self.version_manager).load_peers()
 
-    def check_peer_request_exists(self, email: str) -> bool:
+    def _check_peer_request_exists(self, email: str) -> bool:
         """Check if a peer request exists. Delegates to VersionManager."""
         return self.version_manager.check_peer_request_exists(email)
 
@@ -934,7 +934,7 @@ class SyftboxManager(BaseModel):
         if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
 
-    def add_connection(self, connection: SyftboxPlatformConnection):
+    def _add_connection(self, connection: SyftboxPlatformConnection):
         # all connection routers are pointers to the same object for in memory setup
         if not isinstance(connection, InMemoryPlatformConnection) and not (
             isinstance(connection, GDriveConnection)
@@ -957,10 +957,10 @@ class SyftboxManager(BaseModel):
         # Add connection to version manager's router
         self.version_manager.connection_router.add_connection(connection)
 
-    def send_file_change(self, path: str | Path, content: str):
+    def _send_file_change(self, path: str | Path, content: str):
         self.file_writer.write_file(path, content)
 
-    def get_all_accepted_events_do(self) -> List[FileChangeEvent]:
+    def _get_all_accepted_events_do(self) -> List[FileChangeEvent]:
         return self.datasite_owner_syncer.connection_router.get_all_accepted_events_messages_do()
 
     def create_dataset(
@@ -1013,12 +1013,14 @@ class SyftboxManager(BaseModel):
         content_hash = DatasetCollectionFolder.compute_hash(files)
 
         # Create collection folder with hash in name
-        self.connection_router.create_dataset_collection_folder(
+        self._connection_router.create_dataset_collection_folder(
             tag=collection_tag, content_hash=content_hash, owner_email=self.email
         )
 
         # Upload files
-        self.connection_router.upload_dataset_files(collection_tag, content_hash, files)
+        self._connection_router.upload_dataset_files(
+            collection_tag, content_hash, files
+        )
 
         # Share with users
         if users == "any":
@@ -1086,9 +1088,7 @@ class SyftboxManager(BaseModel):
         # Share collection
         if users == "any":
             self.connection_router.tag_dataset_collection_as_any(tag, content_hash)
-            self.datasite_owner_syncer._any_shared_datasets.append(
-                (tag, content_hash)
-            )
+            self.datasite_owner_syncer._any_shared_datasets.append((tag, content_hash))
             peer_emails = [p.email for p in self.version_manager.approved_peers]
             if peer_emails:
                 self.connection_router.share_dataset_collection(
@@ -1120,14 +1120,14 @@ class SyftboxManager(BaseModel):
         return self.dataset_manager
 
     @property
-    def connection_router(self) -> ConnectionRouter:
+    def _connection_router(self) -> ConnectionRouter:
         # for DOs we have a syncer, for DSs we have a watcher syncer
         if self.datasite_owner_syncer is not None:
             return self.datasite_owner_syncer.connection_router
         else:
             return self.datasite_watcher_syncer.connection_router
 
-    def clear_caches(self):
+    def _clear_caches(self):
         if self.datasite_owner_syncer is not None:
             self.datasite_owner_syncer.event_cache.clear_cache()
         if self.datasite_watcher_syncer is not None:
@@ -1144,16 +1144,16 @@ class SyftboxManager(BaseModel):
         2. Find message files by name pattern (catches orphaned files from any location)
         """
         # Get files by folder hierarchy
-        folder_file_ids = set(self.connection_router.gather_all_file_and_folder_ids())
+        folder_file_ids = set(self._connection_router.gather_all_file_and_folder_ids())
 
         # Also find message files by name pattern (catches orphaned files)
-        orphaned_file_ids = set(self.connection_router.find_orphaned_message_files())
+        orphaned_file_ids = set(self._connection_router.find_orphaned_message_files())
 
         # Combine both sets
         all_file_ids = list(folder_file_ids | orphaned_file_ids)
 
         start = time.time()
-        self.connection_router.delete_multiple_files_by_ids(all_file_ids)
+        self._connection_router.delete_multiple_files_by_ids(all_file_ids)
         end = time.time()
         if verbose:
             orphan_count = len(orphaned_file_ids - folder_file_ids)
@@ -1165,7 +1165,7 @@ class SyftboxManager(BaseModel):
                 print(f" (including {orphan_count} orphaned)")
             else:
                 print()
-        self.connection_router.reset_caches()
+        self._connection_router.reset_caches()
 
     # =========================================================================
     # CHECKPOINT METHODS
@@ -1227,7 +1227,7 @@ class SyftboxManager(BaseModel):
         )
         return list(all_platforms)
 
-    def resolve_path(self, path: str | Path) -> Path:
+    def _resolve_path(self, path: str | Path) -> Path:
         return resolve_path(path, syftbox_folder=self.syftbox_folder)
 
     def _resolve_dataset_owners_for_name(self, dataset_name: str) -> str | None:
@@ -1237,21 +1237,21 @@ class SyftboxManager(BaseModel):
                 matches.append(dataset.owner)
         return matches
 
-    def copy(self):
+    def _copy(self):
         from copy import deepcopy
 
         new_config = deepcopy(self.config)
         new_manager = SyftboxManager.from_config(new_config)
-        if not isinstance(self.connection_router.connections[0], GDriveConnection):
+        if not isinstance(self._connection_router.connections[0], GDriveConnection):
             raise ValueError("Only GDriveConnections can be copied")
         if isinstance(
-            self.connection_router.connections[0].drive_service,
+            self._connection_router.connections[0].drive_service,
             mock_drive_service.MockDriveService,
         ):
             # Create new connection pointing to the same backing store
-            drive_service = self.connection_router.connections[0].drive_service
+            drive_service = self._connection_router.connections[0].drive_service
             new_do_connection = GDriveConnection.from_service(self.email, drive_service)
-            new_manager.add_connection(new_do_connection)
+            new_manager._add_connection(new_do_connection)
         return new_manager
 
     # def resolve_dataset_path(

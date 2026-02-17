@@ -46,7 +46,7 @@ token_path_ds = CREDENTIALS_DIR / FILE_DS
 @pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_google_drive_connection_syncing():
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
+    manager_ds, manager_do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -56,7 +56,7 @@ def test_google_drive_connection_syncing():
     # this calls connection.send_propose_file_change_message via callbacks
     sleep(1)
     start_time = time.time()
-    manager_ds.send_file_change(f"{EMAIL_DO}/my.job", "Hello, world!")
+    manager_ds._send_file_change(f"{EMAIL_DO}/my.job", "Hello, world!")
     end_time_sending = time.time()
     print(f"Time taken to send message: {end_time_sending - start_time} seconds")
 
@@ -80,7 +80,7 @@ def test_google_drive_connection_syncing():
 @pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_google_drive_files():
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
+    manager_ds, manager_do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -101,7 +101,7 @@ def test_google_drive_files():
     job_path = "test.job"
     job_send_path = f"{EMAIL_DO}/{job_path}"
 
-    manager_ds.send_file_change(job_send_path, "This is a job")
+    manager_ds._send_file_change(job_send_path, "This is a job")
     sleep(1)
 
     manager_do.sync()
@@ -125,7 +125,7 @@ def test_google_drive_files():
 @pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_datasets():
-    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds_manager, do_manager = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -175,7 +175,7 @@ def test_datasets():
 def test_datasets_shared_with_any():
     """Test that datasets shared with 'any' become discoverable after peer approval."""
     # Create managers WITHOUT auto peer setup
-    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds_manager, do_manager = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -198,7 +198,7 @@ def test_datasets_shared_with_any():
     )
 
     # DS should NOT see the dataset yet (not approved)
-    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
     assert not any(c["tag"] == "any dataset" for c in ds_collections)
 
     # DS adds peer, DO approves (this should share 'any' datasets)
@@ -209,14 +209,14 @@ def test_datasets_shared_with_any():
     # DS should now see the dataset
     # Google Drive search index takes time to propagate permission changes
     time.sleep(5)
-    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
     assert any(c["tag"] == "any dataset" for c in ds_collections)
 
 
 @pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_jobs():
-    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds_manager, do_manager = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -262,7 +262,7 @@ with open("outputs/result.json", "w") as f:
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_file_deletion_do_to_ds():
     """Test that DO can delete a file and it syncs to DS"""
-    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds_manager, do_manager = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -324,18 +324,20 @@ def test_google_drive_connection_load_state():
     # create the state
 
     # load the clients and add the peers
-    manager_ds1, manager_do1 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=True,
-        load_peers=False,
+    manager_ds1, manager_do1 = (
+        SyftboxManager._pair_with_google_drive_testing_connection(
+            do_email=EMAIL_DO,
+            ds_email=EMAIL_DS,
+            do_token_path=token_path_do,
+            ds_token_path=token_path_ds,
+            add_peers=True,
+            load_peers=False,
+        )
     )
 
     # make some changes
-    manager_ds1.send_file_change(f"{EMAIL_DO}/my.job", "Hello, world!")
-    manager_ds1.send_file_change(f"{EMAIL_DO}/my_second.job", "Hello, world!")
+    manager_ds1._send_file_change(f"{EMAIL_DO}/my.job", "Hello, world!")
+    manager_ds1._send_file_change(f"{EMAIL_DO}/my_second.job", "Hello, world!")
 
     # create a dataset with "any" permission to test loading and cache
     mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
@@ -354,13 +356,15 @@ def test_google_drive_connection_load_state():
     assert len(manager_do1.datasite_owner_syncer._any_shared_datasets) == 1
 
     # test loading the peers and loading the inbox
-    manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-        load_peers=False,
+    manager_ds2, manager_do2 = (
+        SyftboxManager._pair_with_google_drive_testing_connection(
+            do_email=EMAIL_DO,
+            ds_email=EMAIL_DS,
+            do_token_path=token_path_do,
+            ds_token_path=token_path_ds,
+            add_peers=False,
+            load_peers=False,
+        )
     )
 
     manager_do2.load_peers()
@@ -376,13 +380,15 @@ def test_google_drive_connection_load_state():
 
     # we have created some state now, so now we can log in again and load the state
     # use a fresh syftbox folder to simulate clean filesystem
-    manager_ds3, manager_do3 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-        load_peers=True,
+    manager_ds3, manager_do3 = (
+        SyftboxManager._pair_with_google_drive_testing_connection(
+            do_email=EMAIL_DO,
+            ds_email=EMAIL_DS,
+            do_token_path=token_path_do,
+            ds_token_path=token_path_ds,
+            add_peers=False,
+            load_peers=True,
+        )
     )
 
     manager_do3.sync()
@@ -421,7 +427,7 @@ def test_version_upgrade_breaks_communication():
     from syft_client.sync.version.version_info import VersionInfo
 
     # Phase 1: Create managers with compatible versions
-    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds_manager, do_manager = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -445,7 +451,7 @@ def test_version_upgrade_breaks_communication():
     )
 
     # Phase 2: Simulate DS "upgrading" to a new incompatible version
-    ds_connection = ds_manager.connection_router.connections[0]
+    ds_connection = ds_manager._connection_router.connections[0]
 
     current = VersionInfo.current()
     new_version = VersionInfo(

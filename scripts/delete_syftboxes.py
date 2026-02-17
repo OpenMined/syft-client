@@ -23,7 +23,7 @@ if not tokens_exist:
         as token_do.json and token_ds.json. Also set the environment variables BEACH_EMAIL_DO and BEACH_EMAIL_DS to the email addresses of the DO and DS."""
     )
 
-manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
+manager_ds, manager_do = SyftboxManager._pair_with_google_drive_testing_connection(
     do_email=EMAIL_DO,
     ds_email=EMAIL_DS,
     do_token_path=token_path_do,
