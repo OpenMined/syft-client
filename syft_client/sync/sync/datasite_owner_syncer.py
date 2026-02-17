@@ -224,6 +224,9 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         # Load datasets from connection and populate _any_shared_datasets cache
         self._pull_datasets_for_initial_sync()
 
+        # Restore private datasets from GDrive (owner-only collections)
+        self._pull_private_datasets_for_initial_sync()
+
         self.initial_sync_done = True
 
     def _apply_incremental_checkpoint_to_cache(
@@ -347,6 +350,110 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         """Download a file using a new connection for thread safety."""
         connection = self.connection_router.connection_for_parallel_download()
         return connection.download_dataset_file(file_id)
+
+    # =========================================================================
+    # PRIVATE DATASET RESTORE METHODS
+    # =========================================================================
+
+    def _pull_private_datasets_for_initial_sync(self):
+        """Restore private datasets from GDrive when DO reconnects.
+
+        Downloads private data from owner-only collection folders
+        to {syftbox_folder}/private/syft_datasets/{tag}/.
+        """
+        if self.syftbox_folder is None:
+            return
+
+        collections = self.connection_router.list_private_dataset_collections_as_do()
+        if not collections:
+            return
+
+        collections_to_download = self._filter_private_collections_needing_download(
+            collections
+        )
+        self._download_private_collections_parallel(collections_to_download)
+
+    def _filter_private_collections_needing_download(
+        self, collections: list[FileCollection]
+    ) -> list[FileCollection]:
+        """Return private collections that don't exist locally yet."""
+        result = []
+        for collection in collections:
+            local_dir = (
+                self.syftbox_folder / "private" / "syft_datasets" / collection.tag
+            )
+            if not local_dir.exists() or not any(local_dir.iterdir()):
+                result.append(collection)
+        return result
+
+    def _download_private_collections_parallel(self, collections: list[FileCollection]):
+        """Download private collection files in parallel and write to disk."""
+        if not collections:
+            return
+
+        all_file_metadatas = list(
+            self._executor.map(
+                self._get_private_file_metadatas_with_new_connection, collections
+            )
+        )
+
+        all_downloads = [
+            (collection, metadata)
+            for collection, file_metadatas in zip(collections, all_file_metadatas)
+            for metadata in file_metadatas
+        ]
+
+        if not all_downloads:
+            return
+
+        file_ids = [metadata["file_id"] for _, metadata in all_downloads]
+        downloaded_contents = list(
+            self._executor.map(self._download_file_with_new_connection, file_ids)
+        )
+
+        for (collection, metadata), content in zip(all_downloads, downloaded_contents):
+            local_dir = (
+                self.syftbox_folder / "private" / "syft_datasets" / collection.tag
+            )
+            local_dir.mkdir(parents=True, exist_ok=True)
+            (local_dir / metadata["file_name"]).write_bytes(content)
+
+        # Fix data_dir in private_metadata.yaml to point to current local path
+        for collection in collections:
+            self._fix_private_metadata_data_dir(collection.tag)
+
+    def _get_private_file_metadatas_with_new_connection(
+        self, collection: FileCollection
+    ) -> list:
+        """Get file metadatas for a private collection using a new connection."""
+        connection = self.connection_router.connection_for_parallel_download()
+        return connection.get_private_collection_file_metadatas(
+            tag=collection.tag,
+            content_hash=collection.content_hash,
+            owner_email=self.email,
+        )
+
+    def _fix_private_metadata_data_dir(self, dataset_tag: str):
+        """Update data_dir in private_metadata.yaml to match the current syftbox path."""
+        metadata_path = (
+            self.syftbox_folder
+            / "private"
+            / "syft_datasets"
+            / dataset_tag
+            / "private_metadata.yaml"
+        )
+        if not metadata_path.exists():
+            return
+
+        import yaml
+
+        data = yaml.safe_load(metadata_path.read_text())
+        expected_dir = str(
+            self.syftbox_folder / "private" / "syft_datasets" / dataset_tag
+        )
+        if data.get("data_dir") != expected_dir:
+            data["data_dir"] = expected_dir
+            metadata_path.write_text(yaml.safe_dump(data, indent=2, sort_keys=False))
 
     def _is_job_path(self, path: Path) -> bool:
         """Check if path is under app_data/job/. This is a hack which will be removed after permissions are implemented."""

@@ -871,7 +871,12 @@ class SyftboxManager(BaseModel):
         return self.datasite_owner_syncer.connection_router.get_all_accepted_events_messages_do()
 
     def create_dataset(
-        self, *args, users: list[str] | str | None = None, sync=True, **kwargs
+        self,
+        *args,
+        users: list[str] | str | None = None,
+        upload_private: bool = False,
+        sync=True,
+        **kwargs,
     ):
         if self.dataset_manager is None:
             raise ValueError("Dataset manager is not set")
@@ -887,8 +892,12 @@ class SyftboxManager(BaseModel):
         # Create dataset locally
         dataset = self.dataset_manager.create(*args, users=users, **kwargs)
 
-        # Upload to collection folder
+        # Upload mock data to collection folder
         self._upload_dataset_to_collection(dataset, users)
+
+        # Upload private data to a separate owner-only collection
+        if upload_private:
+            self._upload_private_dataset_to_collection(dataset)
 
         if sync:
             self.sync()
@@ -947,6 +956,39 @@ class SyftboxManager(BaseModel):
             self._connection_router.share_dataset_collection(
                 collection_tag, content_hash, users
             )
+
+    def _upload_private_dataset_to_collection(self, dataset):
+        """Upload private dataset files to a separate owner-only collection folder."""
+        from syft_client.sync.connections.drive.gdrive_transport import (
+            PrivateDatasetCollectionFolder,
+        )
+
+        collection_tag = dataset.name
+
+        # Collect private files + private_metadata.yaml
+        files = {}
+        for private_file in dataset.private_files:
+            if private_file.exists():
+                files[private_file.name] = private_file.read_bytes()
+
+        private_config_path = dataset.private_config_path
+        if private_config_path.exists():
+            files["private_metadata.yaml"] = private_config_path.read_bytes()
+
+        if not files:
+            return
+
+        content_hash = PrivateDatasetCollectionFolder.compute_hash(files)
+
+        # Create private collection folder (no sharing)
+        self._connection_router.create_private_dataset_collection_folder(
+            tag=collection_tag, content_hash=content_hash, owner_email=self.email
+        )
+
+        # Upload files
+        self._connection_router.upload_private_dataset_files(
+            collection_tag, content_hash, files
+        )
 
     def delete_dataset(self, *args, sync=True, **kwargs):
         if self.dataset_manager is None:
