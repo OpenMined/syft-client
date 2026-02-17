@@ -1,5 +1,6 @@
 from pathlib import Path
 import copy
+import shutil
 import warnings
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.utils import resolve_path
@@ -1041,21 +1042,21 @@ class SyftboxManager(BaseModel):
 
     def delete_syftbox(self, verbose: bool = True):
         """
-        Delete the SyftBox folder and all its contents, including orphaned files.
+        Delete all SyftBox state: Google Drive files, local caches, and local folder.
 
         Due to Google Drive's eventual consistency, files can become orphaned when
         their parent folder is deleted before they're fully registered. We use two
         strategies to ensure complete cleanup:
         1. Gather all files by traversing the SyftBox folder hierarchy
-        2. Find message files by name pattern (catches orphaned files from any location)
+        2. Find files by name pattern (catches orphaned files from any location)
         """
         # Get files by folder hierarchy
         folder_file_ids = set(self._connection_router.gather_all_file_and_folder_ids())
 
-        # Also find message files by name pattern (catches orphaned files)
+        # Also find syft files by name pattern (catches orphaned files)
         orphaned_file_ids = set(self._connection_router.find_orphaned_message_files())
 
-        # Combine both sets
+        # Combine both sets and delete from Google Drive
         all_file_ids = list(folder_file_ids | orphaned_file_ids)
 
         start = time.time()
@@ -1071,7 +1072,26 @@ class SyftboxManager(BaseModel):
                 print(f" (including {orphan_count} orphaned)")
             else:
                 print()
+
+        # Clear in-memory caches and filesystem cache contents
+        self._clear_caches()
         self._connection_router.reset_caches()
+
+        # Delete local filesystem cache directories
+        self._delete_local_cache_dirs()
+
+    def _delete_local_cache_dirs(self):
+        """Delete local cache directories that live alongside the syftbox folder."""
+        syftbox_name = self.syftbox_folder.name
+        syftbox_parent = self.syftbox_folder.parent
+
+        cache_dirs = [
+            syftbox_parent / f"{syftbox_name}-events",  # DO event cache
+            syftbox_parent / f"{syftbox_name}-event-messages",  # DS event cache
+        ]
+        for cache_dir in cache_dirs:
+            if cache_dir.exists():
+                shutil.rmtree(cache_dir)
 
     # =========================================================================
     # CHECKPOINT METHODS
