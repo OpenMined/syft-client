@@ -2,9 +2,6 @@ FROM python:3.12-slim
 
 RUN pip install uv
 
-# Create non-root user
-RUN groupadd -r syft && useradd -r -g syft -m syft
-
 # Install syft-client from PyPI and attestation server deps
 COPY docker/requirements.txt /tmp/requirements.txt
 RUN uv venv /opt/venv && \
@@ -20,10 +17,10 @@ COPY docker/attestation_server.py .
 COPY docker/entrypoint.sh .
 RUN chmod +x entrypoint.sh
 
-# Switch to non-root user
-USER syft
-
 # Confidential Spaces expects port 8080
+# Note: runs as root because the TEE attestation socket
+# at /run/container_launcher/teeserver.sock is root-owned.
+# In a TEE, security comes from hardware isolation, not container user permissions.
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
