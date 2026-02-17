@@ -271,6 +271,32 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_datasite_watcher()
         return connection.download_dataset_collection(tag, content_hash, owner_email)
 
+    def create_private_dataset_collection_folder(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> str:
+        connection = self.connection_for_send_message()
+        return connection.create_private_dataset_collection_folder(
+            tag, content_hash, owner_email
+        )
+
+    def upload_private_dataset_files(
+        self, tag: str, content_hash: str, files: dict[str, bytes]
+    ) -> None:
+        connection = self.connection_for_send_message()
+        connection.upload_private_dataset_files(tag, content_hash, files)
+
+    def list_private_dataset_collections_as_do(self) -> list[FileCollection]:
+        connection = self.connection_for_send_message()
+        return connection.list_private_dataset_collections_as_do()
+
+    def get_private_collection_file_metadatas(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> List[dict]:
+        connection = self.connection_for_datasite_watcher()
+        return connection.get_private_collection_file_metadatas(
+            tag, content_hash, owner_email
+        )
+
     def connection_for_version_read(
         self, create_new: bool = False
     ) -> SyftboxPlatformConnection:

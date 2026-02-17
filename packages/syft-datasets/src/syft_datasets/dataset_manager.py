@@ -16,6 +16,7 @@ from .config import SyftBoxConfig
 FOLDER_NAME = "syft_datasets"
 METADATA_FILENAME = "dataset.yaml"
 DATASET_COLLECTION_PREFIX = "syft_datasetcollection"
+PRIVATE_DATASET_COLLECTION_PREFIX = "syft_privatecollection"
 SHARE_WITH_ANY = "any"
 
 

@@ -1,0 +1,119 @@
+from syft_client.sync.syftbox_manager import SyftboxManager
+from tests.unit.utils import create_tmp_dataset_files
+
+
+class TestDatasetUploadPrivate:
+    def test_ds_cannot_see_private_data(self):
+        """When DO creates a dataset with upload_private=True,
+        DS should see mock data but NOT private data."""
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+            use_in_memory_cache=False,
+        )
+
+        mock_path, private_path, readme_path = create_tmp_dataset_files()
+
+        do_manager.create_dataset(
+            name="testdataset",
+            mock_path=mock_path,
+            private_path=private_path,
+            summary="Test dataset",
+            readme_path=readme_path,
+            users=[ds_manager.email],
+            upload_private=True,
+        )
+
+        # DS syncs
+        ds_manager.sync()
+
+        # DS should see the mock dataset
+        ds_datasets = ds_manager.datasets.get_all()
+        assert len(ds_datasets) == 1
+
+        dataset = ds_manager.datasets.get("testdataset", datasite=do_manager.email)
+        assert dataset is not None
+        assert len(dataset.mock_files) > 0
+
+        # DS should NOT see any private collections via the connection
+        private_collections = (
+            ds_manager._connection_router.list_private_dataset_collections_as_do()
+        )
+        assert len(private_collections) == 0
+
+        # Verify private collection folder exists on GDrive (visible to DO)
+        do_private_collections = (
+            do_manager._connection_router.list_private_dataset_collections_as_do()
+        )
+        assert len(do_private_collections) == 1
+        assert do_private_collections[0].tag == "testdataset"
+
+    def test_do_cold_start_restores_private_data(self):
+        """When DO creates a dataset with upload_private=True, then loses local data,
+        a fresh sync should restore the private files."""
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+            use_in_memory_cache=False,
+        )
+
+        mock_path, private_path, readme_path = create_tmp_dataset_files()
+
+        do_manager.create_dataset(
+            name="testdataset",
+            mock_path=mock_path,
+            private_path=private_path,
+            summary="Test dataset",
+            readme_path=readme_path,
+            users=[ds_manager.email],
+            upload_private=True,
+        )
+
+        # Verify private data exists locally
+        private_dir = (
+            do_manager.syftbox_folder / "private" / "syft_datasets" / "testdataset"
+        )
+        assert private_dir.exists()
+        private_files_before = list(private_dir.iterdir())
+        assert len(private_files_before) > 0
+
+        # Simulate cold start: delete local private dir and reset sync state
+        import shutil
+
+        shutil.rmtree(private_dir)
+        assert not private_dir.exists()
+        do_manager.datasite_owner_syncer.initial_sync_done = False
+
+        # Sync again — should restore private data from GDrive
+        do_manager.sync()
+
+        # Private dir should be restored
+        assert private_dir.exists()
+        restored_files = {f.name for f in private_dir.iterdir()}
+        original_files = {f.name for f in private_files_before}
+        assert restored_files == original_files
+
+    def test_default_behavior_no_private_upload(self):
+        """When upload_private is not set, no private collection should be created."""
+        ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+            use_in_memory_cache=False,
+        )
+
+        mock_path, private_path, readme_path = create_tmp_dataset_files()
+
+        do_manager.create_dataset(
+            name="testdataset",
+            mock_path=mock_path,
+            private_path=private_path,
+            summary="Test dataset",
+            readme_path=readme_path,
+            users=[ds_manager.email],
+        )
+
+        # No private collection should exist
+        private_collections = (
+            do_manager._connection_router.list_private_dataset_collections_as_do()
+        )
+        assert len(private_collections) == 0
+
+        # Mock collection should still exist
+        mock_collections = (
+            do_manager._connection_router.list_dataset_collections_as_do()
+        )
+        assert "testdataset" in mock_collections

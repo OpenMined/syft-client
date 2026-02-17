@@ -29,7 +29,10 @@ from syft_client.sync.connections.base_connection import (
     FileCollection,
     SyftboxPlatformConnection,
 )
-from syft_datasets.dataset_manager import DATASET_COLLECTION_PREFIX
+from syft_datasets.dataset_manager import (
+    DATASET_COLLECTION_PREFIX,
+    PRIVATE_DATASET_COLLECTION_PREFIX,
+)
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessageFileName,
     FileChangeEventsMessage,
@@ -135,6 +138,33 @@ class DatasetCollectionFolder(BaseModel):
         # prefix is parts[0:2] joined = "syft_datasetcollection"
         # tag is parts[2:-1] joined (in case tag has underscores)
         # hash is parts[-1]
+        tag = "_".join(parts[2:-1])
+        content_hash = parts[-1]
+        return cls(tag=tag, content_hash=content_hash)
+
+    @staticmethod
+    def compute_hash(files: dict[str, bytes]) -> str:
+        """Compute a hash from file contents."""
+        from syft_client.sync.file_utils import compute_file_hashes
+
+        return compute_file_hashes(files)
+
+
+class PrivateDatasetCollectionFolder(BaseModel):
+    """Represents a private dataset collection folder with format: {prefix}_{tag}_{hash}"""
+
+    tag: str
+    content_hash: str
+
+    def as_string(self) -> str:
+        return f"{PRIVATE_DATASET_COLLECTION_PREFIX}_{self.tag}_{self.content_hash}"
+
+    @classmethod
+    def from_name(cls, name: str) -> "PrivateDatasetCollectionFolder":
+        """Parse folder name like 'syft_privatecollection_mytag_abc123'"""
+        parts = name.split("_")
+        if len(parts) < 3:
+            raise ValueError(f"Invalid private collection folder name: {name}")
         tag = "_".join(parts[2:-1])
         content_hash = parts[-1]
         return cls(tag=tag, content_hash=content_hash)
@@ -1376,6 +1406,112 @@ class GDriveConnection(SyftboxPlatformConnection):
         if not folder_id:
             raise ValueError(
                 f"Collection folder {tag} with hash {content_hash} not found"
+            )
+
+        self.dataset_collection_folder_id_cache[cache_key] = folder_id
+        return folder_id
+
+    # =========================================================================
+    # PRIVATE DATASET COLLECTION METHODS
+    # =========================================================================
+
+    def create_private_dataset_collection_folder(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> str:
+        """Create /SyftBox/{PRIVATE_DATASET_COLLECTION_PREFIX}_{tag}_{hash} folder.
+
+        No sharing is applied — only the owner can access this folder.
+        """
+        folder_obj = PrivateDatasetCollectionFolder(tag=tag, content_hash=content_hash)
+        folder_name = folder_obj.as_string()
+        cache_key = f"private_{tag}_{content_hash}"
+
+        if cache_key in self.dataset_collection_folder_id_cache:
+            return self.dataset_collection_folder_id_cache[cache_key]
+
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        folder_id = self._find_folder_by_name(folder_name, parent_id=syftbox_folder_id)
+        if folder_id:
+            self.dataset_collection_folder_id_cache[cache_key] = folder_id
+            return folder_id
+
+        folder_id = self.create_folder(folder_name, syftbox_folder_id)
+        self.dataset_collection_folder_id_cache[cache_key] = folder_id
+        return folder_id
+
+    def upload_private_dataset_files(
+        self, tag: str, content_hash: str, files: dict[str, bytes]
+    ) -> None:
+        """Upload files to a private dataset collection folder."""
+        folder_id = self._get_private_collection_folder_id(tag, content_hash)
+        for file_path, content in files.items():
+            file_payload, _ = self.create_file_payload(content)
+            file_name = Path(file_path).name
+            file_metadata = {"name": file_name, "parents": [folder_id]}
+            execute_with_retries(
+                self.drive_service.files().create(
+                    body=file_metadata, media_body=file_payload, fields="id"
+                )
+            )
+
+    def list_private_dataset_collections_as_do(self) -> list[FileCollection]:
+        """List private collections owned by DO."""
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        query = (
+            f"name contains '{PRIVATE_DATASET_COLLECTION_PREFIX}_' "
+            f"and '{syftbox_folder_id}' in parents "
+            f"and 'me' in owners and trashed=false "
+            f"and mimeType='{GOOGLE_FOLDER_MIME_TYPE}'"
+        )
+        results = execute_with_retries(
+            self.drive_service.files().list(q=query, fields="files(id,name)")
+        )
+
+        collections = []
+        for folder in results.get("files", []):
+            try:
+                folder_obj = PrivateDatasetCollectionFolder.from_name(folder["name"])
+                collections.append(
+                    FileCollection(
+                        folder_id=folder["id"],
+                        tag=folder_obj.tag,
+                        content_hash=folder_obj.content_hash,
+                    )
+                )
+            except ValueError:
+                continue
+        return collections
+
+    def get_private_collection_file_metadatas(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> List[Dict]:
+        """Get file metadata from a private dataset collection without downloading."""
+        folder_obj = PrivateDatasetCollectionFolder(tag=tag, content_hash=content_hash)
+        folder_name = folder_obj.as_string()
+        folder_id = self._find_folder_by_name(folder_name, owner_email=owner_email)
+
+        if not folder_id:
+            raise ValueError(
+                f"Private collection {tag} with hash {content_hash} not found"
+            )
+
+        file_metadatas = self.get_file_metadatas_from_folder(folder_id)
+        return [{"file_id": f["id"], "file_name": f["name"]} for f in file_metadatas]
+
+    def _get_private_collection_folder_id(self, tag: str, content_hash: str) -> str:
+        """Get folder ID for private dataset collection, with caching."""
+        cache_key = f"private_{tag}_{content_hash}"
+        if cache_key in self.dataset_collection_folder_id_cache:
+            return self.dataset_collection_folder_id_cache[cache_key]
+
+        folder_obj = PrivateDatasetCollectionFolder(tag=tag, content_hash=content_hash)
+        folder_name = folder_obj.as_string()
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        folder_id = self._find_folder_by_name(folder_name, parent_id=syftbox_folder_id)
+
+        if not folder_id:
+            raise ValueError(
+                f"Private collection folder {tag} with hash {content_hash} not found"
             )
 
         self.dataset_collection_folder_id_cache[cache_key] = folder_id
