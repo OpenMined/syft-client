@@ -235,8 +235,12 @@ class ConnectionRouter(BaseModel):
             tag, content_hash, owner_email
         )
 
+    def tag_dataset_collection_as_any(self, tag: str, content_hash: str) -> None:
+        connection = self.connection_for_send_message()
+        connection.tag_dataset_collection_as_any(tag, content_hash)
+
     def share_dataset_collection(
-        self, tag: str, content_hash: str, users: list[str] | str
+        self, tag: str, content_hash: str, users: list[str]
     ) -> None:
         connection = self.connection_for_send_message()
         connection.share_dataset_collection(tag, content_hash, users)

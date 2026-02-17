@@ -29,7 +29,7 @@ from syft_client.sync.connections.base_connection import (
     FileCollection,
     SyftboxPlatformConnection,
 )
-from syft_datasets.dataset_manager import SHARE_WITH_ANY, DATASET_COLLECTION_PREFIX
+from syft_datasets.dataset_manager import DATASET_COLLECTION_PREFIX
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessageFileName,
     FileChangeEventsMessage,
@@ -1168,34 +1168,52 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.dataset_collection_folder_id_cache[cache_key] = folder_id
         return folder_id
 
-    def share_dataset_collection(
-        self, tag: str, content_hash: str, users: list[str] | str
-    ) -> None:
-        """Share dataset collection folder with users."""
+    def tag_dataset_collection_as_any(self, tag: str, content_hash: str) -> None:
+        """Mark dataset collection as shared with 'any' via appProperties."""
         folder_id = self._get_dataset_collection_folder_id(tag, content_hash)
-
-        share_with_any = False
-        if isinstance(users, str):
-            if users == SHARE_WITH_ANY:
-                share_with_any = True
-            else:
-                users_list = [users]
-        else:
-            users_list = users
-
-        if share_with_any:
-            # Public access - anyone with link can view
-            permission = {"type": "anyone", "role": "reader"}
-            execute_with_retries(
-                self.drive_service.permissions().create(
-                    fileId=folder_id, body=permission, sendNotificationEmail=False
-                )
+        execute_with_retries(
+            self.drive_service.files().update(
+                fileId=folder_id,
+                body={"appProperties": {"syft_shared_with_any": "true"}},
             )
-        else:
-            # Share with specific users (only if list is not empty)
-            for user_email in users_list:
-                self.add_permission(folder_id, user_email, write=False)
-        # else: empty list means no sharing - do nothing
+        )
+
+    def share_dataset_collection(
+        self, tag: str, content_hash: str, users: list[str]
+    ) -> None:
+        """Share dataset collection folder with specific users via batch API."""
+        if not users:
+            return
+        folder_id = self._get_dataset_collection_folder_id(tag, content_hash)
+        self._batch_add_permissions(folder_id, users)
+
+    def _batch_add_permissions(self, file_id: str, users: list[str]) -> None:
+        """Add reader permissions for multiple users in a single batch request."""
+
+        def callback(request_id, response, exception):
+            if exception:
+                # Ignore "already shared" errors
+                if "alreadyShared" not in str(exception):
+                    raise exception
+
+        BATCH_SIZE = 100
+        for i in range(0, len(users), BATCH_SIZE):
+            chunk = users[i : i + BATCH_SIZE]
+            batch = self.drive_service.new_batch_http_request(callback=callback)
+            for user_email in chunk:
+                permission = {
+                    "type": "user",
+                    "role": "reader",
+                    "emailAddress": user_email,
+                }
+                batch.add(
+                    self.drive_service.permissions().create(
+                        fileId=file_id,
+                        body=permission,
+                        sendNotificationEmail=True,
+                    )
+                )
+            batch_execute_with_retries(batch)
 
     def upload_dataset_files(
         self, tag: str, content_hash: str, files: dict[str, bytes]
@@ -1245,7 +1263,9 @@ class GDriveConnection(SyftboxPlatformConnection):
             f"and 'me' in owners and trashed=false and mimeType='{GOOGLE_FOLDER_MIME_TYPE}'"
         )
         results = execute_with_retries(
-            self.drive_service.files().list(q=query, fields="files(id,name)")
+            self.drive_service.files().list(
+                q=query, fields="files(id,name,appProperties)"
+            )
         )
 
         collections = []
@@ -1253,14 +1273,9 @@ class GDriveConnection(SyftboxPlatformConnection):
             folder_id = folder["id"]
             try:
                 folder_obj = DatasetCollectionFolder.from_name(folder["name"])
-                # Check if folder has "anyone" permission
-                perms = execute_with_retries(
-                    self.drive_service.permissions().list(
-                        fileId=folder_id, fields="permissions(type)"
-                    )
-                )
-                has_anyone = any(
-                    p.get("type") == "anyone" for p in perms.get("permissions", [])
+                has_anyone = (
+                    folder.get("appProperties", {}).get("syft_shared_with_any")
+                    == "true"
                 )
                 collections.append(
                     FileCollection(
