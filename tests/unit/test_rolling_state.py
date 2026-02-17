@@ -19,7 +19,7 @@ from syft_client.sync.connections.inmemory_connection import (
 
 def test_upload_and_get_rolling_state():
     """Test uploading and retrieving rolling state from in-memory store."""
-    _, do_manager = SyftboxManager.pair_with_in_memory_connection()
+    _, do_manager = SyftboxManager._pair_with_in_memory_connection()
 
     # Create a rolling state
     rs = RollingState(
@@ -30,10 +30,10 @@ def test_upload_and_get_rolling_state():
     rs.add_event(event)
 
     # Upload
-    do_manager.connection_router.upload_rolling_state(rs)
+    do_manager._connection_router.upload_rolling_state(rs)
 
     # Retrieve
-    retrieved = do_manager.connection_router.get_rolling_state()
+    retrieved = do_manager._connection_router.get_rolling_state()
     assert retrieved is not None
     assert retrieved.email == rs.email
     assert retrieved.event_count == rs.event_count
@@ -41,70 +41,70 @@ def test_upload_and_get_rolling_state():
 
 def test_delete_rolling_state():
     """Test deleting rolling state from in-memory store."""
-    _, do_manager = SyftboxManager.pair_with_in_memory_connection()
+    _, do_manager = SyftboxManager._pair_with_in_memory_connection()
 
     # Create and upload a rolling state
     rs = RollingState(
         email=do_manager.email,
         base_checkpoint_timestamp=time.time(),
     )
-    do_manager.connection_router.upload_rolling_state(rs)
+    do_manager._connection_router.upload_rolling_state(rs)
 
     # Verify it exists
-    assert do_manager.connection_router.get_rolling_state() is not None
+    assert do_manager._connection_router.get_rolling_state() is not None
 
     # Delete
-    do_manager.connection_router.delete_rolling_state()
+    do_manager._connection_router.delete_rolling_state()
 
     # Verify it's gone
-    assert do_manager.connection_router.get_rolling_state() is None
+    assert do_manager._connection_router.get_rolling_state() is None
 
 
 def test_upload_replaces_existing_rolling_state():
     """Test that uploading rolling state replaces existing one."""
-    _, do_manager = SyftboxManager.pair_with_in_memory_connection()
+    _, do_manager = SyftboxManager._pair_with_in_memory_connection()
 
     # Create and upload first rolling state
     rs1 = RollingState(
         email=do_manager.email,
         base_checkpoint_timestamp=1000.0,
     )
-    do_manager.connection_router.upload_rolling_state(rs1)
+    do_manager._connection_router.upload_rolling_state(rs1)
 
     # Create and upload second rolling state
     rs2 = RollingState(
         email=do_manager.email,
         base_checkpoint_timestamp=2000.0,
     )
-    do_manager.connection_router.upload_rolling_state(rs2)
+    do_manager._connection_router.upload_rolling_state(rs2)
 
     # Verify only one exists and it's the second one
-    retrieved = do_manager.connection_router.get_rolling_state()
+    retrieved = do_manager._connection_router.get_rolling_state()
     assert retrieved is not None
     assert retrieved.base_checkpoint_timestamp == 2000.0
 
 
 def test_rolling_state_created_after_checkpoint():
     """Test that rolling state is accumulated after checkpoint creation."""
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+    ds_manager, do_manager = SyftboxManager._pair_with_in_memory_connection()
 
     # Send some events
-    ds_manager.send_file_change(f"{do_manager.email}/file1.txt", "content1")
-    ds_manager.send_file_change(f"{do_manager.email}/file2.txt", "content2")
+    ds_manager._send_file_change(f"{do_manager.email}/file1.txt", "content1")
+    ds_manager._send_file_change(f"{do_manager.email}/file2.txt", "content2")
 
     # DO syncs and creates checkpoint
     do_manager.sync(auto_checkpoint=False)
     do_manager.create_checkpoint()
 
     # Send more events after checkpoint
-    ds_manager.send_file_change(f"{do_manager.email}/file3.txt", "content3")
-    ds_manager.send_file_change(f"{do_manager.email}/file4.txt", "content4")
+    ds_manager._send_file_change(f"{do_manager.email}/file3.txt", "content3")
+    ds_manager._send_file_change(f"{do_manager.email}/file4.txt", "content4")
 
     # DO syncs again
     do_manager.sync(auto_checkpoint=False)
 
     # Verify rolling state exists and has the new events
-    rs = do_manager.connection_router.get_rolling_state()
+    rs = do_manager._connection_router.get_rolling_state()
     assert rs is not None
     assert rs.event_count == 2  # file3 and file4
 
@@ -112,15 +112,15 @@ def test_rolling_state_created_after_checkpoint():
 def test_fresh_login_uses_checkpoint_and_rolling_state():
     """Test that fresh login downloads checkpoint + rolling state instead of all events."""
 
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
-    store: InMemoryBackingPlatform = do_manager.connection_router.connections[
+    ds_manager, do_manager = SyftboxManager._pair_with_in_memory_connection()
+    store: InMemoryBackingPlatform = do_manager._connection_router.connections[
         0
     ].backing_store
     do_email = do_manager.email
 
     # Send events and create checkpoint
-    ds_manager.send_file_change(f"{do_manager.email}/file1.txt", "content1")
-    ds_manager.send_file_change(f"{do_manager.email}/file2.txt", "content2")
+    ds_manager._send_file_change(f"{do_manager.email}/file1.txt", "content1")
+    ds_manager._send_file_change(f"{do_manager.email}/file2.txt", "content2")
     do_manager.sync(auto_checkpoint=False)
     do_manager.create_checkpoint()
 
@@ -129,11 +129,11 @@ def test_fresh_login_uses_checkpoint_and_rolling_state():
     assert len(checkpoint.files) == 2
 
     # Send more events after checkpoint
-    ds_manager.send_file_change(f"{do_manager.email}/file3.txt", "content3")
+    ds_manager._send_file_change(f"{do_manager.email}/file3.txt", "content3")
     do_manager.sync(auto_checkpoint=False)
 
     # Verify rolling state exists
-    rolling_state = do_manager.connection_router.get_rolling_state()
+    rolling_state = do_manager._connection_router.get_rolling_state()
     assert rolling_state is not None
     assert rolling_state.event_count >= 1
 
@@ -153,7 +153,7 @@ def test_fresh_login_uses_checkpoint_and_rolling_state():
         backing_store=store,
         owner_email=do_email,
     )
-    fresh_do.add_connection(fresh_do_connection)
+    fresh_do._add_connection(fresh_do_connection)
 
     # Track how many individual events are downloaded
     download_count = 0
@@ -187,20 +187,20 @@ def test_fresh_login_uses_checkpoint_and_rolling_state():
 
 def test_checkpoint_resets_rolling_state():
     """Test that creating a new checkpoint resets the rolling state."""
-    ds_manager, do_manager = SyftboxManager.pair_with_in_memory_connection()
+    ds_manager, do_manager = SyftboxManager._pair_with_in_memory_connection()
 
     # Send events and create checkpoint
-    ds_manager.send_file_change(f"{do_manager.email}/file1.txt", "content1")
+    ds_manager._send_file_change(f"{do_manager.email}/file1.txt", "content1")
     do_manager.sync(auto_checkpoint=False)
     do_manager.create_checkpoint()
 
     # Send more events
-    ds_manager.send_file_change(f"{do_manager.email}/file2.txt", "content2")
-    ds_manager.send_file_change(f"{do_manager.email}/file3.txt", "content3")
+    ds_manager._send_file_change(f"{do_manager.email}/file2.txt", "content2")
+    ds_manager._send_file_change(f"{do_manager.email}/file3.txt", "content3")
     do_manager.sync(auto_checkpoint=False)
 
     # Verify rolling state has 2 events
-    rs = do_manager.connection_router.get_rolling_state()
+    rs = do_manager._connection_router.get_rolling_state()
     assert rs is not None
     assert rs.event_count == 2
 
@@ -208,7 +208,7 @@ def test_checkpoint_resets_rolling_state():
     do_manager.create_checkpoint()
 
     # Rolling state should be deleted/reset
-    rs = do_manager.connection_router.get_rolling_state()
+    rs = do_manager._connection_router.get_rolling_state()
     assert rs is None or rs.event_count == 0
 
 

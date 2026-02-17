@@ -27,16 +27,18 @@ EMAIL_DS = os.environ.get("BEACH_EMAIL_DS", "")
 def test_checkpoint_with_incremental_events():
     """Test that full checkpoint + incremental checkpoints + rolling state works correctly."""
     # First session: create initial state and full checkpoint
-    manager_ds1, manager_do1 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
+    manager_ds1, manager_do1 = (
+        SyftboxManager._pair_with_google_drive_testing_connection(
+            do_email=EMAIL_DO,
+            ds_email=EMAIL_DS,
+            do_token_path=token_path_do,
+            ds_token_path=token_path_ds,
+        )
     )
 
     # Send initial files
-    manager_ds1.send_file_change(f"{EMAIL_DO}/initial1.txt", "Initial 1")
-    manager_ds1.send_file_change(f"{EMAIL_DO}/initial2.txt", "Initial 2")
+    manager_ds1._send_file_change(f"{EMAIL_DO}/initial1.txt", "Initial 1")
+    manager_ds1._send_file_change(f"{EMAIL_DO}/initial2.txt", "Initial 2")
     sleep(1)
 
     manager_do1.sync(auto_checkpoint=False)
@@ -48,8 +50,8 @@ def test_checkpoint_with_incremental_events():
     print(f"Full checkpoint created with last_event_timestamp: {checkpoint_timestamp}")
 
     # Send more files to create incremental checkpoint
-    manager_ds1.send_file_change(f"{EMAIL_DO}/inc1.txt", "Incremental 1")
-    manager_ds1.send_file_change(f"{EMAIL_DO}/inc2.txt", "Incremental 2")
+    manager_ds1._send_file_change(f"{EMAIL_DO}/inc1.txt", "Incremental 1")
+    manager_ds1._send_file_change(f"{EMAIL_DO}/inc2.txt", "Incremental 2")
     sleep(1)
 
     manager_do1.sync(auto_checkpoint=False)
@@ -58,12 +60,12 @@ def test_checkpoint_with_incremental_events():
     manager_do1.try_create_checkpoint(threshold=2)
 
     # Verify incremental checkpoint was created
-    inc_cps = manager_do1.connection_router.get_all_incremental_checkpoints()
+    inc_cps = manager_do1._connection_router.get_all_incremental_checkpoints()
     assert len(inc_cps) >= 1, "Should have at least 1 incremental checkpoint"
     print(f"Created {len(inc_cps)} incremental checkpoint(s)")
 
     # Send more files for rolling state
-    manager_ds1.send_file_change(f"{EMAIL_DO}/rolling1.txt", "Rolling 1")
+    manager_ds1._send_file_change(f"{EMAIL_DO}/rolling1.txt", "Rolling 1")
     sleep(1)
 
     manager_do1.sync(auto_checkpoint=False)
@@ -72,14 +74,16 @@ def test_checkpoint_with_incremental_events():
     assert len(manager_do1.datasite_owner_syncer.event_cache.file_hashes) == 5
 
     # Fresh login should restore: full checkpoint + incremental checkpoints + rolling state
-    manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-        load_peers=True,
-        clear_caches=True,
+    manager_ds2, manager_do2 = (
+        SyftboxManager._pair_with_google_drive_testing_connection(
+            do_email=EMAIL_DO,
+            ds_email=EMAIL_DS,
+            do_token_path=token_path_do,
+            ds_token_path=token_path_ds,
+            add_peers=False,
+            load_peers=True,
+            clear_caches=True,
+        )
     )
 
     manager_do2.sync(auto_checkpoint=False)
@@ -97,7 +101,7 @@ def test_checkpoint_with_incremental_events():
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_auto_checkpoint_on_sync():
     """Test automatic incremental checkpoint creation and compacting during sync."""
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
+    manager_ds, manager_do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -106,20 +110,20 @@ def test_auto_checkpoint_on_sync():
 
     # Send enough files to trigger auto-incremental-checkpoint (threshold=5)
     for i in range(6):
-        manager_ds.send_file_change(f"{EMAIL_DO}/auto{i}.txt", f"Auto content {i}")
+        manager_ds._send_file_change(f"{EMAIL_DO}/auto{i}.txt", f"Auto content {i}")
     sleep(1)
 
     # Sync with auto_checkpoint enabled and low threshold
     manager_do.sync(auto_checkpoint=True, checkpoint_threshold=5)
 
     # Verify incremental checkpoint was created
-    inc_cps = manager_do.connection_router.get_all_incremental_checkpoints()
+    inc_cps = manager_do._connection_router.get_all_incremental_checkpoints()
     assert len(inc_cps) >= 1, "Auto-incremental-checkpoint should have been created"
     print(f"Auto-created {len(inc_cps)} incremental checkpoint(s)")
 
     # Test compacting: Create more incremental checkpoints
     for i in range(6, 12):
-        manager_ds.send_file_change(f"{EMAIL_DO}/auto{i}.txt", f"Auto content {i}")
+        manager_ds._send_file_change(f"{EMAIL_DO}/auto{i}.txt", f"Auto content {i}")
     sleep(1)
 
     manager_do.sync(auto_checkpoint=False)
@@ -133,20 +137,22 @@ def test_auto_checkpoint_on_sync():
     print(f"Compacted checkpoint has {len(compacted.files)} files")
 
     # Verify incremental checkpoints were deleted after compacting
-    inc_cps_after = manager_do.connection_router.get_all_incremental_checkpoints()
+    inc_cps_after = manager_do._connection_router.get_all_incremental_checkpoints()
     assert len(inc_cps_after) == 0, (
         "Incremental checkpoints should be deleted after compacting"
     )
 
     # Fresh login should restore from compacted checkpoint
-    manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-        load_peers=True,
-        clear_caches=True,
+    manager_ds2, manager_do2 = (
+        SyftboxManager._pair_with_google_drive_testing_connection(
+            do_email=EMAIL_DO,
+            ds_email=EMAIL_DS,
+            do_token_path=token_path_do,
+            ds_token_path=token_path_ds,
+            add_peers=False,
+            load_peers=True,
+            clear_caches=True,
+        )
     )
 
     manager_do2.sync(auto_checkpoint=False)
