@@ -40,6 +40,7 @@ class MockDriveFile(BaseModel):
     parents: List[str] = Field(default_factory=list)
     owners: List[Dict[str, str]] = Field(default_factory=list)
     content: bytes = b""
+    appProperties: Dict[str, str] = Field(default_factory=dict)
     trashed: bool = False
     modifiedTime: str = Field(
         default_factory=lambda: datetime.utcnow().isoformat() + "Z"
@@ -54,6 +55,7 @@ class MockDriveFile(BaseModel):
             "mimeType": self.mimeType,
             "parents": self.parents,
             "owners": self.owners,
+            "appProperties": self.appProperties,
             "trashed": self.trashed,
             "modifiedTime": self.modifiedTime,
             "size": str(len(self.content)),

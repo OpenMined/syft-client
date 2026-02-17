@@ -1184,11 +1184,12 @@ class GDriveConnection(SyftboxPlatformConnection):
             users_list = users
 
         if share_with_any:
-            # Public access - anyone with link can view
-            permission = {"type": "anyone", "role": "reader"}
+            # Mark folder as shared with any — actual per-peer sharing
+            # happens in _share_any_datasets_with_peer on peer acceptance
             execute_with_retries(
-                self.drive_service.permissions().create(
-                    fileId=folder_id, body=permission, sendNotificationEmail=False
+                self.drive_service.files().update(
+                    fileId=folder_id,
+                    body={"appProperties": {"syft_shared_with_any": "true"}},
                 )
             )
         else:
@@ -1245,7 +1246,9 @@ class GDriveConnection(SyftboxPlatformConnection):
             f"and 'me' in owners and trashed=false and mimeType='{GOOGLE_FOLDER_MIME_TYPE}'"
         )
         results = execute_with_retries(
-            self.drive_service.files().list(q=query, fields="files(id,name)")
+            self.drive_service.files().list(
+                q=query, fields="files(id,name,appProperties)"
+            )
         )
 
         collections = []
@@ -1253,14 +1256,9 @@ class GDriveConnection(SyftboxPlatformConnection):
             folder_id = folder["id"]
             try:
                 folder_obj = DatasetCollectionFolder.from_name(folder["name"])
-                # Check if folder has "anyone" permission
-                perms = execute_with_retries(
-                    self.drive_service.permissions().list(
-                        fileId=folder_id, fields="permissions(type)"
-                    )
-                )
-                has_anyone = any(
-                    p.get("type") == "anyone" for p in perms.get("permissions", [])
+                has_anyone = (
+                    folder.get("appProperties", {}).get("syft_shared_with_any")
+                    == "true"
                 )
                 collections.append(
                     FileCollection(
