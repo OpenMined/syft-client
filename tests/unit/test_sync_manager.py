@@ -1660,7 +1660,7 @@ def test_in_memory_connection_load_state():
     assert len(do_manager1.datasite_owner_syncer._any_shared_datasets) == 1
 
     # Create second pair (simulates restart, tests loading peers and processing inbox)
-    do_config2 = SyftboxManagerConfig.base_config_for_in_memory_connection(
+    do_config2 = SyftboxManagerConfig._base_config_for_testing(
         email=do_email,
         syftbox_folder=do_folder,
         only_ds=False,
@@ -1668,7 +1668,7 @@ def test_in_memory_connection_load_state():
         use_in_memory_cache=False,
         check_versions=False,
     )
-    ds_config2 = SyftboxManagerConfig.base_config_for_in_memory_connection(
+    ds_config2 = SyftboxManagerConfig._base_config_for_testing(
         email=ds_email,
         syftbox_folder=ds_folder,
         only_ds=True,
