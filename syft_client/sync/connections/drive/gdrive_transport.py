@@ -959,6 +959,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.ds_outbox_folder_id_cache.clear()
         self.archive_folder_id_cache.clear()
         self.personal_syftbox_event_id_cache.clear()
+        self.dataset_collection_folder_id_cache.clear()
         self._rolling_state_folder_id = None
         self._rolling_state_file_id = None
 
@@ -1023,7 +1024,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     def find_orphaned_message_files(self) -> list[str]:
         """
-        Find message files (syfteventsmessagev3_*, msgv2_*) owned by user.
+        Find syft files by name pattern owned by user, regardless of parent folder.
 
         Due to Google Drive's eventual consistency, files can become orphaned when
         their parent folder is deleted before they're fully registered. This method
@@ -1031,7 +1032,12 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         Returns list of file IDs.
         """
-        patterns = ["syfteventsmessagev3_", "msgv2_"]
+        patterns = [
+            "syfteventsmessagev3_",  # event messages
+            "msgv2_",  # proposed file change messages
+            CHECKPOINT_FILENAME_PREFIX,  # checkpoint and incremental checkpoint files
+            ROLLING_STATE_FILENAME_PREFIX,  # rolling state files
+        ]
         file_ids = []
 
         for pattern in patterns:
