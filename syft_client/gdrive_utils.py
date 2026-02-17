@@ -142,19 +142,22 @@ def _search_by_name(service, name: str) -> tuple[str, str, str]:
     """Search for a file or folder by name. Returns (id, name, mimeType)."""
     query = f"name='{name}' and trashed=false"
     results = execute_with_retries(
-        service.files().list(
-            q=query, fields="files(id,name,mimeType)", pageSize=1
-        )
+        service.files().list(q=query, fields="files(id,name,mimeType)", pageSize=1)
     )
     files = results.get("files", [])
     if not files:
-        raise FileNotFoundError(f"No file or folder named '{name}' found on Google Drive")
+        raise FileNotFoundError(
+            f"No file or folder named '{name}' found on Google Drive"
+        )
     f = files[0]
     return f["id"], f["name"], f["mimeType"]
 
 
 def _download_single_file(
-    service, file_id: str, output_path: Path, name: str,
+    service,
+    file_id: str,
+    output_path: Path,
+    name: str,
     is_dir_hint: bool = False,
 ) -> Path:
     """Download a single file from Google Drive."""
@@ -180,7 +183,9 @@ def _download_folder(
     service, folder_id: str, output_dir: Path, folder_name: str
 ) -> Path:
     """Download all files in a folder (non-recursive, skips subfolders)."""
-    target = output_dir / folder_name if not str(output_dir).endswith("/") else output_dir
+    target = (
+        output_dir / folder_name if not str(output_dir).endswith("/") else output_dir
+    )
     target = Path(target)
     target.mkdir(parents=True, exist_ok=True)
 
