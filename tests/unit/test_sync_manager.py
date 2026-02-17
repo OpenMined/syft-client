@@ -1757,3 +1757,41 @@ def test_datasets_shared_with_any():
     # DS should now see the dataset
     ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
     assert any(c["tag"] == "any dataset" for c in ds_collections)
+
+
+def test_datasets_shared_with_any_after_peer_approved():
+    """Test that creating a dataset with users='any' after peers are approved
+    grants those peers access immediately.
+
+    Workflow:
+    1. Create managers without auto peers
+    2. DS adds peer, DO approves
+    3. DO creates dataset with users='any'
+    4. DS can see the dataset (without needing another approve_peer_request)
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        add_peers=False,
+    )
+
+    # DS adds peer, DO approves
+    ds_manager.add_peer(do_manager.email)
+    do_manager.load_peers()
+    do_manager.approve_peer_request(ds_manager.email, peer_must_exist=False)
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+
+    # DO creates dataset with users='any' AFTER peer is already approved
+    do_manager.create_dataset(
+        name="late any dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="Dataset shared with anyone, created after peer approval",
+        readme_path=readme_path,
+        tags=["any", "late"],
+        users="any",
+    )
+
+    # DS should see the dataset immediately (shared at creation time)
+    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    assert any(c["tag"] == "late any dataset" for c in ds_collections)

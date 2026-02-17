@@ -29,7 +29,7 @@ from syft_client.sync.connections.base_connection import (
     FileCollection,
     SyftboxPlatformConnection,
 )
-from syft_datasets.dataset_manager import SHARE_WITH_ANY, DATASET_COLLECTION_PREFIX
+from syft_datasets.dataset_manager import DATASET_COLLECTION_PREFIX
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessageFileName,
     FileChangeEventsMessage,
@@ -1168,35 +1168,25 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.dataset_collection_folder_id_cache[cache_key] = folder_id
         return folder_id
 
-    def share_dataset_collection(
-        self, tag: str, content_hash: str, users: list[str] | str
+    def tag_dataset_collection_as_any(
+        self, tag: str, content_hash: str
     ) -> None:
-        """Share dataset collection folder with users."""
+        """Mark dataset collection as shared with 'any' via appProperties."""
         folder_id = self._get_dataset_collection_folder_id(tag, content_hash)
-
-        share_with_any = False
-        if isinstance(users, str):
-            if users == SHARE_WITH_ANY:
-                share_with_any = True
-            else:
-                users_list = [users]
-        else:
-            users_list = users
-
-        if share_with_any:
-            # Mark folder as shared with any — actual per-peer sharing
-            # happens in _share_any_datasets_with_peer on peer acceptance
-            execute_with_retries(
-                self.drive_service.files().update(
-                    fileId=folder_id,
-                    body={"appProperties": {"syft_shared_with_any": "true"}},
-                )
+        execute_with_retries(
+            self.drive_service.files().update(
+                fileId=folder_id,
+                body={"appProperties": {"syft_shared_with_any": "true"}},
             )
-        else:
-            # Share with specific users (only if list is not empty)
-            for user_email in users_list:
-                self.add_permission(folder_id, user_email, write=False)
-        # else: empty list means no sharing - do nothing
+        )
+
+    def share_dataset_collection(
+        self, tag: str, content_hash: str, users: list[str]
+    ) -> None:
+        """Share dataset collection folder with specific users."""
+        folder_id = self._get_dataset_collection_folder_id(tag, content_hash)
+        for user_email in users:
+            self.add_permission(folder_id, user_email, write=False)
 
     def upload_dataset_files(
         self, tag: str, content_hash: str, files: dict[str, bytes]

@@ -315,36 +315,32 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         self.backing_store.dataset_collections.append(new_collection)
         return tag
 
-    def share_dataset_collection(
-        self, tag: str, content_hash: str, users: list[str] | str
+    def tag_dataset_collection_as_any(
+        self, tag: str, content_hash: str
     ) -> None:
-        # Find collection
-        collection = None
+        collection = self._find_own_collection(tag, content_hash)
+        if SHARE_WITH_ANY not in collection.allowed_users:
+            collection.allowed_users.append(SHARE_WITH_ANY)
+
+    def share_dataset_collection(
+        self, tag: str, content_hash: str, users: list[str]
+    ) -> None:
+        collection = self._find_own_collection(tag, content_hash)
+        for user in users:
+            if user not in collection.allowed_users:
+                collection.allowed_users.append(user)
+
+    def _find_own_collection(self, tag: str, content_hash: str):
         for c in self.backing_store.dataset_collections:
             if (
                 c.tag == tag
                 and c.owner_email == self.owner_email
                 and c.content_hash == content_hash
             ):
-                collection = c
-                break
-
-        if collection is None:
-            raise ValueError(
-                f"Collection {tag} with hash {content_hash} not found for owner {self.owner_email}"
-            )
-
-        # Update permissions
-        if isinstance(users, str):
-            if users == SHARE_WITH_ANY:
-                collection.allowed_users = [SHARE_WITH_ANY]
-            else:
-                if users not in collection.allowed_users:
-                    collection.allowed_users.append(users)
-        else:
-            for user in users:
-                if user not in collection.allowed_users:
-                    collection.allowed_users.append(user)
+                return c
+        raise ValueError(
+            f"Collection {tag} with hash {content_hash} not found for owner {self.owner_email}"
+        )
 
     def upload_dataset_files(
         self, tag: str, content_hash: str, files: dict[str, bytes]
