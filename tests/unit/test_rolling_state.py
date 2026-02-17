@@ -10,16 +10,11 @@ import time
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.checkpoints.rolling_state import RollingState
 from tests.unit.utils import get_mock_event
-from syft_client.sync.syftbox_manager import SyftboxManagerConfig
-from syft_client.sync.connections.inmemory_connection import (
-    InMemoryPlatformConnection,
-    InMemoryBackingPlatform,
-)
 
 
 def test_upload_and_get_rolling_state():
-    """Test uploading and retrieving rolling state from in-memory store."""
-    _, do_manager = SyftboxManager._pair_with_in_memory_connection()
+    """Test uploading and retrieving rolling state from store."""
+    _, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
 
     # Create a rolling state
     rs = RollingState(
@@ -40,8 +35,8 @@ def test_upload_and_get_rolling_state():
 
 
 def test_delete_rolling_state():
-    """Test deleting rolling state from in-memory store."""
-    _, do_manager = SyftboxManager._pair_with_in_memory_connection()
+    """Test deleting rolling state from store."""
+    _, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
 
     # Create and upload a rolling state
     rs = RollingState(
@@ -62,7 +57,7 @@ def test_delete_rolling_state():
 
 def test_upload_replaces_existing_rolling_state():
     """Test that uploading rolling state replaces existing one."""
-    _, do_manager = SyftboxManager._pair_with_in_memory_connection()
+    _, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
 
     # Create and upload first rolling state
     rs1 = RollingState(
@@ -86,7 +81,7 @@ def test_upload_replaces_existing_rolling_state():
 
 def test_rolling_state_created_after_checkpoint():
     """Test that rolling state is accumulated after checkpoint creation."""
-    ds_manager, do_manager = SyftboxManager._pair_with_in_memory_connection()
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
 
     # Send some events
     ds_manager._send_file_change(f"{do_manager.email}/file1.txt", "content1")
@@ -112,11 +107,7 @@ def test_rolling_state_created_after_checkpoint():
 def test_fresh_login_uses_checkpoint_and_rolling_state():
     """Test that fresh login downloads checkpoint + rolling state instead of all events."""
 
-    ds_manager, do_manager = SyftboxManager._pair_with_in_memory_connection()
-    store: InMemoryBackingPlatform = do_manager._connection_router.connections[
-        0
-    ].backing_store
-    do_email = do_manager.email
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
 
     # Send events and create checkpoint
     ds_manager._send_file_change(f"{do_manager.email}/file1.txt", "content1")
@@ -125,7 +116,7 @@ def test_fresh_login_uses_checkpoint_and_rolling_state():
     do_manager.create_checkpoint()
 
     # Verify checkpoint exists with 2 files
-    checkpoint = store.checkpoints[-1]
+    checkpoint = do_manager._connection_router.get_latest_checkpoint()
     assert len(checkpoint.files) == 2
 
     # Send more events after checkpoint
@@ -137,28 +128,15 @@ def test_fresh_login_uses_checkpoint_and_rolling_state():
     assert rolling_state is not None
     assert rolling_state.event_count >= 1
 
-    # Create a fresh DO manager (simulating fresh login)
-    fresh_do_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
-        email=do_email,
-        only_ds=False,
-        only_datasite_owner=True,
-        use_in_memory_cache=True,
-        check_versions=False,
-    )
-    fresh_do = SyftboxManager.from_config(fresh_do_config)
-
-    # Connect to the same backing store
-    fresh_do_connection = InMemoryPlatformConnection(
-        receiver_function=None,
-        backing_store=store,
-        owner_email=do_email,
-    )
-    fresh_do._add_connection(fresh_do_connection)
+    # Simulate fresh login by clearing cache and resetting initial_sync_done
+    do_manager.datasite_owner_syncer.event_cache.clear_cache()
+    assert len(do_manager.datasite_owner_syncer.event_cache.file_hashes) == 0
+    do_manager.datasite_owner_syncer.initial_sync_done = False
 
     # Track how many individual events are downloaded
     download_count = 0
     original_download = (
-        fresh_do.datasite_owner_syncer.download_events_message_by_id_with_connection
+        do_manager.datasite_owner_syncer.download_events_message_by_id_with_connection
     )
 
     def counted_download(event_id):
@@ -166,12 +144,12 @@ def test_fresh_login_uses_checkpoint_and_rolling_state():
         download_count += 1
         return original_download(event_id)
 
-    fresh_do.datasite_owner_syncer.download_events_message_by_id_with_connection = (
+    do_manager.datasite_owner_syncer.download_events_message_by_id_with_connection = (
         counted_download
     )
 
     # Sync should use checkpoint + rolling state
-    fresh_do.sync(auto_checkpoint=False)
+    do_manager.sync(auto_checkpoint=False)
 
     # With rolling state, we shouldn't need to download individual events
     assert download_count == 0, (
@@ -179,7 +157,7 @@ def test_fresh_login_uses_checkpoint_and_rolling_state():
     )
 
     # Verify checkpoint files are in the cache (at minimum)
-    cache = fresh_do.datasite_owner_syncer.event_cache
+    cache = do_manager.datasite_owner_syncer.event_cache
     assert len(cache.file_hashes) >= 2, (
         f"Expected at least 2 files from checkpoint, got {len(cache.file_hashes)}"
     )
@@ -187,7 +165,7 @@ def test_fresh_login_uses_checkpoint_and_rolling_state():
 
 def test_checkpoint_resets_rolling_state():
     """Test that creating a new checkpoint resets the rolling state."""
-    ds_manager, do_manager = SyftboxManager._pair_with_in_memory_connection()
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
 
     # Send events and create checkpoint
     ds_manager._send_file_change(f"{do_manager.email}/file1.txt", "content1")

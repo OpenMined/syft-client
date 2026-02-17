@@ -37,9 +37,6 @@ from syft_client.sync.connections.connection_router import ConnectionRouter
 
 from syft_client.sync.connections.drive.grdrive_config import GdriveConnectionConfig
 from syft_client.sync.connections.drive import mock_drive_service
-from syft_client.sync.connections.inmemory_connection import (
-    InMemoryPlatformConnection,
-)
 from syft_client.sync.sync.datasite_owner_syncer import (
     DatasiteOwnerSyncer,
     DatasiteOwnerSyncerConfig,
@@ -213,7 +210,7 @@ class SyftboxManagerConfig(BaseModel):
         )
 
     @classmethod
-    def base_config_for_in_memory_connection(
+    def _base_config_for_testing(
         cls,
         email: str | None = None,
         syftbox_folder: Path | None = None,
@@ -563,96 +560,6 @@ class SyftboxManager(BaseModel):
         return sender_manager, receiver_manager
 
     @classmethod
-    def _pair_with_in_memory_connection(
-        cls,
-        email1: str | None = None,
-        email2: str | None = None,
-        base_path1: str | None = None,
-        base_path2: str | None = None,
-        sync_automatically: bool = True,
-        add_peers: bool = True,
-        use_in_memory_cache: bool = True,
-        check_versions: bool = False,
-    ):
-        # this doesnt contain the connections, as we need to set them after creation
-        receiver_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
-            email=email1,
-            syftbox_folder=base_path1,
-            only_ds=False,
-            only_datasite_owner=True,
-            use_in_memory_cache=use_in_memory_cache,
-            check_versions=check_versions,
-        )
-
-        do_manager = cls.from_config(receiver_config)
-
-        sender_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
-            email=email2,
-            syftbox_folder=base_path2,
-            only_ds=True,
-            only_datasite_owner=False,
-            use_in_memory_cache=use_in_memory_cache,
-            check_versions=check_versions,
-        )
-        ds_manager = cls.from_config(sender_config)
-
-        # this makes sure that when we write a file as sender, the inactive file watcher picks it up
-        ds_manager.file_writer.add_callback(
-            "write_file",
-            ds_manager.datasite_watcher_syncer.on_file_change,
-        )
-        # this makes sure that a message travels from through our in memory platform from pusher to puller
-
-        if sync_automatically:
-            receiver_receive_function = do_manager.sync
-        else:
-            receiver_receive_function = None
-
-        sender_in_memory_connection = InMemoryPlatformConnection(
-            receiver_function=receiver_receive_function,
-            owner_email=ds_manager.email,
-        )
-        ds_manager._add_connection(sender_in_memory_connection)
-
-        # this make sure we can do communication the other way, it also makes sure we have a fake backing store for the receiver
-        # so we can store events in memory
-        # we also make sure we write to the same backing store so we get consistent state
-        # sender_receiver_function = (
-        #     sender_manager.datasite_owner_syncer.on_proposed_filechange_receive
-        # )
-        def sender_receiver_function(*args, **kwargs):
-            pass
-
-        sender_backing_store = ds_manager.datasite_watcher_syncer.connection_router.connection_for_eventlog().backing_store
-        receiver_connection = InMemoryPlatformConnection(
-            receiver_function=sender_receiver_function,
-            backing_store=sender_backing_store,
-            owner_email=do_manager.email,
-        )
-        do_manager._add_connection(receiver_connection)
-
-        # Write version files after connections are set up
-        ds_manager.version_manager.write_own_version()
-        do_manager.version_manager.write_own_version()
-
-        # this make sure that when the receiver writes a file to disk,
-        # the file watcher picks it up
-        # we use the underscored method to allow for monkey patching
-        do_manager.datasite_owner_syncer.event_cache.add_callback(
-            "on_event_local_write",
-            do_manager.job_file_change_handler._handle_file_change,
-        )
-
-        if add_peers:
-            # DS creates peer request
-            ds_manager.add_peer(do_manager.email)
-            # DO approves the peer request automatically (for backward compatibility)
-            do_manager.load_peers()
-            do_manager.approve_peer_request(ds_manager.email)
-
-        return ds_manager, do_manager
-
-    @classmethod
     def pair_with_mock_drive_service_connection(
         cls,
         email1: str | None = None,
@@ -684,7 +591,7 @@ class SyftboxManager(BaseModel):
             Tuple of (ds_manager, do_manager)
         """
         # Create configs using the existing base config generator
-        do_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
+        do_config = SyftboxManagerConfig._base_config_for_testing(
             email=email1,
             syftbox_folder=base_path1,
             only_ds=False,
@@ -693,7 +600,7 @@ class SyftboxManager(BaseModel):
             check_versions=check_versions,
         )
 
-        ds_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
+        ds_config = SyftboxManagerConfig._base_config_for_testing(
             email=email2,
             syftbox_folder=base_path2,
             only_ds=True,
@@ -935,15 +842,14 @@ class SyftboxManager(BaseModel):
             self.sync()
 
     def _add_connection(self, connection: SyftboxPlatformConnection):
-        # all connection routers are pointers to the same object for in memory setup
-        if not isinstance(connection, InMemoryPlatformConnection) and not (
+        if not (
             isinstance(connection, GDriveConnection)
             and isinstance(
                 connection.drive_service, mock_drive_service.MockDriveService
             )
         ):
             raise ValueError(
-                "Only InMemoryPlatformConnections and MockDriveServices can be added to the manager"
+                "Only MockDriveService connections can be added to the manager"
             )
 
         if self.datasite_owner_syncer is not None:
