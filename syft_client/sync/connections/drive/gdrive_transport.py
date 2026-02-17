@@ -1183,10 +1183,39 @@ class GDriveConnection(SyftboxPlatformConnection):
     def share_dataset_collection(
         self, tag: str, content_hash: str, users: list[str]
     ) -> None:
-        """Share dataset collection folder with specific users."""
+        """Share dataset collection folder with specific users via batch API."""
+        if not users:
+            return
         folder_id = self._get_dataset_collection_folder_id(tag, content_hash)
-        for user_email in users:
-            self.add_permission(folder_id, user_email, write=False)
+        self._batch_add_permissions(folder_id, users)
+
+    def _batch_add_permissions(self, file_id: str, users: list[str]) -> None:
+        """Add reader permissions for multiple users in a single batch request."""
+
+        def callback(request_id, response, exception):
+            if exception:
+                # Ignore "already shared" errors
+                if "alreadyShared" not in str(exception):
+                    raise exception
+
+        BATCH_SIZE = 100
+        for i in range(0, len(users), BATCH_SIZE):
+            chunk = users[i : i + BATCH_SIZE]
+            batch = self.drive_service.new_batch_http_request(callback=callback)
+            for user_email in chunk:
+                permission = {
+                    "type": "user",
+                    "role": "reader",
+                    "emailAddress": user_email,
+                }
+                batch.add(
+                    self.drive_service.permissions().create(
+                        fileId=file_id,
+                        body=permission,
+                        sendNotificationEmail=True,
+                    )
+                )
+            batch_execute_with_retries(batch)
 
     def upload_dataset_files(
         self, tag: str, content_hash: str, files: dict[str, bytes]

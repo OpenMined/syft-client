@@ -852,6 +852,10 @@ class MockDriveService:
         """Get the permissions resource."""
         return self._permissions_resource
 
+    def new_batch_http_request(self, callback=None) -> MockBatchHttpRequest:
+        """Create a new batch HTTP request."""
+        return MockBatchHttpRequest(callback=callback)
+
 
 def pair_with_mock_service(
     email1: str, email2: str
