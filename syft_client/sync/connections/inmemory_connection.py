@@ -315,9 +315,7 @@ class InMemoryPlatformConnection(SyftboxPlatformConnection):
         self.backing_store.dataset_collections.append(new_collection)
         return tag
 
-    def tag_dataset_collection_as_any(
-        self, tag: str, content_hash: str
-    ) -> None:
+    def tag_dataset_collection_as_any(self, tag: str, content_hash: str) -> None:
         collection = self._find_own_collection(tag, content_hash)
         if SHARE_WITH_ANY not in collection.allowed_users:
             collection.allowed_users.append(SHARE_WITH_ANY)

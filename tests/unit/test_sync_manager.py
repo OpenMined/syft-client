@@ -1793,5 +1793,5 @@ def test_datasets_shared_with_any_after_peer_approved():
     )
 
     # DS should see the dataset immediately (shared at creation time)
-    ds_collections = ds_manager.connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
     assert any(c["tag"] == "late any dataset" for c in ds_collections)

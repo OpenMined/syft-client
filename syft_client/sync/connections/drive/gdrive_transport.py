@@ -1168,9 +1168,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.dataset_collection_folder_id_cache[cache_key] = folder_id
         return folder_id
 
-    def tag_dataset_collection_as_any(
-        self, tag: str, content_hash: str
-    ) -> None:
+    def tag_dataset_collection_as_any(self, tag: str, content_hash: str) -> None:
         """Mark dataset collection as shared with 'any' via appProperties."""
         folder_id = self._get_dataset_collection_folder_id(tag, content_hash)
         execute_with_retries(

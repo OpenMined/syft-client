@@ -33,9 +33,7 @@ class SyftboxPlatformConnection(BaseModel):
     ) -> str:
         raise NotImplementedError()
 
-    def tag_dataset_collection_as_any(
-        self, tag: str, content_hash: str
-    ) -> None:
+    def tag_dataset_collection_as_any(self, tag: str, content_hash: str) -> None:
         raise NotImplementedError()
 
     def share_dataset_collection(

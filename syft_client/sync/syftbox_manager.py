@@ -847,7 +847,7 @@ class SyftboxManager(BaseModel):
         """
         for tag, content_hash in self.datasite_owner_syncer._any_shared_datasets:
             try:
-                self.connection_router.share_dataset_collection(
+                self._connection_router.share_dataset_collection(
                     tag, content_hash, [peer_email]
                 )
             except Exception:
@@ -1024,7 +1024,7 @@ class SyftboxManager(BaseModel):
 
         # Share with users
         if users == "any":
-            self.connection_router.tag_dataset_collection_as_any(
+            self._connection_router.tag_dataset_collection_as_any(
                 collection_tag, content_hash
             )
             self.datasite_owner_syncer._any_shared_datasets.append(
@@ -1033,11 +1033,11 @@ class SyftboxManager(BaseModel):
             # Share with all already-approved peers
             peer_emails = [p.email for p in self.version_manager.approved_peers]
             if peer_emails:
-                self.connection_router.share_dataset_collection(
+                self._connection_router.share_dataset_collection(
                     collection_tag, content_hash, peer_emails
                 )
         else:
-            self.connection_router.share_dataset_collection(
+            self._connection_router.share_dataset_collection(
                 collection_tag, content_hash, users
             )
 
@@ -1087,17 +1087,17 @@ class SyftboxManager(BaseModel):
 
         # Share collection
         if users == "any":
-            self.connection_router.tag_dataset_collection_as_any(tag, content_hash)
+            self._connection_router.tag_dataset_collection_as_any(tag, content_hash)
             self.datasite_owner_syncer._any_shared_datasets.append((tag, content_hash))
             peer_emails = [p.email for p in self.version_manager.approved_peers]
             if peer_emails:
-                self.connection_router.share_dataset_collection(
+                self._connection_router.share_dataset_collection(
                     tag, content_hash, peer_emails
                 )
         else:
             if isinstance(users, str):
                 users = [users]
-            self.connection_router.share_dataset_collection(tag, content_hash, users)
+            self._connection_router.share_dataset_collection(tag, content_hash, users)
 
         if sync:
             self.sync()
