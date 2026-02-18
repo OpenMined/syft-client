@@ -131,6 +131,10 @@ class DataSiteWatcherCache(BaseModel):
             if content_hash:
                 self.dataset_collection_hashes[collection_path] = content_hash
 
+    def get_collection_owner_email(self, collection_path: Path) -> str:
+        """Extract the owner email from a collection path."""
+        return collection_path.relative_to(self.syftbox_folder).parts[0]
+
     def get_collection_path(self, owner_email: str, tag: str) -> Path | None:
         """Get the full path to a collection for a given owner and tag."""
         if self.syftbox_folder is None or self.collection_subpath is None:
@@ -267,20 +271,16 @@ class DataSiteWatcherCache(BaseModel):
         """Remove locally cached dataset collections that no longer exist remotely."""
         remote_tags = {c["tag"] for c in remote_collections}
 
-        stale_keys = []
-        for path in list(self.dataset_collection_hashes.keys()):
-            # path = syftbox_folder / owner_email / collection_subpath / tag
-            tag = path.name
-            expected = self.get_collection_path(peer_email, tag)
-            if expected is not None and path == expected and tag not in remote_tags:
-                stale_keys.append(path)
-
-        for path in stale_keys:
-            del self.dataset_collection_hashes[path]
-            # Build relative path for file_connection (relative to syftbox_folder)
+        for local_collection_path in list(self.dataset_collection_hashes.keys()):
+            owner_email = self.get_collection_owner_email(local_collection_path)
+            if owner_email != peer_email:
+                continue
+            if local_collection_path.name in remote_tags:
+                continue
+            del self.dataset_collection_hashes[local_collection_path]
             if self.syftbox_folder is not None:
                 try:
-                    rel_path = path.relative_to(self.syftbox_folder)
+                    rel_path = local_collection_path.relative_to(self.syftbox_folder)
                     self.file_connection.delete_directory(str(rel_path))
                 except ValueError:
                     pass
