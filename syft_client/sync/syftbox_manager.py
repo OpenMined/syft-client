@@ -373,6 +373,36 @@ class SyftboxManager(BaseModel):
         default_factory=lambda: ThreadPoolExecutor(max_workers=10)
     )
 
+    _PUBLIC_API = (
+        "email",
+        "syftbox_folder",
+        "dev_mode",
+        "config",
+        "dataset_manager",
+        "version_manager",
+        "peers",
+        "jobs",
+        "datasets",
+        "add_peer",
+        "load_peers",
+        "approve_peer_request",
+        "reject_peer_request",
+        "sync",
+        "create_dataset",
+        "delete_dataset",
+        "share_dataset",
+        "submit_bash_job",
+        "submit_python_job",
+        "process_approved_jobs",
+        "create_checkpoint",
+        "should_create_checkpoint",
+        "try_create_checkpoint",
+        "delete_syftbox",
+    )
+
+    def __dir__(self):
+        return list(self._PUBLIC_API)
+
     @property
     def peers(self) -> PeerList:
         """
