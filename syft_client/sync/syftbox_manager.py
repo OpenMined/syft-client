@@ -26,7 +26,10 @@ from syft_client.sync.peers.peer import Peer, PeerState
 from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
 )
-from syft_client.sync.events.file_change_event import FileChangeEvent
+from syft_client.sync.events.file_change_event import (
+    FileChangeEvent,
+    FileChangeEventsMessage,
+)
 from syft_client.sync.utils.syftbox_utils import (
     random_email,
     random_syftbox_folder_for_testing,
@@ -1082,7 +1085,47 @@ class SyftboxManager(BaseModel):
         if self.datasite_watcher_syncer is not None:
             self.datasite_watcher_syncer.datasite_watcher_cache.clear_cache()
 
-    def delete_syftbox(self, verbose: bool = True):
+    def _broadcast_delete_events(
+        self,
+        peer_emails: list[str],
+        file_hashes: dict,
+    ):
+        """Broadcast is_deleted=True events for all tracked files to each peer's outbox."""
+        from uuid import uuid4
+        from syft_client.sync.utils.syftbox_utils import create_event_timestamp
+
+        timestamp = create_event_timestamp()
+        events = []
+        for path in file_hashes:
+            events.append(
+                FileChangeEvent(
+                    id=uuid4(),
+                    path_in_datasite=path,
+                    datasite_email=self.email,
+                    content=None,
+                    old_hash=file_hashes[path],
+                    new_hash=None,
+                    is_deleted=True,
+                    submitted_timestamp=timestamp,
+                    timestamp=timestamp,
+                )
+            )
+
+        if not events:
+            return
+
+        msg = FileChangeEventsMessage(events=events)
+        for peer_email in peer_emails:
+            try:
+                self._connection_router.write_event_messages_to_outbox_do(
+                    peer_email, msg
+                )
+            except Exception:
+                pass
+
+    def delete_syftbox(
+        self, verbose: bool = True, broadcast_delete_events: bool = True
+    ):
         """
         Delete all SyftBox state: Google Drive files, local caches, and local folder.
 
@@ -1091,7 +1134,19 @@ class SyftboxManager(BaseModel):
         strategies to ensure complete cleanup:
         1. Gather all files by traversing the SyftBox folder hierarchy
         2. Find files by name pattern (catches orphaned files from any location)
+
+        Args:
+            verbose: Print deletion progress.
+            broadcast_delete_events: If True (default), broadcast is_deleted events
+                to all approved peers before deleting. Set False for test cleanup.
         """
+        # Capture state before deletion (needed for broadcast)
+        peer_emails = []
+        file_hashes = {}
+        if broadcast_delete_events and self.is_do:
+            peer_emails = [p.email for p in self.version_manager.approved_peers]
+            file_hashes = dict(self.datasite_owner_syncer.event_cache.file_hashes)
+
         # Get files by folder hierarchy
         folder_file_ids = set(self._connection_router.gather_all_file_and_folder_ids())
 
@@ -1114,6 +1169,10 @@ class SyftboxManager(BaseModel):
                 print(f" (including {orphan_count} orphaned)")
             else:
                 print()
+
+        # Broadcast delete events after file deletion but before cache reset
+        if broadcast_delete_events and self.is_do and peer_emails and file_hashes:
+            self._broadcast_delete_events(peer_emails, file_hashes)
 
         # Clear in-memory caches and filesystem cache contents
         self._clear_caches()

@@ -261,6 +261,30 @@ class DataSiteWatcherCache(BaseModel):
             self.sync_down_if_needed(peer)
         return self.file_hashes.get(path, None)
 
+    def _cleanup_stale_dataset_collections(
+        self, peer_email: str, remote_collections: list[dict]
+    ):
+        """Remove locally cached dataset collections that no longer exist remotely."""
+        remote_tags = {c["tag"] for c in remote_collections}
+
+        stale_keys = []
+        for path in list(self.dataset_collection_hashes.keys()):
+            # path = syftbox_folder / owner_email / collection_subpath / tag
+            tag = path.name
+            expected = self.get_collection_path(peer_email, tag)
+            if expected is not None and path == expected and tag not in remote_tags:
+                stale_keys.append(path)
+
+        for path in stale_keys:
+            del self.dataset_collection_hashes[path]
+            # Build relative path for file_connection (relative to syftbox_folder)
+            if self.syftbox_folder is not None:
+                try:
+                    rel_path = path.relative_to(self.syftbox_folder)
+                    self.file_connection.delete_directory(str(rel_path))
+                except ValueError:
+                    pass
+
     def sync_down_datasets(self, peer_email: str):
         """
         Sync dataset collections from peer.
@@ -271,6 +295,8 @@ class DataSiteWatcherCache(BaseModel):
 
         # Filter by peer
         peer_collections = [c for c in collections if c["owner_email"] == peer_email]
+
+        self._cleanup_stale_dataset_collections(peer_email, peer_collections)
 
         for collection in peer_collections:
             owner_email = collection["owner_email"]
@@ -310,6 +336,8 @@ class DataSiteWatcherCache(BaseModel):
         """
         collections = self.connection_router.list_dataset_collections_as_ds()
         peer_collections = [c for c in collections if c["owner_email"] == peer_email]
+
+        self._cleanup_stale_dataset_collections(peer_email, peer_collections)
 
         # Gather all files to download across all collections
         all_downloads = []  # List of (collection_info, file_metadata)

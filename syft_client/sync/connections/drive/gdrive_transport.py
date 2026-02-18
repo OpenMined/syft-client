@@ -8,7 +8,6 @@ import pickle
 from syft_client.sync.utils.syftbox_utils import check_env
 from typing import Any, Dict, List, Optional, Tuple
 from typing import TYPE_CHECKING
-from googleapiclient.http import BatchHttpRequest
 from pydantic import BaseModel
 import httplib2
 from google_auth_httplib2 import AuthorizedHttp
@@ -1021,7 +1020,8 @@ class GDriveConnection(SyftboxPlatformConnection):
                     return
                 raise exception
             if (
-                not isinstance(response, str)
+                response is not None
+                and not isinstance(response, str)
                 and response.get("status")
                 and int(response.get("status")) >= 400
             ):
@@ -1033,9 +1033,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         BATCH_SIZE = 100
         for i in range(0, len(file_ids), BATCH_SIZE):
             chunk = file_ids[i : i + BATCH_SIZE]
-            batch = BatchHttpRequest(
-                callback=callback, batch_uri="https://www.googleapis.com/batch/drive/v3"
-            )
+            batch = self.drive_service.new_batch_http_request(callback=callback)
             for file_id in chunk:
                 batch.add(self.drive_service.files().delete(fileId=file_id))
             batch_execute_with_retries(batch)
