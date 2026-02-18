@@ -29,8 +29,8 @@ def remove_syftboxes_from_drive():
         ds_token_path=token_path_ds,
         add_peers=False,
     )
-    manager_ds.delete_syftbox()
-    manager_do.delete_syftbox()
+    manager_ds.delete_syftbox(broadcast_delete_events=False)
+    manager_do.delete_syftbox(broadcast_delete_events=False)
 
 
 def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:

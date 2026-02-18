@@ -1795,3 +1795,53 @@ def test_datasets_shared_with_any_after_peer_approved():
     # DS should see the dataset immediately (shared at creation time)
     ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
     assert any(c["tag"] == "late any dataset" for c in ds_collections)
+
+
+def test_ds_stale_state_cleared_after_do_delete_syftbox():
+    """Test that DS state is cleaned up after DO calls delete_syftbox().
+
+    Verifies:
+    1. After initial setup, DS has datasets and file_hashes
+    2. DO calls delete_syftbox() which broadcasts is_deleted events
+    3. DS syncs and its file_hashes and datasets are empty
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+    )
+
+    # Create dataset on DO side
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+    do_manager.create_dataset(
+        name="my dataset",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="Test dataset",
+        readme_path=readme_path,
+        users=[ds_manager.email],
+    )
+
+    # DS sends a file change to DO
+    ds_manager._send_file_change(f"{do_manager.email}/test.job", "print('hello')")
+    do_manager.sync()
+
+    # DS syncs to get dataset and file events
+    ds_manager.sync()
+
+    # Verify initial state exists
+    ds_cache = ds_manager.datasite_watcher_syncer.datasite_watcher_cache
+    assert len(ds_manager.datasets.get_all()) == 1
+    assert len(ds_cache.file_hashes) > 0
+
+    # DO deletes syftbox (broadcasts delete events to DS)
+    do_manager.delete_syftbox()
+
+    # DS syncs again - should pick up delete events and stale dataset cleanup
+    ds_manager.sync()
+
+    # Verify DS state is cleaned up
+    assert len(ds_cache.file_hashes) == 0, (
+        "DS file_hashes should be empty after DO delete"
+    )
+    assert len(ds_manager.datasets.get_all()) == 0, (
+        "DS datasets should be empty after DO delete"
+    )
