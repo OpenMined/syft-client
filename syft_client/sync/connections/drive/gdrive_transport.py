@@ -627,8 +627,23 @@ class GDriveConnection(SyftboxPlatformConnection):
             )
         )
 
+    def _has_permission(self, file_id: str, email: str) -> bool:
+        """Check if user already has permission on the file."""
+        perms = execute_with_retries(
+            self.drive_service.permissions().list(
+                fileId=file_id, fields="permissions(emailAddress)"
+            )
+        )
+        for p in perms.get("permissions", []):
+            if p.get("emailAddress", "").lower() == email.lower():
+                return True
+        return False
+
     def add_permission(self, file_id: str, recipient: str, write=False):
-        """Add permission to the file"""
+        """Add permission to the file if not already shared."""
+        if self._has_permission(file_id, recipient):
+            return
+
         role = "writer" if write else "reader"
         permission = {
             "type": "user",
