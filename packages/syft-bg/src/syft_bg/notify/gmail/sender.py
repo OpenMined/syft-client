@@ -53,7 +53,8 @@ class GmailSender:
                 userId="me", body={"raw": raw_message}
             ).execute()
             return True
-        except Exception:
+        except Exception as e:
+            print(f"[GmailSender] Failed to send to {to_email}: {e}")
             return False
 
     def notify_new_job(

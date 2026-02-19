@@ -176,7 +176,8 @@ class JobMonitor(Monitor):
         job_name = config.get("name", job_path.name)
         ds_email = config.get("submitted_by")
 
-        if not ds_email:
+        if not ds_email or "@" not in ds_email:
+            print(f"[JobMonitor] Skip {job_name}: invalid submitted_by '{ds_email}'")
             return
 
         # Skip old jobs on fresh state (avoid spamming about pre-existing jobs)
