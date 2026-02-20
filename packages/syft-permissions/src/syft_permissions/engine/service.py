@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from syft_permissions.engine.request import ACLRequest, AccessLevel
 from syft_permissions.engine.tree import ACLTree
@@ -9,6 +10,17 @@ from syft_permissions.spec.ruleset import PERMISSION_FILE_NAME, RuleSet
 class ACLService:
     owner: str
     tree: ACLTree = field(default_factory=ACLTree)
+
+    def load_permissions_from_filesystem(self, datasite: Path) -> None:
+        """Scan all permission files under datasite and rebuild the tree."""
+        self.tree = ACLTree()
+        for yaml_path in datasite.rglob(PERMISSION_FILE_NAME):
+            ruleset = RuleSet.load(yaml_path)
+            rel_path = str(Path(ruleset.path).relative_to(datasite))
+            if rel_path == ".":
+                rel_path = ""
+            ruleset.path = rel_path
+            self.add_ruleset(ruleset)
 
     def can_access(self, request: ACLRequest) -> bool:
         if request.user.id == self.owner:

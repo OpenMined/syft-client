@@ -21,6 +21,7 @@ members = [
     "syft-dataset",
     "syft-job",
     "syft-notebook-ui",
+    "syft-perm",
     "syft-permissions",
 ]
 
@@ -3219,6 +3220,7 @@ dependencies = [
     { name = "syft-bg" },
     { name = "syft-dataset" },
     { name = "syft-job" },
+    { name = "syft-perm" },
     { name = "syft-permissions" },
 ]
 
@@ -3273,6 +3275,7 @@ requires-dist = [
     { name = "syft-dataset", marker = "extra == 'datasets'", editable = "packages/syft-datasets" },
     { name = "syft-job", editable = "packages/syft-job" },
     { name = "syft-job", marker = "extra == 'job'", editable = "packages/syft-job" },
+    { name = "syft-perm", editable = "packages/syft-perm" },
     { name = "syft-permissions", editable = "packages/syft-permissions" },
 ]
 provides-extras = ["datasets", "job", "all"]
@@ -3360,6 +3363,17 @@ requires-dist = [
     { name = "pydantic", extras = ["email"], specifier = ">=2.10.4" },
     { name = "rich", specifier = ">=13.9.4" },
 ]
+
+[[package]]
+name = "syft-perm"
+version = "0.1.0"
+source = { editable = "packages/syft-perm" }
+dependencies = [
+    { name = "syft-permissions" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "syft-permissions", editable = "packages/syft-permissions" }]
 
 [[package]]
 name = "syft-permissions"

@@ -94,6 +94,7 @@ def _user_in_list(user_email: str, allowed: list[str]) -> bool:
         if pattern == "*":
             return True
         if "*" in pattern or "?" in pattern:
+            # this does *@company.com
             if fnmatch.fnmatch(user_email, pattern):
                 return True
         elif user_email == pattern:

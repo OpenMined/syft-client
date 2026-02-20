@@ -41,6 +41,7 @@ dependencies = [
     "syft-job",     # TODO: move to optional-dependencies after adding lazy imports
     "syft-dataset", # TODO: move to optional-dependencies after adding lazy imports
     "syft-permissions",
+    "syft-perm",
 ]
 
 [project.optional-dependencies]
@@ -66,6 +67,7 @@ members = ["packages/*"]
 "syft-dataset" = { workspace = true }
 "syft-bg" = { workspace = true }
 "syft-permissions" = { workspace = true }
+"syft-perm" = { workspace = true }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"
