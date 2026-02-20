@@ -8,7 +8,7 @@ from syft_client.utils import resolve_path, resolve_dataset_file_path  # noqa: F
 from syft_client.gdrive_utils import download_from_gdrive  # noqa: F401
 from syft_client import utilities  # noqa: F401
 
-__version__ = "0.1.97"
+__version__ = "0.1.98"
 
 SYFT_CLIENT_DIR = Path(__file__).parent.parent
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
