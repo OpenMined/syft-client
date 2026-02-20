@@ -139,8 +139,10 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         2. Check for incremental checkpoints → apply them in order
         3. Check for rolling state → apply if valid
         4. Download any remaining events since last timestamp
+        5. Ensure events_messages_connection is populated for get_cached_events()
         """
         events_since_timestamp: float | None = None
+        restored_events: list[FileChangeEvent] = []
 
         # Step 1: Check for full (compacted) checkpoint
         full_checkpoint = self.connection_router.get_latest_checkpoint()
@@ -160,6 +162,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             print(f"Found {len(incremental_cps)} incremental checkpoints, applying...")
             for inc_cp in incremental_cps:
                 self._apply_incremental_checkpoint_to_cache(inc_cp)
+                restored_events.extend(inc_cp.events)
                 # Update timestamp to the latest event in this checkpoint
                 for event in inc_cp.events:
                     if event.timestamp is not None:
@@ -178,6 +181,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             )
             self._apply_rolling_state_to_cache(rolling_state)
             self._rolling_state = rolling_state
+            restored_events.extend(rolling_state.events)
 
             # Update timestamp from rolling state
             if rolling_state.last_event_timestamp is not None:
@@ -220,6 +224,13 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             )
             for events_message in events_messages_list:
                 self.event_cache.add_events_message_to_local_cache(events_message)
+
+        # Step 5: Ensure events from checkpoints/rolling state are in
+        # events_messages_connection. Steps 1-3 only populate file_hashes
+        # and file_connection but not events_messages_connection, which
+        # get_cached_events() reads from.
+        if restored_events and not self.event_cache.get_cached_events():
+            self._write_events_to_messages_cache(restored_events)
 
         # Load datasets from connection and populate _any_shared_datasets cache
         self._pull_datasets_for_initial_sync()
@@ -578,6 +589,14 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     # =========================================================================
     # ROLLING STATE METHODS
     # =========================================================================
+
+    def _write_events_to_messages_cache(self, events: list[FileChangeEvent]) -> None:
+        """Write events to the events_messages_connection so get_cached_events() can find them."""
+        events_message = FileChangeEventsMessage(events=events)
+        self.event_cache.events_messages_connection.write_file(
+            path=events_message.message_filepath.as_string(),
+            content=events_message,
+        )
 
     def _apply_rolling_state_to_cache(self, rolling_state: RollingState) -> None:
         """Apply events from rolling state to the cache."""
