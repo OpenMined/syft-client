@@ -7,7 +7,7 @@ NOTE: SYFT_CLIENT_VERSION must be kept in sync with __version__ in syft_client/_
 
 # Current client version
 # Keep in sync with __version__ in syft_client/__init__.py and pyproject.toml
-SYFT_CLIENT_VERSION = "0.1.99"
+SYFT_CLIENT_VERSION = "0.1.100"
 
 # Minimum client version we support communicating with
 MIN_SUPPORTED_SYFT_CLIENT_VERSION = "0.1.93"
