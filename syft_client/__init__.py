@@ -6,6 +6,7 @@ from pathlib import Path
 from syft_client.sync.login import login_do, login_ds, login  # noqa: F401
 from syft_client.utils import resolve_path, resolve_dataset_file_path  # noqa: F401
 from syft_client.gdrive_utils import download_from_gdrive  # noqa: F401
+from syft_client import utilities  # noqa: F401
 
 __version__ = "0.1.97"
 
