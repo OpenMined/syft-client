@@ -37,8 +37,8 @@ token_path_do = CREDENTIALS_DIR / FILE_DO
 token_path_ds = CREDENTIALS_DIR / FILE_DS
 
 # Use fixed local paths to simulate VM behavior (persistent folder)
-FIXED_DO_PATH = Path(tempfile.gettempdir()) / f"repro_delete_DO"
-FIXED_DS_PATH = Path(tempfile.gettempdir()) / f"repro_delete_DS"
+FIXED_DO_PATH = Path(tempfile.gettempdir()) / "repro_delete_DO"
+FIXED_DS_PATH = Path(tempfile.gettempdir()) / "repro_delete_DS"
 
 if not token_path_do.exists() or not token_path_ds.exists():
     raise ValueError(
@@ -65,12 +65,14 @@ def query_syftbox_on_gdrive(token_path: Path, label: str):
     creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
     service = build("drive", "v3", credentials=creds)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"GDrive state for: {label}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     query = "name='SyftBox' and mimeType='application/vnd.google-apps.folder' and 'me' in owners and trashed=false"
-    results = _execute_with_retry(service.files().list(q=query, fields="files(id, name)"))
+    results = _execute_with_retry(
+        service.files().list(q=query, fields="files(id, name)")
+    )
     syftbox_folders = results.get("files", [])
 
     if not syftbox_folders:
@@ -84,9 +86,9 @@ def query_syftbox_on_gdrive(token_path: Path, label: str):
     # Search for orphaned syft files
     for pattern in ["syft_datasetcollection", "syft_privatecollection"]:
         query = f"name contains '{pattern}' and 'me' in owners and trashed=false"
-        results = _execute_with_retry(service.files().list(
-            q=query, fields="files(id, name, mimeType, parents)"
-        ))
+        results = _execute_with_retry(
+            service.files().list(q=query, fields="files(id, name, mimeType, parents)")
+        )
         files = results.get("files", [])
         if files:
             print(f"\n  Orphaned '{pattern}' files:")
@@ -98,19 +100,19 @@ def query_syftbox_on_gdrive(token_path: Path, label: str):
 def _list_children(service, folder_id, indent=2):
     """Recursively list children of a GDrive folder."""
     query = f"'{folder_id}' in parents and trashed=false"
-    results = _execute_with_retry(service.files().list(
-        q=query, fields="files(id, name, mimeType)"
-    ))
+    results = _execute_with_retry(
+        service.files().list(q=query, fields="files(id, name, mimeType)")
+    )
     children = results.get("files", [])
 
     if not children:
-        print(f"{' '*indent}(empty)")
+        print(f"{' ' * indent}(empty)")
         return
 
     for child in children:
         is_folder = "folder" in child.get("mimeType", "")
         marker = "DIR " if is_folder else "FILE"
-        print(f"{' '*indent}[{marker}] {child['name']} (id={child['id']})")
+        print(f"{' ' * indent}[{marker}] {child['name']} (id={child['id']})")
         if is_folder:
             _list_children(service, child["id"], indent + 4)
 
@@ -119,7 +121,7 @@ def _show_local_folder(folder: Path, label: str):
     """Show contents of a local syftbox folder."""
     print(f"\n  Local {label} folder: {folder}")
     if not folder.exists():
-        print(f"    (does not exist)")
+        print("    (does not exist)")
         return
     for item in sorted(folder.rglob("*")):
         rel = item.relative_to(folder)
@@ -150,6 +152,7 @@ def step_setup():
     manager_ds.delete_syftbox(broadcast_delete_events=False)
     # Also clean local dirs for a fresh start
     import shutil
+
     if FIXED_DO_PATH.exists():
         shutil.rmtree(FIXED_DO_PATH)
     if FIXED_DS_PATH.exists():
@@ -195,7 +198,9 @@ def step_setup():
     private_datasets = FIXED_DO_PATH / "private" / "syft_datasets"
     public_datasets = FIXED_DO_PATH / EMAIL_DO / "public" / "syft_datasets"
     if private_datasets.exists() or public_datasets.exists():
-        print("BUG REPRODUCED: Local dataset folders still exist after delete_syftbox()!")
+        print(
+            "BUG REPRODUCED: Local dataset folders still exist after delete_syftbox()!"
+        )
         if private_datasets.exists():
             print(f"  - {private_datasets}")
         if public_datasets.exists():
