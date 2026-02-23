@@ -1225,8 +1225,16 @@ class JobsList:
         self._jobs = jobs
         self._root_email = root_email
 
-    def __getitem__(self, index) -> JobInfo:
-        return self._jobs[index]
+    def __getitem__(self, index: int | str) -> JobInfo:
+        if isinstance(index, int):
+            return self._jobs[index]
+        elif isinstance(index, str):
+            for job in self._jobs:
+                if job.name == index:
+                    return job
+            raise ValueError(f"Job with name '{index}' not found")
+        else:
+            raise TypeError(f"Invalid index type: {type(index)}")
 
     def __len__(self) -> int:
         return len(self._jobs)

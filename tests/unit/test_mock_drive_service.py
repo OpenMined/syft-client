@@ -501,13 +501,13 @@ class TestPairWithMockDriveServiceConnection:
         # DS sends a file change to DO
         # The file path must include the DO's email as the datasite
         file_path = f"{do_manager.email}/test.job"
-        ds_manager.send_file_change(file_path, "Hello from DS!")
+        ds_manager._send_file_change(file_path, "Hello from DS!")
 
         # DO syncs to receive the message
         do_manager.sync()
 
         # Check that DO received the event
-        events = do_manager.get_all_accepted_events_do()
+        events = do_manager._get_all_accepted_events_do()
         assert len(events) > 0
 
     def test_dataset_creation_and_sync(self):

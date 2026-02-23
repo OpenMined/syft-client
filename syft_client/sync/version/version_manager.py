@@ -423,9 +423,19 @@ class VersionManager(BaseModel):
 
         email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
 
-        # Find peer in pending requests
+        # Early return if peer is already approved
         peer = self.get_cached_peer(email)
+        if peer and peer.is_approved:
+            if verbose:
+                print(f"Peer {email} is already approved, skipping")
+            return
+
+        # Find peer in pending requests, reload cache if not found
         peer_is_pending = peer and peer.is_pending
+        if not peer_is_pending:
+            self.load_peers()
+            peer = self.get_cached_peer(email)
+            peer_is_pending = peer and peer.is_pending
         if peer_must_exist and not peer_is_pending:
             raise ValueError(
                 f"Peer {email} not found in pending requests."

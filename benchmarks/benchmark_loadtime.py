@@ -21,7 +21,7 @@ token_path_ds = CREDENTIALS_DIR / FILE_DS
 
 
 def remove_syftboxes_from_drive():
-    manager_ds, manager_do = SyftboxManager.pair_with_google_drive_testing_connection(
+    manager_ds, manager_do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -41,33 +41,37 @@ def remove_syftboxes_from_drive():
 def benchmark_gdrive_load_state():
     remove_syftboxes_from_drive()
 
-    manager_ds1, manager_do1 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=True,
-        load_peers=False,
+    manager_ds1, manager_do1 = (
+        SyftboxManager._pair_with_google_drive_testing_connection(
+            do_email=EMAIL_DO,
+            ds_email=EMAIL_DS,
+            do_token_path=token_path_do,
+            ds_token_path=token_path_ds,
+            add_peers=True,
+            load_peers=False,
+        )
     )
 
     # make some changes
     for i in range(10):
-        manager_ds1.send_file_change(f"{EMAIL_DO}/myjob-{i}.job", "Hello, world!")
+        manager_ds1._send_file_change(f"{EMAIL_DO}/myjob-{i}.job", "Hello, world!")
 
     time.sleep(3)
     manager_do1.sync()
 
     # test loading the peers and loading the inbox
     print("initializing second manager")
-    manager_ds2, manager_do2 = SyftboxManager.pair_with_google_drive_testing_connection(
-        do_email=EMAIL_DO,
-        ds_email=EMAIL_DS,
-        do_token_path=token_path_do,
-        ds_token_path=token_path_ds,
-        add_peers=False,
-        load_peers=True,
+    manager_ds2, manager_do2 = (
+        SyftboxManager._pair_with_google_drive_testing_connection(
+            do_email=EMAIL_DO,
+            ds_email=EMAIL_DS,
+            do_token_path=token_path_do,
+            ds_token_path=token_path_ds,
+            add_peers=False,
+            load_peers=True,
+        )
     )
-    print(len(manager_do2.proposed_file_change_handler.event_cache.get_cached_events()))
+    print(len(manager_do2.datasite_owner_syncer.event_cache.get_cached_events()))
 
     print("initial sync")
     start = time.time()
@@ -77,10 +81,7 @@ def benchmark_gdrive_load_state():
 
     end = time.time()
 
-    assert (
-        len(manager_do2.proposed_file_change_handler.event_cache.get_cached_events())
-        == 10
-    )
+    assert len(manager_do2.datasite_owner_syncer.event_cache.get_cached_events()) == 10
 
     print(f"Time taken to load state: {round(end - start, 2)} seconds")
 

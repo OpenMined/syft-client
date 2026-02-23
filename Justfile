@@ -18,6 +18,14 @@ test-unit:
     #!/bin/bash
     uv run pytest -n auto ./tests/unit
 
+test-unit-perm:
+    #!/bin/bash
+    uv run pytest -n auto ./packages/syft-perm/tests
+
+test-unit-permissions:
+    #!/bin/bash
+    uv run pytest -n auto ./packages/syft-permissions/tests
+
 
 test-unit-fast:
     #!/bin/bash

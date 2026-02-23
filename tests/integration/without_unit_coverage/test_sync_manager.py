@@ -43,7 +43,7 @@ def test_peer_request_blocks_sync_until_approved():
     5. DO syncs - job should now sync
     """
     # Create managers with Google Drive connection, no auto-add peers
-    ds_manager, do_manager = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds_manager, do_manager = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -66,7 +66,7 @@ def test_peer_request_blocks_sync_until_approved():
     # Step 2: DS submits a simple job
     job_file_path = f"{do_manager.email}/test.job"
     job_content = "print('Hello from DS')"
-    ds_manager.send_file_change(job_file_path, job_content)
+    ds_manager._send_file_change(job_file_path, job_content)
 
     # Wait for message to be sent
     sleep(1)

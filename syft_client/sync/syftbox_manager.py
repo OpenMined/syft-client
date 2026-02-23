@@ -1,5 +1,6 @@
 from pathlib import Path
 import copy
+import shutil
 import warnings
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.utils import resolve_path
@@ -25,7 +26,10 @@ from syft_client.sync.peers.peer import Peer, PeerState
 from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
 )
-from syft_client.sync.events.file_change_event import FileChangeEvent
+from syft_client.sync.events.file_change_event import (
+    FileChangeEvent,
+    FileChangeEventsMessage,
+)
 from syft_client.sync.utils.syftbox_utils import (
     random_email,
     random_syftbox_folder_for_testing,
@@ -37,9 +41,6 @@ from syft_client.sync.connections.connection_router import ConnectionRouter
 
 from syft_client.sync.connections.drive.grdrive_config import GdriveConnectionConfig
 from syft_client.sync.connections.drive import mock_drive_service
-from syft_client.sync.connections.inmemory_connection import (
-    InMemoryPlatformConnection,
-)
 from syft_client.sync.sync.datasite_owner_syncer import (
     DatasiteOwnerSyncer,
     DatasiteOwnerSyncerConfig,
@@ -213,7 +214,7 @@ class SyftboxManagerConfig(BaseModel):
         )
 
     @classmethod
-    def base_config_for_in_memory_connection(
+    def _base_config_for_testing(
         cls,
         email: str | None = None,
         syftbox_folder: Path | None = None,
@@ -372,6 +373,36 @@ class SyftboxManager(BaseModel):
         default_factory=lambda: ThreadPoolExecutor(max_workers=10)
     )
 
+    _PUBLIC_API = (
+        "email",
+        "syftbox_folder",
+        "dev_mode",
+        "config",
+        "dataset_manager",
+        "version_manager",
+        "peers",
+        "jobs",
+        "datasets",
+        "add_peer",
+        "load_peers",
+        "approve_peer_request",
+        "reject_peer_request",
+        "sync",
+        "create_dataset",
+        "delete_dataset",
+        "share_dataset",
+        "submit_bash_job",
+        "submit_python_job",
+        "process_approved_jobs",
+        "create_checkpoint",
+        "should_create_checkpoint",
+        "try_create_checkpoint",
+        "delete_syftbox",
+    )
+
+    def __dir__(self):
+        return list(self._PUBLIC_API)
+
     @property
     def peers(self) -> PeerList:
         """
@@ -480,7 +511,7 @@ class SyftboxManager(BaseModel):
         return manager
 
     @classmethod
-    def pair_with_google_drive_testing_connection(
+    def _pair_with_google_drive_testing_connection(
         cls,
         do_email: str,
         ds_email: str,
@@ -556,101 +587,11 @@ class SyftboxManager(BaseModel):
             sender_manager.load_peers()
 
         if clear_caches:
-            receiver_manager.clear_caches()
-            sender_manager.clear_caches()
+            receiver_manager._clear_caches()
+            sender_manager._clear_caches()
 
         # create inbox folder
         return sender_manager, receiver_manager
-
-    @classmethod
-    def pair_with_in_memory_connection(
-        cls,
-        email1: str | None = None,
-        email2: str | None = None,
-        base_path1: str | None = None,
-        base_path2: str | None = None,
-        sync_automatically: bool = True,
-        add_peers: bool = True,
-        use_in_memory_cache: bool = True,
-        check_versions: bool = False,
-    ):
-        # this doesnt contain the connections, as we need to set them after creation
-        receiver_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
-            email=email1,
-            syftbox_folder=base_path1,
-            only_ds=False,
-            only_datasite_owner=True,
-            use_in_memory_cache=use_in_memory_cache,
-            check_versions=check_versions,
-        )
-
-        do_manager = cls.from_config(receiver_config)
-
-        sender_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
-            email=email2,
-            syftbox_folder=base_path2,
-            only_ds=True,
-            only_datasite_owner=False,
-            use_in_memory_cache=use_in_memory_cache,
-            check_versions=check_versions,
-        )
-        ds_manager = cls.from_config(sender_config)
-
-        # this makes sure that when we write a file as sender, the inactive file watcher picks it up
-        ds_manager.file_writer.add_callback(
-            "write_file",
-            ds_manager.datasite_watcher_syncer.on_file_change,
-        )
-        # this makes sure that a message travels from through our in memory platform from pusher to puller
-
-        if sync_automatically:
-            receiver_receive_function = do_manager.sync
-        else:
-            receiver_receive_function = None
-
-        sender_in_memory_connection = InMemoryPlatformConnection(
-            receiver_function=receiver_receive_function,
-            owner_email=ds_manager.email,
-        )
-        ds_manager.add_connection(sender_in_memory_connection)
-
-        # this make sure we can do communication the other way, it also makes sure we have a fake backing store for the receiver
-        # so we can store events in memory
-        # we also make sure we write to the same backing store so we get consistent state
-        # sender_receiver_function = (
-        #     sender_manager.proposed_file_change_handler.on_proposed_filechange_receive
-        # )
-        def sender_receiver_function(*args, **kwargs):
-            pass
-
-        sender_backing_store = ds_manager.datasite_watcher_syncer.connection_router.connection_for_eventlog().backing_store
-        receiver_connection = InMemoryPlatformConnection(
-            receiver_function=sender_receiver_function,
-            backing_store=sender_backing_store,
-            owner_email=do_manager.email,
-        )
-        do_manager.add_connection(receiver_connection)
-
-        # Write version files after connections are set up
-        ds_manager.version_manager.write_own_version()
-        do_manager.version_manager.write_own_version()
-
-        # this make sure that when the receiver writes a file to disk,
-        # the file watcher picks it up
-        # we use the underscored method to allow for monkey patching
-        do_manager.datasite_owner_syncer.event_cache.add_callback(
-            "on_event_local_write",
-            do_manager.job_file_change_handler._handle_file_change,
-        )
-
-        if add_peers:
-            # DS creates peer request
-            ds_manager.add_peer(do_manager.email)
-            # DO approves the peer request automatically (for backward compatibility)
-            do_manager.load_peers()
-            do_manager.approve_peer_request(ds_manager.email)
-
-        return ds_manager, do_manager
 
     @classmethod
     def pair_with_mock_drive_service_connection(
@@ -684,7 +625,7 @@ class SyftboxManager(BaseModel):
             Tuple of (ds_manager, do_manager)
         """
         # Create configs using the existing base config generator
-        do_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
+        do_config = SyftboxManagerConfig._base_config_for_testing(
             email=email1,
             syftbox_folder=base_path1,
             only_ds=False,
@@ -693,7 +634,7 @@ class SyftboxManager(BaseModel):
             check_versions=check_versions,
         )
 
-        ds_config = SyftboxManagerConfig.base_config_for_in_memory_connection(
+        ds_config = SyftboxManagerConfig._base_config_for_testing(
             email=email2,
             syftbox_folder=base_path2,
             only_ds=True,
@@ -712,9 +653,9 @@ class SyftboxManager(BaseModel):
         )
 
         # Add connections to managers
-        do_manager.add_connection(do_connection)
+        do_manager._add_connection(do_connection)
 
-        ds_manager.add_connection(ds_connection)
+        ds_manager._add_connection(ds_connection)
 
         # Set up callbacks for DS -> DO communication
         ds_manager.file_writer.add_callback(
@@ -782,7 +723,15 @@ class SyftboxManager(BaseModel):
     def is_do(self) -> bool:
         return self.datasite_owner_syncer is not None
 
-    def sync(self):
+    def sync(self, auto_checkpoint: bool = True, checkpoint_threshold: int = 50):
+        """
+        Sync local state with Google Drive.
+
+        Args:
+            auto_checkpoint: If True, automatically create checkpoint when
+                            event count exceeds threshold (DO only).
+            checkpoint_threshold: Create checkpoint when events >= this value.
+        """
         self.load_peers()
         if self.is_do:
             peer_emails = [peer.email for peer in self.version_manager.approved_peers]
@@ -791,6 +740,10 @@ class SyftboxManager(BaseModel):
                 peer_emails, warn_incompatible=True
             )
             self.datasite_owner_syncer.sync(compatible_emails)
+            # Auto-checkpoint if enabled and threshold exceeded
+            if auto_checkpoint:
+                self.try_create_checkpoint(checkpoint_threshold)
+
         else:
             # ds
             peer_emails = [
@@ -804,7 +757,7 @@ class SyftboxManager(BaseModel):
         """Load peers from connection router. Delegates to VersionManager."""
         cast(VersionManager, self.version_manager).load_peers()
 
-    def check_peer_request_exists(self, email: str) -> bool:
+    def _check_peer_request_exists(self, email: str) -> bool:
         """Check if a peer request exists. Delegates to VersionManager."""
         return self.version_manager.check_peer_request_exists(email)
 
@@ -835,8 +788,8 @@ class SyftboxManager(BaseModel):
         """
         for tag, content_hash in self.datasite_owner_syncer._any_shared_datasets:
             try:
-                self.connection_router.share_dataset_collection(
-                    tag, content_hash, peer_email
+                self._connection_router.share_dataset_collection(
+                    tag, content_hash, [peer_email]
                 )
             except Exception:
                 # Ignore errors (e.g., already shared)
@@ -922,16 +875,15 @@ class SyftboxManager(BaseModel):
         if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
 
-    def add_connection(self, connection: SyftboxPlatformConnection):
-        # all connection routers are pointers to the same object for in memory setup
-        if not isinstance(connection, InMemoryPlatformConnection) and not (
+    def _add_connection(self, connection: SyftboxPlatformConnection):
+        if not (
             isinstance(connection, GDriveConnection)
             and isinstance(
                 connection.drive_service, mock_drive_service.MockDriveService
             )
         ):
             raise ValueError(
-                "Only InMemoryPlatformConnections and MockDriveServices can be added to the manager"
+                "Only MockDriveService connections can be added to the manager"
             )
 
         if self.datasite_owner_syncer is not None:
@@ -945,14 +897,19 @@ class SyftboxManager(BaseModel):
         # Add connection to version manager's router
         self.version_manager.connection_router.add_connection(connection)
 
-    def send_file_change(self, path: str | Path, content: str):
+    def _send_file_change(self, path: str | Path, content: str):
         self.file_writer.write_file(path, content)
 
-    def get_all_accepted_events_do(self) -> List[FileChangeEvent]:
+    def _get_all_accepted_events_do(self) -> List[FileChangeEvent]:
         return self.datasite_owner_syncer.connection_router.get_all_accepted_events_messages_do()
 
     def create_dataset(
-        self, *args, users: list[str] | str | None = None, sync=True, **kwargs
+        self,
+        *args,
+        users: list[str] | str | None = None,
+        upload_private: bool = False,
+        sync=True,
+        **kwargs,
     ):
         if self.dataset_manager is None:
             raise ValueError("Dataset manager is not set")
@@ -968,8 +925,12 @@ class SyftboxManager(BaseModel):
         # Create dataset locally
         dataset = self.dataset_manager.create(*args, users=users, **kwargs)
 
-        # Upload to collection folder
+        # Upload mock data to collection folder
         self._upload_dataset_to_collection(dataset, users)
+
+        # Upload private data to a separate owner-only collection
+        if upload_private:
+            self._upload_private_dataset_to_collection(dataset)
 
         if sync:
             self.sync()
@@ -1001,23 +962,66 @@ class SyftboxManager(BaseModel):
         content_hash = DatasetCollectionFolder.compute_hash(files)
 
         # Create collection folder with hash in name
-        self.connection_router.create_dataset_collection_folder(
+        self._connection_router.create_dataset_collection_folder(
             tag=collection_tag, content_hash=content_hash, owner_email=self.email
         )
 
         # Upload files
-        self.connection_router.upload_dataset_files(collection_tag, content_hash, files)
-
-        # Share with users
-        self.connection_router.share_dataset_collection(
-            collection_tag, content_hash, users
+        self._connection_router.upload_dataset_files(
+            collection_tag, content_hash, files
         )
 
-        # Cache "any" datasets for quick sharing with new peers
+        # Share with users
         if users == "any":
+            self._connection_router.tag_dataset_collection_as_any(
+                collection_tag, content_hash
+            )
             self.datasite_owner_syncer._any_shared_datasets.append(
                 (collection_tag, content_hash)
             )
+            # Share with all already-approved peers
+            peer_emails = [p.email for p in self.version_manager.approved_peers]
+            if peer_emails:
+                self._connection_router.share_dataset_collection(
+                    collection_tag, content_hash, peer_emails
+                )
+        else:
+            self._connection_router.share_dataset_collection(
+                collection_tag, content_hash, users
+            )
+
+    def _upload_private_dataset_to_collection(self, dataset):
+        """Upload private dataset files to a separate owner-only collection folder."""
+        from syft_client.sync.connections.drive.gdrive_transport import (
+            PrivateDatasetCollectionFolder,
+        )
+
+        collection_tag = dataset.name
+
+        # Collect private files + private_metadata.yaml
+        files = {}
+        for private_file in dataset.private_files:
+            if private_file.exists():
+                files[private_file.name] = private_file.read_bytes()
+
+        private_config_path = dataset.private_config_path
+        if private_config_path.exists():
+            files["private_metadata.yaml"] = private_config_path.read_bytes()
+
+        if not files:
+            return
+
+        content_hash = PrivateDatasetCollectionFolder.compute_hash(files)
+
+        # Create private collection folder (no sharing)
+        self._connection_router.create_private_dataset_collection_folder(
+            tag=collection_tag, content_hash=content_hash, owner_email=self.email
+        )
+
+        # Upload files
+        self._connection_router.upload_private_dataset_files(
+            collection_tag, content_hash, files
+        )
 
     def delete_dataset(self, *args, sync=True, **kwargs):
         if self.dataset_manager is None:
@@ -1064,7 +1068,18 @@ class SyftboxManager(BaseModel):
         content_hash = DatasetCollectionFolder.compute_hash(files)
 
         # Share collection
-        self.connection_router.share_dataset_collection(tag, content_hash, users)
+        if users == "any":
+            self._connection_router.tag_dataset_collection_as_any(tag, content_hash)
+            self.datasite_owner_syncer._any_shared_datasets.append((tag, content_hash))
+            peer_emails = [p.email for p in self.version_manager.approved_peers]
+            if peer_emails:
+                self._connection_router.share_dataset_collection(
+                    tag, content_hash, peer_emails
+                )
+        else:
+            if isinstance(users, str):
+                users = [users]
+            self._connection_router.share_dataset_collection(tag, content_hash, users)
 
         if sync:
             self.sync()
@@ -1087,40 +1102,92 @@ class SyftboxManager(BaseModel):
         return self.dataset_manager
 
     @property
-    def connection_router(self) -> ConnectionRouter:
+    def _connection_router(self) -> ConnectionRouter:
         # for DOs we have a syncer, for DSs we have a watcher syncer
         if self.datasite_owner_syncer is not None:
             return self.datasite_owner_syncer.connection_router
         else:
             return self.datasite_watcher_syncer.connection_router
 
-    def clear_caches(self):
+    def _clear_caches(self):
         if self.datasite_owner_syncer is not None:
             self.datasite_owner_syncer.event_cache.clear_cache()
         if self.datasite_watcher_syncer is not None:
             self.datasite_watcher_syncer.datasite_watcher_cache.clear_cache()
 
-    def delete_syftbox(self, verbose: bool = True):
+    def _broadcast_delete_events(
+        self,
+        peer_emails: list[str],
+        file_hashes: dict,
+    ):
+        """Broadcast is_deleted=True events for all tracked files to each peer's outbox."""
+        from uuid import uuid4
+        from syft_client.sync.utils.syftbox_utils import create_event_timestamp
+
+        timestamp = create_event_timestamp()
+        events = []
+        for path in file_hashes:
+            events.append(
+                FileChangeEvent(
+                    id=uuid4(),
+                    path_in_datasite=path,
+                    datasite_email=self.email,
+                    content=None,
+                    old_hash=file_hashes[path],
+                    new_hash=None,
+                    is_deleted=True,
+                    submitted_timestamp=timestamp,
+                    timestamp=timestamp,
+                )
+            )
+
+        if not events:
+            return
+
+        msg = FileChangeEventsMessage(events=events)
+        for peer_email in peer_emails:
+            try:
+                self._connection_router.write_event_messages_to_outbox_do(
+                    peer_email, msg
+                )
+            except Exception:
+                pass
+
+    def delete_syftbox(
+        self, verbose: bool = True, broadcast_delete_events: bool = True
+    ):
         """
-        Delete the SyftBox folder and all its contents, including orphaned files.
+        Delete all SyftBox state: Google Drive files, local caches, and local folder.
 
         Due to Google Drive's eventual consistency, files can become orphaned when
         their parent folder is deleted before they're fully registered. We use two
         strategies to ensure complete cleanup:
         1. Gather all files by traversing the SyftBox folder hierarchy
-        2. Find message files by name pattern (catches orphaned files from any location)
+        2. Find files by name pattern (catches orphaned files from any location)
+
+        Args:
+            verbose: Print deletion progress.
+            broadcast_delete_events: If True (default), broadcast is_deleted events
+                to all approved peers before deleting. Set False for test cleanup.
         """
+        # Capture state before deletion (needed for broadcast)
+        peer_emails = []
+        file_hashes = {}
+        if broadcast_delete_events and self.is_do:
+            peer_emails = [p.email for p in self.version_manager.approved_peers]
+            file_hashes = dict(self.datasite_owner_syncer.event_cache.file_hashes)
+
         # Get files by folder hierarchy
-        folder_file_ids = set(self.connection_router.gather_all_file_and_folder_ids())
+        folder_file_ids = set(self._connection_router.gather_all_file_and_folder_ids())
 
-        # Also find message files by name pattern (catches orphaned files)
-        orphaned_file_ids = set(self.connection_router.find_orphaned_message_files())
+        # Also find syft files by name pattern (catches orphaned files)
+        orphaned_file_ids = set(self._connection_router.find_orphaned_message_files())
 
-        # Combine both sets
+        # Combine both sets and delete from Google Drive
         all_file_ids = list(folder_file_ids | orphaned_file_ids)
 
         start = time.time()
-        self.connection_router.delete_multiple_files_by_ids(all_file_ids)
+        self._connection_router.delete_multiple_files_by_ids(all_file_ids)
         end = time.time()
         if verbose:
             orphan_count = len(orphaned_file_ids - folder_file_ids)
@@ -1132,7 +1199,85 @@ class SyftboxManager(BaseModel):
                 print(f" (including {orphan_count} orphaned)")
             else:
                 print()
-        self.connection_router.reset_caches()
+
+        # Broadcast delete events after file deletion but before cache reset
+        if broadcast_delete_events and self.is_do and peer_emails and file_hashes:
+            self._broadcast_delete_events(peer_emails, file_hashes)
+
+        # Clear in-memory caches and filesystem cache contents
+        self._clear_caches()
+        self._connection_router.reset_caches()
+
+        # Delete local syftbox folder and cache directories
+        self._delete_local_dirs()
+
+    def _delete_local_dirs(self):
+        """Delete local syftbox folder and cache directories."""
+        syftbox_name = self.syftbox_folder.name
+        syftbox_parent = self.syftbox_folder.parent
+
+        dirs_to_delete = [
+            self.syftbox_folder,  # main syftbox folder (datasets, private, etc.)
+            syftbox_parent / f"{syftbox_name}-events",  # DO event cache
+            syftbox_parent / f"{syftbox_name}-event-messages",  # DS event cache
+        ]
+        for d in dirs_to_delete:
+            if d.exists():
+                shutil.rmtree(d)
+
+    # =========================================================================
+    # CHECKPOINT METHODS
+    # =========================================================================
+
+    def create_checkpoint(self):
+        """
+        Create a checkpoint of the current state and upload to Google Drive.
+
+        A checkpoint is a snapshot of all files and their hashes. When logging in,
+        the client will download the checkpoint instead of all historical events,
+        significantly speeding up the initial sync.
+
+        Only available for Data Owners (DO).
+
+        Returns:
+            The created Checkpoint object.
+
+        Raises:
+            ValueError: If called on a Data Scientist client.
+        """
+        if not self.is_do:
+            raise ValueError("Checkpoints can only be created by Data Owners")
+        return self.datasite_owner_syncer.create_checkpoint()
+
+    def should_create_checkpoint(self, threshold: int = 50) -> bool:
+        """
+        Check if a checkpoint should be created based on event count.
+
+        Args:
+            threshold: Create checkpoint if events since last checkpoint >= threshold.
+
+        Returns:
+            True if checkpoint should be created.
+        """
+        if not self.is_do:
+            return False
+        return self.datasite_owner_syncer.should_create_checkpoint(threshold)
+
+    def try_create_checkpoint(self, threshold: int = 50):
+        """
+        Try to create a checkpoint if the event count exceeds the threshold.
+
+        This is useful for automatic checkpoint creation after syncs.
+
+        Args:
+            threshold: Create checkpoint if events since last checkpoint >= threshold.
+
+        Returns:
+            The created Checkpoint, or None if not needed or not a DO.
+        """
+        if not self.is_do:
+            return None
+        return self.datasite_owner_syncer.try_create_checkpoint(threshold)
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
         all_platforms = set(
@@ -1140,7 +1285,7 @@ class SyftboxManager(BaseModel):
         )
         return list(all_platforms)
 
-    def resolve_path(self, path: str | Path) -> Path:
+    def _resolve_path(self, path: str | Path) -> Path:
         return resolve_path(path, syftbox_folder=self.syftbox_folder)
 
     def _resolve_dataset_owners_for_name(self, dataset_name: str) -> str | None:
@@ -1150,21 +1295,21 @@ class SyftboxManager(BaseModel):
                 matches.append(dataset.owner)
         return matches
 
-    def copy(self):
+    def _copy(self):
         from copy import deepcopy
 
         new_config = deepcopy(self.config)
         new_manager = SyftboxManager.from_config(new_config)
-        if not isinstance(self.connection_router.connections[0], GDriveConnection):
+        if not isinstance(self._connection_router.connections[0], GDriveConnection):
             raise ValueError("Only GDriveConnections can be copied")
         if isinstance(
-            self.connection_router.connections[0].drive_service,
+            self._connection_router.connections[0].drive_service,
             mock_drive_service.MockDriveService,
         ):
             # Create new connection pointing to the same backing store
-            drive_service = self.connection_router.connections[0].drive_service
+            drive_service = self._connection_router.connections[0].drive_service
             new_do_connection = GDriveConnection.from_service(self.email, drive_service)
-            new_manager.add_connection(new_do_connection)
+            new_manager._add_connection(new_do_connection)
         return new_manager
 
     # def resolve_dataset_path(

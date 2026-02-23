@@ -9,6 +9,8 @@ from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessage,
 )
+from syft_client.sync.checkpoints.checkpoint import Checkpoint, IncrementalCheckpoint
+from syft_client.sync.checkpoints.rolling_state import RollingState
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
 from syft_client.sync.peers.peer import Peer, PeerState
@@ -233,8 +235,12 @@ class ConnectionRouter(BaseModel):
             tag, content_hash, owner_email
         )
 
+    def tag_dataset_collection_as_any(self, tag: str, content_hash: str) -> None:
+        connection = self.connection_for_send_message()
+        connection.tag_dataset_collection_as_any(tag, content_hash)
+
     def share_dataset_collection(
-        self, tag: str, content_hash: str, users: list[str] | str
+        self, tag: str, content_hash: str, users: list[str]
     ) -> None:
         connection = self.connection_for_send_message()
         connection.share_dataset_collection(tag, content_hash, users)
@@ -264,6 +270,32 @@ class ConnectionRouter(BaseModel):
     ) -> dict[str, bytes]:
         connection = self.connection_for_datasite_watcher()
         return connection.download_dataset_collection(tag, content_hash, owner_email)
+
+    def create_private_dataset_collection_folder(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> str:
+        connection = self.connection_for_send_message()
+        return connection.create_private_dataset_collection_folder(
+            tag, content_hash, owner_email
+        )
+
+    def upload_private_dataset_files(
+        self, tag: str, content_hash: str, files: dict[str, bytes]
+    ) -> None:
+        connection = self.connection_for_send_message()
+        connection.upload_private_dataset_files(tag, content_hash, files)
+
+    def list_private_dataset_collections_as_do(self) -> list[FileCollection]:
+        connection = self.connection_for_send_message()
+        return connection.list_private_dataset_collections_as_do()
+
+    def get_private_collection_file_metadatas(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> List[dict]:
+        connection = self.connection_for_datasite_watcher()
+        return connection.get_private_collection_file_metadatas(
+            tag, content_hash, owner_email
+        )
 
     def connection_for_version_read(
         self, create_new: bool = False
@@ -301,3 +333,79 @@ class ConnectionRouter(BaseModel):
     def download_dataset_file(self, file_id: str) -> bytes:
         connection = self.connection_for_datasite_watcher()
         return connection.download_dataset_file(file_id)
+
+    # =========================================================================
+    # CHECKPOINT METHODS
+    # =========================================================================
+
+    def upload_checkpoint(self, checkpoint: Checkpoint) -> str:
+        """Upload a checkpoint to the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        return connection.upload_checkpoint(checkpoint)
+
+    def get_latest_checkpoint(self) -> Checkpoint | None:
+        """Get the latest checkpoint from the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        return connection.get_latest_checkpoint()
+
+    def get_events_count_since_checkpoint(
+        self, checkpoint_timestamp: float | None
+    ) -> int:
+        """Count events created after the checkpoint timestamp."""
+        connection = self.connection_for_eventlog()
+        return connection.get_events_count_since_checkpoint(checkpoint_timestamp)
+
+    def get_events_messages_since_timestamp(
+        self, since_timestamp: float
+    ) -> List[FileChangeEventsMessage]:
+        """Get events created after a specific timestamp."""
+        connection = self.connection_for_eventlog()
+        return connection.get_events_messages_since_timestamp(since_timestamp)
+
+    # =========================================================================
+    # INCREMENTAL CHECKPOINT METHODS
+    # =========================================================================
+
+    def upload_incremental_checkpoint(self, checkpoint: IncrementalCheckpoint) -> str:
+        """Upload an incremental checkpoint to the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        return connection.upload_incremental_checkpoint(checkpoint)
+
+    def get_all_incremental_checkpoints(self) -> List[IncrementalCheckpoint]:
+        """Get all incremental checkpoints from the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        return connection.get_all_incremental_checkpoints()
+
+    def get_incremental_checkpoint_count(self) -> int:
+        """Get the number of incremental checkpoints."""
+        connection = self.connection_for_own_syftbox()
+        return connection.get_incremental_checkpoint_count()
+
+    def get_next_incremental_sequence_number(self) -> int:
+        """Get the next sequence number for incremental checkpoints."""
+        connection = self.connection_for_own_syftbox()
+        return connection.get_next_incremental_sequence_number()
+
+    def delete_all_incremental_checkpoints(self) -> None:
+        """Delete all incremental checkpoints from the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        connection.delete_all_incremental_checkpoints()
+
+    # =========================================================================
+    # ROLLING STATE METHODS
+    # =========================================================================
+
+    def upload_rolling_state(self, rolling_state: RollingState) -> str:
+        """Upload rolling state to the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        return connection.upload_rolling_state(rolling_state)
+
+    def get_rolling_state(self) -> RollingState | None:
+        """Get the rolling state from the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        return connection.get_rolling_state()
+
+    def delete_rolling_state(self) -> None:
+        """Delete rolling state from the storage backend."""
+        connection = self.connection_for_own_syftbox()
+        connection.delete_rolling_state()

@@ -93,6 +93,14 @@ class InMemoryCacheFileConnection(CacheFileConnection[T]):
         if path in self.sorted_files:
             del self.sorted_files[path]
 
+    def delete_directory(self, path: str | Path) -> None:
+        path = Path(path)
+        keys_to_delete = [
+            k for k in self.sorted_files if k == path or path in k.parents
+        ]
+        for k in keys_to_delete:
+            del self.sorted_files[k]
+
     def __len__(self) -> int:
         return len(self.sorted_files)
 
@@ -169,6 +177,12 @@ class FSFileConnection(CacheFileConnection[T]):
         full_path = self._resolve_full_path(path)
         if full_path.exists():
             full_path.unlink()
+
+    def delete_directory(self, path: str | Path) -> None:
+        path = Path(path)
+        full_path = self._resolve_full_path(path)
+        if full_path.exists() and full_path.is_dir():
+            shutil.rmtree(full_path)
 
     def _read_file_full_path(self, full_path: Path) -> T:
         with open(full_path, "rb") as f:
