@@ -72,7 +72,7 @@ Documentation = "https://github.com/OpenMined/syft-client#readme"
 "Bug Tracker" = "https://github.com/OpenMined/syft-client/issues"
 
 [tool.setuptools.dynamic]
-version = {attr = "syft_client.__version__"}
+version = {attr = "syft_client.version.SYFT_CLIENT_VERSION"}
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -1,12 +1,11 @@
 """
 Version constants for syft-client.
-Bump these versions on each release.
-
-NOTE: SYFT_CLIENT_VERSION must be kept in sync with __version__ in syft_client/__init__.py
+Single source of truth for all version strings.
+Bump these versions on each release (via `bump2version patch/minor/major`).
 """
 
-# Current client version
-# Keep in sync with __version__ in syft_client/__init__.py and pyproject.toml
+# Current client version — the single source of truth.
+# pyproject.toml and syft_client/__init__.py read from here.
 SYFT_CLIENT_VERSION = "0.1.99"
 
 # Minimum client version we support communicating with
