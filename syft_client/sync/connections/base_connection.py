@@ -33,8 +33,11 @@ class SyftboxPlatformConnection(BaseModel):
     ) -> str:
         raise NotImplementedError()
 
+    def tag_dataset_collection_as_any(self, tag: str, content_hash: str) -> None:
+        raise NotImplementedError()
+
     def share_dataset_collection(
-        self, tag: str, content_hash: str, users: list[str] | str
+        self, tag: str, content_hash: str, users: list[str]
     ) -> None:
         raise NotImplementedError()
 
@@ -59,4 +62,22 @@ class SyftboxPlatformConnection(BaseModel):
     def download_dataset_collection(
         self, tag: str, content_hash: str, owner_email: str
     ) -> dict[str, bytes]:
+        raise NotImplementedError()
+
+    def create_private_dataset_collection_folder(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> str:
+        raise NotImplementedError()
+
+    def upload_private_dataset_files(
+        self, tag: str, content_hash: str, files: dict[str, bytes]
+    ) -> None:
+        raise NotImplementedError()
+
+    def list_private_dataset_collections_as_do(self) -> list[FileCollection]:
+        raise NotImplementedError()
+
+    def get_private_collection_file_metadatas(
+        self, tag: str, content_hash: str, owner_email: str
+    ) -> list[dict]:
         raise NotImplementedError()

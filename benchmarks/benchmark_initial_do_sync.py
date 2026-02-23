@@ -42,7 +42,7 @@ def benchmark_initial_do_sync():
     print(f"Setting up benchmark with {NUM_JOBS} jobs...")
 
     # Clean start - delete any existing syftboxes
-    ds, do = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds, do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -54,7 +54,7 @@ def benchmark_initial_do_sync():
     do.delete_syftbox()
 
     # Fresh pair for job submission
-    ds, do = SyftboxManager.pair_with_google_drive_testing_connection(
+    ds, do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
@@ -83,7 +83,7 @@ def benchmark_initial_do_sync():
 
     # Create a fresh DO manager to simulate initial sync from a new pair
     print("Creating fresh DO manager for initial sync benchmark...")
-    _, fresh_do = SyftboxManager.pair_with_google_drive_testing_connection(
+    _, fresh_do = SyftboxManager._pair_with_google_drive_testing_connection(
         do_email=EMAIL_DO,
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,

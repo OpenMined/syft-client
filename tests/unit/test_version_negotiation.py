@@ -209,7 +209,7 @@ class TestVersionManager:
         )
 
         # Get the backing store to manually insert a version file for a third peer
-        backing_store = ds_manager.connection_router.connections[
+        backing_store = ds_manager._connection_router.connections[
             0
         ].drive_service._backing_store
 
@@ -338,7 +338,7 @@ class TestIgnoreVersionFlags:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        do_manager.connection_router.write_version_file(different_version)
+        do_manager._connection_router.write_version_file(different_version)
 
         # Clear DS's cached version of DO and reload
         ds_manager.version_manager.clear_peer_version(do_manager.email)
@@ -369,7 +369,7 @@ class TestIgnoreVersionFlags:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        do_manager.connection_router.write_version_file(different_version)
+        do_manager._connection_router.write_version_file(different_version)
 
         # Clear DS's cached version of DO and reload
         ds_manager.version_manager.clear_peer_version(do_manager.email)
@@ -404,7 +404,7 @@ class TestIgnoreVersionFlags:
             min_supported_protocol_version="0.0.1",
             updated_at=current.updated_at,
         )
-        do_manager.connection_router.write_version_file(different_version)
+        do_manager._connection_router.write_version_file(different_version)
 
         # Clear DS's cached version and reload
         ds_manager.version_manager.clear_peer_version(do_manager.email)
@@ -436,7 +436,7 @@ class TestVersionMismatchBehavior:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        ds_manager.connection_router.write_version_file(incompatible)
+        ds_manager._connection_router.write_version_file(incompatible)
 
         # Clear cached version so it sees the incompatible version
         do_manager.version_manager.clear_peer_version(ds_manager.email)
@@ -488,7 +488,7 @@ class TestVersionMismatchBehavior:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        ds_manager.connection_router.write_version_file(incompatible)
+        ds_manager._connection_router.write_version_file(incompatible)
 
         # Clear cached version so it sees the incompatible version
         do_manager.version_manager.clear_peer_version(ds_manager.email)
@@ -540,7 +540,7 @@ class TestVersionMismatchBehavior:
             min_supported_protocol_version=current.min_supported_protocol_version,
             updated_at=current.updated_at,
         )
-        ds_manager.connection_router.write_version_file(incompatible)
+        ds_manager._connection_router.write_version_file(incompatible)
 
         # Clear cached version so it sees the incompatible version
         do_manager.version_manager.clear_peer_version(ds_manager.email)
@@ -600,7 +600,7 @@ class TestVersionMismatchBehavior:
         )
 
         # Write the new version using public API (simulating DS upgrading their client)
-        ds_manager.connection_router.write_version_file(new_version)
+        ds_manager._connection_router.write_version_file(new_version)
 
         # Phase 3: Clear DO's cached version of DS and reload
         do_manager.version_manager.clear_peer_version(ds_manager.email)

@@ -16,6 +16,7 @@ from .config import SyftBoxConfig
 FOLDER_NAME = "syft_datasets"
 METADATA_FILENAME = "dataset.yaml"
 DATASET_COLLECTION_PREFIX = "syft_datasetcollection"
+PRIVATE_DATASET_COLLECTION_PREFIX = "syft_privatecollection"
 SHARE_WITH_ANY = "any"
 
 
@@ -290,8 +291,23 @@ class SyftDatasetManager:
             raise FileNotFoundError(f"Dataset {name} not found in {mock_dir}")
         return self._load_dataset_from_dir(mock_dir)
 
-    def __getitem__(self, key: str) -> Dataset:
+    def __getitem__(self, key: str | int) -> Dataset:
+        if isinstance(key, int):
+            return self.get_all()[key]
         return self.get(name=key)
+
+    def __len__(self) -> int:
+        return len(self.get_all())
+
+    def __iter__(self):
+        return iter(self.get_all())
+
+    def __repr__(self) -> str:
+        datasets = self.get_all()
+        return f"SyftDatasetManager({len(datasets)} datasets)"
+
+    def _repr_html_(self) -> str:
+        return self.get_all()._repr_html_()
 
     def get_all(
         self,

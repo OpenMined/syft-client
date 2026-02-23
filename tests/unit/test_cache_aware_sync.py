@@ -22,7 +22,7 @@ def test_do_incremental_sync_downloads_only_new_events():
     # Add initial 3 events to the personal SyftBox folder
     initial_events = get_mock_events_messages(3)
     for event in initial_events:
-        do_manager.connection_router.write_events_message_to_syftbox(event)
+        do_manager._connection_router.write_events_message_to_syftbox(event)
 
     do_manager.sync()
 
@@ -35,10 +35,10 @@ def test_do_incremental_sync_downloads_only_new_events():
     # Add 2 more events to backend
     additional_events = get_mock_events_messages(2)
     for event in additional_events:
-        do_manager.connection_router.write_events_message_to_syftbox(event)
+        do_manager._connection_router.write_events_message_to_syftbox(event)
 
     # Create a NEW SyftboxManager with the same cache directory (simulating restart)
-    new_do_manager = do_manager.copy()
+    new_do_manager = do_manager._copy()
 
     # Verify the new manager's cache loaded existing events from disk
     new_cache = new_do_manager.datasite_owner_syncer.event_cache
@@ -90,7 +90,7 @@ def test_ds_incremental_sync_downloads_only_new_events():
     # Add initial 3 events to DO's outbox for DS
     initial_events = get_mock_events_messages(3)
     for event in initial_events:
-        do_manager.connection_router.write_event_messages_to_outbox_do(
+        do_manager._connection_router.write_event_messages_to_outbox_do(
             ds_manager.email, event
         )
 
@@ -110,12 +110,12 @@ def test_ds_incremental_sync_downloads_only_new_events():
     time.sleep(0.01)  # Ensure new events have later timestamps
     additional_events = get_mock_events_messages(2)
     for event in additional_events:
-        do_manager.connection_router.write_event_messages_to_outbox_do(
+        do_manager._connection_router.write_event_messages_to_outbox_do(
             ds_manager.email, event
         )
 
     # Create a NEW SyftboxManager with the same cache directory (simulating restart)
-    new_ds_manager = ds_manager.copy()
+    new_ds_manager = ds_manager._copy()
 
     # Verify the new manager's cache loaded existing events from disk
     new_cache = new_ds_manager.datasite_watcher_syncer.datasite_watcher_cache

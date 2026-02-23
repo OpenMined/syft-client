@@ -15,6 +15,7 @@ from syft_client.sync.sync.caches.cache_file_writer_connection import (
     InMemoryCacheFileConnection,
 )
 from syft_client.sync.utils.syftbox_utils import get_event_hash_from_content
+from syft_client.sync.checkpoints.checkpoint import Checkpoint
 
 
 class ProposedEventFileOutdatedException(Exception):
@@ -293,3 +294,69 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         for events_message in events_messages:
             events.extend(events_message.events)
         return events
+
+    # =========================================================================
+    # CHECKPOINT METHODS
+    # =========================================================================
+
+    def create_checkpoint(
+        self, last_event_timestamp: float | None = None
+    ) -> Checkpoint:
+        """
+        Create a checkpoint from current cache state.
+
+        Args:
+            last_event_timestamp: Timestamp of the last event included in this checkpoint.
+
+        Returns:
+            A Checkpoint object containing all current files and their hashes.
+        """
+        # Get all file contents
+        file_contents = {}
+        for path, content in self.file_connection.get_items():
+            path_str = str(path)
+            # Skip private and venv folders
+            if path_str.startswith("private") or ".venv" in path_str:
+                continue
+            file_contents[path_str] = content
+
+        return Checkpoint.from_file_hashes_and_contents(
+            email=self.email,
+            file_hashes=self.file_hashes,
+            file_contents=file_contents,
+            last_event_timestamp=last_event_timestamp,
+        )
+
+    def apply_checkpoint(self, checkpoint: Checkpoint, write_files: bool = True):
+        """
+        Restore cache state from a checkpoint.
+
+        Args:
+            checkpoint: The checkpoint to restore from.
+            write_files: Whether to write files to disk (only affects filesystem,
+                        in-memory file_connection is always updated).
+        """
+        # Clear current state
+        self.file_hashes = {}
+
+        # Restore from checkpoint
+        # Always write to file_connection to maintain consistent state for
+        # process_local_changes comparison. This is needed even when write_files=False
+        # because file_connection may be in-memory and serves as the source of truth.
+        for file_entry in checkpoint.files:
+            path = Path(file_entry.path)
+            self.file_hashes[path] = file_entry.hash
+            self.file_connection.write_file(file_entry.path, file_entry.content)
+
+    def get_latest_event_timestamp(self) -> float | None:
+        """Get the timestamp of the latest event in the cache."""
+        events_messages = self.events_messages_connection.get_all()
+        if not events_messages:
+            return None
+
+        latest_timestamp = None
+        for events_message in events_messages:
+            if latest_timestamp is None or events_message.timestamp > latest_timestamp:
+                latest_timestamp = events_message.timestamp
+
+        return latest_timestamp
