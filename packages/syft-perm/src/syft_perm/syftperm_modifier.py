@@ -64,16 +64,6 @@ class PermissionModifier:
             for user in getattr(rule.access, level):
                 self._write_user_to_yaml(new_yaml, new_abs.name, level, user)
 
-    def _resolve(
-        self, path_in_datasite: str, is_folder: bool = False
-    ) -> tuple[Path, str]:
-        """Resolve the governing yaml file and compute the correct pattern."""
-        yaml_path = self._find_governing_yaml(path_in_datasite, is_folder)
-        pattern_to_insert = self._compute_pattern(
-            yaml_path, path_in_datasite, is_folder
-        )
-        return yaml_path, pattern_to_insert
-
     def _find_governing_yaml(self, path_in_datasite: str, is_folder: bool) -> Path:
         """Find the yaml file that governs this path (nearest node in the ACL tree)."""
         datasite = self._perm_context.datasite
