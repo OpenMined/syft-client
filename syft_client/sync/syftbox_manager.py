@@ -1208,21 +1208,22 @@ class SyftboxManager(BaseModel):
         self._clear_caches()
         self._connection_router.reset_caches()
 
-        # Delete local filesystem cache directories
-        self._delete_local_cache_dirs()
+        # Delete local syftbox folder and cache directories
+        self._delete_local_dirs()
 
-    def _delete_local_cache_dirs(self):
-        """Delete local cache directories that live alongside the syftbox folder."""
+    def _delete_local_dirs(self):
+        """Delete local syftbox folder and cache directories."""
         syftbox_name = self.syftbox_folder.name
         syftbox_parent = self.syftbox_folder.parent
 
-        cache_dirs = [
+        dirs_to_delete = [
+            self.syftbox_folder,  # main syftbox folder (datasets, private, etc.)
             syftbox_parent / f"{syftbox_name}-events",  # DO event cache
             syftbox_parent / f"{syftbox_name}-event-messages",  # DS event cache
         ]
-        for cache_dir in cache_dirs:
-            if cache_dir.exists():
-                shutil.rmtree(cache_dir)
+        for d in dirs_to_delete:
+            if d.exists():
+                shutil.rmtree(d)
 
     # =========================================================================
     # CHECKPOINT METHODS
