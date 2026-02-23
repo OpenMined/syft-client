@@ -1,7 +1,9 @@
 # Syft-client
+
 Peer-to-peer data science and AI via channels your organization already trusts (Google Workspace, Microsoft 365, etc.)
 
 ## Install
+
 ```
 uv pip install syft-client
 ```
@@ -20,7 +22,6 @@ uv pip install -e .
 - [`syft-perm`](packages/syft-perm) - User-facing permission API for Syft datasites
 - [`syft-bg`](packages/syft-bg) - Background services TUI dashboard for SyftBox
 - [`syft-notebook-ui`](packages/syft-notebook-ui) - Jupyter notebook display utilities
-
 
 ## Test
 
