@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from syft_client.sync.syftbox_manager import SyftboxManager
+from tests.unit.test_sync_manager import _ds_job_path
 
 
 def test_peer_request_blocks_sync_until_approved():
@@ -31,8 +32,8 @@ def test_peer_request_blocks_sync_until_approved():
     assert len(do_manager.version_manager.approved_peers) == 0
     assert do_manager.version_manager.pending_peers[0].email == ds_manager.email
 
-    # Step 2: DS submits a simple job
-    job_file_path = f"{do_manager.email}/test.job"
+    # Step 2: DS submits a file to their job folder
+    job_file_path = _ds_job_path(do_manager, ds_manager)
     job_content = "print('Hello from DS')"
     ds_manager._send_file_change(job_file_path, job_content)
 
@@ -43,7 +44,7 @@ def test_peer_request_blocks_sync_until_approved():
     do_cache = do_manager.datasite_owner_syncer.event_cache
     assert len(do_cache.file_hashes) == 0, "Cache should be empty - peer not approved"
 
-    # Step 4: DO approves peer request
+    # Step 4: DO approves peer request (grants write to app_data/job/{ds_email}/)
     do_manager.approve_peer_request(ds_manager.email)
 
     # Verify: Peer moved from requests to approved
@@ -58,7 +59,7 @@ def test_peer_request_blocks_sync_until_approved():
     assert len(do_cache.file_hashes) > 0, "Cache should have content after approval"
 
     # Verify: File is tracked in cache with correct path (stored as PosixPath)
-    expected_cache_path = Path("test.job")
+    expected_cache_path = Path(f"app_data/job/{ds_manager.email}/test.job")
     assert expected_cache_path in do_cache.file_hashes, (
         f"File {expected_cache_path} should be in cache"
     )
@@ -83,7 +84,7 @@ def test_peer_request_rejection():
     do_manager.load_peers()
 
     # DS sends a job
-    job_file_path = f"{do_manager.email}/test.job"
+    job_file_path = _ds_job_path(do_manager, ds_manager)
     ds_manager._send_file_change(job_file_path, "print('test')")
 
     # DO rejects the peer request

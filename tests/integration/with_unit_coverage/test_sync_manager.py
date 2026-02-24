@@ -227,8 +227,6 @@ def test_jobs():
     test_py_path = "/tmp/test.py"
     with open(test_py_path, "w") as f:
         f.write("""
-import os
-os.mkdir("outputs")
 with open("outputs/result.json", "w") as f:
     f.write('{"result": 1}')
 """)
@@ -247,8 +245,17 @@ with open("outputs/result.json", "w") as f:
 
     do_manager.job_runner.process_approved_jobs()
 
+    # Before sharing: DS should not see outputs
     do_manager.sync()
+    ds_manager.sync()
+    assert len(ds_manager.job_client.jobs[-1].output_paths) == 0
 
+    # Share outputs with DS
+    do_manager.job_runner.share_job_results(
+        "test.job", share_outputs=True, share_logs=False
+    )
+
+    do_manager.sync()
     ds_manager.sync()
 
     output_path = ds_manager.job_client.jobs[-1].output_paths[0]

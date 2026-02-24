@@ -1,7 +1,6 @@
 from pathlib import Path
 from uuid import uuid4
 
-import yaml
 from pydantic import ConfigDict, Field, BaseModel, PrivateAttr
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
@@ -74,6 +73,8 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     )
     # Cache of datasets shared with "any" - list of (tag, content_hash) tuples
     _any_shared_datasets: List[tuple] = PrivateAttr(default_factory=list)
+    # Cache of read permissions per file path → frozenset of peer emails
+    _read_perm_cache: dict[str, frozenset[str]] = PrivateAttr(default_factory=dict)
 
     # In-memory rolling state for tracking events since last checkpoint
     _rolling_state: RollingState | None = PrivateAttr(default=None)
@@ -466,27 +467,55 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             data["data_dir"] = expected_dir
             metadata_path.write_text(yaml.safe_dump(data, indent=2, sort_keys=False))
 
-    def _is_job_path(self, path: Path) -> bool:
-        """Check if path is under app_data/job/. This is a hack which will be removed after permissions are implemented."""
-        return "app_data/job/" in str(path)
+    def _get_readers(self, path: str, recipients: list[str]) -> frozenset[str]:
+        """Return the set of recipients that have read access to the given path."""
+        return frozenset(r for r in recipients if self.check_read_permissions(r, path))
 
-    def _get_job_submitter(self, path: Path) -> str | None:
-        """Return submitted_by email for a job file. Returns None if not found. This is a hack which will be removed after permissions are implemented."""
-        parts = path.parts
+    def _get_paths_under_perm_file(self, perm_path: str) -> list[str]:
+        """Find all files under the perm file's parent directory on the filesystem."""
+        if self.syftbox_folder is None:
+            return []
+        datasite = self.syftbox_folder / self.email
+        parent_dir = datasite / str(Path(perm_path).parent)
+        if not parent_dir.exists():
+            return []
+        paths = []
+        for file_path in parent_dir.rglob("*"):
+            if file_path.is_file():
+                rel = str(file_path.relative_to(datasite))
+                if not rel.startswith("private") and ".venv" not in rel:
+                    paths.append(rel)
+        return paths
+
+    def _create_resend_event(self, path: str) -> "FileChangeEvent | None":
+        """Create a FileChangeEvent for an existing file to resend to new readers."""
         try:
-            job_idx = parts.index("job")
-            job_name = parts[job_idx + 1]
-            job_dir = self.syftbox_folder / self.email / "app_data" / "job" / job_name
-            config_path = job_dir / "config.yaml"
-            if config_path.exists():
-                with open(config_path) as f:
-                    config = yaml.safe_load(f)
-                return config.get("submitted_by")
-        except (ValueError, IndexError, Exception):
-            pass
-        return None
+            content = self.event_cache.file_connection.read_file(path)
+        except Exception:
+            return None
+        if content is None:
+            return None
+        from syft_client.sync.utils.syftbox_utils import (
+            get_event_hash_from_content,
+            create_event_timestamp,
+        )
+
+        timestamp = create_event_timestamp()
+        return FileChangeEvent(
+            id=uuid4(),
+            path_in_datasite=Path(path),
+            content=content,
+            old_hash=None,
+            new_hash=get_event_hash_from_content(content),
+            submitted_timestamp=timestamp,
+            timestamp=timestamp,
+            datasite_email=self.email,
+            is_deleted=False,
+        )
 
     def process_local_changes(self, recipients: list[str]):
+        from syft_permissions.spec.ruleset import PERMISSION_FILE_NAME
+
         file_change_events_message = self.event_cache.process_local_file_changes()
         if file_change_events_message is None:
             return
@@ -494,25 +523,57 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         # Write all events to the syftbox events queue (local storage)
         self.syftbox_events_queue.put(file_change_events_message)
 
-        # Group events by recipient for outbox filtering
-        events_by_recipient: dict[str, list] = {r: [] for r in recipients}
-
+        # Split into permission events and data events
+        perm_events = []
+        data_events = []
         for event in file_change_events_message.events:
-            path = Path(event.path_in_datasite)
-
-            if self._is_job_path(path):
-                # Job file - get submitter
-                submitter = self._get_job_submitter(path)
-                if submitter is None:
-                    # Can't determine submitter - skip this event (don't leak)
-                    continue
-                # Only send to submitter if they're in recipients
-                if submitter in events_by_recipient:
-                    events_by_recipient[submitter].append(event)
+            if str(event.path_in_datasite).endswith(PERMISSION_FILE_NAME):
+                perm_events.append(event)
             else:
-                # Non-job file - send to all recipients
-                for recipient in recipients:
-                    events_by_recipient[recipient].append(event)
+                data_events.append(event)
+
+        events_by_recipient: dict[str, list[FileChangeEvent]] = {
+            r: [] for r in recipients
+        }
+
+        # Track which (path, reader) combos are already covered by data_events
+        data_event_sent_to: dict[str, set[str]] = {}
+
+        # Process data events: route by read permissions
+        for event in data_events:
+            path_str = str(event.path_in_datasite)
+            readers = self._get_readers(path_str, recipients)
+            self._read_perm_cache[path_str] = readers
+            data_event_sent_to[path_str] = set(readers)
+            for reader in readers:
+                events_by_recipient[reader].append(event)
+
+        # Process permission events: share perm file + resend affected files
+        for event in perm_events:
+            path_str = str(event.path_in_datasite)
+            # Share the syft.pub.yaml itself with readers
+            perm_readers = self._get_readers(path_str, recipients)
+            for reader in perm_readers:
+                events_by_recipient[reader].append(event)
+
+            # Find all files under the perm file's parent directory
+            affected_paths = self._get_paths_under_perm_file(path_str)
+            for affected_path in affected_paths:
+                new_readers = self._get_readers(affected_path, recipients)
+                old_readers = self._read_perm_cache.get(affected_path, frozenset())
+                newly_permitted = new_readers - old_readers
+                self._read_perm_cache[affected_path] = new_readers
+
+                if not newly_permitted:
+                    continue
+                # Skip readers who already got this path via a data_event
+                already_sent = data_event_sent_to.get(affected_path, set())
+                needs_resend = newly_permitted - already_sent
+                if needs_resend:
+                    resend_event = self._create_resend_event(affected_path)
+                    if resend_event is not None:
+                        for reader in needs_resend:
+                            events_by_recipient[reader].append(resend_event)
 
         # Queue filtered events per recipient for outbox
         for recipient, events in events_by_recipient.items():
@@ -541,17 +602,47 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         else:
             return None
 
-    def check_permissions(self, path: str):
-        pass
+    def check_write_permission(self, sender_email: str, path: str) -> bool:
+        """Check if sender has write access to the given path."""
+        if self.syftbox_folder is None:
+            return False
+        from syft_perm import SyftPermContext
+
+        datasite = self.syftbox_folder / self.email
+        ctx = SyftPermContext(datasite=datasite)
+        f = ctx.open(path)
+        return f.has_write_access(sender_email)
+
+    def check_read_permissions(self, recipient_email: str, path: str) -> bool:
+        """Check if recipient has read access to the given path."""
+        if self.syftbox_folder is None:
+            return True
+        from syft_perm import SyftPermContext
+
+        datasite = self.syftbox_folder / self.email
+        ctx = SyftPermContext(datasite=datasite)
+        f = ctx.open(path)
+        return f.has_read_access(recipient_email)
 
     def handle_proposed_filechange_events_message(
         self, sender_email: str, proposed_events_message: ProposedFileChangesMessage
     ):
-        # for event in proposed_events_message.events:
-        #     self.check_permissions(event.path_in_datasite)
+        allowed_changes = [
+            change
+            for change in proposed_events_message.proposed_file_changes
+            if self.check_write_permission(sender_email, str(change.path_in_datasite))
+        ]
+
+        if not allowed_changes:
+            return
+
+        filtered_message = ProposedFileChangesMessage(
+            sender_email=proposed_events_message.sender_email,
+            proposed_file_changes=allowed_changes,
+        )
 
         accepted_events_message = self.event_cache.process_proposed_events_message(
-            proposed_events_message
+            filtered_message
         )
         if accepted_events_message is not None:
             self.queue_event_for_syftbox(

@@ -7,9 +7,11 @@ from syft_client.utils import resolve_path
 from concurrent.futures import ThreadPoolExecutor
 import time
 from pydantic import ConfigDict
-from syft_job.client import JobClient, JobsList
+from syft_job.client import JobClient
+from syft_job.job import JobsList
 from syft_job.job_runner import SyftJobRunner
 from syft_job import SyftJobConfig
+from syft_job.permissions import ensure_job_folder_permissions
 from syft_datasets.config import SyftBoxConfig
 from syft_datasets.dataset_manager import SyftDatasetManager
 from syft_client.sync.platforms.base_platform import BasePlatform
@@ -761,6 +763,13 @@ class SyftboxManager(BaseModel):
         """Check if a peer request exists. Delegates to VersionManager."""
         return self.version_manager.check_peer_request_exists(email)
 
+    def _ensure_job_permissions(self):
+        """Ensure job folder permissions are set for all approved peers."""
+        for peer in self.version_manager.approved_peers:
+            ensure_job_folder_permissions(
+                self.syftbox_folder, self.email, peer.email, [peer.email]
+            )
+
     def approve_peer_request(
         self,
         email_or_peer: str | Peer,
@@ -772,9 +781,13 @@ class SyftboxManager(BaseModel):
             email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
         )
 
+        email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
+
+        # Grant the new peer write access to their DS job folder
+        ensure_job_folder_permissions(self.syftbox_folder, self.email, email, [email])
+
         # Share all "any" datasets with the new peer so they can discover them
         # (Google Drive "anyone with link" files are not discoverable via search)
-        email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
         self._share_any_datasets_with_peer(email)
 
     def _share_any_datasets_with_peer(self, peer_email: str):
@@ -817,6 +830,8 @@ class SyftboxManager(BaseModel):
         stream_output: bool = True,
         timeout: int | None = None,
         force_execution: bool = False,
+        share_outputs_with_submitter: bool = False,
+        share_logs_with_submitter: bool = False,
     ) -> None:
         """
         Process approved jobs. Automatically calls sync() after processing
@@ -829,6 +844,8 @@ class SyftboxManager(BaseModel):
             force_execution: If True, process all approved jobs regardless of
                            version compatibility. If False (default), skip jobs
                            from peers with incompatible or unknown versions.
+            share_outputs_with_submitter: If True, grant read access on outputs to submitter.
+            share_logs_with_submitter: If True, grant read access on logs to submitter.
 
         PRE_SYNC defaults to "true", so auto-sync is enabled by default.
         To disable auto-sync, set: PRE_SYNC=false
@@ -870,6 +887,8 @@ class SyftboxManager(BaseModel):
             stream_output=stream_output,
             timeout=timeout,
             skip_job_names=skip_job_names if skip_job_names else None,
+            share_outputs_with_submitter=share_outputs_with_submitter,
+            share_logs_with_submitter=share_logs_with_submitter,
         )
 
         if os.environ.get("PRE_SYNC", "true").lower() == "true":

@@ -23,15 +23,13 @@ def test_auto_approve_and_run_jobs():
     )
 
     # The expected script content (with \n newlines)
-    expected_script = """import os
-import json
-os.mkdir("outputs")
+    expected_script = """import json
 with open("outputs/result.json", "w") as f:
     f.write(json.dumps({"result": 42}))
 """
 
     # The same script but with \r\n newlines (Windows style) and extra blank lines
-    script_with_crlf = 'import os\r\nimport json\r\n\r\nos.mkdir("outputs")\r\nwith open("outputs/result.json", "w") as f:\r\n    f.write(json.dumps({"result": 42}))\r\n'
+    script_with_crlf = 'import json\r\n\r\nwith open("outputs/result.json", "w") as f:\r\n    f.write(json.dumps({"result": 42}))\r\n'
 
     # Create a project folder with script and data file
     project_dir = Path(tempfile.mkdtemp(prefix="test_auto_approve_"))
@@ -70,7 +68,15 @@ with open("outputs/result.json", "w") as f:
     # Verify job was approved and run
     assert len(approved) == 1
 
-    # Sync results back to DS
+    # Before sharing: DS should not see outputs
+    do_manager.sync()
+    ds_manager.sync()
+    assert len(ds_manager.jobs[-1].output_paths) == 0
+
+    # After sharing: DS should see outputs
+    do_manager.job_runner.share_job_results(
+        "test_auto_approve.job", share_outputs=True, share_logs=False
+    )
     do_manager.sync()
     ds_manager.sync()
 

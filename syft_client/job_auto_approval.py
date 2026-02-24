@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
-from syft_job.client import JobInfo
+from syft_job.job import JobInfo
 
 if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
