@@ -35,6 +35,7 @@ class JobHandler:
             return False
 
         if self.state.was_notified(job_name, "new"):
+            print(f"[JobHandler] Skip {job_name}/new: already notified")
             return False
 
         success = self.sender.notify_new_job(
@@ -43,6 +44,8 @@ class JobHandler:
 
         if success:
             self.state.mark_notified(job_name, "new")
+        else:
+            print(f"[JobHandler] Failed to send new job notification for {job_name}")
 
         return success
 
@@ -57,12 +60,17 @@ class JobHandler:
             return False
 
         if self.state.was_notified(job_name, "approved"):
+            print(f"[JobHandler] Skip {job_name}/approved: already notified")
             return False
 
         success = self.sender.notify_job_approved(ds_email, job_name, job_url=job_url)
 
         if success:
             self.state.mark_notified(job_name, "approved")
+        else:
+            print(
+                f"[JobHandler] Failed to send approved notification for {job_name} to {ds_email}"
+            )
 
         return success
 
@@ -78,6 +86,7 @@ class JobHandler:
             return False
 
         if self.state.was_notified(job_name, "executed"):
+            print(f"[JobHandler] Skip {job_name}/executed: already notified")
             return False
 
         success = self.sender.notify_job_executed(
@@ -86,5 +95,9 @@ class JobHandler:
 
         if success:
             self.state.mark_notified(job_name, "executed")
+        else:
+            print(
+                f"[JobHandler] Failed to send executed notification for {job_name} to {ds_email}"
+            )
 
         return success
