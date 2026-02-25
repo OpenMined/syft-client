@@ -28,6 +28,7 @@ from syft_client.sync.checkpoints.checkpoint import (
     DEFAULT_COMPACTING_THRESHOLD,
 )
 from syft_client.sync.checkpoints.rolling_state import RollingState
+from syft_perm import SyftPermContext
 
 # Default threshold for creating incremental checkpoint from rolling state
 DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50
@@ -38,7 +39,7 @@ DEFAULT_ROLLING_STATE_UPLOAD_THRESHOLD = 1
 
 class DatasiteOwnerSyncerConfig(BaseModel):
     email: str
-    syftbox_folder: Path | None = None
+    syftbox_folder: Path
     write_files: bool = True
     # Full path to collections folder - must be provided explicitly
     collections_folder: Path | None = None
@@ -59,7 +60,8 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     connection_router: ConnectionRouter
     initial_sync_done: bool = False
     email: str
-    syftbox_folder: Path | None = None
+    syftbox_folder: Path
+    perm_context: SyftPermContext
     # Full path to collections folder
     collections_folder: Path | None = None
 
@@ -86,12 +88,17 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         # Ensure cache config has the same collections_folder (both are now full paths)
         if config.collections_folder is not None:
             config.cache_config.collections_folder = config.collections_folder
+
+        datasite = config.syftbox_folder / config.email
+        datasite.mkdir(parents=True, exist_ok=True)
+
         return cls(
             event_cache=DataSiteOwnerEventCache.from_config(config.cache_config),
             write_files=config.write_files,
             connection_router=ConnectionRouter.from_configs(config.connection_configs),
             email=config.email,
             syftbox_folder=config.syftbox_folder,
+            perm_context=SyftPermContext(datasite=datasite),
             collections_folder=config.collections_folder,
         )
 
@@ -265,9 +272,6 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
 
         Restores datasets to local filesystem and populates the _any_shared_datasets cache.
         """
-        if self.syftbox_folder is None:
-            return
-
         collections = (
             self.connection_router.list_all_dataset_collections_as_do_with_permissions()
         )
@@ -373,9 +377,6 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         Downloads private data from owner-only collection folders
         to {syftbox_folder}/private/syft_datasets/{tag}/.
         """
-        if self.syftbox_folder is None:
-            return
-
         collections = self.connection_router.list_private_dataset_collections_as_do()
         if not collections:
             return
@@ -473,8 +474,6 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
 
     def _get_paths_under_perm_file(self, perm_path: str) -> list[str]:
         """Find all files under the perm file's parent directory on the filesystem."""
-        if self.syftbox_folder is None:
-            return []
         datasite = self.syftbox_folder / self.email
         parent_dir = datasite / str(Path(perm_path).parent)
         if not parent_dir.exists():
@@ -604,25 +603,13 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
 
     def check_write_permission(self, sender_email: str, path: str) -> bool:
         """Check if sender has write access to the given path."""
-        if self.syftbox_folder is None:
-            return False
-        from syft_perm import SyftPermContext
-
-        datasite = self.syftbox_folder / self.email
-        ctx = SyftPermContext(datasite=datasite)
-        f = ctx.open(path)
-        return f.has_write_access(sender_email)
+        self.perm_context._reload()
+        return self.perm_context.open(path).has_write_access(sender_email)
 
     def check_read_permissions(self, recipient_email: str, path: str) -> bool:
         """Check if recipient has read access to the given path."""
-        if self.syftbox_folder is None:
-            return True
-        from syft_perm import SyftPermContext
-
-        datasite = self.syftbox_folder / self.email
-        ctx = SyftPermContext(datasite=datasite)
-        f = ctx.open(path)
-        return f.has_read_access(recipient_email)
+        self.perm_context._reload()
+        return self.perm_context.open(path).has_read_access(recipient_email)
 
     def handle_proposed_filechange_events_message(
         self, sender_email: str, proposed_events_message: ProposedFileChangesMessage

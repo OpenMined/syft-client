@@ -24,37 +24,12 @@ from tests.unit.utils import (
 )
 
 
-def _write_perm_yaml(
-    datasite_dir: Path,
-    rel_dir: str,
-    readers: list[str],
-    writers: list[str] | None = None,
-):
-    """Write a syft.pub.yaml granting read (and optionally write) access under rel_dir."""
-    perm_dir = datasite_dir / rel_dir if rel_dir else datasite_dir
-    perm_dir.mkdir(parents=True, exist_ok=True)
-    yaml_data = {
-        "rules": [
-            {
-                "pattern": "**",
-                "access": {
-                    "read": readers,
-                    "write": writers or [],
-                    "admin": [],
-                },
-            }
-        ],
-        "terminal": False,
-    }
-    with open(perm_dir / "syft.pub.yaml", "w") as f:
-        yaml.safe_dump(yaml_data, f)
-
-
 def _grant_ds_full_access(do_manager, ds_manager):
     """Grant DS read+write access at root of DO's datasite for testing."""
-    datasite_dir = do_manager.syftbox_folder / do_manager.email
-    datasite_dir.mkdir(parents=True, exist_ok=True)
-    _write_perm_yaml(datasite_dir, "", [ds_manager.email], [ds_manager.email])
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    root = ctx.open(".")
+    root.grant_read_access(ds_manager.email)
+    root.grant_write_access(ds_manager.email)
 
 
 def _ds_job_path(do_manager, ds_manager, filename: str = "test.job") -> str:
@@ -1260,7 +1235,8 @@ def test_file_deletion_do_to_ds():
     syftbox_dir_ds = ds_manager.syftbox_folder
 
     # Grant DS read access at root level
-    _write_perm_yaml(datasite_dir_do, "", [ds_manager.email])
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    ctx.open(".").grant_read_access(ds_manager.email)
 
     # DO creates a file
     result_rel_path = "test_file.txt"
@@ -1352,7 +1328,8 @@ def test_syft_datasets_excluded_from_outbox_sync():
     datasite_dir_do = do_manager.syftbox_folder / do_manager.email
 
     # Grant DS read access to public/ so regular_file.txt syncs
-    _write_perm_yaml(datasite_dir_do, "public", [ds_manager.email])
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    ctx.open("public/").grant_read_access(ds_manager.email)
 
     # Create a regular file (should be synced)
     regular_file = datasite_dir_do / "public" / "regular_file.txt"
@@ -1413,11 +1390,8 @@ def test_job_files_sync_to_submitter_only():
         yaml.dump(config_data, f)
 
     # Grant submitter read access to job outputs (simulates share_outputs)
-    _write_perm_yaml(
-        datasite_dir_do,
-        f"app_data/job/{job_name}/outputs",
-        [submitter_email],
-    )
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    ctx.open(f"app_data/job/{job_name}/outputs/").grant_read_access(submitter_email)
 
     # Create job result file
     result_file = job_dir / "outputs" / "result.json"
@@ -1425,11 +1399,9 @@ def test_job_files_sync_to_submitter_only():
     result_file.write_text('{"result": 42}')
 
     # Grant both peers read access to public/ so shared.txt goes to both
-    _write_perm_yaml(
-        datasite_dir_do,
-        "public",
-        [submitter_email, non_submitter_email],
-    )
+    public_folder = ctx.open("public/")
+    public_folder.grant_read_access(submitter_email)
+    public_folder.grant_read_access(non_submitter_email)
 
     # Create a regular file (non-job) that should go to all peers
     regular_file = datasite_dir_do / "public" / "shared.txt"
@@ -2018,7 +1990,8 @@ def test_permission_change_triggers_resend():
     peer_b_connection.add_peer_as_ds(do_manager.email)
 
     # Grant only peer A read access to project/
-    _write_perm_yaml(datasite_dir_do, "project", [peer_a_email])
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    ctx.open("project/").grant_read_access(peer_a_email)
 
     # DO creates a file under project/
     project_file = datasite_dir_do / "project" / "data.txt"
@@ -2051,7 +2024,7 @@ def test_permission_change_triggers_resend():
     )
 
     # Now grant peer B read access by updating syft.pub.yaml
-    _write_perm_yaml(datasite_dir_do, "project", [peer_a_email, peer_b_email])
+    ctx.open("project/").grant_read_access(peer_b_email)
 
     # Second sync: peer B should receive data.txt via resend
     do_manager.datasite_owner_syncer.process_local_changes(recipients)

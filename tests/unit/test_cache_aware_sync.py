@@ -199,9 +199,8 @@ def test_ds_cache_handles_deletions_correctly():
     datasite_dir_do = do_manager.syftbox_folder / do_manager.email
 
     # Grant DS read access so files sync to DS
-    from tests.unit.test_sync_manager import _write_perm_yaml
-
-    _write_perm_yaml(datasite_dir_do, "", [ds_manager.email])
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    ctx.open(".").grant_read_access(ds_manager.email)
 
     # Create a file on DO side
     test_file = datasite_dir_do / "test_file.txt"
