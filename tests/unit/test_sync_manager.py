@@ -24,14 +24,14 @@ from tests.unit.utils import (
 )
 
 
-def _ds_job_path(do_manager, ds_manager, filename: str = "test.job") -> str:
+def path_for_job(do_email: str, ds_email: str, filename: str = "test.job") -> str:
     """Return the correct path for DS to submit a job file to DO."""
-    return f"{do_manager.email}/app_data/job/{ds_manager.email}/{filename}"
+    return f"{do_email}/app_data/job/{ds_email}/{filename}"
 
 
 def test_sync_to_syftbox_eventlog():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
-    file_path = _ds_job_path(do_manager, ds_manager, "my.job")
+    file_path = path_for_job(do_manager.email, ds_manager.email, "my.job")
 
     events_in_backing_platform = do_manager._get_all_accepted_events_do()
     assert len(events_in_backing_platform) == 0
@@ -120,7 +120,7 @@ def test_valid_and_invalid_proposed_filechange_event():
 
 def test_sync_back_to_ds_cache():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
-    file_path = _ds_job_path(do_manager, ds_manager)
+    file_path = path_for_job(do_manager.email, ds_manager.email)
     ds_manager._send_file_change(file_path, "Hello, world!")
 
     do_manager.sync()  # DO processes inbox and pushes to outbox
@@ -268,7 +268,7 @@ def test_file_connections():
 
     assert datasite_dir_do != syftbox_dir_ds
 
-    job_path = _ds_job_path(do_manager, ds_manager)
+    job_path = path_for_job(do_manager.email, ds_manager.email)
     job_path_in_datasite = "/".join(job_path.split("/")[1:])
 
     ds_manager._send_file_change(job_path, "Hello, world!")
@@ -1288,7 +1288,7 @@ def test_in_memory_deletion():
     )
 
     # Create file via send_file_change
-    job_path = _ds_job_path(do_manager, ds_manager)
+    job_path = path_for_job(do_manager.email, ds_manager.email)
     job_path_in_datasite = "/".join(job_path.split("/")[1:])
 
     ds_manager._send_file_change(job_path, "Hello, world!")
@@ -1653,7 +1653,7 @@ def test_in_memory_connection_syncing():
 
     # DS sends a file change to DO's job folder (where DS has write access)
     ds_manager._send_file_change(
-        _ds_job_path(do_manager, ds_manager, "my.job"), "Hello, world!"
+        path_for_job(do_manager.email, ds_manager.email, "my.job"), "Hello, world!"
     )
 
     # DO should have events in cache after sync
@@ -1700,10 +1700,11 @@ def test_in_memory_connection_load_state():
 
     # Make some changes (submit to DS's job folder where DS has write access)
     ds_manager1._send_file_change(
-        _ds_job_path(do_manager1, ds_manager1, "my.job"), "Hello, world!"
+        path_for_job(do_manager1.email, ds_manager1.email, "my.job"), "Hello, world!"
     )
     ds_manager1._send_file_change(
-        _ds_job_path(do_manager1, ds_manager1, "my_second.job"), "Hello, world!"
+        path_for_job(do_manager1.email, ds_manager1.email, "my_second.job"),
+        "Hello, world!",
     )
 
     # Create a dataset with "any" permission
@@ -1885,7 +1886,9 @@ def test_ds_stale_state_cleared_after_do_delete_syftbox():
     )
 
     # DS sends a file change to DO (use correct job path)
-    ds_manager._send_file_change(_ds_job_path(do_manager, ds_manager), "print('hello')")
+    ds_manager._send_file_change(
+        path_for_job(do_manager.email, ds_manager.email), "print('hello')"
+    )
     do_manager.sync()
 
     # DS syncs to get dataset and file events

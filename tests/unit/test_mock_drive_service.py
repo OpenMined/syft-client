@@ -499,9 +499,9 @@ class TestPairWithMockDriveServiceConnection:
         )
 
         # DS sends a file change to DO's job folder (where DS has write access)
-        from tests.unit.test_sync_manager import _ds_job_path
+        from tests.unit.test_sync_manager import path_for_job
 
-        file_path = _ds_job_path(do_manager, ds_manager)
+        file_path = path_for_job(do_manager.email, ds_manager.email)
         ds_manager._send_file_change(file_path, "Hello from DS!")
 
         # DO syncs to receive the message
