@@ -5,6 +5,7 @@ import uuid
 import time
 from pathlib import Path
 from typing import List
+import yaml
 from syft_client.sync.utils.syftbox_utils import get_event_hash_from_content
 from syft_client.sync.syftbox_manager import SyftboxManager
 
@@ -31,6 +32,27 @@ def remove_syftboxes_from_drive():
     )
     manager_ds.delete_syftbox(broadcast_delete_events=False)
     manager_do.delete_syftbox(broadcast_delete_events=False)
+
+
+def grant_ds_full_access(do_manager, ds_manager):
+    """Grant DS read+write access at root of DO's datasite for testing."""
+    datasite_dir = do_manager.syftbox_folder / do_manager.email
+    datasite_dir.mkdir(parents=True, exist_ok=True)
+    perm_data = {
+        "rules": [
+            {
+                "pattern": "**",
+                "access": {
+                    "read": [ds_manager.email],
+                    "write": [ds_manager.email],
+                    "admin": [],
+                },
+            }
+        ],
+        "terminal": False,
+    }
+    with open(datasite_dir / "syft.pub.yaml", "w") as f:
+        yaml.safe_dump(perm_data, f)
 
 
 def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:

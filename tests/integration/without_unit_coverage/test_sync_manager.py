@@ -6,6 +6,7 @@ cannot be adequately tested with mocked connections.
 """
 
 from syft_client.sync.syftbox_manager import SyftboxManager
+from tests.integration.utils import grant_ds_full_access
 import os
 from pathlib import Path
 from time import sleep
@@ -50,6 +51,9 @@ def test_peer_request_blocks_sync_until_approved():
         ds_token_path=token_path_ds,
         add_peers=False,  # Don't auto-add - we'll test the request flow
     )
+
+    # Grant DS write permissions on DO's datasite
+    grant_ds_full_access(do_manager, ds_manager)
 
     # Step 1: DS makes peer request by adding DO
     ds_manager.add_peer(do_manager.email)
