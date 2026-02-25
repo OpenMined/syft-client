@@ -136,7 +136,7 @@ def test_ds_job_folder_permissions(tmp_path: Path):
     do_client = JobClient(config=do_config)
 
     # Create DS job folder with permissions
-    ds_folder = do_client.ensure_ds_job_folder(DS_EMAIL)
+    ds_folder = do_client.setup_ds_job_folder_as_do(DS_EMAIL)
     assert ds_folder.exists()
     assert ds_folder == do_config.get_job_dir(DO_EMAIL) / DS_EMAIL
 
@@ -144,7 +144,9 @@ def test_ds_job_folder_permissions(tmp_path: Path):
     ctx = SyftPermContext(datasite=syftbox / DO_EMAIL)
     folder = ctx.open(f"app_data/job/{DS_EMAIL}/")
     assert folder.has_write_access(DS_EMAIL)
+    assert folder.has_read_access(DO_EMAIL)
 
     # Another user should NOT have write access
     other_email = "other@test.org"
     assert not folder.has_write_access(other_email)
+    assert not folder.has_read_access(other_email)

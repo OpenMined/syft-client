@@ -11,7 +11,6 @@ from syft_job.client import JobClient
 from syft_job.job import JobsList
 from syft_job.job_runner import SyftJobRunner
 from syft_job import SyftJobConfig
-from syft_job.permissions import ensure_job_folder_permissions
 from syft_datasets.config import SyftBoxConfig
 from syft_datasets.dataset_manager import SyftDatasetManager
 from syft_client.sync.platforms.base_platform import BasePlatform
@@ -763,13 +762,6 @@ class SyftboxManager(BaseModel):
         """Check if a peer request exists. Delegates to VersionManager."""
         return self.version_manager.check_peer_request_exists(email)
 
-    def _ensure_job_permissions(self):
-        """Ensure job folder permissions are set for all approved peers."""
-        for peer in self.version_manager.approved_peers:
-            ensure_job_folder_permissions(
-                self.syftbox_folder, self.email, peer.email, [peer.email]
-            )
-
     def approve_peer_request(
         self,
         email_or_peer: str | Peer,
@@ -781,14 +773,17 @@ class SyftboxManager(BaseModel):
             email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
         )
 
-        email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
+        peer_email = (
+            email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
+        )
 
         # Grant the new peer write access to their DS job folder
-        ensure_job_folder_permissions(self.syftbox_folder, self.email, email, [email])
+        if self.is_do:
+            self.job_client.setup_ds_job_folder_as_do(peer_email)
 
         # Share all "any" datasets with the new peer so they can discover them
         # (Google Drive "anyone with link" files are not discoverable via search)
-        self._share_any_datasets_with_peer(email)
+        self._share_any_datasets_with_peer(peer_email)
 
     def _share_any_datasets_with_peer(self, peer_email: str):
         """Share all datasets that have 'any' permission with a specific peer.
