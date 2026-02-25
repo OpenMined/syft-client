@@ -3,12 +3,12 @@ import shutil
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from syft_perm.syftperm_context import SyftPermContext
 import yaml
 
 from .config import SyftJobConfig
 from .install_source import get_syft_client_install_source
 from .job import JobInfo, JobsList
-from .permissions import ensure_job_folder_permissions
 
 # Python version used when creating virtual environments for job execution
 RUN_SCRIPT_PYTHON_VERSION = "3.12"
@@ -74,12 +74,18 @@ class JobClient:
         """Check if job is still in inbox (no status markers)."""
         return not self.is_job_approved(job_path) and not self.is_job_done(job_path)
 
-    def _ensure_job_directories(self, user_email: str) -> None:
+    def _get_job_dir_for_me(self, target_datasite_owner_email: str) -> Path:
+        return (
+            self.config.get_job_dir(target_datasite_owner_email)
+            / self.current_user_email
+        )
+
+    def _ensure_my_job_directory_exists(self, target_datasite_owner_email: str) -> None:
         """Ensure job directory structure exists for a user, including DS subdirectory."""
-        ds_job_dir = self.config.get_job_dir(user_email) / self.current_user_email
+        ds_job_dir = self._get_job_dir_for_me(target_datasite_owner_email)
         ds_job_dir.mkdir(parents=True, exist_ok=True)
 
-    def ensure_ds_job_folder(self, ds_email: str) -> Path:
+    def setup_ds_job_folder_as_do(self, ds_email: str) -> Path:
         """Create a DS-specific job subdirectory with write permissions for that DS.
 
         Args:
@@ -90,9 +96,11 @@ class JobClient:
         """
         ds_job_dir = self.config.get_job_dir(self.current_user_email) / ds_email
         ds_job_dir.mkdir(parents=True, exist_ok=True)
-        ensure_job_folder_permissions(
-            self.config.syftbox_folder, self.current_user_email, ds_email, [ds_email]
-        )
+        datasite = self.config.syftbox_folder / self.current_user_email
+
+        ctx = SyftPermContext(datasite=datasite)
+        rel_path = str(ds_job_dir.relative_to(datasite)) + "/"
+        ctx.open(rel_path).grant_write_access(ds_email)
         return ds_job_dir
 
     def submit_bash_job(self, user: str, script: str, job_name: str = "") -> Path:
@@ -111,6 +119,7 @@ class JobClient:
             FileExistsError: If job with same name already exists
             ValueError: If user directory doesn't exist
         """
+        submitting_to_email = user
         # Generate default job name if not provided
         if not job_name.strip():
             from uuid import uuid4
@@ -124,13 +133,15 @@ class JobClient:
             print(f"Created user directory: {user_dir}")
 
         # Ensure job directory structure exists
-        self._ensure_job_directories(user)
+        self._ensure_my_job_directory_exists(submitting_to_email)
 
         # Create job directory under DS email subdirectory
-        job_dir = self.config.get_job_dir(user) / self.current_user_email / job_name
+        job_dir = self._get_job_dir_for_me(submitting_to_email) / job_name
 
         if job_dir.exists():
-            raise FileExistsError(f"Job '{job_name}' already exists for user '{user}'")
+            raise FileExistsError(
+                f"Job '{job_name}' already exists for user '{submitting_to_email}'"
+            )
 
         job_dir.mkdir(parents=True)
 
@@ -320,6 +331,7 @@ python {entrypoint_path}
             ValueError: If code_path validation fails or entrypoint is missing for folders
             FileNotFoundError: If code_path doesn't exist
         """
+        submitting_to_email = user
         # Generate default job name if not provided
         if not job_name:
             from uuid import uuid4
@@ -339,10 +351,10 @@ python {entrypoint_path}
             print(f"Created user directory: {user_dir}")
 
         # Ensure job directory structure exists
-        self._ensure_job_directories(user)
+        self._ensure_my_job_directory_exists(submitting_to_email)
 
         # Create job directory under DS email subdirectory
-        job_dir = self.config.get_job_dir(user) / self.current_user_email / job_name
+        job_dir = self._get_job_dir_for_me(submitting_to_email) / job_name
 
         if job_dir.exists():
             raise FileExistsError(f"Job '{job_name}' already exists for user '{user}'")

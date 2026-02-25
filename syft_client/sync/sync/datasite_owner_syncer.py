@@ -513,32 +513,50 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         )
 
     def process_local_changes(self, recipients: list[str]):
-        from syft_permissions.spec.ruleset import PERMISSION_FILE_NAME
-
         file_change_events_message = self.event_cache.process_local_file_changes()
         if file_change_events_message is None:
             return
 
-        # Write all events to the syftbox events queue (local storage)
         self.syftbox_events_queue.put(file_change_events_message)
 
-        # Split into permission events and data events
+        perm_events, data_events = self._split_events(file_change_events_message.events)
+        events_by_recipient: dict[str, list[FileChangeEvent]] = {
+            r: [] for r in recipients
+        }
+        data_event_sent_to: dict[str, set[str]] = {}
+
+        self._route_data_events(
+            data_events, recipients, events_by_recipient, data_event_sent_to
+        )
+        self._route_perm_events(
+            perm_events, recipients, events_by_recipient, data_event_sent_to
+        )
+        self._queue_events_for_outbox(events_by_recipient)
+        self.process_syftbox_events_queue()
+
+    def _split_events(
+        self, events: list[FileChangeEvent]
+    ) -> tuple[list[FileChangeEvent], list[FileChangeEvent]]:
+        """Split events into (permission_events, data_events)."""
+        from syft_permissions.spec.ruleset import PERMISSION_FILE_NAME
+
         perm_events = []
         data_events = []
-        for event in file_change_events_message.events:
+        for event in events:
             if str(event.path_in_datasite).endswith(PERMISSION_FILE_NAME):
                 perm_events.append(event)
             else:
                 data_events.append(event)
+        return perm_events, data_events
 
-        events_by_recipient: dict[str, list[FileChangeEvent]] = {
-            r: [] for r in recipients
-        }
-
-        # Track which (path, reader) combos are already covered by data_events
-        data_event_sent_to: dict[str, set[str]] = {}
-
-        # Process data events: route by read permissions
+    def _route_data_events(
+        self,
+        data_events: list[FileChangeEvent],
+        recipients: list[str],
+        events_by_recipient: dict[str, list[FileChangeEvent]],
+        data_event_sent_to: dict[str, set[str]],
+    ):
+        """Route data events to recipients who have read access."""
         for event in data_events:
             path_str = str(event.path_in_datasite)
             readers = self._get_readers(path_str, recipients)
@@ -547,15 +565,20 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             for reader in readers:
                 events_by_recipient[reader].append(event)
 
-        # Process permission events: share perm file + resend affected files
+    def _route_perm_events(
+        self,
+        perm_events: list[FileChangeEvent],
+        recipients: list[str],
+        events_by_recipient: dict[str, list[FileChangeEvent]],
+        data_event_sent_to: dict[str, set[str]],
+    ):
+        """Share perm files with readers and resend affected files to newly-permitted readers."""
         for event in perm_events:
             path_str = str(event.path_in_datasite)
-            # Share the syft.pub.yaml itself with readers
             perm_readers = self._get_readers(path_str, recipients)
             for reader in perm_readers:
                 events_by_recipient[reader].append(event)
 
-            # Find all files under the perm file's parent directory
             affected_paths = self._get_paths_under_perm_file(path_str)
             for affected_path in affected_paths:
                 new_readers = self._get_readers(affected_path, recipients)
@@ -565,7 +588,6 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
 
                 if not newly_permitted:
                     continue
-                # Skip readers who already got this path via a data_event
                 already_sent = data_event_sent_to.get(affected_path, set())
                 needs_resend = newly_permitted - already_sent
                 if needs_resend:
@@ -574,13 +596,14 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
                         for reader in needs_resend:
                             events_by_recipient[reader].append(resend_event)
 
-        # Queue filtered events per recipient for outbox
+    def _queue_events_for_outbox(
+        self, events_by_recipient: dict[str, list[FileChangeEvent]]
+    ):
+        """Wrap events into messages per recipient and queue for outbox."""
         for recipient, events in events_by_recipient.items():
             if events:
                 msg = FileChangeEventsMessage(events=events)
                 self.outbox_queue.put((recipient, msg))
-
-        self.process_syftbox_events_queue()
 
     def pull_and_process_next_proposed_filechange(
         self, sender_email: str, raise_on_none=True
