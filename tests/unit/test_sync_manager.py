@@ -24,14 +24,6 @@ from tests.unit.utils import (
 )
 
 
-def _grant_ds_full_access(do_manager, ds_manager):
-    """Grant DS read+write access at root of DO's datasite for testing."""
-    ctx = do_manager.datasite_owner_syncer.perm_context
-    root = ctx.open(".")
-    root.grant_read_access(ds_manager.email)
-    root.grant_write_access(ds_manager.email)
-
-
 def _ds_job_path(do_manager, ds_manager, filename: str = "test.job") -> str:
     """Return the correct path for DS to submit a job file to DO."""
     return f"{do_manager.email}/app_data/job/{ds_manager.email}/{filename}"
@@ -54,7 +46,9 @@ def test_sync_to_syftbox_eventlog():
 
 def test_valid_and_invalid_proposed_filechange_event():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
     ds_email = ds_manager.email
     do_email = do_manager.email
 
@@ -182,7 +176,9 @@ def test_sync_existing_inbox_state_do():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
     connection_ds = ds_manager._connection_router.connections[0]
 
     proposed_events_messages = get_mock_proposed_events_messages(
@@ -260,7 +256,9 @@ def test_file_connections():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     datasite_dir_do = (
         do_manager.datasite_owner_syncer.event_cache.file_connection.base_dir

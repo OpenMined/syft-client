@@ -18,7 +18,6 @@ from syft_client.sync.checkpoints.rolling_state import RollingState
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.syftbox_manager import SyftboxManager
 from tests.unit.utils import get_mock_event
-from tests.unit.test_sync_manager import _grant_ds_full_access
 
 
 def test_checkpoint_create_and_restore():
@@ -26,7 +25,9 @@ def test_checkpoint_create_and_restore():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -60,7 +61,9 @@ def test_checkpoint_should_create():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -83,7 +86,9 @@ def test_checkpoint_try_create():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -109,7 +114,9 @@ def test_checkpoint_restore_on_sync():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -139,7 +146,9 @@ def test_checkpoint_events_since():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -174,7 +183,9 @@ def test_checkpoint_excludes_datasets():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -225,7 +236,9 @@ def test_compact_with_existing_full_checkpoint():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -294,7 +307,9 @@ def test_compact_with_no_existing_full_checkpoint():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -381,7 +396,9 @@ def test_compact_with_file_overwrites_across_incrementals():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -459,7 +476,9 @@ def test_compact_with_file_deletions():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -509,7 +528,9 @@ def test_try_create_checkpoint_triggers_compacting():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
     )
-    _grant_ds_full_access(do_manager, ds_manager)
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
     syncer = do_manager.datasite_owner_syncer

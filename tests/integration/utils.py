@@ -33,14 +33,6 @@ def remove_syftboxes_from_drive():
     manager_do.delete_syftbox(broadcast_delete_events=False)
 
 
-def grant_ds_full_access(do_manager, ds_manager):
-    """Grant DS read+write access at root of DO's datasite for testing."""
-    ctx = do_manager.datasite_owner_syncer.perm_context
-    root = ctx.open(".")
-    root.grant_read_access(ds_manager.email)
-    root.grant_write_access(ds_manager.email)
-
-
 def get_mock_event(path: str = "email@email.com/test.job") -> FileChangeEvent:
     email = path.split("/")[0]
     file_path = path.split("/")[-1]
