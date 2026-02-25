@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import time
+from pathlib import Path
 from typing import List, Set
 
 from . import __version__
@@ -56,18 +57,23 @@ class SyftJobRunner:
         print(f"Ensured directory exists: {job_dir}")
 
     def _get_jobs_in_inbox(self) -> List[str]:
-        """Get list of job names currently in inbox status (no status markers)."""
+        """Get list of job paths (ds_email/job_name) currently in inbox status."""
         job_dir = self.config.get_job_dir(self.config.email)
 
         if not job_dir.exists():
             return []
 
         jobs = []
-        for item in job_dir.iterdir():
-            if item.is_dir() and (item / "config.yaml").exists():
-                # Check if job is in inbox status (no status markers)
-                if self.config.is_job_inbox(item):
-                    jobs.append(item.name)
+        for ds_dir in job_dir.iterdir():
+            if not ds_dir.is_dir():
+                continue
+            for item in ds_dir.iterdir():
+                if item.is_dir() and (item / "config.yaml").exists():
+                    if (
+                        not (item / "approved").exists()
+                        and not (item / "done").exists()
+                    ):
+                        jobs.append(f"{ds_dir.name}/{item.name}")
 
         return jobs
 
@@ -197,31 +203,34 @@ class SyftJobRunner:
         self.known_jobs = current_jobs
 
     def _get_jobs_in_approved(self) -> List[str]:
-        """Get list of job names currently in approved status (has approved but not done)."""
+        """Get list of job paths (ds_email/job_name) currently in approved status."""
         job_dir = self.config.get_job_dir(self.config.email)
 
         if not job_dir.exists():
             return []
 
         jobs = []
-        for item in job_dir.iterdir():
-            if item.is_dir() and (item / "config.yaml").exists():
-                # Check if job is in approved status
-                if self.config.is_job_approved(item) and not self.config.is_job_done(
-                    item
-                ):
-                    jobs.append(item.name)
+        for ds_dir in job_dir.iterdir():
+            if not ds_dir.is_dir():
+                continue
+            for item in ds_dir.iterdir():
+                if item.is_dir() and (item / "config.yaml").exists():
+                    if (item / "approved").exists() and not (item / "done").exists():
+                        jobs.append(f"{ds_dir.name}/{item.name}")
 
         return jobs
 
-    def _execute_job_streaming(self, job_name: str, timeout: int) -> bool:
+    def _execute_job_streaming(
+        self, job_name: str, timeout: int, user: str | None = None
+    ) -> bool:
         """Execute job with real-time streaming output.
 
         Args:
-            job_name: Name of the job to execute
-            timeout: Timeout in seconds
+            job_name: Name of the job to execute.
+            timeout: Timeout in seconds.
+            user: DS email who submitted the job. If None, searches.
         """
-        job_dir = self.config.get_job_dir(self.config.email) / job_name
+        job_dir = self._resolve_job_dir(job_name, user)
         run_script = job_dir / "run.sh"
 
         # Log prefix for streaming output
@@ -306,14 +315,17 @@ class SyftJobRunner:
 
         return returncode
 
-    def _execute_job_captured(self, job_name: str, timeout: int) -> int:
+    def _execute_job_captured(
+        self, job_name: str, timeout: int, user: str | None = None
+    ) -> int:
         """Execute job with captured output (non-streaming).
 
         Args:
-            job_name: Name of the job to execute
-            timeout: Timeout in seconds
+            job_name: Name of the job to execute.
+            timeout: Timeout in seconds.
+            user: DS email who submitted the job. If None, searches.
         """
-        job_dir = self.config.get_job_dir(self.config.email) / job_name
+        job_dir = self._resolve_job_dir(job_name, user)
         run_script = job_dir / "run.sh"
 
         # Make run.sh executable
@@ -350,29 +362,36 @@ class SyftJobRunner:
         return result.returncode
 
     def _execute_job(
-        self, job_name: str, stream_output: bool = True, timeout: int | None = None
+        self,
+        job_name: str,
+        stream_output: bool = True,
+        timeout: int | None = None,
+        user: str | None = None,
     ) -> bool:
         """
         Execute run.sh for a job in the approved directory.
 
         Args:
-            job_name: Name of the job to execute
+            job_name: Name of the job to execute.
             stream_output: If True (default), stream output in real-time.
                         If False, capture output at end (CI-friendly).
             timeout: Timeout in seconds. Defaults to 300 (5 minutes).
                     Can also be set via SYFT_DEFAULT_JOB_TIMEOUT_SECONDS env var.
+            user: DS email who submitted the job. If None, searches.
 
         Returns:
             bool: True if execution was successful, False otherwise
         """
         if timeout is None:
             timeout = get_job_timeout_seconds()
-        job_dir = self.config.get_job_dir(self.config.email) / job_name
+        job_dir = self._resolve_job_dir(job_name, user)
         run_script = job_dir / "run.sh"
 
         if not run_script.exists():
             print(f"❌ No run.sh found in {job_name}")
             return False
+
+        self._prepare_outputs_dir(job_name, user)
 
         print(f"🚀 Executing job: {job_name}")
         print(f"📁 Job directory: {job_dir}")
@@ -380,12 +399,12 @@ class SyftJobRunner:
         try:
             # Execute with streaming or captured output
             if stream_output:
-                returncode = self._execute_job_streaming(job_name, timeout)
+                returncode = self._execute_job_streaming(job_name, timeout, user)
             else:
-                returncode = self._execute_job_captured(job_name, timeout)
+                returncode = self._execute_job_captured(job_name, timeout, user)
 
             # Create done marker file to mark job as completed
-            self.config.create_done_marker(job_dir)
+            (job_dir / "done").touch()
 
             # Write return code
             returncode_file = job_dir / "returncode.txt"
@@ -416,11 +435,83 @@ class SyftJobRunner:
             print(f"❌ Error executing job {job_name}: {e}")
             return False
 
+    def _prepare_outputs_dir(self, job_name: str, user: str | None = None) -> None:
+        """Clear and recreate outputs dir with owner-only read permissions."""
+        job_dir = self._resolve_job_dir(job_name, user)
+        outputs_dir = job_dir / "outputs"
+        if outputs_dir.exists():
+            shutil.rmtree(outputs_dir)
+        outputs_dir.mkdir(parents=True, exist_ok=True)
+
+        from syft_perm import SyftPermContext
+
+        datasite = self.config.syftbox_folder / self.config.email
+        rel_path = str(outputs_dir.relative_to(datasite)) + "/"
+        ctx = SyftPermContext(datasite=datasite)
+        folder = ctx.open(rel_path)
+        folder.grant_read_access(self.config.email)
+
+    def _resolve_job_dir(self, job_name: str, user: str | None = None) -> Path:
+        """Resolve the job directory, searching if user is not specified."""
+        base_job_dir = self.config.get_job_dir(self.config.email)
+        if user:
+            return base_job_dir / user / job_name
+        # Search for the job across all user subdirectories
+        matches = list(base_job_dir.glob(f"*/{job_name}"))
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) == 0:
+            raise FileNotFoundError(f"Job '{job_name}' not found under {base_job_dir}")
+        raise ValueError(
+            f"Multiple jobs named '{job_name}' found: {matches}. "
+            "Pass user= to disambiguate."
+        )
+
+    def _get_job_submitter(self, job_name: str, user: str | None = None) -> str | None:
+        """Read submitted_by from job config.yaml."""
+        job_dir = self._resolve_job_dir(job_name, user)
+        config_file = job_dir / "config.yaml"
+        if not config_file.exists():
+            return None
+        try:
+            import yaml
+
+            with open(config_file, "r") as f:
+                config = yaml.safe_load(f)
+            return config.get("submitted_by")
+        except Exception:
+            return None
+
+    def _get_job_info(self, job_name: str, user: str | None = None):
+        """Create a JobInfo for a job by name."""
+        from .client import JobClient
+        from .job import JobInfo
+
+        job_dir = self._resolve_job_dir(job_name, user)
+        client = JobClient(config=self.config)
+        status = client.get_job_status(job_dir)
+        import yaml
+
+        config_file = job_dir / "config.yaml"
+        with open(config_file, "r") as f:
+            job_config = yaml.safe_load(f)
+        return JobInfo(
+            name=job_config.get("name", job_name),
+            datasite_owner_email=self.config.email,
+            status=status,
+            submitted_by=job_config.get("submitted_by", "unknown"),
+            location=job_dir,
+            client=client,
+            current_user_email=self.config.email,
+        )
+
     def process_approved_jobs(
         self,
         stream_output: bool = True,
         timeout: int | None = None,
         skip_job_names: list[str] | None = None,
+        share_outputs_with_submitter: bool = False,
+        share_logs_with_submitter: bool = False,
     ) -> None:
         """Process all jobs in the approved directory.
 
@@ -430,6 +521,8 @@ class SyftJobRunner:
             timeout: Timeout in seconds per job. Defaults to 300 (5 minutes).
                     Can also be set via SYFT_DEFAULT_JOB_TIMEOUT_SECONDS env var.
             skip_job_names: Optional list of job names to skip.
+            share_outputs_with_submitter: If True, grant read access on outputs to submitter.
+            share_logs_with_submitter: If True, grant read access on logs to submitter.
         """
         approved_jobs = self._get_jobs_in_approved()
 
@@ -446,13 +539,50 @@ class SyftJobRunner:
 
         print(f"📋 Found {len(approved_jobs)} job(s) in approved directory")
 
-        for job_name in approved_jobs:
+        for job_path in approved_jobs:
+            # job_path is "{ds_email}/{job_name}" from _get_jobs_in_approved
+            user, job_name = job_path.split("/", 1)
             print(f"\n{'=' * 50}")
-            self._execute_job(job_name, stream_output=stream_output, timeout=timeout)
+            self._execute_job(
+                job_name, stream_output=stream_output, timeout=timeout, user=user
+            )
+            self.share_job_results(
+                job_name,
+                share_outputs_with_submitter,
+                share_logs_with_submitter,
+                user=user,
+            )
             print(f"{'=' * 50}")
 
         if approved_jobs:
             print(f"\n✅ Processed {len(approved_jobs)} job(s)")
+
+    def share_job_results(
+        self,
+        job_name: str,
+        share_outputs: bool,
+        share_logs: bool,
+        user: str | None = None,
+    ) -> None:
+        """Share job outputs/logs with submitter if requested.
+
+        Args:
+            job_name: Name of the job (e.g. "my.job").
+            share_outputs: Whether to share output files.
+            share_logs: Whether to share log files.
+            user: DS email who submitted the job. If None, searches all
+                  user subdirectories and raises if ambiguous.
+        """
+        if not share_outputs and not share_logs:
+            return
+        submitter = self._get_job_submitter(job_name, user)
+        if not submitter:
+            return
+        job_info = self._get_job_info(job_name, user)
+        if share_outputs:
+            job_info.share_outputs([submitter])
+        if share_logs:
+            job_info.share_logs([submitter])
 
     def run(self) -> None:
         """Start monitoring the inbox and approved folders for jobs."""

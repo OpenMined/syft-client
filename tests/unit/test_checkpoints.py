@@ -25,6 +25,9 @@ def test_checkpoint_create_and_restore():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True
     )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -58,6 +61,9 @@ def test_checkpoint_should_create():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True
     )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -79,6 +85,9 @@ def test_checkpoint_try_create():
     """Test try_create_checkpoint only creates when threshold exceeded."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True
+    )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
     )
 
     do_email = do_manager.email
@@ -104,6 +113,9 @@ def test_checkpoint_restore_on_sync():
     """Test that sync uses checkpoint for initial state restore."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
+    )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
     )
 
     do_email = do_manager.email
@@ -133,6 +145,9 @@ def test_checkpoint_events_since():
     """Test getting events since checkpoint timestamp."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
+    )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
     )
 
     do_email = do_manager.email
@@ -167,6 +182,9 @@ def test_checkpoint_excludes_datasets():
     """Test that checkpoints do not include files under syft_datasets folder."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True
+    )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
     )
 
     do_email = do_manager.email
@@ -217,6 +235,9 @@ def test_compact_with_existing_full_checkpoint():
     """Test that compacting merges existing full checkpoint with incremental checkpoints."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
+    )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
     )
 
     do_email = do_manager.email
@@ -285,6 +306,9 @@ def test_compact_with_no_existing_full_checkpoint():
     """Test that compacting works when there's no existing full checkpoint."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
+    )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
     )
 
     do_email = do_manager.email
@@ -372,6 +396,9 @@ def test_compact_with_file_overwrites_across_incrementals():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
     )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -449,6 +476,9 @@ def test_compact_with_file_deletions():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
     )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     do_email = do_manager.email
 
@@ -497,6 +527,9 @@ def test_try_create_checkpoint_triggers_compacting():
     """Test that try_create_checkpoint triggers compacting when both thresholds are met."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=True,
+    )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
     )
 
     do_email = do_manager.email

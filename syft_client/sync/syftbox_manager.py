@@ -7,7 +7,8 @@ from syft_client.utils import resolve_path
 from concurrent.futures import ThreadPoolExecutor
 import time
 from pydantic import ConfigDict
-from syft_job.client import JobClient, JobsList
+from syft_job.client import JobClient
+from syft_job.job import JobsList
 from syft_job.job_runner import SyftJobRunner
 from syft_job import SyftJobConfig
 from syft_datasets.config import SyftBoxConfig
@@ -772,10 +773,17 @@ class SyftboxManager(BaseModel):
             email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
         )
 
+        peer_email = (
+            email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
+        )
+
+        # Grant the new peer write access to their DS job folder
+        if self.is_do:
+            self.job_client.setup_ds_job_folder_as_do(peer_email)
+
         # Share all "any" datasets with the new peer so they can discover them
         # (Google Drive "anyone with link" files are not discoverable via search)
-        email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
-        self._share_any_datasets_with_peer(email)
+        self._share_any_datasets_with_peer(peer_email)
 
     def _share_any_datasets_with_peer(self, peer_email: str):
         """Share all datasets that have 'any' permission with a specific peer.
@@ -817,6 +825,8 @@ class SyftboxManager(BaseModel):
         stream_output: bool = True,
         timeout: int | None = None,
         force_execution: bool = False,
+        share_outputs_with_submitter: bool = False,
+        share_logs_with_submitter: bool = False,
     ) -> None:
         """
         Process approved jobs. Automatically calls sync() after processing
@@ -829,6 +839,8 @@ class SyftboxManager(BaseModel):
             force_execution: If True, process all approved jobs regardless of
                            version compatibility. If False (default), skip jobs
                            from peers with incompatible or unknown versions.
+            share_outputs_with_submitter: If True, grant read access on outputs to submitter.
+            share_logs_with_submitter: If True, grant read access on logs to submitter.
 
         PRE_SYNC defaults to "true", so auto-sync is enabled by default.
         To disable auto-sync, set: PRE_SYNC=false
@@ -870,6 +882,8 @@ class SyftboxManager(BaseModel):
             stream_output=stream_output,
             timeout=timeout,
             skip_job_names=skip_job_names if skip_job_names else None,
+            share_outputs_with_submitter=share_outputs_with_submitter,
+            share_logs_with_submitter=share_logs_with_submitter,
         )
 
         if os.environ.get("PRE_SYNC", "true").lower() == "true":

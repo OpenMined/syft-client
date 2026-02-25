@@ -82,6 +82,9 @@ def test_upload_replaces_existing_rolling_state():
 def test_rolling_state_created_after_checkpoint():
     """Test that rolling state is accumulated after checkpoint creation."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     # Send some events
     ds_manager._send_file_change(f"{do_manager.email}/file1.txt", "content1")
@@ -108,6 +111,9 @@ def test_fresh_login_uses_checkpoint_and_rolling_state():
     """Test that fresh login downloads checkpoint + rolling state instead of all events."""
 
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     # Send events and create checkpoint
     ds_manager._send_file_change(f"{do_manager.email}/file1.txt", "content1")
@@ -166,6 +172,9 @@ def test_fresh_login_uses_checkpoint_and_rolling_state():
 def test_checkpoint_resets_rolling_state():
     """Test that creating a new checkpoint resets the rolling state."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     # Send events and create checkpoint
     ds_manager._send_file_change(f"{do_manager.email}/file1.txt", "content1")

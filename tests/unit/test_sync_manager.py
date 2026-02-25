@@ -4,6 +4,7 @@ import tempfile
 import shutil
 
 import pytest
+import yaml
 
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.sync.connections.drive import mock_drive_service
@@ -23,9 +24,14 @@ from tests.unit.utils import (
 )
 
 
+def path_for_job(do_email: str, ds_email: str, filename: str = "test.job") -> str:
+    """Return the correct path for DS to submit a job file to DO."""
+    return f"{do_email}/app_data/job/{ds_email}/{filename}"
+
+
 def test_sync_to_syftbox_eventlog():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
-    file_path = f"{do_manager.email}/my.job"
+    file_path = path_for_job(do_manager.email, ds_manager.email, "my.job")
 
     events_in_backing_platform = do_manager._get_all_accepted_events_do()
     assert len(events_in_backing_platform) == 0
@@ -40,6 +46,9 @@ def test_sync_to_syftbox_eventlog():
 
 def test_valid_and_invalid_proposed_filechange_event():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
     ds_email = ds_manager.email
     do_email = do_manager.email
 
@@ -111,7 +120,7 @@ def test_valid_and_invalid_proposed_filechange_event():
 
 def test_sync_back_to_ds_cache():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
-    file_path = f"{do_manager.email}/test.job"
+    file_path = path_for_job(do_manager.email, ds_manager.email)
     ds_manager._send_file_change(file_path, "Hello, world!")
 
     do_manager.sync()  # DO processes inbox and pushes to outbox
@@ -154,8 +163,8 @@ def test_sync_existing_datasite_state_do():
 
     n_outbox = connection_ds.get_outbox_file_metadatas_for_ds(do_manager.email, None)
     assert n_messages_in_cache >= 1  # At least 1 message with the 2 file changes
-    assert n_files_in_cache == 2
-    assert hashes_in_cache == 2
+    assert n_files_in_cache == 3  # 2 data files + syft.pub.yaml permission file
+    assert hashes_in_cache == 3  # 2 data files + syft.pub.yaml permission file
     assert len(n_outbox) >= 1
 
 
@@ -166,6 +175,9 @@ def test_sync_existing_inbox_state_do():
     """
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
+    )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
     )
     connection_ds = ds_manager._connection_router.connections[0]
 
@@ -185,8 +197,8 @@ def test_sync_existing_inbox_state_do():
     n_files_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_connection)
     hashes_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_hashes)
     assert n_events_message_in_cache >= 1  # At least 1 message with 2 file changes
-    assert n_files_in_cache == 2
-    assert hashes_in_cache == 2
+    assert n_files_in_cache == 4  # 2 data files + 2 syft.pub.yaml permission files
+    assert hashes_in_cache == 4  # 2 data files + 2 syft.pub.yaml permission files
 
 
 def test_sync_existing_datasite_state_ds():
@@ -244,6 +256,9 @@ def test_file_connections():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
 
     datasite_dir_do = (
         do_manager.datasite_owner_syncer.event_cache.file_connection.base_dir
@@ -253,8 +268,8 @@ def test_file_connections():
 
     assert datasite_dir_do != syftbox_dir_ds
 
-    job_path = f"{do_manager.email}/test.job"
-    job_path_in_datasite = job_path.split("/")[-1]
+    job_path = path_for_job(do_manager.email, ds_manager.email)
+    job_path_in_datasite = "/".join(job_path.split("/")[1:])
 
     ds_manager._send_file_change(job_path, "Hello, world!")
     do_manager.sync()
@@ -363,11 +378,10 @@ def test_datasets_with_parquet():
     datasets = do_manager.datasets.get_all()
     assert len(datasets) == 1
 
-    event_log_messages = (
-        do_manager._connection_router.get_all_accepted_event_file_ids_do()
-    )
-    # these should not be used for datasets
-    assert len(event_log_messages) == 0
+    # Dataset files are synced via collections, not the event log.
+    # Only the permission file (syft.pub.yaml) should appear as an event.
+    cached_events = do_manager.datasite_owner_syncer.event_cache.get_cached_events()
+    assert all(str(e.path_in_datasite).endswith("syft.pub.yaml") for e in cached_events)
 
     # Retrieve dataset by name
     dataset_do = do_manager.datasets["parquet dataset"]
@@ -501,8 +515,6 @@ def test_jobs():
     test_py_path = "/tmp/test.py"
     with open(test_py_path, "w") as f:
         f.write("""
-import os
-os.mkdir("outputs")
 with open("outputs/result.json", "w") as f:
     f.write('{"result": 1}')
 """)
@@ -531,6 +543,9 @@ with open("outputs/result.json", "w") as f:
     job.approve()
 
     do_manager.job_runner.process_approved_jobs()
+    do_manager.job_runner.share_job_results(
+        "test.job", share_outputs=True, share_logs=False
+    )
 
     do_manager.sync()
 
@@ -579,14 +594,12 @@ def test_jobs_with_dataset():
     with open(test_py_path, "w") as f:
         f.write("""
 import syft_client as sc
-import os
 import json
 
 data_path = sc.resolve_dataset_file_path("my dataset")
 with open(data_path, "r") as f:
     data = f.read()
 result = {"result": len(data)}
-os.mkdir("outputs")
 with open("outputs/result.json", "w") as f:
     f.write(json.dumps(result))
 """)
@@ -604,6 +617,9 @@ with open("outputs/result.json", "w") as f:
     job.approve()
 
     do_manager.job_runner.process_approved_jobs()
+    do_manager.job_runner.share_job_results(
+        "test.job", share_outputs=True, share_logs=False
+    )
 
     do_manager.sync()
 
@@ -678,8 +694,6 @@ def test_folder_job_submission_without_pyproject():
         main_path = Path(project_dir) / "main.py"
         with open(main_path, "w") as f:
             f.write("""
-import os
-os.mkdir("outputs")
 with open("outputs/result.txt", "w") as f:
     f.write("success")
 """)
@@ -971,7 +985,7 @@ def test_single_file_job_flow_with_dataset():
     test_py_path = "/tmp/test.py"
     with open(test_py_path, "w") as f:
         f.write("""
-import os, json
+import json
 import syft_client as sc
 
 data_path = "syft://private/syft_datasets/my dataset/private.txt"
@@ -982,7 +996,6 @@ with open(resolved_path, "r") as data_file:
 
 result = {"result": data}
 
-os.mkdir("outputs")
 with open("outputs/result.json", "w") as f:
     f.write(json.dumps(result))
 """)
@@ -1001,6 +1014,15 @@ with open("outputs/result.json", "w") as f:
 
     do_manager.job_runner.process_approved_jobs()
 
+    # Before sharing: DS should not see outputs
+    do_manager.sync()
+    ds_manager.sync()
+    assert len(ds_manager.job_client.jobs[-1].output_paths) == 0
+
+    # After sharing: DS should see outputs
+    do_manager.job_runner.share_job_results(
+        "test.job", share_outputs=True, share_logs=False
+    )
     do_manager.sync()
     ds_manager.sync()
 
@@ -1063,6 +1085,15 @@ def test_folder_job_flow_with_dataset():
         job.approve()
         do_manager.job_runner.process_approved_jobs()
 
+        # Before sharing: DS should not see outputs
+        do_manager.sync()
+        ds_manager.sync()
+        assert len(ds_manager.job_client.jobs[-1].output_paths) == 0
+
+        # After sharing: DS should see outputs
+        do_manager.job_runner.share_job_results(
+            "test.folder.job", share_outputs=True, share_logs=False
+        )
         do_manager.sync()
         ds_manager.sync()
 
@@ -1166,6 +1197,15 @@ def test_pyproject_folder_job_flow_with_dataset():
             ".venv should be created inside folder by uv sync"
         )
 
+        # Before sharing: DS should not see outputs
+        do_manager.sync()
+        ds_manager.sync()
+        assert len(ds_manager.job_client.jobs[-1].output_paths) == 0
+
+        # After sharing: DS should see outputs
+        do_manager.job_runner.share_job_results(
+            "test.pyproject.job", share_outputs=True, share_logs=False
+        )
         do_manager.sync()
         ds_manager.sync()
 
@@ -1189,12 +1229,16 @@ def test_file_deletion_do_to_ds():
         use_in_memory_cache=False
     )
 
-    datasite_dir_do = do_manager.syftbox_folder
+    datasite_dir_do = do_manager.syftbox_folder / do_manager.email
     syftbox_dir_ds = ds_manager.syftbox_folder
+
+    # Grant DS read access at root level
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    ctx.open(".").grant_read_access(ds_manager.email)
 
     # DO creates a file
     result_rel_path = "test_file.txt"
-    result_path = datasite_dir_do / do_manager.email / result_rel_path
+    result_path = datasite_dir_do / result_rel_path
     result_path.parent.mkdir(parents=True, exist_ok=True)
     with open(result_path, "w") as f:
         f.write("This is a test file")
@@ -1244,8 +1288,8 @@ def test_in_memory_deletion():
     )
 
     # Create file via send_file_change
-    job_path = f"{do_manager.email}/test.job"
-    job_path_in_datasite = job_path.split("/")[-1]
+    job_path = path_for_job(do_manager.email, ds_manager.email)
+    job_path_in_datasite = "/".join(job_path.split("/")[1:])
 
     ds_manager._send_file_change(job_path, "Hello, world!")
     do_manager.sync()
@@ -1280,6 +1324,10 @@ def test_syft_datasets_excluded_from_outbox_sync():
     )
 
     datasite_dir_do = do_manager.syftbox_folder / do_manager.email
+
+    # Grant DS read access to public/ so regular_file.txt syncs
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    ctx.open("public/").grant_read_access(ds_manager.email)
 
     # Create a regular file (should be synced)
     regular_file = datasite_dir_do / "public" / "regular_file.txt"
@@ -1316,33 +1364,42 @@ def test_job_files_sync_to_submitter_only():
 
     When a DO has multiple approved peers, job results should only be sent
     to the peer who submitted that specific job, not broadcast to all peers.
+    Uses permission-based routing: submitter gets read access via share_outputs(),
+    non-submitter has no read access to job outputs.
     """
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
     )
-    import yaml
 
-    # The submitter is a different peer (not ds_manager)
     submitter_email = "submitter_peer@example.com"
     non_submitter_email = ds_manager.email
 
     datasite_dir_do = do_manager.syftbox_folder / do_manager.email
 
-    # Create a job with config.yaml that has submitted_by set to the submitter
+    # Create job directory structure
     job_name = "test_job_123"
     job_dir = datasite_dir_do / "app_data" / "job" / job_name
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write config.yaml with submitted_by
+    # Write config.yaml
     config_path = job_dir / "config.yaml"
     config_data = {"submitted_by": submitter_email, "status": "completed"}
     with open(config_path, "w") as f:
         yaml.dump(config_data, f)
 
+    # Grant submitter read access to job outputs (simulates share_outputs)
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    ctx.open(f"app_data/job/{job_name}/outputs/").grant_read_access(submitter_email)
+
     # Create job result file
     result_file = job_dir / "outputs" / "result.json"
     result_file.parent.mkdir(parents=True, exist_ok=True)
     result_file.write_text('{"result": 42}')
+
+    # Grant both peers read access to public/ so shared.txt goes to both
+    public_folder = ctx.open("public/")
+    public_folder.grant_read_access(submitter_email)
+    public_folder.grant_read_access(non_submitter_email)
 
     # Create a regular file (non-job) that should go to all peers
     regular_file = datasite_dir_do / "public" / "shared.txt"
@@ -1379,12 +1436,12 @@ def test_job_files_sync_to_submitter_only():
         for msg in messages_for_submitter
         for event in msg.events
     ]
-    # Job files should ONLY be in submitter's outbox
-    assert any("app_data/job" in p for p in paths_for_submitter), (
-        "Job files should be sent to submitter"
-    )
-    assert not any("app_data/job" in p for p in paths_for_non_submitter), (
-        "Job files should NOT be sent to non-submitter peers"
+    # Job output files should ONLY be in submitter's outbox
+    assert any(
+        "app_data/job" in p and "result.json" in p for p in paths_for_submitter
+    ), "Job output files should be sent to submitter"
+    assert not any("result.json" in p for p in paths_for_non_submitter), (
+        "Job output files should NOT be sent to non-submitter peers"
     )
 
     # Regular files should be in BOTH outboxes
@@ -1594,8 +1651,10 @@ def test_in_memory_connection_syncing():
     """
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection()
 
-    # DS sends a file change to DO
-    ds_manager._send_file_change(f"{do_manager.email}/my.job", "Hello, world!")
+    # DS sends a file change to DO's job folder (where DS has write access)
+    ds_manager._send_file_change(
+        path_for_job(do_manager.email, ds_manager.email, "my.job"), "Hello, world!"
+    )
 
     # DO should have events in cache after sync
     do_manager.datasite_owner_syncer.sync(peer_emails=[ds_manager.email])
@@ -1639,9 +1698,14 @@ def test_in_memory_connection_load_state():
     ds_manager1._connection_router.connections[0]
     do_manager1._connection_router.connections[0]
 
-    # Make some changes
-    ds_manager1._send_file_change(f"{do_email}/my.job", "Hello, world!")
-    ds_manager1._send_file_change(f"{do_email}/my_second.job", "Hello, world!")
+    # Make some changes (submit to DS's job folder where DS has write access)
+    ds_manager1._send_file_change(
+        path_for_job(do_manager1.email, ds_manager1.email, "my.job"), "Hello, world!"
+    )
+    ds_manager1._send_file_change(
+        path_for_job(do_manager1.email, ds_manager1.email, "my_second.job"),
+        "Hello, world!",
+    )
 
     # Create a dataset with "any" permission
     mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
@@ -1702,7 +1766,8 @@ def test_in_memory_connection_load_state():
     ds_manager2.sync()
 
     # Verify events in DO cache (inbox was processed)
-    assert len(do_manager2.datasite_owner_syncer.event_cache.get_cached_events()) == 2
+    # 2 data events + 1 permission file event (syft.pub.yaml from approve_peer_request)
+    assert len(do_manager2.datasite_owner_syncer.event_cache.get_cached_events()) == 3
 
     # verify events in DS cache
     loaded_events_ds = (
@@ -1820,8 +1885,10 @@ def test_ds_stale_state_cleared_after_do_delete_syftbox():
         users=[ds_manager.email],
     )
 
-    # DS sends a file change to DO
-    ds_manager._send_file_change(f"{do_manager.email}/test.job", "print('hello')")
+    # DS sends a file change to DO (use correct job path)
+    ds_manager._send_file_change(
+        path_for_job(do_manager.email, ds_manager.email), "print('hello')"
+    )
     do_manager.sync()
 
     # DS syncs to get dataset and file events
@@ -1844,4 +1911,132 @@ def test_ds_stale_state_cleared_after_do_delete_syftbox():
     )
     assert len(ds_manager.datasets.get_all()) == 0, (
         "DS datasets should be empty after DO delete"
+    )
+
+
+def test_incoming_syft_pub_yaml_write_requires_admin():
+    """Test that DS cannot write syft.pub.yaml unless they have admin access.
+
+    DS proposes a change to a syft.pub.yaml file in the job folder.
+    Even though DS has write access to the job folder, writing syft.pub.yaml
+    requires admin, so the change should be rejected.
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+    )
+
+    ds_email = ds_manager.email
+    do_email = do_manager.email
+    datasite_dir_do = do_manager.syftbox_folder / do_email
+
+    # DS has write access to their job folder (granted by approve_peer_request)
+    # but NOT admin access. Verify this.
+    from syft_perm import SyftPermContext
+
+    ctx = SyftPermContext(datasite=datasite_dir_do)
+    job_folder = ctx.open(f"app_data/job/{ds_email}/")
+    assert job_folder.has_write_access(ds_email), "DS should have write access"
+
+    # DS proposes a syft.pub.yaml change (trying to escalate permissions)
+    perm_path = f"app_data/job/{ds_email}/syft.pub.yaml"
+    message = ProposedFileChangesMessage(
+        sender_email=ds_email,
+        proposed_file_changes=[
+            ProposedFileChange(
+                old_hash=None,
+                path_in_datasite=perm_path,
+                content="rules:\n- pattern: '**'\n  access:\n    read: ['*']",
+                datasite_email=do_email,
+            )
+        ],
+    )
+
+    do_manager.datasite_owner_syncer.handle_proposed_filechange_events_message(
+        ds_email, message
+    )
+
+    # The syft.pub.yaml change should be rejected (requires admin)
+    cached_events = do_manager.datasite_owner_syncer.event_cache.get_cached_events()
+    perm_events = [
+        e for e in cached_events if "syft.pub.yaml" in str(e.path_in_datasite)
+    ]
+    # Only the existing perm file from approve_peer_request should exist
+    assert not any(
+        f"app_data/job/{ds_email}/syft.pub.yaml" == str(e.path_in_datasite)
+        for e in perm_events
+    ), "DS should NOT be able to write syft.pub.yaml without admin access"
+
+
+def test_permission_change_triggers_resend():
+    """Test that changing permissions causes existing files to be resent to new readers.
+
+    1. DO creates a file under a path where only peer A has read access
+    2. DO syncs → peer A receives file, peer B does not
+    3. DO grants peer B read access (writes syft.pub.yaml)
+    4. DO syncs → peer B receives the file (resend triggered by perm change)
+    """
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+    )
+
+    peer_a_email = ds_manager.email
+    peer_b_email = "peer_b@example.com"
+
+    datasite_dir_do = do_manager.syftbox_folder / do_manager.email
+
+    # Set up a second peer connection for peer B
+    peer_b_connection = GDriveConnection.from_service(
+        peer_b_email, ds_manager._connection_router.connections[0].drive_service
+    )
+    peer_b_connection.add_peer_as_ds(do_manager.email)
+
+    # Grant only peer A read access to project/
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    ctx.open("project/").grant_read_access(peer_a_email)
+
+    # DO creates a file under project/
+    project_file = datasite_dir_do / "project" / "data.txt"
+    project_file.parent.mkdir(parents=True, exist_ok=True)
+    project_file.write_text("important data")
+
+    # First sync: only peer A should receive the file
+    recipients = [peer_a_email, peer_b_email]
+    do_manager.datasite_owner_syncer.process_local_changes(recipients)
+
+    messages_for_a = (
+        ds_manager._connection_router.get_events_messages_for_datasite_watcher(
+            do_manager.email, None
+        )
+    )
+    paths_for_a = [
+        str(e.path_in_datasite) for msg in messages_for_a for e in msg.events
+    ]
+
+    messages_for_b = peer_b_connection.get_events_messages_for_datasite_watcher(
+        do_manager.email, None
+    )
+    paths_for_b = [
+        str(e.path_in_datasite) for msg in messages_for_b for e in msg.events
+    ]
+
+    assert any("data.txt" in p for p in paths_for_a), "Peer A should receive data.txt"
+    assert not any("data.txt" in p for p in paths_for_b), (
+        "Peer B should NOT receive data.txt yet"
+    )
+
+    # Now grant peer B read access by updating syft.pub.yaml
+    ctx.open("project/").grant_read_access(peer_b_email)
+
+    # Second sync: peer B should receive data.txt via resend
+    do_manager.datasite_owner_syncer.process_local_changes(recipients)
+
+    messages_for_b_after = peer_b_connection.get_events_messages_for_datasite_watcher(
+        do_manager.email, None
+    )
+    paths_for_b_after = [
+        str(e.path_in_datasite) for msg in messages_for_b_after for e in msg.events
+    ]
+
+    assert any("data.txt" in p for p in paths_for_b_after), (
+        "Peer B should receive data.txt after permission change"
     )

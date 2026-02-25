@@ -498,9 +498,10 @@ class TestPairWithMockDriveServiceConnection:
             sync_automatically=False,
         )
 
-        # DS sends a file change to DO
-        # The file path must include the DO's email as the datasite
-        file_path = f"{do_manager.email}/test.job"
+        # DS sends a file change to DO's job folder (where DS has write access)
+        from tests.unit.test_sync_manager import path_for_job
+
+        file_path = path_for_job(do_manager.email, ds_manager.email)
         ds_manager._send_file_change(file_path, "Hello from DS!")
 
         # DO syncs to receive the message
