@@ -27,19 +27,128 @@ uv pip install syft-client
 import syft_client as sc
 ```
 
-| Step               | Data Owner                                                                                           | Data Scientist                                                     |
-| ------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| **Login**          | `do = sc.login_do(email="do@org.com")`                                                               | `ds = sc.login_ds(email="ds@org.com")`                             |
-| **Connect**        | `do.approve_peer_request("ds@org.com")`                                                              | `ds.add_peer("do@org.com")`                                        |
-| **Create dataset** | `do.create_dataset(name="census", mock_path="mock/", private_path="private/", users=["ds@org.com"])` |                                                                    |
-| **Sync**           | `do.sync()`                                                                                          | `ds.sync()`                                                        |
-| **Load datasets**  |                                                                                                      | `ds.datasets.get_all()`                                            |
-| **Submit job**     |                                                                                                      | `ds.submit_python_job(user="do@org.com", code_path="analysis.py")` |
-| **Sync**           | `do.sync()`                                                                                          | `ds.sync()`                                                        |
-| **Approve job**    | `do.jobs[0].approve()`                                                                               |                                                                    |
-| **Execute**        | `do.process_approved_jobs()`                                                                         |                                                                    |
-| **Sync**           | `do.sync()`                                                                                          | `ds.sync()`                                                        |
-| **Get results**    |                                                                                                      | `open(ds.jobs[-1].output_paths[0]).read()`                         |
+<table>
+<tr><th></th><th>Data Owner</th><th>Data Scientist</th></tr>
+<tr>
+<td><b>Login</b></td>
+<td>
+
+```python
+do = sc.login_do(email="do@org.com")
+```
+
+</td>
+<td>
+
+```python
+ds = sc.login_ds(email="ds@org.com")
+```
+
+</td>
+</tr>
+<tr>
+<td><b>Peer request</b></td>
+<td></td>
+<td>
+
+```python
+ds.add_peer("do@org.com")
+```
+
+</td>
+</tr>
+<tr>
+<td><b>Approve peer</b></td>
+<td>
+
+```python
+do.approve_peer_request("ds@org.com")
+```
+
+</td>
+<td></td>
+</tr>
+<tr>
+<td><b>Create dataset</b></td>
+<td>
+
+```python
+do.create_dataset(
+    name="census",
+    mock_path="mock/",
+    private_path="private/",
+    users=["ds@org.com"],
+)
+do.sync()
+```
+
+</td>
+<td></td>
+</tr>
+<tr>
+<td><b>Load datasets</b></td>
+<td></td>
+<td>
+
+```python
+ds.sync()
+datasets = ds.datasets.get_all()
+```
+
+</td>
+</tr>
+<tr>
+<td><b>Submit job</b></td>
+<td></td>
+<td>
+
+```python
+ds.submit_python_job(
+    user="do@org.com",
+    code_path="analysis.py",
+)
+ds.sync()
+```
+
+</td>
+</tr>
+<tr>
+<td><b>Approve job</b></td>
+<td>
+
+```python
+do.sync()
+do.jobs[0].approve()
+```
+
+</td>
+<td></td>
+</tr>
+<tr>
+<td><b>Run analysis</b></td>
+<td>
+
+```python
+do.process_approved_jobs()
+do.sync()
+```
+
+</td>
+<td></td>
+</tr>
+<tr>
+<td><b>Get results</b></td>
+<td></td>
+<td>
+
+```python
+ds.sync()
+result = open(ds.jobs[-1].output_paths[0]).read()
+```
+
+</td>
+</tr>
+</table>
 
 ## Packages
 
