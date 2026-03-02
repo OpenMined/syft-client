@@ -39,7 +39,7 @@ import syft_client as sc
 | **Approve job**    | `do.jobs[0].approve()`                                                                               |                                                                    |
 | **Execute**        | `do.process_approved_jobs()`                                                                         |                                                                    |
 | **Sync**           | `do.sync()`                                                                                          | `ds.sync()`                                                        |
-| **Get results**    |                                                                                                      | `ds.jobs[-1].stdout`                                               |
+| **Get results**    |                                                                                                      | `open(ds.jobs[-1].output_paths[0]).read()`                         |
 
 ## Packages
 
