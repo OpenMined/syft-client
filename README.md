@@ -51,10 +51,9 @@ ds.submit_python_job(
     user="do@org.com",
     code_path="analysis.py",
 )
-ds.sync()
+ds.sync(); do.sync()
 
 # Approve & run job
-do.sync()
 do.jobs[0].approve()
 do.process_approved_jobs()
 do.sync(); ds.sync()
