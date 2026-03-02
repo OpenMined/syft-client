@@ -585,6 +585,10 @@ class SyftboxManager(BaseModel):
             receiver_manager.job_file_change_handler._handle_file_change,
         )
 
+        if clear_caches:
+            receiver_manager._clear_caches()
+            sender_manager._clear_caches()
+
         if add_peers:
             # DS creates peer request
             sender_manager.add_peer(receiver_manager.email)
@@ -598,10 +602,6 @@ class SyftboxManager(BaseModel):
         if load_peers:
             receiver_manager.load_peers()
             sender_manager.load_peers()
-
-        if clear_caches:
-            receiver_manager._clear_caches()
-            sender_manager._clear_caches()
 
         # create inbox folder
         return sender_manager, receiver_manager

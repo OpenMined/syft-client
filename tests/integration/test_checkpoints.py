@@ -36,6 +36,10 @@ def test_checkpoint_with_incremental_events():
         )
     )
 
+    manager_do1.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        manager_ds1.email
+    )
+
     # Send initial files
     manager_ds1._send_file_change(f"{EMAIL_DO}/initial1.txt", "Initial 1")
     manager_ds1._send_file_change(f"{EMAIL_DO}/initial2.txt", "Initial 2")
@@ -106,6 +110,10 @@ def test_auto_checkpoint_on_sync():
         ds_email=EMAIL_DS,
         do_token_path=token_path_do,
         ds_token_path=token_path_ds,
+    )
+
+    manager_do.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        manager_ds.email
     )
 
     # Send enough files to trigger auto-incremental-checkpoint (threshold=5)
