@@ -26,6 +26,11 @@ from tests.unit.utils import create_tmp_dataset_files
 # from tests.integration.utils import get_mock_events
 
 
+def path_for_job(do_email: str, ds_email: str, filename: str = "test.job") -> str:
+    """Return the correct path for DS to submit a job file to DO."""
+    return f"{do_email}/app_data/job/{ds_email}/{filename}"
+
+
 SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent.parent
 # These are in gitignore, create yourself
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
@@ -56,7 +61,9 @@ def test_google_drive_connection_syncing():
     # this calls connection.send_propose_file_change_message via callbacks
     sleep(1)
     start_time = time.time()
-    manager_ds._send_file_change(f"{EMAIL_DO}/my.job", "Hello, world!")
+    manager_ds._send_file_change(
+        path_for_job(EMAIL_DO, EMAIL_DS, "my.job"), "Hello, world!"
+    )
     end_time_sending = time.time()
     print(f"Time taken to send message: {end_time_sending - start_time} seconds")
 
@@ -88,6 +95,10 @@ def test_google_drive_files():
         use_in_memory_cache=False,
     )
 
+    manager_do.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        manager_ds.email
+    )
+
     # syftbox_dir / EMAIL_DO
     datasite_dir_do = (
         manager_do.datasite_owner_syncer.event_cache.file_connection.base_dir
@@ -98,7 +109,7 @@ def test_google_drive_files():
 
     assert datasite_dir_do != syftbox_dir_ds
 
-    job_path = "test.job"
+    job_path = f"app_data/job/{EMAIL_DS}/test.job"
     job_send_path = f"{EMAIL_DO}/{job_path}"
 
     manager_ds._send_file_change(job_send_path, "This is a job")
@@ -277,6 +288,9 @@ def test_file_deletion_do_to_ds():
         use_in_memory_cache=False,
     )
 
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    ctx.open(".").grant_read_access(ds_manager.email)
+
     datasite_dir_do = do_manager.syftbox_folder
     syftbox_dir_ds = ds_manager.syftbox_folder
 
@@ -343,8 +357,12 @@ def test_google_drive_connection_load_state():
     )
 
     # make some changes
-    manager_ds1._send_file_change(f"{EMAIL_DO}/my.job", "Hello, world!")
-    manager_ds1._send_file_change(f"{EMAIL_DO}/my_second.job", "Hello, world!")
+    manager_ds1._send_file_change(
+        path_for_job(EMAIL_DO, EMAIL_DS, "my.job"), "Hello, world!"
+    )
+    manager_ds1._send_file_change(
+        path_for_job(EMAIL_DO, EMAIL_DS, "my_second.job"), "Hello, world!"
+    )
 
     # create a dataset with "any" permission to test loading and cache
     mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
