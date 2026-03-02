@@ -61,7 +61,9 @@ def test_google_drive_connection_syncing():
     # this calls connection.send_propose_file_change_message via callbacks
     sleep(1)
     start_time = time.time()
-    manager_ds._send_file_change(path_for_job(EMAIL_DO, EMAIL_DS, "my.job"), "Hello, world!")
+    manager_ds._send_file_change(
+        path_for_job(EMAIL_DO, EMAIL_DS, "my.job"), "Hello, world!"
+    )
     end_time_sending = time.time()
     print(f"Time taken to send message: {end_time_sending - start_time} seconds")
 
@@ -355,8 +357,12 @@ def test_google_drive_connection_load_state():
     )
 
     # make some changes
-    manager_ds1._send_file_change(path_for_job(EMAIL_DO, EMAIL_DS, "my.job"), "Hello, world!")
-    manager_ds1._send_file_change(path_for_job(EMAIL_DO, EMAIL_DS, "my_second.job"), "Hello, world!")
+    manager_ds1._send_file_change(
+        path_for_job(EMAIL_DO, EMAIL_DS, "my.job"), "Hello, world!"
+    )
+    manager_ds1._send_file_change(
+        path_for_job(EMAIL_DO, EMAIL_DS, "my_second.job"), "Hello, world!"
+    )
 
     # create a dataset with "any" permission to test loading and cache
     mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()

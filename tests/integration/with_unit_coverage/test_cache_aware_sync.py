@@ -48,9 +48,15 @@ def test_do_cache_aware_sync_gdrive():
 
     # DS sends 3 files to DO
     sleep(1)
-    ds_manager1._send_file_change(f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file1.job", "Content 1")
-    ds_manager1._send_file_change(f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file2.job", "Content 2")
-    ds_manager1._send_file_change(f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file3.job", "Content 3")
+    ds_manager1._send_file_change(
+        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file1.job", "Content 1"
+    )
+    ds_manager1._send_file_change(
+        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file2.job", "Content 2"
+    )
+    ds_manager1._send_file_change(
+        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file3.job", "Content 3"
+    )
     sleep(1)
 
     # DO syncs to receive and cache the files
@@ -69,8 +75,12 @@ def test_do_cache_aware_sync_gdrive():
 
     # DS sends 2 more files
     sleep(1)
-    ds_manager1._send_file_change(f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file4.job", "Content 4")
-    ds_manager1._send_file_change(f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file5.job", "Content 5")
+    ds_manager1._send_file_change(
+        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file4.job", "Content 4"
+    )
+    ds_manager1._send_file_change(
+        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file5.job", "Content 5"
+    )
     sleep(1)
 
     local_syftbox_folder_do = do_manager1.syftbox_folder
