@@ -6,7 +6,7 @@
 
 # Syft-client
 
-Privacy-preserving data collaboration through file syncing. Syft-client lets **data owners** share datasets and run computations on private data for **data scientists** — all through cloud storage their organizations already use (Google Drive, Microsoft 365, etc.). No new infrastructure required.
+Syft client lets data scientists submit computations which are ran by data owners on private data — all through cloud storage their organizations already use (Google Drive, Microsoft 365, etc.). No new infrastructure required.
 
 ## Features
 
@@ -16,30 +16,6 @@ Privacy-preserving data collaboration through file syncing. Syft-client lets **d
 - **Peer-to-peer with explicit auth** — Data owners must approve each collaborator before any data flows
 - **Isolated job execution** — Jobs run in sandboxed Python virtual environments with controlled access to private data
 - **Dataset sharing with mock/private separation** — Data scientists explore mock data, then submit jobs that run on the real thing
-
-## How it works
-
-Syft-client uses a **two-role model**: a Data Owner (DO) hosts private data and controls access, while a Data Scientist (DS) explores shared mock data and submits analysis jobs. All communication happens through synced files — no servers, no APIs, just files in cloud storage.
-
-```mermaid
-sequenceDiagram
-    participant DS as Data Scientist
-    participant Cloud as Cloud Storage
-    participant DO as Data Owner
-
-    DS->>Cloud: Request peer access
-    Cloud->>DO: Deliver request
-    DO->>Cloud: Approve peer
-    DO->>Cloud: Upload dataset (mock + private)
-    Cloud->>DS: Sync mock data
-    DS->>DS: Explore mock data
-    DS->>Cloud: Submit analysis job
-    Cloud->>DO: Deliver job
-    DO->>DO: Review & approve job
-    DO->>DO: Run job on private data
-    DO->>Cloud: Push results
-    Cloud->>DS: Sync results
-```
 
 ## Quick Start
 
@@ -55,9 +31,14 @@ import syft_client as sc
 |------|-----------|----------------|
 | **Login** | `do = sc.login_do(email="do@org.com")` | `ds = sc.login_ds(email="ds@org.com")` |
 | **Connect** | `do.approve_peer_request("ds@org.com")` | `ds.add_peer("do@org.com")` |
-| **Share data** | `do.create_dataset(name="census", mock_path="mock/", private_path="private/", users=["ds@org.com"])` | `ds.datasets.get_all()` |
-| **Run analysis** | `do.jobs[0].approve()` | `ds.submit_python_job(user="do@org.com", code_path="analysis.py")` |
+| **Create dataset** | `do.create_dataset(name="census", mock_path="mock/", private_path="private/", users=["ds@org.com"])` | |
+| **Sync** | `do.sync()` | `ds.sync()` |
+| **Load datasets** | | `ds.datasets.get_all()` |
+| **Submit job** | | `ds.submit_python_job(user="do@org.com", code_path="analysis.py")` |
+| **Sync** | `do.sync()` | `ds.sync()` |
+| **Approve job** | `do.jobs[0].approve()` | |
 | **Execute** | `do.process_approved_jobs()` | |
+| **Sync** | `do.sync()` | `ds.sync()` |
 | **Get results** | | `ds.jobs[-1].stdout` |
 
 ## Packages
