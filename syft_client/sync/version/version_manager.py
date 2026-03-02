@@ -51,8 +51,29 @@ class VersionManager(BaseModel):
 
     @property
     def has_single_role(self) -> bool:
-        """True if client has exactly one role (DO xor DS)."""
+        """True if client has exactly one role (DO xor DS).
+
+        Raises ValueError if no role is set.
+        """
+        if not self.has_do_role and not self.has_ds_role:
+            raise ValueError("Client has no role. Set has_do_role or has_ds_role.")
         return self.has_do_role != self.has_ds_role
+
+    def assert_single_role(self, method_name: str):
+        """Raise if client doesn't have exactly one role.
+
+        Args:
+            method_name: Name of the calling method, used in error messages.
+        """
+        if not self.has_do_role and not self.has_ds_role:
+            raise ValueError("Client has no role. Set has_do_role or has_ds_role.")
+        if self.has_do_role and self.has_ds_role:
+            do_method = f"{method_name}_as_do"
+            ds_method = f"{method_name}_as_ds"
+            raise ValueError(
+                f"Client has both DO and DS roles. "
+                f"Use {do_method}() or {ds_method}() instead."
+            )
 
     _own_version: Optional[VersionInfo] = PrivateAttr(default=None)
     _executor: Optional[ThreadPoolExecutor] = PrivateAttr(default=None)
@@ -358,13 +379,9 @@ class VersionManager(BaseModel):
         """
         Add a peer. For DS, creates a peer request. For DO, this is a no-op that auto-approves.
 
-        Raises ValueError if client has both roles. Use add_peer_as_do() or add_peer_as_ds().
+        Raises ValueError if client has both or no roles.
         """
-        if not self.has_single_role:
-            raise ValueError(
-                "Client has both DO and DS roles. "
-                "Use add_peer_as_do() or add_peer_as_ds() instead."
-            )
+        self.assert_single_role("add_peer")
         if self.has_do_role:
             self.add_peer_as_do(peer_email, force=force, verbose=verbose)
         else:
@@ -403,13 +420,9 @@ class VersionManager(BaseModel):
     def load_peers(self):
         """Load peers from connection router based on role.
 
-        Raises ValueError if client has both roles. Use load_peers_as_do() or load_peers_as_ds().
+        Raises ValueError if client has both or no roles.
         """
-        if not self.has_single_role:
-            raise ValueError(
-                "Client has both DO and DS roles. "
-                "Use load_peers_as_do() or load_peers_as_ds() instead."
-            )
+        self.assert_single_role("load_peers")
         if self.has_do_role:
             self.load_peers_as_do()
         else:
@@ -448,13 +461,9 @@ class VersionManager(BaseModel):
     ):
         """Approve a pending peer request. DO only.
 
-        Raises ValueError if client has both roles. Use approve_peer_request_as_do().
+        Raises ValueError if client has both or no roles.
         """
-        if not self.has_single_role:
-            raise ValueError(
-                "Client has both DO and DS roles. "
-                "Use approve_peer_request_as_do() instead."
-            )
+        self.assert_single_role("approve_peer_request")
         if not self.has_do_role:
             raise ValueError("Only Data Owners can approve peer requests")
         self.approve_peer_request_as_do(
@@ -515,13 +524,9 @@ class VersionManager(BaseModel):
     def reject_peer_request(self, email_or_peer: str | Peer):
         """Reject a pending peer request. DO only.
 
-        Raises ValueError if client has both roles. Use reject_peer_request_as_do().
+        Raises ValueError if client has both or no roles.
         """
-        if not self.has_single_role:
-            raise ValueError(
-                "Client has both DO and DS roles. "
-                "Use reject_peer_request_as_do() instead."
-            )
+        self.assert_single_role("reject_peer_request")
         if not self.has_do_role:
             raise ValueError("Only Data Owners can reject peer requests")
         self.reject_peer_request_as_do(email_or_peer)
