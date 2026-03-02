@@ -26,7 +26,9 @@ def test_pagination_and_early_termination():
 
     # Send 2 initial file changes
     for i in range(2):
-        manager_ds._send_file_change(f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/job_{i}.job", f"Job {i}")
+        manager_ds._send_file_change(
+            f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/job_{i}.job", f"Job {i}"
+        )
         sleep(0.3)
 
     sleep(1)
@@ -54,7 +56,9 @@ def test_pagination_and_early_termination():
 
     # Send 2 more file changes
     for i in range(2, 4):
-        manager_ds._send_file_change(f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/job_{i}.job", f"Job {i}")
+        manager_ds._send_file_change(
+            f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/job_{i}.job", f"Job {i}"
+        )
         sleep(0.5)
 
     sleep(2)

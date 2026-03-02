@@ -27,30 +27,30 @@ uv pip install syft-client
 import syft_client as sc
 ```
 
-| Step | Data Owner | Data Scientist |
-|------|-----------|----------------|
-| **Login** | `do = sc.login_do(email="do@org.com")` | `ds = sc.login_ds(email="ds@org.com")` |
-| **Connect** | `do.approve_peer_request("ds@org.com")` | `ds.add_peer("do@org.com")` |
-| **Create dataset** | `do.create_dataset(name="census", mock_path="mock/", private_path="private/", users=["ds@org.com"])` | |
-| **Sync** | `do.sync()` | `ds.sync()` |
-| **Load datasets** | | `ds.datasets.get_all()` |
-| **Submit job** | | `ds.submit_python_job(user="do@org.com", code_path="analysis.py")` |
-| **Sync** | `do.sync()` | `ds.sync()` |
-| **Approve job** | `do.jobs[0].approve()` | |
-| **Execute** | `do.process_approved_jobs()` | |
-| **Sync** | `do.sync()` | `ds.sync()` |
-| **Get results** | | `ds.jobs[-1].stdout` |
+| Step               | Data Owner                                                                                           | Data Scientist                                                     |
+| ------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **Login**          | `do = sc.login_do(email="do@org.com")`                                                               | `ds = sc.login_ds(email="ds@org.com")`                             |
+| **Connect**        | `do.approve_peer_request("ds@org.com")`                                                              | `ds.add_peer("do@org.com")`                                        |
+| **Create dataset** | `do.create_dataset(name="census", mock_path="mock/", private_path="private/", users=["ds@org.com"])` |                                                                    |
+| **Sync**           | `do.sync()`                                                                                          | `ds.sync()`                                                        |
+| **Load datasets**  |                                                                                                      | `ds.datasets.get_all()`                                            |
+| **Submit job**     |                                                                                                      | `ds.submit_python_job(user="do@org.com", code_path="analysis.py")` |
+| **Sync**           | `do.sync()`                                                                                          | `ds.sync()`                                                        |
+| **Approve job**    | `do.jobs[0].approve()`                                                                               |                                                                    |
+| **Execute**        | `do.process_approved_jobs()`                                                                         |                                                                    |
+| **Sync**           | `do.sync()`                                                                                          | `ds.sync()`                                                        |
+| **Get results**    |                                                                                                      | `ds.jobs[-1].stdout`                                               |
 
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| [`syft-datasets`](packages/syft-datasets) | Dataset management and sharing |
-| [`syft-job`](packages/syft-job) | Job submission and execution |
-| [`syft-permissions`](packages/syft-permissions) | Permission system for Syft datasites |
-| [`syft-perm`](packages/syft-perm) | User-facing permission API for Syft datasites |
-| [`syft-bg`](packages/syft-bg) | Background services TUI dashboard for SyftBox |
-| [`syft-notebook-ui`](packages/syft-notebook-ui) | Jupyter notebook display utilities |
+| Package                                         | Description                                   |
+| ----------------------------------------------- | --------------------------------------------- |
+| [`syft-datasets`](packages/syft-datasets)       | Dataset management and sharing                |
+| [`syft-job`](packages/syft-job)                 | Job submission and execution                  |
+| [`syft-permissions`](packages/syft-permissions) | Permission system for Syft datasites          |
+| [`syft-perm`](packages/syft-perm)               | User-facing permission API for Syft datasites |
+| [`syft-bg`](packages/syft-bg)                   | Background services TUI dashboard for SyftBox |
+| [`syft-notebook-ui`](packages/syft-notebook-ui) | Jupyter notebook display utilities            |
 
 ## Development
 
