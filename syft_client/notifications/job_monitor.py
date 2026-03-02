@@ -492,7 +492,7 @@ class JobMonitor(Monitor):
             monitor = JobMonitor.from_client(client_do)
             monitor.start(interval=5)
         """
-        if not client.is_do:
+        if not client.has_do_role:
             raise ValueError(
                 "JobMonitor should only run on Data Owner (DO) side. "
                 "Use sc.login_do() instead of sc.login()."

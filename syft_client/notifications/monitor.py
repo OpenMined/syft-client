@@ -241,7 +241,7 @@ class NotificationMonitor:
             >>> client_do = sc.login_do(email=email, token_path=token_path)
             >>> monitor = NotificationMonitor.from_client(client_do)
         """
-        if not client.is_do:
+        if not client.has_do_role:
             raise ValueError(
                 "NotificationMonitor should only run on Data Owner (DO) side."
             )

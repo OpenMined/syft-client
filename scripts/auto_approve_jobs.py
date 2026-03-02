@@ -39,7 +39,7 @@ PEERS_ONLY = False
 def main():
     client = SyftboxManager.for_jupyter(
         email=EMAIL,
-        only_datasite_owner=True,
+        has_do_role=True,
         token_path=TOKEN_PATH,
     )
 

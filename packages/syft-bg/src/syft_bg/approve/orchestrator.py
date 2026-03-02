@@ -40,7 +40,7 @@ class ApprovalOrchestrator(BaseOrchestrator):
         interval: int = 5,
     ) -> ApprovalOrchestrator:
         """Create orchestrator from a SyftboxManager client."""
-        if not client.is_do:
+        if not client.has_do_role:
             raise ValueError(
                 "ApprovalOrchestrator should only run on Data Owner (DO) side."
             )
@@ -80,12 +80,12 @@ class ApprovalOrchestrator(BaseOrchestrator):
         if env == Environment.COLAB:
             client = SyftboxManager.for_colab(
                 email=config.do_email,
-                only_datasite_owner=True,
+                has_do_role=True,
             )
         else:
             client = SyftboxManager.for_jupyter(
                 email=config.do_email,
-                only_datasite_owner=True,
+                has_do_role=True,
                 token_path=token_path,
             )
 

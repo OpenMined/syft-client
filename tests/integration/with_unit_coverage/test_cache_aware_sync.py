@@ -79,8 +79,8 @@ def test_do_cache_aware_sync_gdrive():
         email=EMAIL_DO,
         token_path=token_path_do,
         syftbox_folder=local_syftbox_folder_do,
-        only_ds=False,
-        only_datasite_owner=True,
+        has_ds_role=False,
+        has_do_role=True,
         use_in_memory_cache=False,
         check_versions=False,
     )
@@ -173,8 +173,8 @@ def test_ds_cache_aware_sync_gdrive():
         email=EMAIL_DS,
         token_path=token_path_ds,
         syftbox_folder=syftbox_folder,
-        only_ds=True,
-        only_datasite_owner=False,
+        has_ds_role=True,
+        has_do_role=False,
         use_in_memory_cache=False,
         check_versions=False,
     )

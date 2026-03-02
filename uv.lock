@@ -3104,6 +3104,12 @@ dev = [{ name = "ipykernel", specifier = ">=7.1.0" }]
 name = "syft-enclave"
 version = "0.1.0"
 source = { editable = "packages/syft-enclave" }
+dependencies = [
+    { name = "syft-client" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "syft-client", editable = "." }]
 
 [[package]]
 name = "syft-job"

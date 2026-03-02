@@ -68,6 +68,7 @@ members = ["packages/*"]
 "syft-bg" = { workspace = true }
 "syft-permissions" = { workspace = true }
 "syft-perm" = { workspace = true }
+"syft-enclave" = { workspace = true }
 
 [project.urls]
 Homepage = "https://github.com/OpenMined/syft-client"

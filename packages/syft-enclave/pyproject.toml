@@ -6,8 +6,17 @@ authors = [{ name = "OpenMined", email = "info@openmined.org" }]
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 
-dependencies = []
+dependencies = [
+    "syft-client",
+]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv.sources]
+"syft-client" = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/syft_enclaves"]
+
