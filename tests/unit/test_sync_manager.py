@@ -1727,16 +1727,16 @@ def test_in_memory_connection_load_state():
     do_config2 = SyftboxManagerConfig._base_config_for_testing(
         email=do_email,
         syftbox_folder=do_folder,
-        only_ds=False,
-        only_datasite_owner=True,
+        has_ds_role=False,
+        has_do_role=True,
         use_in_memory_cache=False,
         check_versions=False,
     )
     ds_config2 = SyftboxManagerConfig._base_config_for_testing(
         email=ds_email,
         syftbox_folder=ds_folder,
-        only_ds=True,
-        only_datasite_owner=False,
+        has_ds_role=True,
+        has_do_role=False,
         use_in_memory_cache=False,
         check_versions=False,
     )

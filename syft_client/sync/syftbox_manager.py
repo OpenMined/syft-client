@@ -73,8 +73,8 @@ class SyftboxManagerConfig(BaseModel):
     email: str
     syftbox_folder: Path
     write_files: bool = True
-    only_ds: bool = False
-    only_datasite_owner: bool = False
+    has_ds_role: bool = False
+    has_do_role: bool = False
     use_in_memory_cache: bool = True
 
     datasite_owner_syncer_config: DatasiteOwnerSyncerConfig
@@ -86,12 +86,10 @@ class SyftboxManagerConfig(BaseModel):
 
     @classmethod
     def for_colab(
-        cls, email: str, only_ds: bool = False, only_datasite_owner: bool = False
+        cls, email: str, has_ds_role: bool = False, has_do_role: bool = False
     ):
-        if not only_ds and not only_datasite_owner:
-            raise ValueError(
-                "At least one of only_ds or only_datasite_owner must be True"
-            )
+        if not has_ds_role and not has_do_role:
+            raise ValueError("At least one of has_ds_role or has_do_role must be True")
 
         syftbox_folder = get_colab_default_syftbox_folder(email)
         use_in_memory_cache = False
@@ -130,13 +128,14 @@ class SyftboxManagerConfig(BaseModel):
         )
         version_manager_config = VersionManagerConfig(
             connection_configs=connection_configs,
-            is_do=only_datasite_owner,
+            has_do_role=has_do_role,
+            has_ds_role=has_ds_role,
         )
         return cls(
             email=email,
             syftbox_folder=syftbox_folder,
-            only_ds=only_ds,
-            only_datasite_owner=only_datasite_owner,
+            has_ds_role=has_ds_role,
+            has_do_role=has_do_role,
             connection_configs=connection_configs,
             use_in_memory_cache=False,
             datasite_owner_syncer_config=datasite_owner_syncer_config,
@@ -150,14 +149,12 @@ class SyftboxManagerConfig(BaseModel):
     def for_jupyter(
         cls,
         email: str,
-        only_ds: bool = False,
-        only_datasite_owner: bool = False,
+        has_ds_role: bool = False,
+        has_do_role: bool = False,
         token_path: Path | None = None,
     ):
-        if not only_ds and not only_datasite_owner:
-            raise ValueError(
-                "At least one of only_ds or only_datasite_owner must be True"
-            )
+        if not has_ds_role and not has_do_role:
+            raise ValueError("At least one of has_ds_role or has_do_role must be True")
 
         syftbox_folder = get_jupyter_default_syftbox_folder(email)
         collections_folder = syftbox_folder / email / COLLECTION_SUBPATH
@@ -199,13 +196,14 @@ class SyftboxManagerConfig(BaseModel):
         )
         version_manager_config = VersionManagerConfig(
             connection_configs=connection_configs,
-            is_do=only_datasite_owner,
+            has_do_role=has_do_role,
+            has_ds_role=has_ds_role,
         )
         return cls(
             email=email,
             syftbox_folder=syftbox_folder,
-            only_ds=only_ds,
-            only_datasite_owner=only_datasite_owner,
+            has_ds_role=has_ds_role,
+            has_do_role=has_do_role,
             use_in_memory_cache=False,
             datasite_owner_syncer_config=datasite_owner_syncer_config,
             datasite_watcher_syncer_config=datasite_watcher_syncer_config,
@@ -220,8 +218,8 @@ class SyftboxManagerConfig(BaseModel):
         email: str | None = None,
         syftbox_folder: Path | None = None,
         write_files: bool = False,
-        only_ds: bool = False,
-        only_datasite_owner: bool = False,
+        has_ds_role: bool = False,
+        has_do_role: bool = False,
         use_in_memory_cache: bool = True,
         check_versions: bool = False,
     ):
@@ -264,15 +262,16 @@ class SyftboxManagerConfig(BaseModel):
             n_threads=2,  # Use fewer threads for testing
             ignore_protocol_version=not check_versions,
             ignore_client_version=not check_versions,
-            is_do=only_datasite_owner,
+            has_do_role=has_do_role,
+            has_ds_role=has_ds_role,
         )
 
         return cls(
             email=email,
             syftbox_folder=syftbox_folder,
             write_files=write_files,
-            only_ds=only_ds,
-            only_datasite_owner=only_datasite_owner,
+            has_ds_role=has_ds_role,
+            has_do_role=has_do_role,
             use_in_memory_cache=use_in_memory_cache,
             datasite_owner_syncer_config=datasite_owner_syncer_config,
             datasite_watcher_syncer_config=datasite_watcher_syncer_config,
@@ -288,8 +287,8 @@ class SyftboxManagerConfig(BaseModel):
         token_path: Path,
         syftbox_folder: str | None = None,
         write_files: bool = False,
-        only_ds: bool = False,
-        only_datasite_owner: bool = False,
+        has_ds_role: bool = False,
+        has_do_role: bool = False,
         use_in_memory_cache: bool = True,
         check_versions: bool = False,
     ):
@@ -335,7 +334,8 @@ class SyftboxManagerConfig(BaseModel):
             connection_configs=connection_configs,
             ignore_protocol_version=not check_versions,
             ignore_client_version=not check_versions,
-            is_do=only_datasite_owner,
+            has_do_role=has_do_role,
+            has_ds_role=has_ds_role,
         )
         return cls(
             email=email,
@@ -343,8 +343,8 @@ class SyftboxManagerConfig(BaseModel):
             write_files=write_files,
             datasite_owner_syncer_config=datasite_owner_syncer_config,
             datasite_watcher_syncer_config=datasite_watcher_syncer_config,
-            only_ds=only_ds,
-            only_datasite_owner=only_datasite_owner,
+            has_ds_role=has_ds_role,
+            has_do_role=has_do_role,
             use_in_memory_cache=False,
             dataset_manager_config=dataset_manager_config,
             job_client_config=job_client_config,
@@ -368,6 +368,8 @@ class SyftboxManager(BaseModel):
     job_client: JobClient | None = None
     job_runner: SyftJobRunner | None = None
     version_manager: VersionManager | None = None
+    has_do_role: bool = False
+    has_ds_role: bool = False
     config: SyftboxManagerConfig | None = None
 
     _executor: ThreadPoolExecutor = PrivateAttr(
@@ -379,6 +381,8 @@ class SyftboxManager(BaseModel):
         "syftbox_folder",
         "dev_mode",
         "config",
+        "has_do_role",
+        "has_ds_role",
         "dataset_manager",
         "version_manager",
         "peers",
@@ -419,7 +423,7 @@ class SyftboxManager(BaseModel):
         if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
 
-        if self.is_do:
+        if self.has_do_role:
             combined = PeerList(
                 self.version_manager.approved_peers + self.version_manager.pending_peers
             )
@@ -445,7 +449,7 @@ class SyftboxManager(BaseModel):
         dataset_manager = SyftDatasetManager.from_config(config.dataset_manager_config)
         job_client = JobClient.from_config(config.job_client_config)
 
-        if config.only_datasite_owner:
+        if config.has_do_role:
             datasite_owner_syncer = DatasiteOwnerSyncer.from_config(
                 config.datasite_owner_syncer_config
             )
@@ -453,7 +457,7 @@ class SyftboxManager(BaseModel):
             job_file_change_handler = JobFileChangeHandler()
             job_runner = SyftJobRunner.from_config(config.job_client_config)
 
-        if not config.only_datasite_owner:
+        if config.has_ds_role:
             datasite_watcher_syncer = DatasiteWatcherSyncer.from_config(
                 config.datasite_watcher_syncer_config
             )
@@ -471,6 +475,8 @@ class SyftboxManager(BaseModel):
             job_client=job_client,
             job_runner=job_runner,
             version_manager=version_manager,
+            has_do_role=config.has_do_role,
+            has_ds_role=config.has_ds_role,
             config=config,
         )
 
@@ -478,13 +484,13 @@ class SyftboxManager(BaseModel):
 
     @classmethod
     def for_colab(
-        cls, email: str, only_ds: bool = False, only_datasite_owner: bool = False
+        cls, email: str, has_ds_role: bool = False, has_do_role: bool = False
     ):
         manager = cls.from_config(
             SyftboxManagerConfig.for_colab(
                 email=email,
-                only_ds=only_ds,
-                only_datasite_owner=only_datasite_owner,
+                has_ds_role=has_ds_role,
+                has_do_role=has_do_role,
             )
         )
         manager.version_manager.write_own_version()
@@ -494,8 +500,8 @@ class SyftboxManager(BaseModel):
     def for_jupyter(
         cls,
         email: str,
-        only_ds: bool = False,
-        only_datasite_owner: bool = False,
+        has_ds_role: bool = False,
+        has_do_role: bool = False,
         token_path: Path | None = None,
     ):
         if token_path is not None:
@@ -503,8 +509,8 @@ class SyftboxManager(BaseModel):
         manager = cls.from_config(
             SyftboxManagerConfig.for_jupyter(
                 email=email,
-                only_ds=only_ds,
-                only_datasite_owner=only_datasite_owner,
+                has_ds_role=has_ds_role,
+                has_do_role=has_do_role,
                 token_path=token_path,
             )
         )
@@ -531,8 +537,8 @@ class SyftboxManager(BaseModel):
             syftbox_folder=base_path1,
             use_in_memory_cache=use_in_memory_cache,
             token_path=do_token_path,
-            only_ds=False,
-            only_datasite_owner=True,
+            has_ds_role=False,
+            has_do_role=True,
             check_versions=check_versions,
         )
 
@@ -543,8 +549,8 @@ class SyftboxManager(BaseModel):
             syftbox_folder=base_path2,
             use_in_memory_cache=use_in_memory_cache,
             token_path=ds_token_path,
-            only_ds=True,
-            only_datasite_owner=False,
+            has_ds_role=True,
+            has_do_role=False,
             check_versions=check_versions,
         )
         sender_manager = cls.from_config(sender_config)
@@ -629,8 +635,8 @@ class SyftboxManager(BaseModel):
         do_config = SyftboxManagerConfig._base_config_for_testing(
             email=email1,
             syftbox_folder=base_path1,
-            only_ds=False,
-            only_datasite_owner=True,
+            has_ds_role=False,
+            has_do_role=True,
             use_in_memory_cache=use_in_memory_cache,
             check_versions=check_versions,
         )
@@ -638,8 +644,8 @@ class SyftboxManager(BaseModel):
         ds_config = SyftboxManagerConfig._base_config_for_testing(
             email=email2,
             syftbox_folder=base_path2,
-            only_ds=True,
-            only_datasite_owner=False,
+            has_ds_role=True,
+            has_do_role=False,
             use_in_memory_cache=use_in_memory_cache,
             check_versions=check_versions,
         )
@@ -687,6 +693,18 @@ class SyftboxManager(BaseModel):
         """Add a peer. Delegates to VersionManager."""
         self.version_manager.add_peer(peer_email, force=force, verbose=verbose)
 
+    def add_peer_as_do(
+        self, peer_email: str, force: bool = False, verbose: bool = True
+    ):
+        """Add a peer as DO. Delegates to VersionManager."""
+        self.version_manager.add_peer_as_do(peer_email, force=force, verbose=verbose)
+
+    def add_peer_as_ds(
+        self, peer_email: str, force: bool = False, verbose: bool = True
+    ):
+        """Add a peer as DS. Delegates to VersionManager."""
+        self.version_manager.add_peer_as_ds(peer_email, force=force, verbose=verbose)
+
     def submit_bash_job(
         self, user: str, *args, sync=True, force_submission: bool = False, **kwargs
     ):
@@ -720,10 +738,6 @@ class SyftboxManager(BaseModel):
                 relative_file_path, process_now=last_file
             )
 
-    @property
-    def is_do(self) -> bool:
-        return self.datasite_owner_syncer is not None
-
     def sync(self, auto_checkpoint: bool = True, checkpoint_threshold: int = 50):
         """
         Sync local state with Google Drive.
@@ -734,29 +748,33 @@ class SyftboxManager(BaseModel):
             checkpoint_threshold: Create checkpoint when events >= this value.
         """
         self.load_peers()
-        if self.is_do:
+        if self.has_do_role:
             peer_emails = [peer.email for peer in self.version_manager.approved_peers]
-            # Filter to compatible peers using cached versions, warn for incompatible
             compatible_emails = self.version_manager.get_compatible_peer_emails(
                 peer_emails, warn_incompatible=True
             )
             self.datasite_owner_syncer.sync(compatible_emails)
-            # Auto-checkpoint if enabled and threshold exceeded
             if auto_checkpoint:
                 self.try_create_checkpoint(checkpoint_threshold)
 
-        else:
-            # ds
+        if self.has_ds_role:
             peer_emails = [
                 peer.email for peer in self.version_manager.outstanding_peers
             ]
-            # Warn if all connected peers are incompatible (uses cached versions)
             self.version_manager.warn_if_all_peers_incompatible(peer_emails)
             self.datasite_watcher_syncer.sync_down(peer_emails)
 
     def load_peers(self):
         """Load peers from connection router. Delegates to VersionManager."""
         cast(VersionManager, self.version_manager).load_peers()
+
+    def load_peers_as_do(self):
+        """Load peers as DO. Delegates to VersionManager."""
+        cast(VersionManager, self.version_manager).load_peers_as_do()
+
+    def load_peers_as_ds(self):
+        """Load peers as DS. Delegates to VersionManager."""
+        cast(VersionManager, self.version_manager).load_peers_as_ds()
 
     def _check_peer_request_exists(self, email: str) -> bool:
         """Check if a peer request exists. Delegates to VersionManager."""
@@ -772,17 +790,29 @@ class SyftboxManager(BaseModel):
         self.version_manager.approve_peer_request(
             email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
         )
+        self._post_approve_peer(email_or_peer)
 
+    def approve_peer_request_as_do(
+        self,
+        email_or_peer: str | Peer,
+        verbose: bool = True,
+        peer_must_exist: bool = True,
+    ):
+        """Approve a pending peer request as DO. Delegates to VersionManager."""
+        self.version_manager.approve_peer_request_as_do(
+            email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
+        )
+        self._post_approve_peer(email_or_peer)
+
+    def _post_approve_peer(self, email_or_peer: str | Peer):
+        """Shared post-approval logic: job folder setup and dataset sharing."""
         peer_email = (
             email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
         )
 
-        # Grant the new peer write access to their DS job folder
-        if self.is_do:
+        if self.has_do_role:
             self.job_client.setup_ds_job_folder_as_do(peer_email)
 
-        # Share all "any" datasets with the new peer so they can discover them
-        # (Google Drive "anyone with link" files are not discoverable via search)
         self._share_any_datasets_with_peer(peer_email)
 
     def _share_any_datasets_with_peer(self, peer_email: str):
@@ -806,6 +836,10 @@ class SyftboxManager(BaseModel):
     def reject_peer_request(self, email_or_peer: str | Peer):
         """Reject a pending peer request. Delegates to VersionManager."""
         self.version_manager.reject_peer_request(email_or_peer)
+
+    def reject_peer_request_as_do(self, email_or_peer: str | Peer):
+        """Reject a pending peer request as DO. Delegates to VersionManager."""
+        self.version_manager.reject_peer_request_as_do(email_or_peer)
 
     @property
     def jobs(self) -> JobsList:
@@ -929,7 +963,7 @@ class SyftboxManager(BaseModel):
             raise ValueError("Dataset manager is not set")
 
         # Only DO can create datasets
-        if not self.is_do:
+        if not self.has_do_role:
             raise ValueError("Only dataset owners can create datasets")
 
         # Convert None to empty list
@@ -1060,7 +1094,7 @@ class SyftboxManager(BaseModel):
         if self.dataset_manager is None:
             raise ValueError("Dataset manager is not set")
 
-        if not self.is_do:
+        if not self.has_do_role:
             raise ValueError("Only dataset owners can share datasets")
 
         # Verify dataset exists
@@ -1187,7 +1221,7 @@ class SyftboxManager(BaseModel):
         # Capture state before deletion (needed for broadcast)
         peer_emails = []
         file_hashes = {}
-        if broadcast_delete_events and self.is_do:
+        if broadcast_delete_events and self.has_do_role:
             peer_emails = [p.email for p in self.version_manager.approved_peers]
             file_hashes = dict(self.datasite_owner_syncer.event_cache.file_hashes)
 
@@ -1215,7 +1249,7 @@ class SyftboxManager(BaseModel):
                 print()
 
         # Broadcast delete events after file deletion but before cache reset
-        if broadcast_delete_events and self.is_do and peer_emails and file_hashes:
+        if broadcast_delete_events and self.has_do_role and peer_emails and file_hashes:
             self._broadcast_delete_events(peer_emails, file_hashes)
 
         # Clear in-memory caches and filesystem cache contents
@@ -1259,7 +1293,7 @@ class SyftboxManager(BaseModel):
         Raises:
             ValueError: If called on a Data Scientist client.
         """
-        if not self.is_do:
+        if not self.has_do_role:
             raise ValueError("Checkpoints can only be created by Data Owners")
         return self.datasite_owner_syncer.create_checkpoint()
 
@@ -1273,7 +1307,7 @@ class SyftboxManager(BaseModel):
         Returns:
             True if checkpoint should be created.
         """
-        if not self.is_do:
+        if not self.has_do_role:
             return False
         return self.datasite_owner_syncer.should_create_checkpoint(threshold)
 
@@ -1289,7 +1323,7 @@ class SyftboxManager(BaseModel):
         Returns:
             The created Checkpoint, or None if not needed or not a DO.
         """
-        if not self.is_do:
+        if not self.has_do_role:
             return None
         return self.datasite_owner_syncer.try_create_checkpoint(threshold)
 

@@ -3030,6 +3030,7 @@ test = [
     { name = "pytest-cov" },
     { name = "pytest-rerunfailures" },
     { name = "pytest-xdist" },
+    { name = "syft-enclave" },
 ]
 
 [package.metadata]
@@ -3073,6 +3074,7 @@ test = [
     { name = "pytest-cov", specifier = ">=4.0.0" },
     { name = "pytest-rerunfailures", specifier = ">=14.0" },
     { name = "pytest-xdist", specifier = ">=3.0.0" },
+    { name = "syft-enclave", editable = "packages/syft-enclave" },
 ]
 
 [[package]]
@@ -3104,6 +3106,12 @@ dev = [{ name = "ipykernel", specifier = ">=7.1.0" }]
 name = "syft-enclave"
 version = "0.1.0"
 source = { editable = "packages/syft-enclave" }
+dependencies = [
+    { name = "syft-client" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "syft-client", editable = "." }]
 
 [[package]]
 name = "syft-job"

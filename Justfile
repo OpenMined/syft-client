@@ -31,6 +31,10 @@ test-unit-job:
     uv run pytest -v ./packages/syft-job/tests
 
 
+test-unit-enclave:
+    #!/bin/bash
+    uv run pytest -n auto ./packages/syft-enclave/tests
+
 test-unit-fast:
     #!/bin/bash
     uv run pytest ./tests/unit --ignore=tests/unit/test_job_auto_approval.py -k "not (test_jobs or job_flow_with_dataset)"
