@@ -17,11 +17,13 @@ def create_configs(
     do1_config = SyftboxManagerConfig._base_config_for_testing(
         email=do1_email,
         has_do_role=True,
+        has_ds_role=True,
         use_in_memory_cache=use_in_memory_cache,
     )
     do2_config = SyftboxManagerConfig._base_config_for_testing(
         email=do2_email,
         has_do_role=True,
+        has_ds_role=True,
         use_in_memory_cache=use_in_memory_cache,
     )
     ds_config = SyftboxManagerConfig._base_config_for_testing(
@@ -48,11 +50,12 @@ def setup_connections(managers: tuple):
 def setup_callbacks(managers: tuple):
     enclave, do1, do2, ds = managers
 
-    # DS file writer callback
-    ds.file_writer.add_callback(
-        "write_file",
-        ds.datasite_watcher_syncer.on_file_change,
-    )
+    # DS file writer callbacks (for all managers with DS role)
+    for ds_manager in (do1, do2, ds):
+        ds_manager.file_writer.add_callback(
+            "write_file",
+            ds_manager.datasite_watcher_syncer.on_file_change,
+        )
 
     # DO event cache callbacks for job handling
     for do_manager in (enclave, do1, do2):
@@ -70,18 +73,19 @@ def write_versions(managers: tuple):
 def wire_peers(managers: tuple):
     enclave, do1, do2, ds = managers
 
-    # DS requests peering with all DOs
-    ds.add_peer(enclave.email)
-    ds.add_peer(do1.email)
-    ds.add_peer(do2.email)
+    # DS requests peering with DO1, DO2, and enclave
+    ds.add_peer_as_ds(do1.email)
+    ds.add_peer_as_ds(do2.email)
+    ds.add_peer_as_ds(enclave.email)
 
-    # DOs load and approve DS peer requests
-    for do_manager in (enclave, do1, do2):
-        do_manager.load_peers()
-        do_manager.approve_peer_request(ds.email)
+    # DO1 and DO2: load incoming DS request, approve it, then request peering with enclave
+    for dual_manager in (do1, do2):
+        dual_manager.load_peers_as_do()
+        dual_manager.approve_peer_request_as_do(ds.email)
+        dual_manager.add_peer_as_ds(enclave.email)
 
-    # DO-to-DO peering (auto-approves since both are DOs)
-    enclave.add_peer(do1.email)
-    enclave.add_peer(do2.email)
-    do1.add_peer(enclave.email)
-    do2.add_peer(enclave.email)
+    # Enclave: load all incoming requests (DS, DO1, DO2) and approve them
+    enclave.load_peers_as_do()
+    enclave.approve_peer_request_as_do(ds.email)
+    enclave.approve_peer_request_as_do(do1.email)
+    enclave.approve_peer_request_as_do(do2.email)
