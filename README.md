@@ -8,6 +8,12 @@
 
 Syft client lets data scientists submit computations which are ran by data owners on private data — all through cloud storage their organizations already use (Google Drive, Microsoft 365, etc.). No new infrastructure required.
 
+## Docs
+
+- [Workflow](docs/workflow.md) — End-to-end privacy-preserving data analysis workflow
+- [API Reference](docs/API.md) — All public client methods and properties
+- [Authentication & Setup](docs/auth.md) — Google Cloud OAuth setup for local/Jupyter usage
+
 ## Features
 
 - **Privacy-preserving** — Private data never leaves the data owner's machine; only approved results are shared
@@ -28,7 +34,7 @@ import syft_client as sc
 ```
 
 ```python
-# Login
+# Login (colab auth, for non-colab pass token_path)
 do = sc.login_do(email="do@org.com")
 ds = sc.login_ds(email="ds@org.com")
 
