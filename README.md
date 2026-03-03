@@ -13,6 +13,7 @@ Syft client lets data scientists submit computations which are ran by data owner
 - [Workflow](docs/workflow.md) — End-to-end privacy-preserving data analysis workflow
 - [API Reference](docs/API.md) — All public client methods and properties
 - [Authentication & Setup](docs/auth.md) — Google Cloud OAuth setup for local/Jupyter usage
+- [Background Services](packages/syft-bg/README.md) — Email notifications, auto-approval, and TUI dashboard
 
 ## Features
 
