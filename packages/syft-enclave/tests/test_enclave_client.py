@@ -16,7 +16,7 @@ def test_quad_initialization():
 
     # Correct roles
     assert enclave._manager.has_do_role is True
-    assert enclave._manager.has_ds_role is False
+    assert enclave._manager.has_ds_role is True
 
     assert do1._manager.has_do_role is True
     assert do1._manager.has_ds_role is True
@@ -34,11 +34,11 @@ def test_quad_initialization():
     # Enclave (DO-only): approved DS, DO1, DO2
     assert approved_emails(enclave) == {ds.email, do1.email, do2.email}
 
-    # DO1 (dual): approved DS as DO
-    assert approved_emails(do1) == {ds.email}
+    # DO1 (dual): approved DS and enclave as DO
+    assert approved_emails(do1) == {ds.email, enclave.email}
 
-    # DO2 (dual): approved DS as DO
-    assert approved_emails(do2) == {ds.email}
+    # DO2 (dual): approved DS and enclave as DO
+    assert approved_emails(do2) == {ds.email, enclave.email}
 
-    # DS has no DO role, so no approved_peers (it's DS-only)
-    assert approved_emails(ds) == set()
+    # DS: all peers are accepted (both sides created folders)
+    assert approved_emails(ds) == {do1.email, do2.email, enclave.email}

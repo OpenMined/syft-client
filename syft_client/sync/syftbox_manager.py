@@ -1,5 +1,4 @@
 from pathlib import Path
-import copy
 import shutil
 import warnings
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
@@ -23,7 +22,7 @@ from syft_client.sync.sync.caches.datasite_owner_cache import (
     DataSiteOwnerEventCacheConfig,
 )
 from syft_client.sync.peers.peer_list import PeerList
-from syft_client.sync.peers.peer import Peer, PeerState
+from syft_client.sync.peers.peer import Peer
 from syft_client.sync.connections.base_connection import (
     SyftboxPlatformConnection,
 )
@@ -423,16 +422,10 @@ class SyftboxManager(BaseModel):
         if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
 
-        if self.has_do_role:
-            combined = PeerList(
-                self.version_manager.approved_peers + self.version_manager.pending_peers
-            )
-        else:
-            peers = copy.deepcopy(self.version_manager.outstanding_peers)
-            for peer in peers:
-                peer.state = PeerState.ACCEPTED
-            combined = PeerList(peers)
-
+        vm = self.version_manager
+        combined = PeerList(
+            vm.approved_peers + vm.requested_by_me_peers + vm.requested_by_peer_peers
+        )
         return combined
 
     @classmethod
@@ -693,18 +686,6 @@ class SyftboxManager(BaseModel):
         """Add a peer. Delegates to VersionManager."""
         self.version_manager.add_peer(peer_email, force=force, verbose=verbose)
 
-    def add_peer_as_do(
-        self, peer_email: str, force: bool = False, verbose: bool = True
-    ):
-        """Add a peer as DO. Delegates to VersionManager."""
-        self.version_manager.add_peer_as_do(peer_email, force=force, verbose=verbose)
-
-    def add_peer_as_ds(
-        self, peer_email: str, force: bool = False, verbose: bool = True
-    ):
-        """Add a peer as DS. Delegates to VersionManager."""
-        self.version_manager.add_peer_as_ds(peer_email, force=force, verbose=verbose)
-
     def submit_bash_job(
         self, user: str, *args, sync=True, force_submission: bool = False, **kwargs
     ):
@@ -758,23 +739,13 @@ class SyftboxManager(BaseModel):
                 self.try_create_checkpoint(checkpoint_threshold)
 
         if self.has_ds_role:
-            peer_emails = [
-                peer.email for peer in self.version_manager.outstanding_peers
-            ]
+            peer_emails = [peer.email for peer in self.version_manager.syncable_peers]
             self.version_manager.warn_if_all_peers_incompatible(peer_emails)
             self.datasite_watcher_syncer.sync_down(peer_emails)
 
     def load_peers(self):
         """Load peers from connection router. Delegates to VersionManager."""
         cast(VersionManager, self.version_manager).load_peers()
-
-    def load_peers_as_do(self):
-        """Load peers as DO. Delegates to VersionManager."""
-        cast(VersionManager, self.version_manager).load_peers_as_do()
-
-    def load_peers_as_ds(self):
-        """Load peers as DS. Delegates to VersionManager."""
-        cast(VersionManager, self.version_manager).load_peers_as_ds()
 
     def _check_peer_request_exists(self, email: str) -> bool:
         """Check if a peer request exists. Delegates to VersionManager."""
@@ -788,18 +759,6 @@ class SyftboxManager(BaseModel):
     ):
         """Approve a pending peer request. Delegates to VersionManager."""
         self.version_manager.approve_peer_request(
-            email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
-        )
-        self._post_approve_peer(email_or_peer)
-
-    def approve_peer_request_as_do(
-        self,
-        email_or_peer: str | Peer,
-        verbose: bool = True,
-        peer_must_exist: bool = True,
-    ):
-        """Approve a pending peer request as DO. Delegates to VersionManager."""
-        self.version_manager.approve_peer_request_as_do(
             email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
         )
         self._post_approve_peer(email_or_peer)
@@ -836,10 +795,6 @@ class SyftboxManager(BaseModel):
     def reject_peer_request(self, email_or_peer: str | Peer):
         """Reject a pending peer request. Delegates to VersionManager."""
         self.version_manager.reject_peer_request(email_or_peer)
-
-    def reject_peer_request_as_do(self, email_or_peer: str | Peer):
-        """Reject a pending peer request as DO. Delegates to VersionManager."""
-        self.version_manager.reject_peer_request_as_do(email_or_peer)
 
     @property
     def jobs(self) -> JobsList:
@@ -1131,6 +1086,21 @@ class SyftboxManager(BaseModel):
 
         if sync:
             self.sync()
+
+    def share_private_dataset(self, tag: str, enclave_email: str):
+        """Share private dataset files with an enclave via outbox events."""
+        if not self.has_do_role:
+            raise ValueError("Only data owners can share private datasets")
+
+        files = self.dataset_manager.get_private_dataset_files(tag)
+        events_message = self.datasite_owner_syncer.event_cache.create_events_for_files(
+            files
+        )
+        self.datasite_owner_syncer.queue_event_for_syftbox(
+            recipients=[enclave_email],
+            file_change_events_message=events_message,
+        )
+        self.datasite_owner_syncer.process_syftbox_events_queue()
 
     @property
     def datasets(self) -> SyftDatasetManager:

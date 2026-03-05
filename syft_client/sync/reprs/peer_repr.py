@@ -14,7 +14,8 @@ def get_peer_list_table(peers: list[Peer]) -> str:
 
     # Split by state
     approved_peers = [p for p in peers if p.state == PeerState.ACCEPTED]
-    pending_peers = [p for p in peers if p.state == PeerState.PENDING]
+    requested_by_me = [p for p in peers if p.state == PeerState.REQUESTED_BY_ME]
+    requested_by_peer = [p for p in peers if p.state == PeerState.REQUESTED_BY_PEER]
 
     # Create main table
     table = Table(show_header=False, box=None, padding=(0, 1))
@@ -23,36 +24,57 @@ def get_peer_list_table(peers: list[Peer]) -> str:
     # Section: Approved peers
     table.add_row("[bold green]client.peers[/]  [dim green]\\[0] or ['email'][/]")
 
-    # Add each approved peer
-    for i, p in enumerate(approved_peers):
+    idx = 0
+    for p in approved_peers:
         platform_modules = [plat.module_name for plat in p.platforms]
         table.add_row(
-            f"  [dim black]\\[{i}][/] [black]{p.email}[/]         [green]✓[/] [black]{', '.join(platform_modules)}[/]"
+            f"  [dim black]\\[{idx}][/] [black]{p.email}[/]         [green]✓[/] [black]{', '.join(platform_modules)}[/]"
         )
+        idx += 1
 
     # Add empty row for spacing
     table.add_row("")
 
-    # Section: Pending requests
-    if pending_peers:
+    # Section: Requested by me (outgoing, waiting for peer to reciprocate)
+    if requested_by_me:
         table.add_row(
-            f"[bold yellow]client.peers.requests[/]  [dim yellow]{len(pending_peers)} pending[/]"
+            f"[bold blue]requested by me[/]  [dim blue]{len(requested_by_me)} pending[/]"
         )
-        for i, p in enumerate(pending_peers):
+        for p in requested_by_me:
             platform_modules = [plat.module_name for plat in p.platforms]
-            idx = len(approved_peers) + i
             table.add_row(
-                f"  [dim black]\\[{idx}][/] [yellow]{p.email}[/]         [yellow]?[/] [black]{', '.join(platform_modules)}[/]"
+                f"  [dim black]\\[{idx}][/] [blue]{p.email}[/]         [blue]→[/] [black]{', '.join(platform_modules)}[/]"
             )
+            idx += 1
     else:
-        table.add_row("[bold yellow]client.peers.requests[/]  [dim yellow]None[/]")
+        table.add_row("[bold blue]requested by me[/]  [dim blue]None[/]")
+
+    table.add_row("")
+
+    # Section: Requested by peer (incoming, waiting for us to approve)
+    if requested_by_peer:
+        table.add_row(
+            f"[bold yellow]requested by peer[/]  [dim yellow]{len(requested_by_peer)} pending[/]"
+        )
+        for p in requested_by_peer:
+            platform_modules = [plat.module_name for plat in p.platforms]
+            table.add_row(
+                f"  [dim black]\\[{idx}][/] [yellow]{p.email}[/]         [yellow]←[/] [black]{', '.join(platform_modules)}[/]"
+            )
+            idx += 1
+    else:
+        table.add_row("[bold yellow]requested by peer[/]  [dim yellow]None[/]")
 
     table.add_row("")
 
     # Wrap in panel with updated count
     panel = Panel(
         table,
-        title=f"Peers & Requests  ({len(approved_peers)} active, {len(pending_peers)} pending)",
+        title=(
+            f"Peers  ({len(approved_peers)} active, "
+            f"{len(requested_by_me)} outgoing, "
+            f"{len(requested_by_peer)} incoming)"
+        ),
         expand=False,
         border_style="dim",
     )

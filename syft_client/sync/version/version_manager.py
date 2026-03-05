@@ -11,11 +11,8 @@ from pydantic import BaseModel, ConfigDict, PrivateAttr
 from syft_client.sync.connections.base_connection import ConnectionConfig
 from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.peers.peer import Peer, PeerState
-from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
 from syft_client.sync.utils.print_utils import (
     print_peer_added,
-    print_peer_added_to_platform,
-    print_peer_adding_to_platform,
 )
 from syft_client.sync.version.exceptions import (
     VersionMismatchError,
@@ -49,32 +46,6 @@ class VersionManager(BaseModel):
     has_do_role: bool = False
     has_ds_role: bool = False
 
-    @property
-    def has_single_role(self) -> bool:
-        """True if client has exactly one role (DO xor DS).
-
-        Raises ValueError if no role is set.
-        """
-        if not self.has_do_role and not self.has_ds_role:
-            raise ValueError("Client has no role. Set has_do_role or has_ds_role.")
-        return self.has_do_role != self.has_ds_role
-
-    def assert_single_role(self, method_name: str):
-        """Raise if client doesn't have exactly one role.
-
-        Args:
-            method_name: Name of the calling method, used in error messages.
-        """
-        if not self.has_do_role and not self.has_ds_role:
-            raise ValueError("Client has no role. Set has_do_role or has_ds_role.")
-        if self.has_do_role and self.has_ds_role:
-            do_method = f"{method_name}_as_do"
-            ds_method = f"{method_name}_as_ds"
-            raise ValueError(
-                f"Client has both DO and DS roles. "
-                f"Use {do_method}() or {ds_method}() instead."
-            )
-
     _own_version: Optional[VersionInfo] = PrivateAttr(default=None)
     _executor: Optional[ThreadPoolExecutor] = PrivateAttr(default=None)
     _peers: List[Peer] = PrivateAttr(default_factory=list)
@@ -87,14 +58,23 @@ class VersionManager(BaseModel):
         return [p for p in self._peers if p.is_approved]
 
     @property
-    def pending_peers(self) -> List[Peer]:
-        """Get all pending peer requests (DO side)."""
-        return [p for p in self._peers if p.is_pending]
+    def requested_by_peer_peers(self) -> List[Peer]:
+        """Get all peers that requested us (DO side)."""
+        return [p for p in self._peers if p.is_requested_by_peer]
 
     @property
-    def outstanding_peers(self) -> List[Peer]:
-        """Get all outstanding outgoing requests (DS side)."""
-        return [p for p in self._peers if p.is_outstanding]
+    def requested_by_me_peers(self) -> List[Peer]:
+        """Get all peers we requested but haven't reciprocated yet."""
+        return [p for p in self._peers if p.is_requested_by_me]
+
+    @property
+    def syncable_peers(self) -> List[Peer]:
+        """Get all peers we can sync with (DS side).
+
+        Returns all peers that have REQUESTED_BY_ME or ACCEPTED state — for DS,
+        all peers we've added are ones we want to sync with.
+        """
+        return [p for p in self._peers if p.is_requested_by_me or p.is_approved]
 
     @classmethod
     def from_config(cls, config: VersionManagerConfig) -> "VersionManager":
@@ -376,82 +356,90 @@ class VersionManager(BaseModel):
     # ========== Peer Management Methods ==========
 
     def add_peer(self, peer_email: str, force: bool = False, verbose: bool = True):
+        """Add a peer — creates peer datasite folders on own drive, shares with peer.
+
+        State-aware and idempotent:
+        - If peer is REQUESTED_BY_PEER, creates our folders and marks ACCEPTED.
+        - If peer is REQUESTED_BY_ME or ACCEPTED, skips (unless force=True).
+        - If no existing peer, creates folders and marks REQUESTED_BY_ME.
         """
-        Add a peer. For DS, creates a peer request. For DO, this is a no-op that auto-approves.
+        existing = self.get_cached_peer(peer_email)
+        if existing and not force:
+            if existing.state == PeerState.REQUESTED_BY_PEER:
+                pass  # Fall through to create our folders and accept
+            elif existing.state == PeerState.REQUESTED_BY_ME:
+                if verbose:
+                    print(f"Peer {peer_email} already requested, skipping")
+                return
+            elif existing.state == PeerState.ACCEPTED:
+                if verbose:
+                    print(f"Peer {peer_email} already accepted, skipping")
+                return
 
-        Raises ValueError if client has both or no roles.
-        """
-        self.assert_single_role("add_peer")
-        if self.has_do_role:
-            self.add_peer_as_do(peer_email, force=force, verbose=verbose)
-        else:
-            self.add_peer_as_ds(peer_email, force=force, verbose=verbose)
+        is_accepting = existing and existing.state == PeerState.REQUESTED_BY_PEER
+        new_state = PeerState.ACCEPTED if is_accepting else PeerState.REQUESTED_BY_ME
 
-    def add_peer_as_do(
-        self, peer_email: str, force: bool = False, verbose: bool = True
-    ):
-        """Add a peer as DO. This is a no-op that auto-approves."""
-        existing_peer = self.get_cached_peer(peer_email)
-        if existing_peer and existing_peer.is_approved and not force:
-            print(f"Peer {peer_email} already exists, skipping")
-            return
-        platform = GdriveFilesPlatform()
-        if verbose:
-            print_peer_adding_to_platform(peer_email, platform.module_path)
-            print_peer_added_to_platform(peer_email, platform.module_path)
-        self.approve_peer_request_as_do(peer_email, verbose=False)
-
-    def add_peer_as_ds(
-        self, peer_email: str, force: bool = False, verbose: bool = True
-    ):
-        """Add a peer as DS. Creates a peer request."""
-        existing_peer = self.get_cached_peer(peer_email)
-        if existing_peer and existing_peer.is_approved and not force:
-            print(f"Peer {peer_email} already exists, skipping")
-            return
-        peer = self.connection_router.add_peer_as_ds(peer_email=peer_email)
-        peer.state = PeerState.OUTSTANDING
+        peer = self.connection_router.add_peer(peer_email=peer_email)
+        peer.state = new_state
+        self.connection_router.update_peer_state(peer_email, new_state.value)
         self.share_version_with_peer(peer_email)
         version_info = self.connection_router.read_peer_version_file(peer_email)
         peer.version = version_info
-        self._peers.append(peer)
-        print_peer_added(peer)
+
+        if existing:
+            existing.state = new_state
+            existing.version = version_info
+        else:
+            self._peers.append(peer)
+
+        if verbose:
+            print_peer_added(peer)
 
     def load_peers(self):
-        """Load peers from connection router based on role.
+        """Load peers: from JSON (accepted + requested_by_me) + new requests from folder scan."""
+        if not self.has_do_role and not self.has_ds_role:
+            raise ValueError("Client has no role. Set has_do_role or has_ds_role.")
 
-        Raises ValueError if client has both or no roles.
-        """
-        self.assert_single_role("load_peers")
-        if self.has_do_role:
-            self.load_peers_as_do()
-        else:
-            self.load_peers_as_ds()
+        json_peers = self.connection_router.get_all_peers_from_json()
+        peers = [
+            p
+            for p in json_peers
+            if p.state in (PeerState.ACCEPTED, PeerState.REQUESTED_BY_ME)
+        ]
 
-    def load_peers_as_do(self):
-        """Load peers as DO (approved + pending)."""
-        peers = []
-        for peer in self.connection_router.get_approved_peers_as_do():
-            peer.state = PeerState.ACCEPTED
-            peers.append(peer)
-        for peer in self.connection_router.get_peer_requests_as_do():
-            peer.state = PeerState.PENDING
-            peers.append(peer)
-        self._peers = peers
-        self.load_peer_versions_parallel([peer.email for peer in peers])
+        # Detect new peer requests (folders for our datasite not yet in JSON)
+        known_emails = {p.email for p in peers}
+        peer_request_emails = {
+            p.email for p in self.connection_router.get_peer_requests()
+        }
+        for email in peer_request_emails:
+            if email not in known_emails:
+                from syft_client.sync.platforms.gdrive_files_platform import (
+                    GdriveFilesPlatform,
+                )
 
-    def load_peers_as_ds(self):
-        """Load peers as DS (outstanding outgoing requests)."""
-        peers = []
-        for peer in self.connection_router.get_peers_as_ds():
-            peer.state = PeerState.OUTSTANDING
-            peers.append(peer)
+                peers.append(
+                    Peer(
+                        email=email,
+                        platforms=[GdriveFilesPlatform()],
+                        state=PeerState.REQUESTED_BY_PEER,
+                    )
+                )
+            else:
+                # Both sides created folders — upgrade state
+                existing = next(p for p in peers if p.email == email)
+                if existing.state == PeerState.REQUESTED_BY_ME:
+                    existing.state = PeerState.ACCEPTED
+                    self.connection_router.update_peer_state(
+                        email, PeerState.ACCEPTED.value
+                    )
+
         self._peers = peers
         self.load_peer_versions_parallel([peer.email for peer in peers])
 
     def check_peer_request_exists(self, email: str) -> bool:
         """Check if a peer request exists for the given email."""
-        return any(p.email == email for p in self.pending_peers)
+        return any(p.email == email for p in self.requested_by_peer_peers)
 
     def approve_peer_request(
         self,
@@ -459,84 +447,39 @@ class VersionManager(BaseModel):
         verbose: bool = True,
         peer_must_exist: bool = True,
     ):
-        """Approve a pending peer request. DO only.
+        """Approve a pending peer request.
 
-        Raises ValueError if client has both or no roles.
+        Validates the request exists, then delegates to add_peer(force=True).
         """
-        self.assert_single_role("approve_peer_request")
-        if not self.has_do_role:
-            raise ValueError("Only Data Owners can approve peer requests")
-        self.approve_peer_request_as_do(
-            email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
-        )
-
-    def approve_peer_request_as_do(
-        self,
-        email_or_peer: str | Peer,
-        verbose: bool = True,
-        peer_must_exist: bool = True,
-    ):
-        """Approve a pending peer request as DO."""
         email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
 
-        # Early return if peer is already approved
         peer = self.get_cached_peer(email)
         if peer and peer.is_approved:
             if verbose:
                 print(f"Peer {email} is already approved, skipping")
             return
 
-        # Find peer in pending requests, reload cache if not found
-        peer_is_pending = peer and peer.is_pending
-        if not peer_is_pending:
-            self.load_peers_as_do()
+        peer_can_approve = peer and peer.state == PeerState.REQUESTED_BY_PEER
+        if not peer_can_approve:
+            self.load_peers()
             peer = self.get_cached_peer(email)
-            peer_is_pending = peer and peer.is_pending
-        if peer_must_exist and not peer_is_pending:
+            peer_can_approve = peer and peer.state == PeerState.REQUESTED_BY_PEER
+        if peer_must_exist and not peer_can_approve:
             raise ValueError(
-                f"Peer {email} not found in pending requests."
+                f"Peer {email} not found in pending requests. "
                 f"Use client.peers to see current requests."
             )
 
-        # Update state in GDrive
-        self.connection_router.update_peer_state(email, PeerState.ACCEPTED.value)
-
-        # Share version file with the approved peer (DS)
-        self.share_version_with_peer(email)
-        # Load the peer's version (DS should have shared it when they added us)
-        version_info = self.connection_router.read_peer_version_file(email)
-
-        if peer:
-            peer.state = PeerState.ACCEPTED
-            peer.version = version_info
-        else:
-            new_peer = Peer(
-                email=email,
-                platforms=[GdriveFilesPlatform()],
-                state=PeerState.ACCEPTED,
-                version=version_info,
-            )
-            self._peers.append(new_peer)
-
+        self.add_peer(email, force=True, verbose=False)
         if verbose:
-            print(f"✓ Approved peer request from {email}")
+            print(f"Approved peer request from {email}")
 
     def reject_peer_request(self, email_or_peer: str | Peer):
-        """Reject a pending peer request. DO only.
-
-        Raises ValueError if client has both or no roles.
-        """
-        self.assert_single_role("reject_peer_request")
-        if not self.has_do_role:
-            raise ValueError("Only Data Owners can reject peer requests")
-        self.reject_peer_request_as_do(email_or_peer)
-
-    def reject_peer_request_as_do(self, email_or_peer: str | Peer):
-        """Reject a pending peer request as DO."""
+        """Reject a pending peer request."""
         email = email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
 
         peer = self.get_cached_peer(email)
-        if not peer or not peer.is_pending:
+        if not peer or not peer.is_requested_by_peer:
             raise ValueError(
                 f"Peer {email} not found in pending requests. "
                 f"Use client.peers to see current requests."
@@ -544,4 +487,4 @@ class VersionManager(BaseModel):
 
         self.connection_router.update_peer_state(email, PeerState.REJECTED.value)
         peer.state = PeerState.REJECTED
-        print(f"✗ Rejected peer request from {email}")
+        print(f"Rejected peer request from {email}")

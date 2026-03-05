@@ -3,6 +3,8 @@ import shutil
 from pathlib import Path
 from typing_extensions import Self
 
+import yaml
+
 from .types import PathLike, to_path
 from syft_notebook_ui.types import TableList
 from typing_extensions import Literal
@@ -263,7 +265,7 @@ class SyftDatasetManager:
         ]
 
         # Private files exclude private_metadata.yaml
-        dataset.private_files_paths = [
+        dataset.original_private_file_paths = [
             f for f in private_data_files if f != private_metadata_path
         ]
 
@@ -422,6 +424,39 @@ class SyftDatasetManager:
             shutil.rmtree(dataset.mock_dir)
         if dataset._private_metadata_dir.exists():
             shutil.rmtree(dataset._private_metadata_dir)
+
+    def get_private_dataset_files(self, name: str) -> dict[Path, bytes]:
+        """Get private dataset files as {path_in_datasite: content}.
+
+        Returns paths relative to the datasite (e.g. private/syft_datasets/{name}/{file}).
+        For private_metadata.yaml, clears data_dir before including it.
+        """
+        dataset = self.get(name=name, datasite=self.syftbox_config.email)
+        private_dir = dataset.private_dir
+        if not private_dir.exists():
+            raise ValueError(f"Private data directory not found: {private_dir}")
+
+        files = {}
+        for f in private_dir.iterdir():
+            if not f.is_file():
+                continue
+            path_in_datasite = Path(f"private/syft_datasets/{name}/{f.name}")
+            if f.name == "private_metadata.yaml":
+                files[path_in_datasite] = self._private_config_without_data_dir(f)
+            else:
+                files[path_in_datasite] = f.read_bytes()
+
+        if not files:
+            raise ValueError(f"No private files found for dataset '{name}'")
+        return files
+
+    def _private_config_without_data_dir(self, config_path: Path) -> bytes:
+        """Load private_metadata.yaml and return it with data_dir cleared."""
+        config = PrivateDatasetConfig.load(filepath=config_path)
+        config.data_dir = Path("")
+        return yaml.safe_dump(
+            config.model_dump(mode="json"), indent=2, sort_keys=False
+        ).encode()
 
     def share_dataset(self, name: str, users: list[str] | str) -> None:
         """

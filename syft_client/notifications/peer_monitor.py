@@ -122,9 +122,9 @@ class PeerMonitor(Monitor):
         self.state.set_data("peer_snapshot", list(current_peer_emails))
 
         # NOTE: Peer grant detection cannot be done via folder polling because:
-        # - When DS adds DO, DS creates BOTH folders (DS_to_DO and DO_to_DS)
-        # - DO's add_peer_as_do() is a no-op and doesn't create any folders
-        # - So we can't tell from folders alone when DO accepted the request
+        # - When a peer adds you, they create folders for your datasite
+        # - Acceptance creates the reverse folders, but timing is uncertain
+        # - So we can't tell from folders alone when the peer accepted the request
         #
         # Peer grant notifications must be triggered manually via:
         #   monitor.notify_peer_granted(ds_email)

@@ -91,7 +91,7 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
     # URLs to uploaded files (excluding metadata files)
     mock_files_urls: list[SyftBoxURL] = Field(default_factory=list)
-    private_files_paths: list[Path] = Field(default_factory=list)
+    original_private_file_paths: list[Path] = Field(default_factory=list)
 
     @property
     def owner(self) -> str:
@@ -146,8 +146,17 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
     @property
     def private_dir(self) -> Path:
-        private_config = self.private_config
-        return private_config.data_dir
+        """For non-owners: returns the shared private dir at {syftbox_folder}/{owner}/private/syft_datasets/{name}/."""
+        if self._syftbox_config is None:
+            raise ValueError("SyftBox config is not set.")
+        shared_dir = (
+            self.syftbox_config.syftbox_folder
+            / self.owner
+            / "private"
+            / "syft_datasets"
+            / self.name
+        )
+        return shared_dir
 
     @property
     def _private_metadata_dir(self) -> Path:
@@ -174,10 +183,12 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
     @property
     def private_files(self) -> list[Path]:
         """
-        Get absolute paths to all private files uploaded during dataset.create.
-        Excludes private_metadata.yaml file.
+        Get absolute paths to all private files.
+
+        For owners: returns paths from dataset.create (private_files_paths).
+        For non-owners (e.g. enclave): returns files from shared_private_dir.
         """
-        return self.private_files_paths
+        return [f for f in self.private_dir.iterdir() if f.is_file()]
 
     @property
     def files(self) -> list[Path]:

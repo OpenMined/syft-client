@@ -64,7 +64,7 @@ def main():
 
             # Check for pending requests
             for peer in client.peers:
-                if peer.state != PeerState.PENDING:
+                if peer.state != PeerState.REQUESTED_BY_PEER:
                     continue
 
                 peer_domain = get_email_domain(peer.email)

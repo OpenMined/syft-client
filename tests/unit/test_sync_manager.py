@@ -531,7 +531,7 @@ with open("outputs/result.json", "w") as f:
     # a short cut, but we could do this based on timing eventually (if there are items in the
     # queue for longer than a certain time we start pushing)
     connection_do = do_manager._connection_router.connections[0]
-    inbox_folder_id = connection_do._get_inbox_folder_id_as_do(ds_manager.email)
+    inbox_folder_id = connection_do._get_own_datasite_inbox_id(ds_manager.email)
     inbox_file_metadatas = connection_do.get_file_metadatas_from_folder(inbox_folder_id)
     assert len(inbox_file_metadatas) == 1
 
@@ -1411,7 +1411,7 @@ def test_job_files_sync_to_submitter_only():
     recipient_connection = GDriveConnection.from_service(
         submitter_email, ds_manager._connection_router.connections[0].drive_service
     )
-    recipient_connection.add_peer_as_ds(do_manager.email)
+    recipient_connection.add_peer(do_manager.email)
     do_manager.datasite_owner_syncer.process_local_changes(recipients)
 
     messages_for_non_submitter = (
@@ -1988,7 +1988,7 @@ def test_permission_change_triggers_resend():
     peer_b_connection = GDriveConnection.from_service(
         peer_b_email, ds_manager._connection_router.connections[0].drive_service
     )
-    peer_b_connection.add_peer_as_ds(do_manager.email)
+    peer_b_connection.add_peer(do_manager.email)
 
     # Grant only peer A read access to project/
     ctx = do_manager.datasite_owner_syncer.perm_context
