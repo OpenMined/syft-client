@@ -585,3 +585,41 @@ def test_revoke_removes_user_placeholder(datasite):
     with pytest.warns(UserWarning, match="Removed 'USER'.*may affect other users"):
         file.revoke_read_access(USER)
     assert not file.has_read_access(USER)
+
+
+# --- syft.pub.yaml requires admin ---
+
+
+def test_syft_pub_yaml_requires_admin_to_write(datasite):
+    """Accessing syft.pub.yaml itself requires ADMIN level.
+
+    A user with only write access should NOT be able to write/modify syft.pub.yaml.
+    A user with admin access CAN write/modify syft.pub.yaml.
+    """
+    yaml_data = {
+        "rules": [
+            {
+                "pattern": "**",
+                "access": {
+                    "read": [USER],
+                    "write": [USER],
+                    "admin": [USER2],
+                },
+            }
+        ],
+        "terminal": False,
+    }
+    perm_dir = datasite / "project"
+    perm_dir.mkdir()
+    with open(perm_dir / "syft.pub.yaml", "w") as f:
+        yaml.safe_dump(yaml_data, f)
+
+    sp = SyftPermContext(datasite=datasite)
+
+    perm_file = sp.open("project/syft.pub.yaml")
+
+    # USER has write but NOT admin → cannot write syft.pub.yaml
+    assert not perm_file.has_write_access(USER)
+
+    # USER2 has admin → can write syft.pub.yaml
+    assert perm_file.has_write_access(USER2)

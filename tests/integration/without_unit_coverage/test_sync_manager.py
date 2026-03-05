@@ -51,6 +51,11 @@ def test_peer_request_blocks_sync_until_approved():
         add_peers=False,  # Don't auto-add - we'll test the request flow
     )
 
+    # Grant DS write permissions on DO's datasite
+    do_manager.datasite_owner_syncer.perm_context.open(".").grant_write_access(
+        ds_manager.email
+    )
+
     # Step 1: DS makes peer request by adding DO
     ds_manager.add_peer(do_manager.email)
 

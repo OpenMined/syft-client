@@ -169,7 +169,6 @@ def get_multiplier():
     # Create main.py that imports from nested helpers package
     main_path = project_dir / "main.py"
     main_path.write_text("""
-import os
 import json
 import syft_client as sc
 from helpers.helper import process_data, get_multiplier
@@ -191,7 +190,6 @@ result = {
     "multiplier": multiplier
 }
 
-os.mkdir("outputs")
 with open("outputs/result.json", "w") as f:
     f.write(json.dumps(result))
 """)

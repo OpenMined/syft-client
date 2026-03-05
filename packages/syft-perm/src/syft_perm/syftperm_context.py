@@ -10,6 +10,7 @@ from syft_perm.syftperm_modifier import PermissionModifier
 
 class SyftPermContext:
     def __init__(self, datasite: str | Path):
+        # datasite is Syftbox_folder/email
         self.datasite = Path(datasite)
         self.owner = self.datasite.name
         self.service = ACLService(owner=self.owner)

@@ -29,7 +29,7 @@ def login_ds(
             email = get_email_colab()
         if email is None:
             raise ValueError("Email is required for Colab login")
-        client = SyftboxManager.for_colab(email=email, only_ds=True)
+        client = SyftboxManager.for_colab(email=email, has_ds_role=True)
     elif env == Environment.JUPYTER:
         token_path = token_path or settings.token_path
         if not token_path:
@@ -40,7 +40,7 @@ def login_ds(
             raise ValueError("Email is required for Jupyter login")
 
         client = SyftboxManager.for_jupyter(
-            email=email, only_ds=True, token_path=token_path
+            email=email, has_ds_role=True, token_path=token_path
         )
     else:
         raise ValueError(f"Environment {env} not supported")
@@ -67,7 +67,7 @@ def login_do(
         if email is None:
             raise ValueError("Email is required for Colab login")
         print("email", email)
-        client = SyftboxManager.for_colab(email=email, only_datasite_owner=True)
+        client = SyftboxManager.for_colab(email=email, has_do_role=True)
 
     elif env == Environment.JUPYTER:
         token_path = token_path or settings.token_path
@@ -76,7 +76,7 @@ def login_do(
                 "Jupyter login is only supported with a token path"
             )
         client = SyftboxManager.for_jupyter(
-            email=email, only_datasite_owner=True, token_path=token_path
+            email=email, has_do_role=True, token_path=token_path
         )
     else:
         raise ValueError(f"Environment {env} not supported")

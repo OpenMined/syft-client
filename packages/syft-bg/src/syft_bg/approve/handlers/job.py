@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Optional, Protocol
 
-from syft_job.client import JobInfo
+from syft_job.job import JobInfo
 
 from syft_bg.approve.config import JobApprovalConfig
 from syft_bg.approve.criteria import job_matches_criteria

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Optional
 
-from syft_job.client import JobInfo
+from syft_job.job import JobInfo
 
 from syft_bg.approve.handlers.job import JobApprovalHandler, StateManager
 from syft_bg.common.monitor import Monitor

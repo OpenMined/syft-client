@@ -198,6 +198,10 @@ def test_ds_cache_handles_deletions_correctly():
 
     datasite_dir_do = do_manager.syftbox_folder / do_manager.email
 
+    # Grant DS read access so files sync to DS
+    ctx = do_manager.datasite_owner_syncer.perm_context
+    ctx.open(".").grant_read_access(ds_manager.email)
+
     # Create a file on DO side
     test_file = datasite_dir_do / "test_file.txt"
     test_file.parent.mkdir(parents=True, exist_ok=True)

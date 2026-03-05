@@ -3,7 +3,7 @@
 import pytest
 
 from syft_client.sync.syftbox_manager import SyftboxManager
-from syft_job.client import JobsList, JobInfo
+from syft_job.job import JobInfo, JobsList
 from tests.unit.utils import create_tmp_dataset_files
 
 
@@ -75,17 +75,20 @@ def test_dataset_manager_repr_html():
 def _make_job_info(name: str, status: str = "inbox") -> JobInfo:
     """Create a minimal JobInfo for testing."""
     from pathlib import Path
+
+    from syft_job.client import JobClient
     from syft_job.config import SyftJobConfig
 
     config = SyftJobConfig(syftbox_folder=Path("/tmp/fake"), email="test@test.com")
+    client = JobClient(config=config)
     return JobInfo(
         name=name,
-        user="test@test.com",
+        datasite_owner_email="test@test.com",
         status=status,
         submitted_by="ds@test.com",
         location=Path("/tmp/fake/job"),
-        config=config,
-        root_email="test@test.com",
+        client=client,
+        current_user_email="test@test.com",
     )
 
 

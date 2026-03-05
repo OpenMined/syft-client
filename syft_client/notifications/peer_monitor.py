@@ -257,7 +257,7 @@ class PeerMonitor(Monitor):
         Returns:
             Configured PeerMonitor instance
         """
-        if not client.is_do:
+        if not client.has_do_role:
             raise ValueError("PeerMonitor should only run on Data Owner (DO) side.")
 
         # Get Drive token path from client's connection

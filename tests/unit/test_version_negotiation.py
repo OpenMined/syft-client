@@ -315,6 +315,7 @@ class TestForceSubmission:
             / do_manager.email
             / "app_data"
             / "job"
+            / ds_manager.email
             / "test.force.job"
         )
         assert job_dir.exists(), "Job directory should exist after force submission"
@@ -550,7 +551,7 @@ class TestVersionMismatchBehavior:
         executed_jobs = []
 
         def mock_process_approved_jobs(
-            stream_output=True, timeout=None, skip_job_names=None
+            stream_output=True, timeout=None, skip_job_names=None, **kwargs
         ):
             # Track that we were called without skip_job_names (force mode)
             executed_jobs.append(skip_job_names)

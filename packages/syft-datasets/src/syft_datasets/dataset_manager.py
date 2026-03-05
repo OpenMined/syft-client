@@ -12,6 +12,7 @@ from syft_datasets.file_utils import copy_dir_contents, copy_paths, is_empty_dir
 
 from .url import SyftBoxURL
 from .config import SyftBoxConfig
+from .permissions import set_mock_dataset_permissions, set_private_dataset_permissions
 
 FOLDER_NAME = "syft_datasets"
 METADATA_FILENAME = "dataset.yaml"
@@ -268,6 +269,22 @@ class SyftDatasetManager:
 
         # Save dataset metadata
         dataset.save(filepath=dataset_yaml_path)
+
+        # Set permissions on mock and private directories
+        perm_users = ["*"] if users == SHARE_WITH_ANY else (users if users else [])
+        if perm_users:
+            set_mock_dataset_permissions(
+                self.syftbox_config.syftbox_folder,
+                self.syftbox_config.email,
+                dataset.mock_dir,
+                perm_users,
+            )
+        set_private_dataset_permissions(
+            self.syftbox_config.syftbox_folder,
+            self.syftbox_config.email,
+            dataset.private_dir,
+        )
+
         return dataset
 
     def _load_dataset_from_dir(self, dataset_dir: Path) -> Dataset:

@@ -3,7 +3,7 @@
 import hashlib
 from pathlib import Path
 
-from syft_job.client import JobInfo
+from syft_job.job import JobInfo
 
 from syft_bg.approve.config import JobApprovalConfig
 

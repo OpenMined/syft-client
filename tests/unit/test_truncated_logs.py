@@ -17,7 +17,8 @@ def test_exception_logs_not_truncated():
         config = SyftJobConfig.from_syftbox_folder(str(syftbox_folder), email)
 
         job_name = "test_exception_job"
-        job_dir = config.get_job_dir(email) / job_name
+        ds_email = "ds@example.com"
+        job_dir = config.get_job_dir(email) / ds_email / job_name
         job_dir.mkdir(parents=True)
 
         (job_dir / "config.yaml").write_text("name: test_exception_job\n")
@@ -45,7 +46,7 @@ func_a()
         (job_dir / "script.py").write_text(python_script)
         (job_dir / "run.sh").write_text("#!/bin/bash\npython script.py\n")
 
-        config.create_approved_marker(job_dir)
+        (job_dir / "approved").touch()
 
         runner = SyftJobRunner(config)
         runner._execute_job(job_name, stream_output=True, timeout=30)

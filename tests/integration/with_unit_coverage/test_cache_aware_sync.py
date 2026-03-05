@@ -48,9 +48,15 @@ def test_do_cache_aware_sync_gdrive():
 
     # DS sends 3 files to DO
     sleep(1)
-    ds_manager1._send_file_change(f"{EMAIL_DO}/file1.job", "Content 1")
-    ds_manager1._send_file_change(f"{EMAIL_DO}/file2.job", "Content 2")
-    ds_manager1._send_file_change(f"{EMAIL_DO}/file3.job", "Content 3")
+    ds_manager1._send_file_change(
+        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file1.job", "Content 1"
+    )
+    ds_manager1._send_file_change(
+        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file2.job", "Content 2"
+    )
+    ds_manager1._send_file_change(
+        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file3.job", "Content 3"
+    )
     sleep(1)
 
     # DO syncs to receive and cache the files
@@ -69,8 +75,12 @@ def test_do_cache_aware_sync_gdrive():
 
     # DS sends 2 more files
     sleep(1)
-    ds_manager1._send_file_change(f"{EMAIL_DO}/file4.job", "Content 4")
-    ds_manager1._send_file_change(f"{EMAIL_DO}/file5.job", "Content 5")
+    ds_manager1._send_file_change(
+        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file4.job", "Content 4"
+    )
+    ds_manager1._send_file_change(
+        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file5.job", "Content 5"
+    )
     sleep(1)
 
     local_syftbox_folder_do = do_manager1.syftbox_folder
@@ -79,8 +89,8 @@ def test_do_cache_aware_sync_gdrive():
         email=EMAIL_DO,
         token_path=token_path_do,
         syftbox_folder=local_syftbox_folder_do,
-        only_ds=False,
-        only_datasite_owner=True,
+        has_ds_role=False,
+        has_do_role=True,
         use_in_memory_cache=False,
         check_versions=False,
     )
@@ -129,6 +139,10 @@ def test_ds_cache_aware_sync_gdrive():
         )
     )
 
+    do_manager1.datasite_owner_syncer.perm_context.open(".").grant_read_access(
+        ds_manager1.email
+    )
+
     # DO creates 3 files
     do_datasite_dir = do_manager1.syftbox_folder / do_manager1.email
     do_datasite_dir.mkdir(parents=True, exist_ok=True)
@@ -173,8 +187,8 @@ def test_ds_cache_aware_sync_gdrive():
         email=EMAIL_DS,
         token_path=token_path_ds,
         syftbox_folder=syftbox_folder,
-        only_ds=True,
-        only_datasite_owner=False,
+        has_ds_role=True,
+        has_do_role=False,
         use_in_memory_cache=False,
         check_versions=False,
     )

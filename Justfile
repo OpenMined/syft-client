@@ -26,6 +26,14 @@ test-unit-permissions:
     #!/bin/bash
     uv run pytest -n auto ./packages/syft-permissions/tests
 
+test-unit-job:
+    #!/bin/bash
+    uv run pytest -v ./packages/syft-job/tests
+
+
+test-unit-enclave:
+    #!/bin/bash
+    uv run pytest -n auto ./packages/syft-enclave/tests
 
 test-unit-fast:
     #!/bin/bash
