@@ -1,6 +1,7 @@
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.peers.peer import Peer
 from syft_client.sync.peers.peer_list import PeerList
+from syft_datasets.dataset_manager import SyftDatasetManager
 
 from syft_enclaves.utils import (
     create_configs,
@@ -27,24 +28,8 @@ class SyftEnclaveClient:
     def add_peer(self, peer_email: str, force: bool = False, verbose: bool = True):
         self._manager.add_peer(peer_email, force=force, verbose=verbose)
 
-    def add_peer_as_do(
-        self, peer_email: str, force: bool = False, verbose: bool = True
-    ):
-        self._manager.add_peer_as_do(peer_email, force=force, verbose=verbose)
-
-    def add_peer_as_ds(
-        self, peer_email: str, force: bool = False, verbose: bool = True
-    ):
-        self._manager.add_peer_as_ds(peer_email, force=force, verbose=verbose)
-
     def load_peers(self):
         self._manager.load_peers()
-
-    def load_peers_as_do(self):
-        self._manager.load_peers_as_do()
-
-    def load_peers_as_ds(self):
-        self._manager.load_peers_as_ds()
 
     def approve_peer_request(
         self,
@@ -56,21 +41,21 @@ class SyftEnclaveClient:
             email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
         )
 
-    def approve_peer_request_as_do(
-        self,
-        email_or_peer: str | Peer,
-        verbose: bool = True,
-        peer_must_exist: bool = True,
-    ):
-        self._manager.approve_peer_request_as_do(
-            email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
-        )
-
     def reject_peer_request(self, email_or_peer: str | Peer):
         self._manager.reject_peer_request(email_or_peer)
 
-    def reject_peer_request_as_do(self, email_or_peer: str | Peer):
-        self._manager.reject_peer_request_as_do(email_or_peer)
+    def sync(self):
+        self._manager.sync()
+
+    def create_dataset(self, *args, **kwargs):
+        return self._manager.create_dataset(*args, **kwargs)
+
+    def share_private_dataset(self, tag: str, enclave_email: str):
+        self._manager.share_private_dataset(tag, enclave_email)
+
+    @property
+    def datasets(self) -> SyftDatasetManager:
+        return self._manager.dataset_manager
 
     @classmethod
     def quad_with_mock_drive_service_connection(

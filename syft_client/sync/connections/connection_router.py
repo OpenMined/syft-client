@@ -80,14 +80,14 @@ class ConnectionRouter(BaseModel):
             recipient, proposed_file_changes_message
         )
 
-    def add_peer_as_ds(self, peer_email: str, verbose: bool = True) -> Peer:
+    def add_peer(self, peer_email: str, verbose: bool = True) -> Peer:
         connection = self.connection_for_receive_message()
         platform = GdriveFilesPlatform()
 
         if verbose:
             print_peer_adding_to_platform(peer_email, platform.module_path)
 
-        connection.add_peer_as_ds(peer_email=peer_email)
+        connection.add_peer(peer_email=peer_email)
 
         if verbose:
             print_peer_added_to_platform(peer_email, platform.module_path)
@@ -155,36 +155,30 @@ class ConnectionRouter(BaseModel):
             sender_email=sender_email
         )
 
-    def get_peers_as_ds(self) -> List[Peer]:
-        connection = self.connection_for_receive_message()
-        peer_emails = connection.get_peers_as_ds()
-        return [
-            Peer(email=peer_email, platforms=[GdriveFilesPlatform()])
-            for peer_email in peer_emails
-        ]
-
-    def get_approved_peers_as_do(self) -> List[Peer]:
-        """Get approved peers for DO"""
+    def get_all_peers_from_json(self) -> List[Peer]:
+        """Get all peers from SYFT_peers.json with their stored state."""
         connection = self.connection_for_send_message()
-        peer_emails = connection.get_approved_peers_as_do()
-        return [
-            Peer(
-                email=peer_email,
-                platforms=[GdriveFilesPlatform()],
-                state=PeerState.ACCEPTED,
+        peers_data = connection._read_peers_json()
+        peers = []
+        for email, data in peers_data.items():
+            try:
+                state = PeerState(data.get("state", "unknown"))
+            except ValueError:
+                continue
+            peers.append(
+                Peer(email=email, platforms=[GdriveFilesPlatform()], state=state)
             )
-            for peer_email in peer_emails
-        ]
+        return peers
 
-    def get_peer_requests_as_do(self) -> List[Peer]:
-        """Get pending peer requests for DO"""
+    def get_peer_requests(self) -> List[Peer]:
+        """Get pending peer requests"""
         connection = self.connection_for_send_message()
-        peer_emails = connection.get_peer_requests_as_do()
+        peer_emails = connection.get_peer_requests()
         return [
             Peer(
                 email=peer_email,
                 platforms=[GdriveFilesPlatform()],
-                state=PeerState.PENDING,
+                state=PeerState.REQUESTED_BY_PEER,
             )
             for peer_email in peer_emails
         ]

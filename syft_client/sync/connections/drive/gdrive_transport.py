@@ -91,7 +91,8 @@ def build_drive_service(
         return build("drive", "v3", http=authorized_http)
 
 
-GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
+LEGACY_GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"  # legacy prefix
+GDRIVE_P2P_FOLDER_DATASITE_PREFIX = "syft_datasite"
 SYFT_PEERS_FILE = "SYFT_peers.json"
 SYFT_VERSION_FILE = "SYFT_version.json"
 
@@ -104,19 +105,22 @@ class GdriveArchiveFolder(BaseModel):
         return f"syft_{self.sender_email}_to_{self.recipient_email}_archive"
 
 
-class GdriveInboxOutBoxFolder(BaseModel):
-    sender_email: str
-    recipient_email: str
+class GdriveP2PFolder(BaseModel):
+    """Folder for peer communication: syft_datasite#datasite_email#inbox|outbox#peer_email"""
+
+    datasite_email: str
+    folder_type: str  # "inbox" or "outbox"
+    peer_email: str
 
     def as_string(self) -> str:
-        return f"{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}_{self.sender_email}_to_{self.recipient_email}"
+        return f"{GDRIVE_P2P_FOLDER_DATASITE_PREFIX}#{self.datasite_email}#{self.folder_type}#{self.peer_email}"
 
     @classmethod
-    def from_name(cls, name: str) -> "GdriveInboxOutBoxFolder":
-        return cls(
-            sender_email=name.split("_")[3],
-            recipient_email=name.split("_")[5],
-        )
+    def from_name(cls, name: str) -> "GdriveP2PFolder":
+        parts = name.split("#")
+        if len(parts) != 4 or parts[0] != GDRIVE_P2P_FOLDER_DATASITE_PREFIX:
+            raise ValueError(f"Invalid P2P folder name: {name}")
+        return cls(datasite_email=parts[1], folder_type=parts[2], peer_email=parts[3])
 
 
 class DatasetCollectionFolder(BaseModel):
@@ -197,13 +201,13 @@ class GDriveConnection(SyftboxPlatformConnection):
     # this is where we store the personal data
     _personal_syftbox_folder_id: str | None = None
 
-    # email -> inbox folder id
-    do_inbox_folder_id_cache: Dict[str, str] = {}
-    do_outbox_folder_id_cache: Dict[str, str] = {}
+    # peer_email -> folder_id (folders I created for peer's datasite)
+    peer_datasite_inbox_cache: Dict[str, str] = {}
+    peer_datasite_outbox_cache: Dict[str, str] = {}
 
-    # email -> inbox folder id
-    ds_inbox_folder_id_cache: Dict[str, str] = {}
-    ds_outbox_folder_id_cache: Dict[str, str] = {}
+    # peer_email -> folder_id (folders peer created for my datasite)
+    own_datasite_inbox_cache: Dict[str, str] = {}
+    own_datasite_outbox_cache: Dict[str, str] = {}
 
     # sender email -> archive folder id
     archive_folder_id_cache: Dict[str, str] = {}
@@ -314,39 +318,28 @@ class GDriveConnection(SyftboxPlatformConnection):
         syftbox_folder_id = self.get_syftbox_folder_id()
         return self.create_folder(archive_folder_name, syftbox_folder_id)
 
-    def add_peer_as_ds(self, peer_email: str):
-        """Add peer knowing that self is ds"""
-        # create the DS outbox (DO inbox)
-        peer_folder_id = self._get_outbox_folder_id_as_ds(peer_email)
-        if peer_folder_id is None:
-            peer_folder_id = self.create_peer_outbox_folder_as_ds(peer_email)
-        self.add_permission(peer_folder_id, peer_email, write=True)
+    def create_peer_datasite_folders(self, peer_email: str):
+        """Create inbox + outbox folders for peer's datasite on own drive, share with peer.
 
-        # create the DS inbox (DO outbox)
-        peer_folder_id = self._get_inbox_folder_id_as_ds(peer_email)
-        if peer_folder_id is None:
-            peer_folder_id = self.create_peer_inbox_folder_as_ds(peer_email)
-        self.add_permission(peer_folder_id, peer_email, write=True)
+        Creates:
+        - syft_datasite_{peer}_inbox_{self} — I submit proposals to peer here
+        - syft_datasite_{peer}_outbox_{self} — peer pushes events to me here
+        """
+        # Inbox: I write proposals, peer reads
+        inbox_id = self._get_peer_datasite_inbox_id(peer_email)
+        if inbox_id is None:
+            inbox_id = self._create_peer_datasite_folder(peer_email, "inbox")
+        self.add_permission(inbox_id, peer_email, write=True)
 
-    def get_peers_as_ds(self) -> List[str]:
-        results = execute_with_retries(
-            self.drive_service.files().list(
-                q=f"name contains '{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}' and 'me' in owners and trashed=false"
-                f"and mimeType = '{GOOGLE_FOLDER_MIME_TYPE}'"
-            )
-        )
-        peers = set()
-        # we want to know who it is shared with and gather those email addresses
-        outbox_folders = results.get("files", [])
-        outbox_folder_names = [x["name"] for x in outbox_folders]
-        for name in outbox_folder_names:
-            try:
-                outbox_folder = GdriveInboxOutBoxFolder.from_name(name)
-                if outbox_folder.recipient_email != self.email:
-                    peers.add(outbox_folder.recipient_email)
-            except Exception:
-                continue
-        return list(peers)
+        # Outbox: peer writes events, I read
+        outbox_id = self._get_peer_datasite_outbox_id(peer_email)
+        if outbox_id is None:
+            outbox_id = self._create_peer_datasite_folder(peer_email, "outbox")
+        self.add_permission(outbox_id, peer_email, write=True)
+
+    def add_peer(self, peer_email: str):
+        """Alias for create_peer_datasite_folders."""
+        self.create_peer_datasite_folders(peer_email)
 
     def _get_peers_file_id(self) -> str | None:
         """Find SYFT_peers.json file in /SyftBox folder"""
@@ -407,45 +400,37 @@ class GDriveConnection(SyftboxPlatformConnection):
         peers_data[peer_email] = {"state": state}
         self._write_peers_json(peers_data)
 
-    def get_approved_peers_as_do(self) -> List[str]:
-        """Get list of approved peer emails from JSON file"""
-        peers_data = self._read_peers_json()
-        return [
-            email
-            for email, data in peers_data.items()
-            if data.get("state") == "accepted"
-        ]
+    def get_peer_requests(self) -> List[str]:
+        """Get list of pending peer requests.
 
-    def get_peer_requests_as_do(self) -> List[str]:
+        Scans for syft_datasite_{self}_*  folders NOT owned by self — those are
+        peers who created folders for our datasite. Filters out already-accepted
+        or rejected peers from SYFT_peers.json.
         """
-        Get list of pending peer requests.
-        Returns folders shared with DO that are NOT in JSON with accepted/rejected state.
-        """
-        # Get all folders shared with DO (current get_peers_as_do logic)
         results = execute_with_retries(
             self.drive_service.files().list(
-                q=f"name contains '{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}' and trashed=false "
-                f"and mimeType = '{GOOGLE_FOLDER_MIME_TYPE}'"
+                q=f"name contains '{GDRIVE_P2P_FOLDER_DATASITE_PREFIX}#{self.email}#' "
+                f"and trashed=false "
+                f"and mimeType = '{GOOGLE_FOLDER_MIME_TYPE}' "
+                f"and not 'me' in owners"
             )
         )
 
         all_folder_peers = set()
-        inbox_folders = results.get("files", [])
-        inbox_folder_names = [x["name"] for x in inbox_folders]
-        for name in inbox_folder_names:
-            outbox_folder = GdriveInboxOutBoxFolder.from_name(name)
-            if outbox_folder.sender_email != self.email:
-                all_folder_peers.add(outbox_folder.sender_email)
+        for f in results.get("files", []):
+            try:
+                folder = GdriveP2PFolder.from_name(f["name"])
+                if folder.datasite_email == self.email:
+                    all_folder_peers.add(folder.peer_email)
+            except (ValueError, Exception):
+                continue
 
-        # Filter out peers already in JSON with accepted or rejected state
         peers_data = self._read_peers_json()
         pending_peers = []
         for peer_email in all_folder_peers:
             if peer_email not in peers_data:
-                # Not in JSON at all = new pending request
                 pending_peers.append(peer_email)
             elif peers_data[peer_email].get("state") not in ["accepted", "rejected"]:
-                # In JSON but not accepted or rejected = pending
                 pending_peers.append(peer_email)
 
         return pending_peers
@@ -453,10 +438,9 @@ class GDriveConnection(SyftboxPlatformConnection):
     def get_events_messages_for_datasite_watcher(
         self, peer_email: str, since_timestamp: float | None
     ) -> List[FileChangeEventsMessage]:
-        folder_id = self._get_inbox_folder_id_as_ds(peer_email)
-        # folder_id = self._find_folder_by_name(peer_email, owner_email=peer_email)
+        folder_id = self._get_peer_datasite_outbox_id(peer_email)
         if folder_id is None:
-            raise ValueError(f"Folder for peer {peer_email} not found")
+            raise ValueError(f"Outbox folder for peer {peer_email} not found")
 
         file_metadatas = self.get_file_metadatas_from_folder(
             folder_id, since_timestamp=since_timestamp
@@ -487,10 +471,10 @@ class GDriveConnection(SyftboxPlatformConnection):
     def get_outbox_file_metadatas_for_ds(
         self, peer_email: str, since_timestamp: float | None
     ) -> List[Dict]:
-        """Get file metadata from DS's inbox folder (DO's outbox) without downloading."""
-        folder_id = self._get_inbox_folder_id_as_ds(peer_email)
+        """Get file metadata from peer's outbox folder without downloading."""
+        folder_id = self._get_peer_datasite_outbox_id(peer_email)
         if folder_id is None:
-            raise ValueError(f"Folder for peer {peer_email} not found")
+            raise ValueError(f"Outbox folder for peer {peer_email} not found")
 
         file_metadatas = self.get_file_metadatas_from_folder(
             folder_id, since_timestamp=since_timestamp
@@ -580,7 +564,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         fname = events_message.message_filepath.as_string()
         message_data = events_message.as_compressed_data()
 
-        outbox_folder_id = self._get_outbox_folder_id_as_do(recipient)
+        outbox_folder_id = self._get_own_datasite_outbox_id(recipient)
 
         if outbox_folder_id is None:
             raise ValueError(f"Outbox folder for {recipient} not found")
@@ -673,24 +657,23 @@ class GDriveConnection(SyftboxPlatformConnection):
             )
         )
 
-    def create_peer_inbox_folder_as_ds(self, peer_email: str) -> str:
+    def _create_peer_datasite_folder(self, peer_email: str, folder_type: str) -> str:
+        """Create a datasite folder under /SyftBox for peer's datasite."""
+        if folder_type not in ("inbox", "outbox"):
+            raise ValueError(
+                f"Invalid folder_type: {folder_type}. Must be 'inbox' or 'outbox'."
+            )
         parent_id = self.get_syftbox_folder_id()
-        peer_inbox_folder = GdriveInboxOutBoxFolder(
-            sender_email=peer_email, recipient_email=self.email
+        folder = GdriveP2PFolder(
+            datasite_email=peer_email, folder_type=folder_type, peer_email=self.email
         )
-        folder_name = peer_inbox_folder.as_string()
-        print(f"Creating inbox folder for {peer_email} to {self.email} in {parent_id}")
-        _id = self.create_folder(folder_name, parent_id)
-        return _id
-
-    def create_peer_outbox_folder_as_ds(self, peer_email: str) -> str:
-        parent_id = self.get_syftbox_folder_id()
-        peer_inbox_folder = GdriveInboxOutBoxFolder(
-            sender_email=self.email, recipient_email=peer_email
-        )
-        folder_name = peer_inbox_folder.as_string()
-        print(f"Creating outbox folder for {peer_email} in {parent_id}")
-        return self.create_folder(folder_name, parent_id)
+        folder_name = folder.as_string()
+        folder_id = self.create_folder(folder_name, parent_id)
+        if folder_type == "inbox":
+            self.peer_datasite_inbox_cache[peer_email] = folder_id
+        else:
+            self.peer_datasite_outbox_cache[peer_email] = folder_id
+        return folder_id
 
     def get_personal_syftbox_folder_id(self) -> str:
         """/SyftBox/myemail"""
@@ -899,7 +882,7 @@ class GDriveConnection(SyftboxPlatformConnection):
     def get_next_proposed_filechange_message(
         self, sender_email: str
     ) -> ProposedFileChangesMessage | None:
-        inbox_folder_id = self._get_inbox_folder_id_as_do(sender_email)
+        inbox_folder_id = self._get_own_datasite_inbox_id(sender_email)
         if inbox_folder_id is None:
             raise ValueError(f"Inbox folder for {sender_email} not found")
         file_metadatas = self.get_file_metadatas_from_folder(inbox_folder_id)
@@ -919,72 +902,65 @@ class GDriveConnection(SyftboxPlatformConnection):
             res.platform_id = first_file_id
             return res
 
-    def _get_inbox_folder_id_as_do(self, sender_email: str) -> str | None:
-        if sender_email in self.do_inbox_folder_id_cache:
-            return self.do_inbox_folder_id_cache[sender_email]
+    def _get_peer_datasite_inbox_id(self, peer_email: str) -> str | None:
+        """Get folder: syft_datasite_{peer}_inbox_{self}, owned by self."""
+        if peer_email in self.peer_datasite_inbox_cache:
+            return self.peer_datasite_inbox_cache[peer_email]
 
-        recipient_email = self.email
-        inbox_folder = GdriveInboxOutBoxFolder(
-            sender_email=sender_email, recipient_email=recipient_email
+        folder = GdriveP2PFolder(
+            datasite_email=peer_email, folder_type="inbox", peer_email=self.email
         )
-        # TODO: this should include the parent id but it doesnt
-        do_inbox_folder_id = self._find_folder_by_name(
-            inbox_folder.as_string(), owner_email=sender_email
+        folder_id = self._find_folder_by_name(
+            folder.as_string(), owner_email=self.email
         )
-        if do_inbox_folder_id is not None:
-            self.do_inbox_folder_id_cache[sender_email] = do_inbox_folder_id
-        return do_inbox_folder_id
+        if folder_id is not None:
+            self.peer_datasite_inbox_cache[peer_email] = folder_id
+        return folder_id
 
-    def _get_inbox_folder_id_as_ds(self, sender_email: str) -> str | None:
-        if sender_email in self.ds_inbox_folder_id_cache:
-            return self.ds_inbox_folder_id_cache[sender_email]
+    def _get_peer_datasite_outbox_id(self, peer_email: str) -> str | None:
+        """Get folder: syft_datasite_{peer}_outbox_{self}, owned by self."""
+        if peer_email in self.peer_datasite_outbox_cache:
+            return self.peer_datasite_outbox_cache[peer_email]
 
-        inbox_folder = GdriveInboxOutBoxFolder(
-            sender_email=sender_email, recipient_email=self.email
+        folder = GdriveP2PFolder(
+            datasite_email=peer_email, folder_type="outbox", peer_email=self.email
         )
-        inbox_folder_id = self._find_folder_by_name(
-            inbox_folder.as_string(), owner_email=self.email
+        folder_id = self._find_folder_by_name(
+            folder.as_string(), owner_email=self.email
         )
-        if inbox_folder_id is not None:
-            self.ds_inbox_folder_id_cache[sender_email] = inbox_folder_id
-        return inbox_folder_id
+        if folder_id is not None:
+            self.peer_datasite_outbox_cache[peer_email] = folder_id
+        return folder_id
 
-    def _get_outbox_folder_id_as_do(self, recipient: str) -> str | None:
-        if recipient in self.do_outbox_folder_id_cache:
-            return self.do_outbox_folder_id_cache[recipient]
+    def _get_own_datasite_inbox_id(self, peer_email: str) -> str | None:
+        """Get folder: syft_datasite_{self}_inbox_{peer}, owned by peer."""
+        if peer_email in self.own_datasite_inbox_cache:
+            return self.own_datasite_inbox_cache[peer_email]
 
-        outbox_folder = GdriveInboxOutBoxFolder(
-            sender_email=self.email, recipient_email=recipient
+        folder = GdriveP2PFolder(
+            datasite_email=self.email, folder_type="inbox", peer_email=peer_email
         )
-
-        outbox_folder_id = self._find_folder_by_name(
-            outbox_folder.as_string(), owner_email=recipient
+        folder_id = self._find_folder_by_name(
+            folder.as_string(), owner_email=peer_email
         )
-        if outbox_folder_id is not None:
-            self.do_outbox_folder_id_cache[recipient] = outbox_folder_id
-        return outbox_folder_id
+        if folder_id is not None:
+            self.own_datasite_inbox_cache[peer_email] = folder_id
+        return folder_id
 
-    def _get_outbox_folder_id_as_ds(self, recipient: str) -> str | None:
-        """Get DS's outbox folder ID for sending messages to a DO.
+    def _get_own_datasite_outbox_id(self, peer_email: str) -> str | None:
+        """Get folder: syft_datasite_{self}_outbox_{peer}, owned by peer."""
+        if peer_email in self.own_datasite_outbox_cache:
+            return self.own_datasite_outbox_cache[peer_email]
 
-        DS-only: Uses DS's own SyftBox folder as parent constraint.
-        """
-        if recipient in self.ds_outbox_folder_id_cache:
-            return self.ds_outbox_folder_id_cache[recipient]
-
-        outbox_folder = GdriveInboxOutBoxFolder(
-            sender_email=self.email, recipient_email=recipient
+        folder = GdriveP2PFolder(
+            datasite_email=self.email, folder_type="outbox", peer_email=peer_email
         )
-
-        syftbox_folder_id = self.get_syftbox_folder_id()
-        outbox_folder_id = self._find_folder_by_name(
-            outbox_folder.as_string(),
-            parent_id=syftbox_folder_id,
-            owner_email=self.email,
+        folder_id = self._find_folder_by_name(
+            folder.as_string(), owner_email=peer_email
         )
-        if outbox_folder_id is not None:
-            self.ds_outbox_folder_id_cache[recipient] = outbox_folder_id
-        return outbox_folder_id
+        if folder_id is not None:
+            self.own_datasite_outbox_cache[peer_email] = folder_id
+        return folder_id
 
     def send_proposed_file_changes_message(
         self,
@@ -995,9 +971,9 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         filename = proposed_file_changes_message.message_filename.as_string()
 
-        inbox_outbox_id = self._get_outbox_folder_id_as_ds(recipient)
+        inbox_outbox_id = self._get_peer_datasite_inbox_id(recipient)
         if inbox_outbox_id is None:
-            raise Exception(f"Outbox folder to send messages to {recipient} not found")
+            raise Exception(f"Inbox folder for {recipient}'s datasite not found")
 
         payload, _ = self.create_file_payload(data_compressed)
         file_metadata = {
@@ -1031,10 +1007,10 @@ class GDriveConnection(SyftboxPlatformConnection):
     def reset_caches(self):
         self._syftbox_folder_id = None
         self._personal_syftbox_folder_id = None
-        self.do_inbox_folder_id_cache.clear()
-        self.do_outbox_folder_id_cache.clear()
-        self.ds_inbox_folder_id_cache.clear()
-        self.ds_outbox_folder_id_cache.clear()
+        self.peer_datasite_inbox_cache.clear()
+        self.peer_datasite_outbox_cache.clear()
+        self.own_datasite_inbox_cache.clear()
+        self.own_datasite_outbox_cache.clear()
         self.archive_folder_id_cache.clear()
         self.personal_syftbox_event_id_cache.clear()
         self.dataset_collection_folder_id_cache.clear()
@@ -1114,6 +1090,8 @@ class GDriveConnection(SyftboxPlatformConnection):
             "msgv2_",  # proposed file change messages
             CHECKPOINT_FILENAME_PREFIX,  # checkpoint and incremental checkpoint files
             ROLLING_STATE_FILENAME_PREFIX,  # rolling state files
+            GDRIVE_P2P_FOLDER_DATASITE_PREFIX,  # new: syft_datasite_ folders
+            LEGACY_GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX,  # legacy: syft_outbox_inbox folders
         ]
         file_ids = []
 
@@ -1218,7 +1196,7 @@ class GDriveConnection(SyftboxPlatformConnection):
     def get_inbox_proposed_event_id_from_name(
         self, sender_email: str, name: str
     ) -> str | None:
-        inbox_folder_id = self._get_inbox_folder_id_as_do(sender_email)
+        inbox_folder_id = self._get_own_datasite_inbox_id(sender_email)
         query = f"name='{name}' and '{inbox_folder_id}' in parents and trashed=false"
         results = execute_with_retries(
             self.drive_service.files().list(q=query, fields="files(id, name)")

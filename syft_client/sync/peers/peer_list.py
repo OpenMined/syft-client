@@ -19,15 +19,20 @@ class PeerList(list):
         self._validate_sorting()
 
     def _validate_sorting(self):
-        """Ensure approved peers come before pending requests"""
-        seen_request = False
+        """Ensure peers are sorted: accepted, then requested_by_me, then requested_by_peer"""
+        order = {
+            PeerState.ACCEPTED: 0,
+            PeerState.REQUESTED_BY_ME: 1,
+            PeerState.REQUESTED_BY_PEER: 2,
+        }
+        last_order = -1
         for peer in self:
-            if peer.state == PeerState.PENDING:
-                seen_request = True
-            elif peer.state == PeerState.ACCEPTED and seen_request:
+            peer_order = order.get(peer.state, 3)
+            if peer_order < last_order:
                 raise ValueError(
-                    "PeerList must be sorted: approved peers first, then requests"
+                    "PeerList must be sorted: accepted first, then requested_by_me, then requested_by_peer"
                 )
+            last_order = peer_order
 
     def __getitem__(self, index: str | int) -> Peer:
         if isinstance(index, int):

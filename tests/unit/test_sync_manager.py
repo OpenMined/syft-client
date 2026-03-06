@@ -350,6 +350,9 @@ def test_datasets():
 
     assert has_file(ds_manager.syftbox_folder, "mock.txt")
     assert not has_file(ds_manager.syftbox_folder, "private.txt")
+    # Confirm that "private.txt" does not exist anywhere in the DS syftbox folder
+    for path in Path(ds_manager.syftbox_folder).rglob("*"):
+        assert path.name != "private.txt"
 
 
 def test_datasets_with_parquet():
@@ -531,7 +534,7 @@ with open("outputs/result.json", "w") as f:
     # a short cut, but we could do this based on timing eventually (if there are items in the
     # queue for longer than a certain time we start pushing)
     connection_do = do_manager._connection_router.connections[0]
-    inbox_folder_id = connection_do._get_inbox_folder_id_as_do(ds_manager.email)
+    inbox_folder_id = connection_do._get_own_datasite_inbox_id(ds_manager.email)
     inbox_file_metadatas = connection_do.get_file_metadatas_from_folder(inbox_folder_id)
     assert len(inbox_file_metadatas) == 1
 
@@ -988,10 +991,9 @@ def test_single_file_job_flow_with_dataset():
 import json
 import syft_client as sc
 
-data_path = "syft://private/syft_datasets/my dataset/private.txt"
-resolved_path = sc.resolve_path(data_path)
+data_path = sc.resolve_dataset_file_path("my dataset")
 
-with open(resolved_path, "r") as data_file:
+with open(data_path, "r") as data_file:
     data = data_file.read()
 
 result = {"result": data}
@@ -1411,7 +1413,7 @@ def test_job_files_sync_to_submitter_only():
     recipient_connection = GDriveConnection.from_service(
         submitter_email, ds_manager._connection_router.connections[0].drive_service
     )
-    recipient_connection.add_peer_as_ds(do_manager.email)
+    recipient_connection.add_peer(do_manager.email)
     do_manager.datasite_owner_syncer.process_local_changes(recipients)
 
     messages_for_non_submitter = (
@@ -1988,7 +1990,7 @@ def test_permission_change_triggers_resend():
     peer_b_connection = GDriveConnection.from_service(
         peer_b_email, ds_manager._connection_router.connections[0].drive_service
     )
-    peer_b_connection.add_peer_as_ds(do_manager.email)
+    peer_b_connection.add_peer(do_manager.email)
 
     # Grant only peer A read access to project/
     ctx = do_manager.datasite_owner_syncer.perm_context

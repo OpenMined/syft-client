@@ -55,7 +55,7 @@ def test_empty_folder():
 
 
 @patch(
-    "syft_client.sync.connections.drive.gdrive_transport.GDriveConnection._get_inbox_folder_id_as_ds"
+    "syft_client.sync.connections.drive.gdrive_transport.GDriveConnection._get_peer_datasite_outbox_id"
 )
 @patch(
     "syft_client.sync.connections.drive.gdrive_transport.GDriveConnection.download_file"
@@ -78,7 +78,7 @@ def test_events_returned_in_chronological_order(mock_download_file, mock_get_fol
         ]
     }
 
-    # Mock _get_inbox_folder_id_as_ds
+    # Mock _get_peer_datasite_outbox_id
     mock_get_folder_id.return_value = "folder_id"
 
     # Mock download_file to return events with matching timestamps

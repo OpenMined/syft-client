@@ -386,15 +386,16 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         )
         self._download_private_collections_parallel(collections_to_download)
 
+    def _private_dataset_local_dir(self, tag: str) -> Path:
+        return self.syftbox_folder / self.email / "private" / "syft_datasets" / tag
+
     def _filter_private_collections_needing_download(
         self, collections: list[FileCollection]
     ) -> list[FileCollection]:
         """Return private collections that don't exist locally yet."""
         result = []
         for collection in collections:
-            local_dir = (
-                self.syftbox_folder / "private" / "syft_datasets" / collection.tag
-            )
+            local_dir = self._private_dataset_local_dir(collection.tag)
             if not local_dir.exists() or not any(local_dir.iterdir()):
                 result.append(collection)
         return result
@@ -425,9 +426,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         )
 
         for (collection, metadata), content in zip(all_downloads, downloaded_contents):
-            local_dir = (
-                self.syftbox_folder / "private" / "syft_datasets" / collection.tag
-            )
+            local_dir = self._private_dataset_local_dir(collection.tag)
             local_dir.mkdir(parents=True, exist_ok=True)
             (local_dir / metadata["file_name"]).write_bytes(content)
 
@@ -448,22 +447,15 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
 
     def _fix_private_metadata_data_dir(self, dataset_tag: str):
         """Update data_dir in private_metadata.yaml to match the current syftbox path."""
-        metadata_path = (
-            self.syftbox_folder
-            / "private"
-            / "syft_datasets"
-            / dataset_tag
-            / "private_metadata.yaml"
-        )
+        local_dir = self._private_dataset_local_dir(dataset_tag)
+        metadata_path = local_dir / "private_metadata.yaml"
         if not metadata_path.exists():
             return
 
         import yaml
 
         data = yaml.safe_load(metadata_path.read_text())
-        expected_dir = str(
-            self.syftbox_folder / "private" / "syft_datasets" / dataset_tag
-        )
+        expected_dir = str(local_dir)
         if data.get("data_dir") != expected_dir:
             data["data_dir"] = expected_dir
             metadata_path.write_text(yaml.safe_dump(data, indent=2, sort_keys=False))

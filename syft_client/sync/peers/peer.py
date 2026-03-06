@@ -7,9 +7,9 @@ from syft_client.sync.version.version_info import VersionInfo
 
 class PeerState(str, Enum):
     ACCEPTED = "accepted"
-    PENDING = "pending"
+    REQUESTED_BY_PEER = "requested_by_peer"
     REJECTED = "rejected"
-    OUTSTANDING = "outstanding"  # DS's view of their outgoing requests
+    REQUESTED_BY_ME = "requested_by_me"
 
 
 class Peer(BaseModel):
@@ -24,11 +24,11 @@ class Peer(BaseModel):
         return self.state == PeerState.ACCEPTED
 
     @property
-    def is_pending(self) -> bool:
-        """Returns True if peer request is pending"""
-        return self.state == PeerState.PENDING
+    def is_requested_by_peer(self) -> bool:
+        """Returns True if peer requested us but we haven't added them yet"""
+        return self.state == PeerState.REQUESTED_BY_PEER
 
     @property
-    def is_outstanding(self) -> bool:
-        """Returns True if this is an outstanding outgoing request (DS side)"""
-        return self.state == PeerState.OUTSTANDING
+    def is_requested_by_me(self) -> bool:
+        """Returns True if we requested peer but they haven't reciprocated"""
+        return self.state == PeerState.REQUESTED_BY_ME

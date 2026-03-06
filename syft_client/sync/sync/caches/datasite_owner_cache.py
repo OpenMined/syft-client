@@ -201,6 +201,36 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         else:
             return None
 
+    def create_events_for_files(
+        self, files: dict[Path, bytes]
+    ) -> FileChangeEventsMessage:
+        """Create FileChangeEvents for a set of files and update the hash cache.
+
+        Args:
+            files: dict mapping path_in_datasite to file content bytes.
+
+        Returns:
+            FileChangeEventsMessage containing one event per file.
+        """
+        events = []
+        for path_in_datasite, content in files.items():
+            timestamp = create_event_timestamp()
+            new_hash = get_event_hash_from_content(content)
+            event = FileChangeEvent(
+                id=uuid4(),
+                path_in_datasite=path_in_datasite,
+                content=content,
+                old_hash=None,
+                new_hash=new_hash,
+                submitted_timestamp=timestamp,
+                timestamp=timestamp,
+                datasite_email=self.email,
+                is_deleted=False,
+            )
+            events.append(event)
+            self.file_hashes[path_in_datasite] = new_hash
+        return FileChangeEventsMessage(events=events)
+
     def clear_cache(self):
         self.events_messages_connection.clear_cache()
         self.file_connection.clear_cache()
