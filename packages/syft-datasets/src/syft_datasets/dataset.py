@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
 from typing import ClassVar
+from syft_permissions.spec.ruleset import PERMISSION_FILE_NAME
 from typing_extensions import Self
 from uuid import UUID, uuid4
 
@@ -167,7 +168,10 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
         # TODO add 'private' to sb workspace
         private_datasets_dir = (
-            self.syftbox_config.syftbox_folder / "private" / "syft_datasets"
+            self.syftbox_config.syftbox_folder
+            / self.owner
+            / "private"
+            / "syft_datasets"
         )
 
         return private_datasets_dir / self.name
@@ -188,7 +192,12 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
         For owners: returns paths from dataset.create (private_files_paths).
         For non-owners (e.g. enclave): returns files from shared_private_dir.
         """
-        return [f for f in self.private_dir.iterdir() if f.is_file()]
+        return [
+            f
+            for f in self.private_dir.iterdir()
+            if f.is_file()
+            and f.name not in (PERMISSION_FILE_NAME, "private_metadata.yaml")
+        ]
 
     @property
     def files(self) -> list[Path]:

@@ -988,10 +988,9 @@ def test_single_file_job_flow_with_dataset():
 import json
 import syft_client as sc
 
-data_path = "syft://private/syft_datasets/my dataset/private.txt"
-resolved_path = sc.resolve_path(data_path)
+data_path = sc.resolve_dataset_file_path("my dataset")
 
-with open(resolved_path, "r") as data_file:
+with open(data_path, "r") as data_file:
     data = data_file.read()
 
 result = {"result": data}

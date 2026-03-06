@@ -4,6 +4,8 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional
 
+from syft_permissions.spec.ruleset import PERMISSION_FILE_NAME
+
 from .job_repr import (
     StderrViewer,
     job_info_repr_html,
@@ -138,7 +140,11 @@ class JobInfo:
             return []
 
         try:
-            return [item for item in outputs_dir.iterdir()]
+            return [
+                item
+                for item in outputs_dir.iterdir()
+                if item.name != PERMISSION_FILE_NAME
+            ]
         except Exception:
             return []
 

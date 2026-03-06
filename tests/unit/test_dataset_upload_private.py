@@ -68,11 +68,10 @@ class TestDatasetUploadPrivate:
         )
 
         # Verify private data exists locally
-        private_dir = (
-            do_manager.syftbox_folder / "private" / "syft_datasets" / "testdataset"
-        )
+        dataset = do_manager.datasets.get("testdataset", datasite=do_manager.email)
+        private_dir = dataset.private_dir
         assert private_dir.exists()
-        private_files_before = list(private_dir.iterdir())
+        private_files_before = {f.name for f in private_dir.iterdir()}
         assert len(private_files_before) > 0
 
         # Simulate cold start: delete local private dir and reset sync state
@@ -85,11 +84,10 @@ class TestDatasetUploadPrivate:
         # Sync again — should restore private data from GDrive
         do_manager.sync()
 
-        # Private dir should be restored
+        # Private dir should be restored with all files
         assert private_dir.exists()
         restored_files = {f.name for f in private_dir.iterdir()}
-        original_files = {f.name for f in private_files_before}
-        assert restored_files == original_files
+        assert restored_files == private_files_before
 
     def test_default_behavior_no_private_upload(self):
         """When upload_private is not set, no private collection should be created."""

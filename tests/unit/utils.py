@@ -174,10 +174,9 @@ import syft_client as sc
 from helpers.helper import process_data, get_multiplier
 
 # Read data from dataset
-data_path = "syft://private/syft_datasets/my dataset/private.txt"
-resolved_path = sc.resolve_path(data_path)
+data_path = sc.resolve_dataset_file_path("my dataset")
 
-with open(resolved_path, "r") as data_file:
+with open(data_path, "r") as data_file:
     data = data_file.read()
 
 # Use helper functions

@@ -75,7 +75,7 @@ def resolve_dataset_files_path(
     use_private = os.environ.get("SYFT_IS_IN_JOB", "false").lower() == "true"
 
     # we dont use the email so we can use ""
-    manager = SyftDatasetManager(syftbox_folder_path=syftbox_folder, email="")
+    manager = SyftDatasetManager(syftbox_folder_path=syftbox_folder, email=owner)
     dataset = manager.get(name=dataset_name, datasite=owner)
     if use_private:
         return dataset.private_files

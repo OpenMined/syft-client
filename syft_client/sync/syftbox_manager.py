@@ -1001,15 +1001,11 @@ class SyftboxManager(BaseModel):
 
         collection_tag = dataset.name
 
-        # Collect private files + private_metadata.yaml
+        # Collect all files in private dir (data, metadata, permissions)
         files = {}
-        for private_file in dataset.private_files:
-            if private_file.exists():
-                files[private_file.name] = private_file.read_bytes()
-
-        private_config_path = dataset.private_config_path
-        if private_config_path.exists():
-            files["private_metadata.yaml"] = private_config_path.read_bytes()
+        for f in dataset.private_dir.iterdir():
+            if f.is_file():
+                files[f.name] = f.read_bytes()
 
         if not files:
             return
