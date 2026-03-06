@@ -92,7 +92,6 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
     # URLs to uploaded files (excluding metadata files)
     mock_files_urls: list[SyftBoxURL] = Field(default_factory=list)
-    original_private_file_paths: list[Path] = Field(default_factory=list)
 
     @property
     def owner(self) -> str:
@@ -147,17 +146,16 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
 
     @property
     def private_dir(self) -> Path:
-        """For non-owners: returns the shared private dir at {syftbox_folder}/{owner}/private/syft_datasets/{name}/."""
         if self._syftbox_config is None:
             raise ValueError("SyftBox config is not set.")
-        shared_dir = (
+        private_dir = (
             self.syftbox_config.syftbox_folder
             / self.owner
             / "private"
             / "syft_datasets"
             / self.name
         )
-        return shared_dir
+        return private_dir
 
     @property
     def _private_metadata_dir(self) -> Path:
@@ -165,16 +163,7 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
             raise ValueError(
                 "Cannot access private data for a dataset owned by another user."
             )
-
-        # TODO add 'private' to sb workspace
-        private_datasets_dir = (
-            self.syftbox_config.syftbox_folder
-            / self.owner
-            / "private"
-            / "syft_datasets"
-        )
-
-        return private_datasets_dir / self.name
+        return self.private_dir
 
     @property
     def mock_files(self) -> list[Path]:
