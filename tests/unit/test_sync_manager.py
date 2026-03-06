@@ -350,6 +350,9 @@ def test_datasets():
 
     assert has_file(ds_manager.syftbox_folder, "mock.txt")
     assert not has_file(ds_manager.syftbox_folder, "private.txt")
+    # Confirm that "private.txt" does not exist anywhere in the DS syftbox folder
+    for path in Path(ds_manager.syftbox_folder).rglob("*"):
+        assert path.name != "private.txt"
 
 
 def test_datasets_with_parquet():
