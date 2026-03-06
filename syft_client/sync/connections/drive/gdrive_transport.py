@@ -576,11 +576,28 @@ class GDriveConnection(SyftboxPlatformConnection):
             "parents": [outbox_folder_id],
         }
 
-        execute_with_retries(
+        result = execute_with_retries(
             self.drive_service.files().create(
-                body=file_metadata, media_body=file_payload, fields="id"
+                body=file_metadata, media_body=file_payload, fields="id, parents"
             )
         )
+
+        # Verify the file landed in the correct folder
+        file_id = result.get("id")
+        actual_parents = result.get("parents", [])
+        if outbox_folder_id not in actual_parents:
+            print(
+                f"WARNING: Event message {file_id} was not placed in outbox folder "
+                f"{outbox_folder_id}. Actual parents: {actual_parents}. "
+                f"Moving file to correct folder..."
+            )
+            execute_with_retries(
+                self.drive_service.files().update(
+                    fileId=file_id,
+                    addParents=outbox_folder_id,
+                    fields="id, parents",
+                )
+            )
 
     def remove_proposed_filechange_message_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage
@@ -964,11 +981,28 @@ class GDriveConnection(SyftboxPlatformConnection):
             "parents": [inbox_outbox_id],
         }
 
-        execute_with_retries(
+        result = execute_with_retries(
             self.drive_service.files().create(
-                body=file_metadata, media_body=payload, fields="id"
+                body=file_metadata, media_body=payload, fields="id, parents"
             )
         )
+
+        # Verify the file landed in the correct folder
+        file_id = result.get("id")
+        actual_parents = result.get("parents", [])
+        if inbox_outbox_id not in actual_parents:
+            print(
+                f"WARNING: Message file {file_id} was not placed in outbox folder "
+                f"{inbox_outbox_id}. Actual parents: {actual_parents}. "
+                f"Moving file to correct folder..."
+            )
+            execute_with_retries(
+                self.drive_service.files().update(
+                    fileId=file_id,
+                    addParents=inbox_outbox_id,
+                    fields="id, parents",
+                )
+            )
 
     def reset_caches(self):
         self._syftbox_folder_id = None
