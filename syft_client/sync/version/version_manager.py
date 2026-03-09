@@ -381,19 +381,63 @@ class VersionManager(BaseModel):
 
         peer = self.connection_router.add_peer(peer_email=peer_email)
         peer.state = new_state
-        self.connection_router.update_peer_state(peer_email, new_state.value)
+
+        # Exchange encryption bundles if key_manager is set
+        own_bundle = self._write_encryption_bundle_for_peer(peer_email)
+        peer_bundle = None
+        if is_accepting:
+            peer_bundle = self._read_peer_encryption_bundle(peer_email)
+
+        self.connection_router.update_peer_state(
+            peer_email, new_state.value, public_bundle=peer_bundle
+        )
         self.share_version_with_peer(peer_email)
         version_info = self.connection_router.read_peer_version_file(peer_email)
         peer.version = version_info
+        peer.public_bundle = peer_bundle
 
         if existing:
             existing.state = new_state
             existing.version = version_info
+            existing.public_bundle = peer_bundle
         else:
             self._peers.append(peer)
 
+        # Load peer bundle into key_manager
+        km = self.connection_router.key_manager
+        if km and peer_bundle and not km.has_peer_bundle(peer_email):
+            km.set_peer_bundle(peer_email, peer_bundle)
+
         if verbose:
             print_peer_added(peer)
+
+    def _write_encryption_bundle_for_peer(self, peer_email: str) -> dict | None:
+        """Write own encryption bundle for a peer if key_manager is set."""
+        km = self.connection_router.key_manager
+        if not km or not km.has_keys():
+            return None
+        bundle = km.get_public_bundle()
+        if bundle:
+            import json as _json
+            bundle_json = _json.dumps({"public_bundle": bundle})
+            self.connection_router.write_encryption_bundle(peer_email, bundle_json)
+            self.connection_router.share_encryption_bundles_folder(peer_email)
+        return bundle
+
+    def _read_peer_encryption_bundle(self, peer_email: str) -> dict | None:
+        """Read a peer's encryption bundle if available."""
+        km = self.connection_router.key_manager
+        if not km:
+            return None
+        bundle_json = self.connection_router.read_peer_encryption_bundle(peer_email)
+        if not bundle_json:
+            return None
+        try:
+            import json as _json
+            data = _json.loads(bundle_json)
+            return data.get("public_bundle")
+        except Exception:
+            return None
 
     def load_peers(self):
         """Load peers: from JSON (accepted + requested_by_me) + new requests from folder scan."""
@@ -435,6 +479,26 @@ class VersionManager(BaseModel):
                     )
 
         self._peers = peers
+
+        # Load encryption bundles from peers JSON into key_manager
+        km = self.connection_router.key_manager
+        if km:
+            for peer in peers:
+                if peer.public_bundle and not km.has_peer_bundle(peer.email):
+                    km.set_peer_bundle(peer.email, peer.public_bundle)
+
+            # Try to read bundles from GDrive for peers we don't have bundles for
+            for peer in peers:
+                if peer.state in (PeerState.ACCEPTED, PeerState.REQUESTED_BY_ME):
+                    if not km.has_peer_bundle(peer.email):
+                        bundle = self._read_peer_encryption_bundle(peer.email)
+                        if bundle:
+                            km.set_peer_bundle(peer.email, bundle)
+                            peer.public_bundle = bundle
+                            self.connection_router.update_peer_state(
+                                peer.email, peer.state.value, public_bundle=bundle
+                            )
+
         self.load_peer_versions_parallel([peer.email for peer in peers])
 
     def check_peer_request_exists(self, email: str) -> bool:

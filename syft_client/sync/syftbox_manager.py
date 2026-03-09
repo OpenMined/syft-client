@@ -374,6 +374,7 @@ class SyftboxManager(BaseModel):
     _executor: ThreadPoolExecutor = PrivateAttr(
         default_factory=lambda: ThreadPoolExecutor(max_workers=10)
     )
+    _key_manager: object = PrivateAttr(default=None)
 
     _PUBLIC_API = (
         "email",
@@ -475,9 +476,25 @@ class SyftboxManager(BaseModel):
 
         return manager_res
 
+    def _set_key_manager(self, key_manager) -> None:
+        """Wire key_manager into all connection routers."""
+        from syft_client.sync.crypto.encryption import KeyManager
+
+        if not isinstance(key_manager, KeyManager):
+            return
+        self._key_manager = key_manager
+        if self.datasite_owner_syncer:
+            self.datasite_owner_syncer.connection_router.key_manager = key_manager
+        if self.datasite_watcher_syncer:
+            self.datasite_watcher_syncer.connection_router.key_manager = key_manager
+            self.datasite_watcher_syncer.datasite_watcher_cache.connection_router.key_manager = key_manager
+        if self.version_manager:
+            self.version_manager.connection_router.key_manager = key_manager
+
     @classmethod
     def for_colab(
-        cls, email: str, has_ds_role: bool = False, has_do_role: bool = False
+        cls, email: str, has_ds_role: bool = False, has_do_role: bool = False,
+        encryption: bool = False, encryption_keys: dict | None = None,
     ):
         manager = cls.from_config(
             SyftboxManagerConfig.for_colab(
@@ -486,8 +503,29 @@ class SyftboxManager(BaseModel):
                 has_do_role=has_do_role,
             )
         )
+        manager._init_encryption(encryption, encryption_keys)
         manager.version_manager.write_own_version()
         return manager
+
+    def _init_encryption(
+        self, encryption: bool = False, encryption_keys: dict | None = None
+    ):
+        """Initialize encryption if requested."""
+        if not encryption and not encryption_keys:
+            return
+        from syft_client.sync.crypto.encryption import KeyManager
+
+        if encryption_keys:
+            km = KeyManager.from_keys_data(self.email, encryption_keys)
+        else:
+            keys_path = Path.home() / ".syftbox" / "crypto_keys.json"
+            if keys_path.exists():
+                km = KeyManager.load_keys(keys_path)
+            else:
+                km = KeyManager(email=self.email)
+                km.generate_keys()
+                km.save_keys(keys_path)
+        self._set_key_manager(km)
 
     @classmethod
     def for_jupyter(
@@ -496,6 +534,8 @@ class SyftboxManager(BaseModel):
         has_ds_role: bool = False,
         has_do_role: bool = False,
         token_path: Path | None = None,
+        encryption: bool = False,
+        encryption_keys: dict | None = None,
     ):
         if token_path is not None:
             token_path = Path(token_path)
@@ -507,6 +547,7 @@ class SyftboxManager(BaseModel):
                 token_path=token_path,
             )
         )
+        manager._init_encryption(encryption, encryption_keys)
         manager.version_manager.write_own_version()
         return manager
 
@@ -604,6 +645,7 @@ class SyftboxManager(BaseModel):
         add_peers: bool = True,
         use_in_memory_cache: bool = True,
         check_versions: bool = False,
+        encryption: bool = False,
     ):
         """Create a pair of managers using mock Google Drive services for testing.
 
@@ -672,6 +714,18 @@ class SyftboxManager(BaseModel):
         # Write version files
         ds_manager.version_manager.write_own_version()
         do_manager.version_manager.write_own_version()
+
+        # Initialize encryption if requested
+        if encryption:
+            from syft_client.sync.crypto.encryption import KeyManager
+
+            ds_km = KeyManager(email=ds_manager.email)
+            ds_km.generate_keys()
+            ds_manager._set_key_manager(ds_km)
+
+            do_km = KeyManager(email=do_manager.email)
+            do_km.generate_keys()
+            do_manager._set_key_manager(do_km)
 
         if add_peers:
             # DS creates peer request

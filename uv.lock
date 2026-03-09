@@ -2995,6 +2995,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
     { name = "syft-bg" },
+    { name = "syft-crypto-python" },
     { name = "syft-dataset" },
     { name = "syft-job" },
     { name = "syft-perm" },
@@ -3048,6 +3049,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0.0" },
     { name = "syft-bg", editable = "packages/syft-bg" },
     { name = "syft-client", extras = ["datasets", "job"], marker = "extra == 'all'" },
+    { name = "syft-crypto-python", specifier = ">=0.1.2b2" },
     { name = "syft-dataset", editable = "packages/syft-datasets" },
     { name = "syft-dataset", marker = "extra == 'datasets'", editable = "packages/syft-datasets" },
     { name = "syft-job", editable = "packages/syft-job" },
@@ -3075,6 +3077,19 @@ test = [
     { name = "pytest-rerunfailures", specifier = ">=14.0" },
     { name = "pytest-xdist", specifier = ">=3.0.0" },
     { name = "syft-enclave", editable = "packages/syft-enclave" },
+]
+
+[[package]]
+name = "syft-crypto-python"
+version = "0.1.2b2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8b/56/34e14f3a07483f202229d3df02ea1b617356bd8bd4323ba546e95da1b867/syft_crypto_python-0.1.2b2.tar.gz", hash = "sha256:9ea153817f2b2b18db38b6a23bb35f1a165ab0128713147c3b69fe42de1cc1e7", size = 83267, upload-time = "2025-12-04T02:10:14.785Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/50/eb1d6f4fe4f118f91dbc74c619c7186faa6ac774119c3cd76d69ff23b6dd/syft_crypto_python-0.1.2b2-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:842effb8b86d6a8fffc30da5b299e15188b76d4820527f440988548a2ba3de10", size = 914998, upload-time = "2025-12-04T02:10:08.63Z" },
+    { url = "https://files.pythonhosted.org/packages/02/d9/21198eed305ad24c86850e0c3b14afe68a3c6a54e398223401b6ebd9d3bd/syft_crypto_python-0.1.2b2-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:1eab6e59ace8f8676571bdec731c1c48f4d710ae5eb5d7a1b40e1607219966ac", size = 890368, upload-time = "2025-12-04T02:10:10.003Z" },
+    { url = "https://files.pythonhosted.org/packages/95/02/c6e8f3cabdeb89f77da3830bc3ff41988f31794f9d360fd3123f81cb0719/syft_crypto_python-0.1.2b2-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b8042a2040256f4e624fea60c580c7fe54013e8a6b497fd930cb296b7caf5a93", size = 1022707, upload-time = "2025-12-04T02:10:11.376Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/ba/7b72841401aed267d8a0a0f04ce426bc097eefc305a716e43fa4843c76ea/syft_crypto_python-0.1.2b2-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d5c5168f6681f8291816f435a895ebbdea360177db1c70e3df9c8f554e250939", size = 981117, upload-time = "2025-12-04T02:10:12.529Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/ec/b33a2f52806682582318f0ec85b94d7d89d82923f4aa964245edb576a477/syft_crypto_python-0.1.2b2-cp39-abi3-win_amd64.whl", hash = "sha256:9a7e931c60e8af27e8c2cbe689f804fd4209dfbd68c7675805d6b45ec9d347f1", size = 777484, upload-time = "2025-12-04T02:10:13.604Z" },
 ]
 
 [[package]]

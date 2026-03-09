@@ -17,6 +17,7 @@ class Peer(BaseModel):
     platforms: List[BasePlatform] = []
     state: PeerState = PeerState.ACCEPTED  # Default for backward compatibility
     version: Optional[VersionInfo] = None
+    public_bundle: Optional[dict] = None
 
     @property
     def is_approved(self) -> bool:

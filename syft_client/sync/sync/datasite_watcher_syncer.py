@@ -112,16 +112,27 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
     # --- Pulling from datasite outboxes ---
 
     def download_events_message_with_new_connection(
-        self, file_id: str
+        self, file_id: str, peer_email: str | None = None
     ) -> FileChangeEventsMessage:
         """Download from outbox using a new connection (thread-safe)."""
         connection = self.connection_router.connection_for_parallel_download()
-        return connection.download_events_message_by_id_from_outbox(file_id)
+        # Use router's decrypt if key_manager is set
+        raw = connection.download_file(file_id)
+        km = self.connection_router.key_manager
+        if km and peer_email:
+            raw = km.try_decrypt(peer_email, raw)
+        return FileChangeEventsMessage.from_compressed_data(raw)
 
-    def download_dataset_file_with_new_connection(self, file_id: str) -> bytes:
+    def download_dataset_file_with_new_connection(
+        self, file_id: str, owner_email: str | None = None
+    ) -> bytes:
         """Download dataset file using a new connection (thread-safe)."""
         connection = self.connection_router.connection_for_parallel_download()
-        return connection.download_dataset_file(file_id)
+        data = connection.download_dataset_file(file_id)
+        km = self.connection_router.key_manager
+        if km and owner_email:
+            data = km.try_decrypt(owner_email, data)
+        return data
 
     def sync_down(self, peer_emails: list[str]):
         for peer_email in peer_emails:
@@ -129,11 +140,11 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
             self.datasite_watcher_cache.sync_down_parallel(
                 peer_email,
                 self._executor,
-                self.download_events_message_with_new_connection,
+                lambda fid, pe=peer_email: self.download_events_message_with_new_connection(fid, pe),
             )
             # Sync datasets with parallel download
             self.datasite_watcher_cache.sync_down_datasets_parallel(
                 peer_email,
                 self._executor,
-                self.download_dataset_file_with_new_connection,
+                lambda fid, pe=peer_email: self.download_dataset_file_with_new_connection(fid, pe),
             )

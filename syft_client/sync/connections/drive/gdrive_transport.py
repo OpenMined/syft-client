@@ -394,10 +394,19 @@ class GDriveConnection(SyftboxPlatformConnection):
             )
             return file_id
 
-    def _update_peer_state(self, peer_email: str, state: str):
-        """Update a single peer's state in the JSON file"""
+    def _update_peer_state(
+        self, peer_email: str, state: str, public_bundle: dict | None = None
+    ):
+        """Update a single peer's state in the JSON file.
+
+        Preserves existing fields (e.g. public_bundle) when updating state.
+        """
         peers_data = self._read_peers_json()
-        peers_data[peer_email] = {"state": state}
+        existing = peers_data.get(peer_email, {})
+        existing["state"] = state
+        if public_bundle is not None:
+            existing["public_bundle"] = public_bundle
+        peers_data[peer_email] = existing
         self._write_peers_json(peers_data)
 
     def get_peer_requests(self) -> List[str]:
@@ -2144,3 +2153,87 @@ class GDriveConnection(SyftboxPlatformConnection):
                 self.drive_service.files().delete(fileId=item["id"]).execute()
             except Exception as e:
                 print(f"Warning: Failed to delete rolling state {item['name']}: {e}")
+
+    # =========================================================================
+    # ENCRYPTION BUNDLE METHODS
+    # =========================================================================
+
+    def _get_encryption_bundles_folder_name(self) -> str:
+        return f"syft_encryption_bundles#{self.email}"
+
+    def _get_or_create_encryption_bundles_folder_id(self) -> str:
+        """Get or create the encryption bundles folder for this user."""
+        folder_name = self._get_encryption_bundles_folder_name()
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        folder_id = self._find_folder_by_name(
+            folder_name, parent_id=syftbox_folder_id
+        )
+        if folder_id:
+            return folder_id
+        return self.create_folder(folder_name, syftbox_folder_id)
+
+    def _encryption_bundle_filename(
+        self, owner_email: str, peer_email: str
+    ) -> str:
+        return f"encryption_bundle_{owner_email}_for_{peer_email}.json"
+
+    def write_encryption_bundle(
+        self, peer_email: str, bundle_json: str
+    ) -> None:
+        """Write own encryption bundle for a peer to own bundles folder."""
+        folder_id = self._get_or_create_encryption_bundles_folder_id()
+        filename = self._encryption_bundle_filename(self.email, peer_email)
+        file_payload, _ = self.create_file_payload(bundle_json)
+
+        # Check if file already exists
+        query = (
+            f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+        )
+        results = execute_with_retries(
+            self.drive_service.files().list(q=query, fields="files(id)")
+        )
+        items = results.get("files", [])
+
+        if items:
+            execute_with_retries(
+                self.drive_service.files().update(
+                    fileId=items[0]["id"], media_body=file_payload
+                )
+            )
+        else:
+            file_metadata = {"name": filename, "parents": [folder_id]}
+            execute_with_retries(
+                self.drive_service.files().create(
+                    body=file_metadata,
+                    media_body=file_payload,
+                    fields="id",
+                )
+            )
+
+    def share_encryption_bundles_folder(self, peer_email: str) -> None:
+        """Share the bundles folder with a peer so they can read bundles."""
+        folder_id = self._get_or_create_encryption_bundles_folder_id()
+        self.add_permission(folder_id, peer_email, write=False)
+
+    def read_peer_encryption_bundle(self, peer_email: str) -> str | None:
+        """Read encryption bundle that peer wrote for us.
+
+        Searches for: encryption_bundle_{peer_email}_for_{self.email}.json
+        in peer's bundles folder.
+        """
+        filename = self._encryption_bundle_filename(peer_email, self.email)
+        query = (
+            f"name='{filename}' and trashed=false "
+            f"and '{peer_email}' in owners"
+        )
+        results = execute_with_retries(
+            self.drive_service.files().list(q=query, fields="files(id)")
+        )
+        items = results.get("files", [])
+        if not items:
+            return None
+        try:
+            data = self.download_file(items[0]["id"])
+            return data.decode("utf-8")
+        except Exception:
+            return None

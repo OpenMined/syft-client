@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr
 from typing import TYPE_CHECKING, List, Optional
 from syft_client.sync.connections.base_connection import (
     ConnectionConfig,
@@ -20,11 +20,22 @@ from syft_client.sync.utils.print_utils import (
 )
 
 if TYPE_CHECKING:
+    from syft_client.sync.crypto.encryption import KeyManager
     from syft_client.sync.version.version_info import VersionInfo
 
 
 class ConnectionRouter(BaseModel):
     connections: List[SyftboxPlatformConnection]
+
+    _key_manager: Optional["KeyManager"] = PrivateAttr(default=None)
+
+    @property
+    def key_manager(self) -> Optional["KeyManager"]:
+        return self._key_manager
+
+    @key_manager.setter
+    def key_manager(self, value: Optional["KeyManager"]):
+        self._key_manager = value
 
     @classmethod
     def from_configs(cls, connection_configs: List[ConnectionConfig]):
@@ -48,7 +59,6 @@ class ConnectionRouter(BaseModel):
         self, connection: SyftboxPlatformConnection
     ) -> SyftboxPlatformConnection:
         if isinstance(connection, GDriveConnection):
-            # Check if using mock service (no credentials and no token_path)
             return connection.copy()
         else:
             return connection
@@ -71,14 +81,215 @@ class ConnectionRouter(BaseModel):
     def connection_for_own_syftbox(self) -> SyftboxPlatformConnection:
         return self.connections[0]
 
+    # =========================================================================
+    # ENCRYPTION HELPERS
+    # =========================================================================
+
+    def _encrypt_bytes(self, recipient_email: str, data: bytes) -> bytes:
+        """Encrypt data if key_manager is set and peer bundle is available."""
+        km = self._key_manager
+        if km and km.has_keys() and km.has_peer_bundle(recipient_email):
+            return km.encrypt(recipient_email, data)
+        return data
+
+    def _try_decrypt_bytes(self, sender_email: str, data: bytes) -> bytes:
+        """Try to decrypt data; returns data as-is if not possible."""
+        km = self._key_manager
+        if km:
+            return km.try_decrypt(sender_email, data)
+        return data
+
+    # =========================================================================
+    # MESSAGE SEND/RECEIVE (with encryption)
+    # =========================================================================
+
     def send_proposed_file_changes_message(
         self, recipient: str, proposed_file_changes_message: ProposedFileChangesMessage
     ):
-        # TODO: Implement connection routing logic
         connection = self.connection_for_send_message()
-        connection.send_proposed_file_changes_message(
-            recipient, proposed_file_changes_message
+
+        if not self._key_manager:
+            connection.send_proposed_file_changes_message(
+                recipient, proposed_file_changes_message
+            )
+            return
+
+        # Encryption path: serialize, encrypt, upload raw bytes
+        data = proposed_file_changes_message.as_compressed_data()
+        data = self._encrypt_bytes(recipient, data)
+
+        filename = proposed_file_changes_message.message_filename.as_string()
+        inbox_id = connection._get_peer_datasite_inbox_id(recipient)
+        if inbox_id is None:
+            raise Exception(f"Inbox folder for {recipient}'s datasite not found")
+
+        payload, _ = connection.create_file_payload(data)
+        file_metadata = {"name": filename, "parents": [inbox_id]}
+
+        from syft_client.sync.connections.drive.gdrive_retry import (
+            execute_with_retries,
         )
+
+        execute_with_retries(
+            connection.drive_service.files().create(
+                body=file_metadata, media_body=payload, fields="id, parents"
+            )
+        )
+
+    def get_next_proposed_filechange_message(
+        self, sender_email: str = None
+    ) -> ProposedFileChangesMessage | None:
+        connection = self.connection_for_receive_message()
+
+        if not self._key_manager or not sender_email:
+            return connection.get_next_proposed_filechange_message(
+                sender_email=sender_email
+            )
+
+        # Encryption path: get raw bytes, decrypt, then deserialize
+        from syft_client.sync.messages.proposed_filechange import (
+            MessageFileName,
+            FileNameParseError,
+        )
+        from syft_client.sync.connections.drive.gdrive_retry import (
+            execute_with_retries,
+        )
+
+        inbox_folder_id = connection._get_own_datasite_inbox_id(sender_email)
+        if inbox_folder_id is None:
+            raise ValueError(f"Inbox folder for {sender_email} not found")
+
+        file_metadatas = connection.get_file_metadatas_from_folder(inbox_folder_id)
+        valid_file_names = connection._get_valid_messages_from_file_metadatas(
+            file_metadatas
+        )
+        if not valid_file_names:
+            return None
+
+        first_file_name = sorted(
+            valid_file_names, key=lambda x: x.submitted_timestamp
+        )[0]
+        first_file_id = [
+            x for x in file_metadatas if x["name"] == first_file_name.as_string()
+        ][0]["id"]
+
+        raw_data = connection.download_file(first_file_id)
+        decrypted = self._try_decrypt_bytes(sender_email, raw_data)
+        msg = ProposedFileChangesMessage.from_compressed_data(decrypted)
+        msg.platform_id = first_file_id
+        return msg
+
+    def write_event_messages_to_outbox_do(
+        self, recipient_email: str, events_message: FileChangeEventsMessage
+    ):
+        connection = self.connection_for_outbox()
+
+        if not self._key_manager:
+            connection.write_event_messages_to_outbox_do(
+                recipient_email, events_message
+            )
+            return
+
+        # Encryption path
+        data = events_message.as_compressed_data()
+        data = self._encrypt_bytes(recipient_email, data)
+
+        fname = events_message.message_filepath.as_string()
+        outbox_folder_id = connection._get_own_datasite_outbox_id(recipient_email)
+        if outbox_folder_id is None:
+            raise ValueError(f"Outbox folder for {recipient_email} not found")
+
+        payload, _ = connection.create_file_payload(data)
+        file_metadata = {"name": fname, "parents": [outbox_folder_id]}
+
+        from syft_client.sync.connections.drive.gdrive_retry import (
+            execute_with_retries,
+        )
+
+        execute_with_retries(
+            connection.drive_service.files().create(
+                body=file_metadata, media_body=payload, fields="id, parents"
+            )
+        )
+
+    def get_events_messages_for_datasite_watcher(
+        self, peer_email: str, since_timestamp: float | None
+    ) -> List[FileChangeEventsMessage]:
+        connection = self.connection_for_datasite_watcher()
+        if not self._key_manager:
+            return connection.get_events_messages_for_datasite_watcher(
+                peer_email=peer_email, since_timestamp=since_timestamp
+            )
+        # Encryption path: download raw bytes and decrypt
+        from syft_client.sync.events.file_change_event import (
+            FileChangeEventsMessageFileName,
+        )
+
+        folder_id = connection._get_peer_datasite_outbox_id(peer_email)
+        if folder_id is None:
+            raise ValueError(f"Outbox folder for peer {peer_email} not found")
+
+        file_metadatas = connection.get_file_metadatas_from_folder(
+            folder_id, since_timestamp=since_timestamp
+        )
+        valid_fname_objs = connection._get_valid_events_from_file_metadatas(
+            file_metadatas
+        )
+        name_to_id = {f["name"]: f["id"] for f in file_metadatas}
+        sorted_fnames = [
+            x
+            for x in sorted(valid_fname_objs, key=lambda x: x.timestamp)
+            if since_timestamp is None or x.timestamp > since_timestamp
+        ]
+        if not sorted_fnames:
+            return []
+
+        res = []
+        for fname_obj in sorted_fnames:
+            file_name = fname_obj.as_string()
+            if file_name in name_to_id:
+                raw = connection.download_file(name_to_id[file_name])
+                decrypted = self._try_decrypt_bytes(peer_email, raw)
+                res.append(
+                    FileChangeEventsMessage.from_compressed_data(decrypted)
+                )
+        return res
+
+    def download_events_message_by_id_from_outbox(
+        self, file_id: str, peer_email: str | None = None
+    ) -> FileChangeEventsMessage:
+        """Download event message from outbox by ID, decrypting if needed."""
+        connection = self.connection_for_datasite_watcher()
+        raw = connection.download_file(file_id)
+        if peer_email and self._key_manager:
+            raw = self._try_decrypt_bytes(peer_email, raw)
+        return FileChangeEventsMessage.from_compressed_data(raw)
+
+    def get_outbox_file_metadatas_for_ds(
+        self, peer_email: str, since_timestamp: float | None
+    ) -> List[dict]:
+        connection = self.connection_for_datasite_watcher()
+        return connection.get_outbox_file_metadatas_for_ds(peer_email, since_timestamp)
+
+    def connection_for_parallel_download(self) -> SyftboxPlatformConnection:
+        """Create a new connection for thread-safe parallel downloads."""
+        return self.copy_connection(self.connection_for_datasite_watcher())
+
+    # =========================================================================
+    # EVENT LOG (NOT encrypted — own personal storage)
+    # =========================================================================
+
+    def write_events_message_to_syftbox(self, events_message: FileChangeEventsMessage):
+        connection = self.connection_for_eventlog()
+        connection.write_events_message_to_syftbox(events_message)
+
+    def get_all_accepted_events_messages_do(self) -> List[FileChangeEventsMessage]:
+        connection = self.connection_for_eventlog()
+        return connection.get_all_events_messages_do()
+
+    # =========================================================================
+    # PEER MANAGEMENT
+    # =========================================================================
 
     def add_peer(self, peer_email: str, verbose: bool = True) -> Peer:
         connection = self.connection_for_receive_message()
@@ -93,68 +304,6 @@ class ConnectionRouter(BaseModel):
             print_peer_added_to_platform(peer_email, platform.module_path)
         return Peer(email=peer_email, platforms=[platform])
 
-    # def delete_syftbox(self):
-    #     connection = self.connection_for_own_syftbox()
-    #     connection.delete_syftbox()
-
-    def delete_multiple_files_by_ids(
-        self,
-        file_ids: List[str],
-        ignore_permissions_errors: bool = True,
-        ignore_file_not_found: bool = True,
-    ):
-        connection = self.connection_for_own_syftbox()
-        connection.delete_multiple_files_by_ids(
-            file_ids,
-            ignore_permissions_errors=ignore_permissions_errors,
-            ignore_file_not_found=ignore_file_not_found,
-        )
-
-    def get_all_accepted_event_file_ids_do(
-        self, since_timestamp: float | None = None
-    ) -> List[str]:
-        connection = self.connection_for_eventlog()
-        return connection.get_all_accepted_event_file_ids_do(since_timestamp)
-
-    def gather_all_file_and_folder_ids(self) -> List[str]:
-        connection = self.connection_for_own_syftbox()
-        return connection.gather_all_file_and_folder_ids()
-
-    def find_orphaned_message_files(self) -> List[str]:
-        """Find message files by name pattern (catches orphaned files)."""
-        connection = self.connection_for_own_syftbox()
-        return connection.find_orphaned_message_files()
-
-    def reset_caches(self):
-        connection = self.connection_for_own_syftbox()
-        connection.reset_caches()
-
-    def delete_file_by_id(self, file_id: str):
-        connection = self.connection_for_own_syftbox()
-        connection.delete_file_by_id(file_id)
-
-    def write_events_message_to_syftbox(self, events_message: FileChangeEventsMessage):
-        connection = self.connection_for_eventlog()
-        connection.write_events_message_to_syftbox(events_message)
-
-    def write_event_messages_to_outbox_do(
-        self, recipient_email: str, events_message: FileChangeEventsMessage
-    ):
-        connection = self.connection_for_outbox()
-        connection.write_event_messages_to_outbox_do(recipient_email, events_message)
-
-    def get_all_accepted_events_messages_do(self) -> List[FileChangeEventsMessage]:
-        connection = self.connection_for_eventlog()
-        return connection.get_all_events_messages_do()
-
-    def get_next_proposed_filechange_message(
-        self, sender_email: str = None
-    ) -> ProposedFileChangesMessage | None:
-        connection = self.connection_for_receive_message()
-        return connection.get_next_proposed_filechange_message(
-            sender_email=sender_email
-        )
-
     def get_all_peers_from_json(self) -> List[Peer]:
         """Get all peers from SYFT_peers.json with their stored state."""
         connection = self.connection_for_send_message()
@@ -165,9 +314,13 @@ class ConnectionRouter(BaseModel):
                 state = PeerState(data.get("state", "unknown"))
             except ValueError:
                 continue
-            peers.append(
-                Peer(email=email, platforms=[GdriveFilesPlatform()], state=state)
+            peer = Peer(
+                email=email,
+                platforms=[GdriveFilesPlatform()],
+                state=state,
+                public_bundle=data.get("public_bundle"),
             )
+            peers.append(peer)
         return peers
 
     def get_peer_requests(self) -> List[Peer]:
@@ -183,10 +336,12 @@ class ConnectionRouter(BaseModel):
             for peer_email in peer_emails
         ]
 
-    def update_peer_state(self, peer_email: str, state: str):
+    def update_peer_state(
+        self, peer_email: str, state: str, public_bundle: dict | None = None
+    ):
         """Update peer state in storage"""
         connection = self.connection_for_send_message()
-        connection._update_peer_state(peer_email, state)
+        connection._update_peer_state(peer_email, state, public_bundle)
 
     def remove_proposed_filechange_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage
@@ -196,30 +351,28 @@ class ConnectionRouter(BaseModel):
             proposed_filechange_message
         )
 
-    def get_events_messages_for_datasite_watcher(
-        self, peer_email: str, since_timestamp: float | None
-    ) -> List[FileChangeEventsMessage]:
-        connection = self.connection_for_datasite_watcher()
-        return connection.get_events_messages_for_datasite_watcher(
-            peer_email=peer_email, since_timestamp=since_timestamp
-        )
+    # =========================================================================
+    # ENCRYPTION BUNDLE EXCHANGE
+    # =========================================================================
 
-    def get_outbox_file_metadatas_for_ds(
-        self, peer_email: str, since_timestamp: float | None
-    ) -> List[dict]:
-        connection = self.connection_for_datasite_watcher()
-        return connection.get_outbox_file_metadatas_for_ds(peer_email, since_timestamp)
+    def write_encryption_bundle(self, peer_email: str, bundle_json: str) -> None:
+        """Write own encryption bundle for a peer."""
+        connection = self.connection_for_own_syftbox()
+        connection.write_encryption_bundle(peer_email, bundle_json)
 
-    def download_events_message_by_id_from_outbox(
-        self, file_id: str
-    ) -> FileChangeEventsMessage:
-        """Download event message from outbox by ID."""
-        connection = self.connection_for_datasite_watcher()
-        return connection.download_events_message_by_id_from_outbox(file_id)
+    def share_encryption_bundles_folder(self, peer_email: str) -> None:
+        """Share the bundles folder with a peer."""
+        connection = self.connection_for_own_syftbox()
+        connection.share_encryption_bundles_folder(peer_email)
 
-    def connection_for_parallel_download(self) -> SyftboxPlatformConnection:
-        """Create a new connection for thread-safe parallel downloads."""
-        return self.copy_connection(self.connection_for_datasite_watcher())
+    def read_peer_encryption_bundle(self, peer_email: str) -> str | None:
+        """Read encryption bundle that peer wrote for us."""
+        connection = self.connection_for_datasite_watcher()
+        return connection.read_peer_encryption_bundle(peer_email)
+
+    # =========================================================================
+    # DATASET METHODS (with encryption)
+    # =========================================================================
 
     def create_dataset_collection_folder(
         self, tag: str, content_hash: str, owner_email: str
@@ -240,8 +393,15 @@ class ConnectionRouter(BaseModel):
         connection.share_dataset_collection(tag, content_hash, users)
 
     def upload_dataset_files(
-        self, tag: str, content_hash: str, files: dict[str, bytes]
+        self, tag: str, content_hash: str, files: dict[str, bytes],
+        recipient_email: str | None = None,
     ) -> None:
+        """Upload dataset files, encrypting each file if encryption is enabled."""
+        if recipient_email and self._key_manager:
+            files = {
+                name: self._encrypt_bytes(recipient_email, data)
+                for name, data in files.items()
+            }
         connection = self.connection_for_send_message()
         connection.upload_dataset_files(tag, content_hash, files)
 
@@ -263,7 +423,13 @@ class ConnectionRouter(BaseModel):
         self, tag: str, content_hash: str, owner_email: str
     ) -> dict[str, bytes]:
         connection = self.connection_for_datasite_watcher()
-        return connection.download_dataset_collection(tag, content_hash, owner_email)
+        files = connection.download_dataset_collection(tag, content_hash, owner_email)
+        if self._key_manager and owner_email:
+            files = {
+                name: self._try_decrypt_bytes(owner_email, data)
+                for name, data in files.items()
+            }
+        return files
 
     def create_private_dataset_collection_folder(
         self, tag: str, content_hash: str, owner_email: str
@@ -324,9 +490,54 @@ class ConnectionRouter(BaseModel):
             tag, content_hash, owner_email
         )
 
-    def download_dataset_file(self, file_id: str) -> bytes:
+    def download_dataset_file(
+        self, file_id: str, owner_email: str | None = None
+    ) -> bytes:
         connection = self.connection_for_datasite_watcher()
-        return connection.download_dataset_file(file_id)
+        data = connection.download_dataset_file(file_id)
+        if owner_email and self._key_manager:
+            data = self._try_decrypt_bytes(owner_email, data)
+        return data
+
+    # =========================================================================
+    # MISC
+    # =========================================================================
+
+    def delete_multiple_files_by_ids(
+        self,
+        file_ids: List[str],
+        ignore_permissions_errors: bool = True,
+        ignore_file_not_found: bool = True,
+    ):
+        connection = self.connection_for_own_syftbox()
+        connection.delete_multiple_files_by_ids(
+            file_ids,
+            ignore_permissions_errors=ignore_permissions_errors,
+            ignore_file_not_found=ignore_file_not_found,
+        )
+
+    def get_all_accepted_event_file_ids_do(
+        self, since_timestamp: float | None = None
+    ) -> List[str]:
+        connection = self.connection_for_eventlog()
+        return connection.get_all_accepted_event_file_ids_do(since_timestamp)
+
+    def gather_all_file_and_folder_ids(self) -> List[str]:
+        connection = self.connection_for_own_syftbox()
+        return connection.gather_all_file_and_folder_ids()
+
+    def find_orphaned_message_files(self) -> List[str]:
+        """Find message files by name pattern (catches orphaned files)."""
+        connection = self.connection_for_own_syftbox()
+        return connection.find_orphaned_message_files()
+
+    def reset_caches(self):
+        connection = self.connection_for_own_syftbox()
+        connection.reset_caches()
+
+    def delete_file_by_id(self, file_id: str):
+        connection = self.connection_for_own_syftbox()
+        connection.delete_file_by_id(file_id)
 
     # =========================================================================
     # CHECKPOINT METHODS
