@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional
 
@@ -13,129 +14,98 @@ from .job_repr import (
     jobs_list_str,
 )
 from .job_stdout import StdoutViewer
+from .models.config import JobSubmissionConfig
+from .models.state import JobState, JobStatus
 
 if TYPE_CHECKING:
     from .client import JobClient
 
 
 class JobInfo:
-    """Information about a job with approval capabilities."""
+    """Represents a job with data from both inbox/ and review/ directories."""
 
     def __init__(
         self,
-        name: str,
+        config: JobSubmissionConfig,
+        state: JobState,
+        inbox_path: Path,
+        review_path: Path,
         datasite_owner_email: str,
-        status: str,
-        submitted_by: str,
-        location: Path,
-        client: JobClient,
         current_user_email: str,
-        submitted_at: Optional[str] = None,
+        client: JobClient,
     ):
-        self.name = name
+        self._config = config
+        self._state = state
+        self._inbox_path = inbox_path  # inbox/ds@email/job-name/
+        self._review_path = review_path  # review/ds@email/job-name/
         self.datasite_owner_email = datasite_owner_email
-        self.status = status
-        self.submitted_by = submitted_by
-        self.location = location
-        self._client = client
         self.current_user_email = current_user_email
-        self.submitted_at = submitted_at
+        self._client = client
 
-    def __str__(self) -> str:
-        status_emojis = {"inbox": "📥", "approved": "✅", "done": "🎉"}
-        emoji = status_emojis.get(self.status, "❓")
-        return f"{emoji} {self.name} ({self.status}) -> {self.datasite_owner_email}"
+    # ──────────────────────────────────────────────
+    # Properties from config (inbox/)
+    # ──────────────────────────────────────────────
 
-    def __repr__(self) -> str:
-        return f"JobInfo(name='{self.name}', submitted_by='{self.submitted_by}', current_user_email='{self.current_user_email}', status='{self.status}')"
+    @property
+    def name(self) -> str:
+        return self._config.name
 
-    def accept_by_depositing_result(self, path: str) -> Path:
-        """
-        Accept a job by depositing the result file or folder and creating done marker.
+    @property
+    def submitted_by(self) -> str:
+        return self._config.submitted_by
 
-        Args:
-            path: Path to the result file or folder to deposit
+    @property
+    def submitted_at(self) -> Optional[str]:
+        if self._config.submitted_at:
+            return self._config.submitted_at.isoformat()
+        return None
 
-        Returns:
-            Path to the deposited result file or folder in the outputs directory
+    @property
+    def code_dir(self) -> Path:
+        """Path to the submitted code directory."""
+        return self._inbox_path / "code"
 
-        Raises:
-            ValueError: If job is not in inbox or approved status
-            FileNotFoundError: If the result file or folder doesn't exist
-        """
-        if self.status not in ["inbox", "approved"]:
-            raise ValueError(
-                f"Job '{self.name}' is not in inbox or approved status (current: {self.status})"
-            )
+    @property
+    def code(self) -> str:
+        """Read the entrypoint source code."""
+        ep = self._config.entrypoint
+        if ep:
+            ep_path = self.code_dir / ep
+            if ep_path.exists():
+                return ep_path.read_text()
+        # fallback: first .py file in code/
+        for f in self.code_dir.rglob("*.py"):
+            return f.read_text()
+        return ""
 
-        result_path = Path(path)
-        if not result_path.exists():
-            raise FileNotFoundError(f"Result path not found: {path}")
+    @property
+    def run_script(self) -> str:
+        """Read the run.sh content."""
+        run_sh = self._inbox_path / "run.sh"
+        if run_sh.exists():
+            return run_sh.read_text()
+        return ""
 
-        # Create outputs directory in the job directory
-        outputs_dir = self.location / "outputs"
-        outputs_dir.mkdir(exist_ok=True)
+    @property
+    def location(self) -> Path:
+        """Backward compatibility — returns inbox path."""
+        return self._inbox_path
 
-        # Handle both files and folders
-        result_name = result_path.name
-        destination = outputs_dir / result_name
+    # ──────────────────────────────────────────────
+    # Properties from state (review/)
+    # ──────────────────────────────────────────────
 
-        if result_path.is_file():
-            shutil.copy2(str(result_path), str(destination))
-        elif result_path.is_dir():
-            shutil.copytree(str(result_path), str(destination))
-        else:
-            raise ValueError(f"Path is neither a file nor a directory: {path}")
-
-        # Create done marker file (this also creates approved marker if not present)
-        self._client.create_approved_marker(self.location)
-        self._client.create_done_marker(self.location)
-
-        self.status = "done"
-
-        print(
-            f"✅ Job '{self.name}' completed successfully! Result deposited at: {destination}"
-        )
-
-        return destination
-
-    def approve(self) -> None:
-        """
-        Approve a job by creating approved marker file.
-        Only the admin user can approve jobs in their own folder.
-
-        Raises:
-            ValueError: If job is not in inbox status
-            PermissionError: If the current user is not authorized to approve jobs
-        """
-        if self.status != "inbox":
-            raise ValueError(
-                f"Job '{self.name}' is not in inbox status (current: {self.status})"
-            )
-
-        if self.datasite_owner_email != self.current_user_email:
-            raise PermissionError(
-                f"Only the admin user ({self.datasite_owner_email}) can approve jobs in their folder. "
-                f"Current job is in {self.datasite_owner_email}'s folder."
-            )
-
-        self._client.create_approved_marker(self.location)
-        self.status = "approved"
-        print(f"✅ Job '{self.name}' approved successfully!")
+    @property
+    def status(self) -> str:
+        return self._state.status.value
 
     @property
     def output_paths(self) -> List[Path]:
-        """
-        Get list of all file paths in the outputs directory for done jobs.
-
-        Returns:
-            List of Path objects for all files/directories in outputs folder.
-            Empty list if job is not done or outputs directory doesn't exist.
-        """
-        if self.status != "done":
+        """Get list of all file paths in the outputs directory."""
+        if self._state.status not in (JobStatus.DONE, JobStatus.FAILED):
             return []
 
-        outputs_dir = self.location / "outputs"
+        outputs_dir = self._review_path / "outputs"
         if not outputs_dir.exists():
             return []
 
@@ -150,68 +120,181 @@ class JobInfo:
 
     @property
     def stdout(self) -> StdoutViewer:
-        """Get a viewer for the stdout content for completed jobs."""
+        """Get a viewer for the stdout content."""
         return StdoutViewer(self)
 
     @property
     def stderr(self) -> StderrViewer:
-        """Get a viewer for the stderr content for completed jobs."""
+        """Get a viewer for the stderr content."""
         return StderrViewer(self)
+
+    @property
+    def files(self) -> List[Path]:
+        """Get list of all files across both inbox and review."""
+        all_files = []
+        try:
+            if self._inbox_path.exists():
+                all_files.extend(f for f in self._inbox_path.rglob("*") if f.is_file())
+            if self._review_path.exists():
+                all_files.extend(f for f in self._review_path.rglob("*") if f.is_file())
+        except Exception:
+            pass
+        return all_files
+
+    # ──────────────────────────────────────────────
+    # Actions (write to review/)
+    # ──────────────────────────────────────────────
+
+    def approve(self) -> None:
+        """
+        Approve a job by updating state.yaml in review/.
+        Only the datasite owner can approve jobs.
+
+        Raises:
+            ValueError: If job is not in pending status
+            PermissionError: If the current user is not authorized to approve
+        """
+        if self._state.status != JobStatus.PENDING:
+            raise ValueError(
+                f"Job '{self.name}' is not in pending status (current: {self.status})"
+            )
+
+        if self.datasite_owner_email != self.current_user_email:
+            raise PermissionError(
+                f"Only the admin user ({self.datasite_owner_email}) can approve jobs in their folder. "
+                f"Current job is in {self.datasite_owner_email}'s folder."
+            )
+
+        self._state.status = JobStatus.APPROVED
+        self._state.approved_by = self.current_user_email
+        self._state.approved_at = datetime.now(timezone.utc)
+        self._state.save(self._review_path / "state.yaml")
+        print(f"Job '{self.name}' approved successfully!")
+
+    def reject(self, reason: str = "") -> None:
+        """
+        Reject a job by updating state.yaml in review/.
+
+        Args:
+            reason: Optional reason for rejection.
+
+        Raises:
+            ValueError: If job is not in pending status
+            PermissionError: If the current user is not authorized to reject
+        """
+        if self._state.status != JobStatus.PENDING:
+            raise ValueError(
+                f"Job '{self.name}' is not in pending status (current: {self.status})"
+            )
+
+        if self.datasite_owner_email != self.current_user_email:
+            raise PermissionError(
+                f"Only the admin user ({self.datasite_owner_email}) can reject jobs."
+            )
+
+        self._state.status = JobStatus.REJECTED
+        self._state.rejected_by = self.current_user_email
+        self._state.rejected_at = datetime.now(timezone.utc)
+        self._state.rejection_reason = reason
+        self._state.save(self._review_path / "state.yaml")
+        print(f"Job '{self.name}' rejected.")
+
+    def accept_by_depositing_result(self, path: str) -> Path:
+        """
+        Accept a job by depositing the result file or folder and marking as done.
+
+        Args:
+            path: Path to the result file or folder to deposit
+
+        Returns:
+            Path to the deposited result in the review/outputs directory
+
+        Raises:
+            ValueError: If job is not in pending or approved status
+            FileNotFoundError: If the result file or folder doesn't exist
+        """
+        if self._state.status not in (JobStatus.PENDING, JobStatus.APPROVED):
+            raise ValueError(
+                f"Job '{self.name}' is not in pending or approved status (current: {self.status})"
+            )
+
+        result_path = Path(path)
+        if not result_path.exists():
+            raise FileNotFoundError(f"Result path not found: {path}")
+
+        # Create outputs directory in review/
+        outputs_dir = self._review_path / "outputs"
+        outputs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Handle both files and folders
+        result_name = result_path.name
+        destination = outputs_dir / result_name
+
+        if result_path.is_file():
+            shutil.copy2(str(result_path), str(destination))
+        elif result_path.is_dir():
+            shutil.copytree(str(result_path), str(destination))
+        else:
+            raise ValueError(f"Path is neither a file nor a directory: {path}")
+
+        # Update state
+        now = datetime.now(timezone.utc)
+        self._state.status = JobStatus.DONE
+        self._state.approved_by = self._state.approved_by or self.current_user_email
+        self._state.approved_at = self._state.approved_at or now
+        self._state.completed_at = now
+        self._state.return_code = 0
+        self._state.save(self._review_path / "state.yaml")
+
+        print(
+            f"Job '{self.name}' completed successfully! Result deposited at: {destination}"
+        )
+
+        return destination
 
     def rerun(self) -> None:
         """
-        Rerun a job by removing logs, outputs, and done marker file.
+        Rerun a job by cleaning up review/ artifacts and resetting to approved.
 
         Raises:
-            ValueError: If job is not in done status
+            ValueError: If job is not in done or failed status
         """
-        if self.status != "done":
+        if self._state.status not in (JobStatus.DONE, JobStatus.FAILED):
             raise ValueError(
-                f"Job '{self.name}' is not in done status (current: {self.status}). "
-                f"Only completed jobs can be rerun."
+                f"Job '{self.name}' is not in done/failed status (current: {self.status}). "
+                f"Only completed or failed jobs can be rerun."
             )
 
         changes_made = []
 
-        logs_dir = self.location / "logs"
-        if logs_dir.exists() and logs_dir.is_dir():
-            shutil.rmtree(logs_dir)
-            changes_made.append("logs directory")
+        # Clean up review/ artifacts
+        for filename in ("stdout.txt", "stderr.txt", "returncode.txt"):
+            f = self._review_path / filename
+            if f.exists():
+                f.unlink()
+                changes_made.append(filename)
 
-        outputs_dir = self.location / "outputs"
+        outputs_dir = self._review_path / "outputs"
         if outputs_dir.exists() and outputs_dir.is_dir():
             shutil.rmtree(outputs_dir)
             changes_made.append("outputs directory")
 
-        done_file = self.location / "done"
-        if done_file.exists():
-            done_file.unlink()
-            changes_made.append("done marker file")
-
-        self.status = "approved"
+        # Reset state to approved
+        self._state.status = JobStatus.APPROVED
+        self._state.completed_at = None
+        self._state.return_code = None
+        self._state.save(self._review_path / "state.yaml")
 
         if changes_made:
             print(
-                f"🔄 Job '{self.name}' prepared for rerun! Removed: {', '.join(changes_made)}"
+                f"Job '{self.name}' prepared for rerun! Removed: {', '.join(changes_made)}"
             )
         else:
-            print(f"🔄 Job '{self.name}' prepared for rerun! (No cleanup needed)")
+            print(f"Job '{self.name}' prepared for rerun! (No cleanup needed)")
 
-    @property
-    def files(self) -> List[Path]:
-        """
-        Get list of all file paths in the job folder.
-
-        Returns:
-            List of Path objects for all files and directories in the job folder.
-            Empty list if job folder doesn't exist or can't be accessed.
-        """
-        try:
-            if not self.location.exists():
-                return []
-            return [item for item in self.location.iterdir()]
-        except Exception:
-            return []
+    # ──────────────────────────────────────────────
+    # Permissions (review/)
+    # ──────────────────────────────────────────────
 
     def _get_perm_context(self):
         from syft_perm import SyftPermContext
@@ -219,9 +302,9 @@ class JobInfo:
         datasite = self._client.config.syftbox_folder / self.datasite_owner_email
         return SyftPermContext(datasite=datasite)
 
-    def _path_in_datasite(self, subpath: str) -> str:
-        """Return path relative to the datasite for a job subpath."""
-        rel = self.location.relative_to(
+    def _review_path_in_datasite(self, subpath: str) -> str:
+        """Return path relative to the datasite for a review/ subpath."""
+        rel = self._review_path.relative_to(
             self._client.config.syftbox_folder / self.datasite_owner_email
         )
         return str(rel / subpath)
@@ -229,7 +312,7 @@ class JobInfo:
     def share_outputs(self, users: list[str]) -> None:
         """Grant read access to the outputs directory for given users."""
         ctx = self._get_perm_context()
-        outputs_rel = self._path_in_datasite("outputs") + "/"
+        outputs_rel = self._review_path_in_datasite("outputs") + "/"
         folder = ctx.open(outputs_rel)
         for user in users:
             folder.grant_read_access(user)
@@ -238,10 +321,30 @@ class JobInfo:
         """Grant read access to log files (stdout, stderr, returncode) for given users."""
         ctx = self._get_perm_context()
         for filename in ("stdout.txt", "stderr.txt", "returncode.txt"):
-            file_rel = self._path_in_datasite(filename)
+            file_rel = self._review_path_in_datasite(filename)
             f = ctx.open(file_rel)
             for user in users:
                 f.grant_read_access(user)
+
+    # ──────────────────────────────────────────────
+    # Display
+    # ──────────────────────────────────────────────
+
+    def __str__(self) -> str:
+        status_emojis = {
+            "received": "📨",
+            "pending": "📥",
+            "approved": "✅",
+            "rejected": "❌",
+            "running": "🔄",
+            "done": "🎉",
+            "failed": "💥",
+        }
+        emoji = status_emojis.get(self.status, "❓")
+        return f"{emoji} {self.name} ({self.status}) -> {self.datasite_owner_email}"
+
+    def __repr__(self) -> str:
+        return f"JobInfo(name='{self.name}', submitted_by='{self.submitted_by}', current_user_email='{self.current_user_email}', status='{self.status}')"
 
     def _repr_html_(self) -> str:
         return job_info_repr_html(self)
