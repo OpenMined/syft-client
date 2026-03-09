@@ -21,6 +21,7 @@ RETRYABLE_REASONS = {
     "backendError",
     "rateLimitExceeded",
     "userRateLimitExceeded",
+    "badRequest",  # GDrive resumable uploads can return transient 400 "badRequest"
 }
 
 T = TypeVar("T")
