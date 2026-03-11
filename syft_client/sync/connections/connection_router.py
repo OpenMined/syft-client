@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 class ConnectionRouter(BaseModel):
     connections: List[SyftboxPlatformConnection]
 
-    peer_store: PeerStore | None = None
+    peer_store: PeerStore
 
     @classmethod
     def from_configs(cls, connection_configs: List[ConnectionConfig]):
@@ -74,29 +74,6 @@ class ConnectionRouter(BaseModel):
         return self.connections[0]
 
     # =========================================================================
-    # ENCRYPTION HELPERS
-    # =========================================================================
-
-    def _encrypt_bytes(self, recipient_email: str, data: bytes) -> bytes:
-        """Encrypt data if peer requires encryption and keys/bundle are available."""
-        ps = self.peer_store
-        if not ps:
-            return data
-        peer = ps.get_cached_peer(recipient_email)
-        if not peer or not peer.use_encryption:
-            return data
-        if not ps.has_my_keys() or not ps.has_peer_bundle(recipient_email):
-            return data
-        return ps.encrypt(recipient_email, data)
-
-    def _try_decrypt_bytes(self, sender_email: str, data: bytes) -> bytes:
-        """Try to decrypt data; returns data as-is if not possible."""
-        ps = self.peer_store
-        if ps:
-            return ps.try_decrypt(sender_email, data)
-        return data
-
-    # =========================================================================
     # MESSAGE SEND/RECEIVE (with encryption)
     # =========================================================================
 
@@ -104,25 +81,25 @@ class ConnectionRouter(BaseModel):
         self, recipient: str, proposed_file_changes_message: ProposedFileChangesMessage
     ):
         data = proposed_file_changes_message.as_compressed_data()
-        data = self._encrypt_bytes(recipient, data)
+        data = self.peer_store.encrypt_if_needed(recipient, data)
         filename = proposed_file_changes_message.message_filename.as_string()
-        self.connection_for_send_message().send_raw_bytes_to_inbox(
+        self.connection_for_send_message().send_raw_bytes_to_inbox_ds(
             recipient, filename, data
         )
 
     def get_next_proposed_filechange_message(
-        self, sender_email: str = None
+        self, sender_email: str
     ) -> ProposedFileChangesMessage | None:
         connection = self.connection_for_receive_message()
-        if not sender_email:
-            return connection.get_next_proposed_filechange_message(
-                sender_email=sender_email
+        result = (
+            connection.download_next_raw_proposed_message_from_datasite_owner_inbox(
+                sender_email
             )
-        result = connection.download_next_raw_from_inbox(sender_email)
+        )
         if result is None:
             return None
         raw_data, file_id = result
-        raw_data = self._try_decrypt_bytes(sender_email, raw_data)
+        raw_data = self.peer_store.decrypt_if_needed(sender_email, raw_data)
         msg = ProposedFileChangesMessage.from_compressed_data(raw_data)
         msg.platform_id = file_id
         return msg
@@ -131,9 +108,9 @@ class ConnectionRouter(BaseModel):
         self, recipient_email: str, events_message: FileChangeEventsMessage
     ):
         data = events_message.as_compressed_data()
-        data = self._encrypt_bytes(recipient_email, data)
+        data = self.peer_store.encrypt_if_needed(recipient_email, data)
         fname = events_message.message_filepath.as_string()
-        self.connection_for_outbox().write_raw_bytes_to_outbox(
+        self.connection_for_outbox().write_raw_bytes_to_outbox_do(
             recipient_email, fname, data
         )
 
@@ -141,25 +118,15 @@ class ConnectionRouter(BaseModel):
         self, peer_email: str, since_timestamp: float | None
     ) -> List[FileChangeEventsMessage]:
         connection = self.connection_for_datasite_watcher()
-        raw_list = connection.download_raw_events_from_outbox(
+        raw_list = connection.download_raw_events_from_datasite_owner_outbox(
             peer_email, since_timestamp
         )
         return [
             FileChangeEventsMessage.from_compressed_data(
-                self._try_decrypt_bytes(peer_email, raw)
+                self.peer_store.decrypt_if_needed(peer_email, raw)
             )
             for raw in raw_list
         ]
-
-    def download_events_message_by_id_from_outbox(
-        self, file_id: str, peer_email: str | None = None
-    ) -> FileChangeEventsMessage:
-        """Download event message from outbox by ID, decrypting if needed."""
-        connection = self.connection_for_datasite_watcher()
-        raw = connection.download_file(file_id)
-        if peer_email and self.peer_store:
-            raw = self._try_decrypt_bytes(peer_email, raw)
-        return FileChangeEventsMessage.from_compressed_data(raw)
 
     def get_outbox_file_metadatas_for_ds(
         self, peer_email: str, since_timestamp: float | None
@@ -298,7 +265,7 @@ class ConnectionRouter(BaseModel):
         """Upload dataset files, encrypting each file if encryption is enabled."""
         if recipient_email and self.peer_store:
             files = {
-                name: self._encrypt_bytes(recipient_email, data)
+                name: self.peer_store.encrypt_if_needed(recipient_email, data)
                 for name, data in files.items()
             }
         connection = self.connection_for_send_message()
@@ -325,7 +292,7 @@ class ConnectionRouter(BaseModel):
         files = connection.download_dataset_collection(tag, content_hash, owner_email)
         if self.peer_store and owner_email:
             files = {
-                name: self._try_decrypt_bytes(owner_email, data)
+                name: self.peer_store.decrypt_if_needed(owner_email, data)
                 for name, data in files.items()
             }
         return files
@@ -395,7 +362,7 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_datasite_watcher()
         data = connection.download_dataset_file(file_id)
         if owner_email and self.peer_store:
-            data = self._try_decrypt_bytes(owner_email, data)
+            data = self.peer_store.decrypt_if_needed(owner_email, data)
         return data
 
     # =========================================================================

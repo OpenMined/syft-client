@@ -65,8 +65,6 @@ GOOGLE_API_TIMEOUT = 120  # 2 minutes
 SYFTBOX_FOLDER = "SyftBox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SCOPES = ["https://www.googleapis.com/auth/drive"]
-GDRIVE_TRANSPORT_NAME = "gdrive_files"
-
 logging.getLogger("google_auth_httplib2").setLevel(logging.ERROR)
 
 
@@ -305,11 +303,6 @@ class GDriveConnection(SyftboxPlatformConnection):
             return GDriveConnection.from_token_path(self.email, self.token_path)
 
     @property
-    def transport_name(self) -> str:
-        """Get the name of this transport"""
-        return GDRIVE_TRANSPORT_NAME
-
-    @property
     def environment(self) -> Environment:
         return check_env()
 
@@ -456,7 +449,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return pending_peers
 
-    def download_raw_events_from_outbox(
+    def download_raw_events_from_datasite_owner_outbox(
         self, peer_email: str, since_timestamp: float | None
     ) -> list[bytes]:
         folder_id = self._get_peer_datasite_outbox_id(peer_email)
@@ -488,7 +481,9 @@ class GDriveConnection(SyftboxPlatformConnection):
     def get_events_messages_for_datasite_watcher(
         self, peer_email: str, since_timestamp: float | None
     ) -> List[FileChangeEventsMessage]:
-        raw_list = self.download_raw_events_from_outbox(peer_email, since_timestamp)
+        raw_list = self.download_raw_events_from_datasite_owner_outbox(
+            peer_email, since_timestamp
+        )
         return [FileChangeEventsMessage.from_compressed_data(data) for data in raw_list]
 
     def get_outbox_file_metadatas_for_ds(
@@ -518,12 +513,6 @@ class GDriveConnection(SyftboxPlatformConnection):
                         }
                     )
         return result
-
-    def download_events_message_by_id_from_outbox(
-        self, events_message_id: str
-    ) -> FileChangeEventsMessage:
-        """Download from outbox - same as download_events_message_by_id for GDrive."""
-        return self.download_events_message_by_id(events_message_id)
 
     def write_events_message_to_syftbox(self, event_message: FileChangeEventsMessage):
         """Writes to /SyftBox/myemail"""
@@ -581,7 +570,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             result.append(event)
         return result
 
-    def write_raw_bytes_to_outbox(
+    def write_raw_bytes_to_outbox_do(
         self, recipient: str, filename: str, data: bytes
     ) -> None:
         outbox_folder_id = self._get_own_datasite_outbox_id(recipient)
@@ -618,7 +607,7 @@ class GDriveConnection(SyftboxPlatformConnection):
     ):
         data = events_message.as_compressed_data()
         fname = events_message.message_filepath.as_string()
-        self.write_raw_bytes_to_outbox(recipient, fname, data)
+        self.write_raw_bytes_to_outbox_do(recipient, fname, data)
 
     def remove_proposed_filechange_message_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage
@@ -850,15 +839,6 @@ class GDriveConnection(SyftboxPlatformConnection):
         return all_files
 
     @staticmethod
-    def is_message_file(file_metadata: Dict) -> bool:
-        file_name = file_metadata["name"]
-        try:
-            MessageFileName.from_string(file_name)
-            return True
-        except FileNameParseError:
-            return False
-
-    @staticmethod
     def _filter_valid_file_metadatas(
         file_metadatas: List[Dict],
     ) -> List[Dict]:
@@ -900,7 +880,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                 continue
         return res
 
-    def download_next_raw_from_inbox(
+    def download_next_raw_proposed_message_from_datasite_owner_inbox(
         self, sender_email: str
     ) -> tuple[bytes, str] | None:
         inbox_folder_id = self._get_own_datasite_inbox_id(sender_email)
@@ -922,7 +902,7 @@ class GDriveConnection(SyftboxPlatformConnection):
     def get_next_proposed_filechange_message(
         self, sender_email: str
     ) -> ProposedFileChangesMessage | None:
-        result = self.download_next_raw_from_inbox(sender_email)
+        result = self.download_next_raw_proposed_message_from_datasite_owner_inbox(sender_email)
         if result is None:
             return None
         raw_data, file_id = result
@@ -990,7 +970,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             self.own_datasite_outbox_cache[peer_email] = folder_id
         return folder_id
 
-    def send_raw_bytes_to_inbox(
+    def send_raw_bytes_to_inbox_ds(
         self, recipient: str, filename: str, data: bytes
     ) -> None:
         inbox_id = self._get_peer_datasite_inbox_id(recipient)
@@ -1029,7 +1009,7 @@ class GDriveConnection(SyftboxPlatformConnection):
     ):
         data = proposed_file_changes_message.as_compressed_data()
         filename = proposed_file_changes_message.message_filename.as_string()
-        self.send_raw_bytes_to_inbox(recipient, filename, data)
+        self.send_raw_bytes_to_inbox_ds(recipient, filename, data)
 
     def reset_caches(self):
         self._syftbox_folder_id = None

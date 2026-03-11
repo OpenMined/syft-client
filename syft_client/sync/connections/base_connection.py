@@ -86,23 +86,23 @@ class SyftboxPlatformConnection(BaseModel):
     # RAW BYTES TRANSPORT (used by ConnectionRouter for encryption)
     # =========================================================================
 
-    def send_raw_bytes_to_inbox(
+    def send_raw_bytes_to_inbox_ds(
         self, recipient: str, filename: str, data: bytes
     ) -> None:
         raise NotImplementedError()
 
-    def download_next_raw_from_inbox(
+    def download_next_raw_proposed_message_from_datasite_owner_inbox(
         self, sender_email: str
     ) -> tuple[bytes, str] | None:
         """Download next message from inbox as raw bytes. Returns (data, file_id) or None."""
         raise NotImplementedError()
 
-    def write_raw_bytes_to_outbox(
+    def write_raw_bytes_to_outbox_do(
         self, recipient: str, filename: str, data: bytes
     ) -> None:
         raise NotImplementedError()
 
-    def download_raw_events_from_outbox(
+    def download_raw_events_from_datasite_owner_outbox(
         self, peer_email: str, since_timestamp: float | None
     ) -> list[bytes]:
         raise NotImplementedError()
