@@ -187,11 +187,9 @@ class DataSiteWatcherCache(BaseModel):
         # Use per-peer timestamp to avoid filtering out events from other peers
         peer_timestamp = self.last_event_timestamp_per_peer.get(peer_email)
 
-        new_event_messages = (
-            self.connection_router.watcher_get_events_messages(
-                peer_email=peer_email,
-                since_timestamp=peer_timestamp,
-            )
+        new_event_messages = self.connection_router.watcher_get_events_messages(
+            peer_email=peer_email,
+            since_timestamp=peer_timestamp,
         )
         for event_message in sorted(new_event_messages, key=lambda x: x.timestamp):
             self.apply_event_message(event_message)

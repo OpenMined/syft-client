@@ -514,7 +514,9 @@ class GDriveConnection(SyftboxPlatformConnection):
                     )
         return result
 
-    def owner_write_events_message_to_syftbox(self, event_message: FileChangeEventsMessage):
+    def owner_write_events_message_to_syftbox(
+        self, event_message: FileChangeEventsMessage
+    ):
         """Writes to /SyftBox/myemail"""
         personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
         filename = event_message.message_filepath.as_string()

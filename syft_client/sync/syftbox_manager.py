@@ -1129,7 +1129,9 @@ class SyftboxManager(BaseModel):
 
         # Share collection
         if users == "any":
-            self._connection_router.owner_tag_dataset_collection_as_any(tag, content_hash)
+            self._connection_router.owner_tag_dataset_collection_as_any(
+                tag, content_hash
+            )
             self.datasite_owner_syncer._any_shared_datasets.append((tag, content_hash))
             peer_emails = [p.email for p in self.peer_manager.approved_peers]
             if peer_emails:
@@ -1139,7 +1141,9 @@ class SyftboxManager(BaseModel):
         else:
             if isinstance(users, str):
                 users = [users]
-            self._connection_router.owner_share_dataset_collection(tag, content_hash, users)
+            self._connection_router.owner_share_dataset_collection(
+                tag, content_hash, users
+            )
 
         if sync:
             self.sync()

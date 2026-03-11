@@ -185,7 +185,9 @@ def test_sync_existing_inbox_state_do():
         2, email=ds_manager.email
     )
     for message in proposed_events_messages:
-        connection_ds.watcher_send_proposed_file_changes_message(do_manager.email, message)
+        connection_ds.watcher_send_proposed_file_changes_message(
+            do_manager.email, message
+        )
 
     # DO syncs to process inbox messages
     do_manager.sync()
@@ -1428,10 +1430,8 @@ def test_job_files_sync_to_submitter_only():
         for event in msg.events
     ]
 
-    messages_for_submitter = (
-        recipient_connection.watcher_get_events_messages(
-            do_manager.email, None
-        )
+    messages_for_submitter = recipient_connection.watcher_get_events_messages(
+        do_manager.email, None
     )
     paths_for_submitter = [
         str(event.path_in_datasite)
@@ -2005,10 +2005,8 @@ def test_permission_change_triggers_resend():
     recipients = [peer_a_email, peer_b_email]
     do_manager.datasite_owner_syncer.process_local_changes(recipients)
 
-    messages_for_a = (
-        ds_manager._connection_router.watcher_get_events_messages(
-            do_manager.email, None
-        )
+    messages_for_a = ds_manager._connection_router.watcher_get_events_messages(
+        do_manager.email, None
     )
     paths_for_a = [
         str(e.path_in_datasite) for msg in messages_for_a for e in msg.events

@@ -49,7 +49,9 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
         return cls(
             syftbox_folder=config.syftbox_folder,
             email=config.email,
-            connection_router=ConnectionRouter.from_configs(config.email, config.connection_configs),
+            connection_router=ConnectionRouter.from_configs(
+                config.email, config.connection_configs
+            ),
             datasite_watcher_cache=DataSiteWatcherCache.from_config(
                 config.datasite_watcher_cache_config
             ),
@@ -99,7 +101,9 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
         message = ProposedFileChangesMessage(
             sender_email=self.email, proposed_file_changes=file_changes
         )
-        self.connection_router.watcher_send_proposed_file_changes_message(recipient, message)
+        self.connection_router.watcher_send_proposed_file_changes_message(
+            recipient, message
+        )
 
     def on_file_change(
         self, relative_path: Path | str, content: str | None = None, process_now=True

@@ -254,5 +254,3 @@ def test_bundle_exchange_through_peer_approval():
     # DS loads peers again to pick up DO's bundle
     ds_manager.load_peers()
     assert ds_ps.has_peer_bundle(do_manager.email)
-
-

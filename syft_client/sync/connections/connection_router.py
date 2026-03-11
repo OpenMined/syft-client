@@ -92,10 +92,8 @@ class ConnectionRouter(BaseModel):
         self, sender_email: str
     ) -> ProposedFileChangesMessage | None:
         connection = self.connection_for_receive_message()
-        result = (
-            connection.owner_download_next_raw_proposed_message_from_inbox(
-                sender_email
-            )
+        result = connection.owner_download_next_raw_proposed_message_from_inbox(
+            sender_email
         )
         if result is None:
             return None
@@ -143,7 +141,9 @@ class ConnectionRouter(BaseModel):
     # EVENT LOG (NOT encrypted — own personal storage)
     # =========================================================================
 
-    def owner_write_events_message_to_syftbox(self, events_message: FileChangeEventsMessage):
+    def owner_write_events_message_to_syftbox(
+        self, events_message: FileChangeEventsMessage
+    ):
         connection = self.connection_for_eventlog()
         connection.owner_write_events_message_to_syftbox(events_message)
 
@@ -290,7 +290,9 @@ class ConnectionRouter(BaseModel):
         self, tag: str, content_hash: str, owner_email: str
     ) -> dict[str, bytes]:
         connection = self.connection_for_datasite_watcher()
-        files = connection.watcher_download_dataset_collection(tag, content_hash, owner_email)
+        files = connection.watcher_download_dataset_collection(
+            tag, content_hash, owner_email
+        )
         if self.peer_store and owner_email:
             files = {
                 name: self.peer_store.decrypt_if_needed(owner_email, data)

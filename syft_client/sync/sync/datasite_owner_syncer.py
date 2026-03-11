@@ -95,7 +95,9 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         return cls(
             event_cache=DataSiteOwnerEventCache.from_config(config.cache_config),
             write_files=config.write_files,
-            connection_router=ConnectionRouter.from_configs(config.email, config.connection_configs),
+            connection_router=ConnectionRouter.from_configs(
+                config.email, config.connection_configs
+            ),
             email=config.email,
             syftbox_folder=config.syftbox_folder,
             perm_context=SyftPermContext(datasite=datasite),
