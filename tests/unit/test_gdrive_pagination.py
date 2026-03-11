@@ -95,7 +95,7 @@ def test_events_returned_in_chronological_order(mock_download_file, mock_get_fol
 
     mock_download_file.side_effect = mock_download
 
-    events = conn.get_events_messages_for_datasite_watcher("peer@test.com", None)
+    events = conn.watcher_get_events_messages("peer@test.com", None)
 
     # Should return in chronological order (1.0, 2.0, 3.0)
     timestamps = [e.timestamp for e in events]

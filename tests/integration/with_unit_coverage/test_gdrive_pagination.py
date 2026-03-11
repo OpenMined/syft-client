@@ -67,7 +67,7 @@ def test_pagination_and_early_termination():
     # Test early termination
     connection = manager_ds.datasite_watcher_syncer.datasite_watcher_cache.connection_router.connection_for_datasite_watcher()
 
-    new_events = connection.get_events_messages_for_datasite_watcher(
+    new_events = connection.watcher_get_events_messages(
         EMAIL_DO, since_timestamp=checkpoint_timestamp
     )
 

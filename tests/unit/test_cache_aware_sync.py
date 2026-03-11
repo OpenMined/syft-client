@@ -22,7 +22,7 @@ def test_do_incremental_sync_downloads_only_new_events():
     # Add initial 3 events to the personal SyftBox folder
     initial_events = get_mock_events_messages(3)
     for event in initial_events:
-        do_manager._connection_router.write_events_message_to_syftbox(event)
+        do_manager._connection_router.owner_write_events_message_to_syftbox(event)
 
     do_manager.sync()
 
@@ -35,7 +35,7 @@ def test_do_incremental_sync_downloads_only_new_events():
     # Add 2 more events to backend
     additional_events = get_mock_events_messages(2)
     for event in additional_events:
-        do_manager._connection_router.write_events_message_to_syftbox(event)
+        do_manager._connection_router.owner_write_events_message_to_syftbox(event)
 
     # Create a NEW SyftboxManager with the same cache directory (simulating restart)
     new_do_manager = do_manager._copy()
@@ -90,7 +90,7 @@ def test_ds_incremental_sync_downloads_only_new_events():
     # Add initial 3 events to DO's outbox for DS
     initial_events = get_mock_events_messages(3)
     for event in initial_events:
-        do_manager._connection_router.write_event_messages_to_outbox_do(
+        do_manager._connection_router.owner_write_event_messages_to_outbox(
             ds_manager.email, event
         )
 
@@ -110,7 +110,7 @@ def test_ds_incremental_sync_downloads_only_new_events():
     time.sleep(0.01)  # Ensure new events have later timestamps
     additional_events = get_mock_events_messages(2)
     for event in additional_events:
-        do_manager._connection_router.write_event_messages_to_outbox_do(
+        do_manager._connection_router.owner_write_event_messages_to_outbox(
             ds_manager.email, event
         )
 
@@ -236,6 +236,7 @@ def test_ds_cache_handles_deletions_correctly():
     from syft_client.sync.syftbox_manager import COLLECTION_SUBPATH
 
     config = DataSiteWatcherCacheConfig(
+        email=do_manager.email,
         use_in_memory_cache=False,
         syftbox_folder=syftbox_folder,
         collection_subpath=COLLECTION_SUBPATH,

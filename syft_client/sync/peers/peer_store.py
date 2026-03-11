@@ -49,6 +49,20 @@ class PeerStore(BaseModel):
                 return p
         return None
 
+    def encrypt_if_needed(self, email: str, data: bytes) -> bytes:
+        if self.peer_uses_encryption(email):
+            return self.encrypt(email, data)
+        return data
+
+    def decrypt_if_needed(self, email: str, data: bytes) -> bytes:
+        if self.peer_uses_encryption(email):
+            return self.decrypt(email, data)
+        return data
+
+    def peer_uses_encryption(self, email: str) -> bool:
+        peer = self.get_cached_peer(email)
+        return peer is not None and peer.use_encryption
+
     def add_peer(self, peer: Peer) -> None:
         peer.use_encryption = self.use_encryption
         self._peers.append(peer)
@@ -115,14 +129,6 @@ class PeerStore(BaseModel):
             raise ValueError(f"No public key for peer {sender_email}")
         parsed = syc.parse_envelope(envelope)
         return syc.decrypt_message(self.email, self._keys, sender_bundle, parsed)
-
-    def try_decrypt(self, sender_email: str, data: bytes) -> bytes:
-        if not self.has_my_keys() or not self.has_peer_bundle(sender_email):
-            return data
-        try:
-            return self.decrypt(sender_email, data)
-        except Exception:
-            return data
 
     # ========== Persistence ==========
 

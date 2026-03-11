@@ -146,8 +146,8 @@ def test_sync_existing_datasite_state_do():
     events_messages = get_mock_events_messages(2)
 
     for message in events_messages:
-        connection_do.write_events_message_to_syftbox(message)
-        connection_do.write_event_messages_to_outbox_do(
+        connection_do.owner_write_events_message_to_syftbox(message)
+        connection_do.owner_write_event_messages_to_outbox(
             ds_manager.email, events_messages[0]
         )
 
@@ -161,7 +161,7 @@ def test_sync_existing_datasite_state_do():
     n_files_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_connection)
     hashes_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_hashes)
 
-    n_outbox = connection_ds.get_outbox_file_metadatas_for_ds(do_manager.email, None)
+    n_outbox = connection_ds.watcher_get_outbox_file_metadatas(do_manager.email, None)
     assert n_messages_in_cache >= 1  # At least 1 message with the 2 file changes
     assert n_files_in_cache == 3  # 2 data files + syft.pub.yaml permission file
     assert hashes_in_cache == 3  # 2 data files + syft.pub.yaml permission file
@@ -185,7 +185,7 @@ def test_sync_existing_inbox_state_do():
         2, email=ds_manager.email
     )
     for message in proposed_events_messages:
-        connection_ds.send_proposed_file_changes_message(do_manager.email, message)
+        connection_ds.watcher_send_proposed_file_changes_message(do_manager.email, message)
 
     # DO syncs to process inbox messages
     do_manager.sync()
@@ -212,7 +212,7 @@ def test_sync_existing_datasite_state_ds():
     connection_do = do_manager._connection_router.connections[0]
     events_messages = get_mock_events_messages(2)
     for message in events_messages:
-        connection_do.write_event_messages_to_outbox_do(ds_manager.email, message)
+        connection_do.owner_write_event_messages_to_outbox(ds_manager.email, message)
 
     ds_manager.sync()
 
@@ -309,7 +309,7 @@ def test_datasets():
     )
 
     # Verify collection created
-    collections = do_manager._connection_router.list_dataset_collections_as_do()
+    collections = do_manager._connection_router.owner_list_dataset_collections()
     assert "my dataset" in collections
 
     datasets = do_manager.datasets.get_all()
@@ -324,7 +324,7 @@ def test_datasets():
     ds_manager.sync()
 
     # Verify DS can see collection
-    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.watcher_list_dataset_collections()
     assert any(c["tag"] == "my dataset" for c in ds_collections)
 
     assert len(ds_manager.datasets.get_all()) == 1
@@ -443,7 +443,7 @@ def test_dataset_empty_permissions_no_access():
     )
 
     # Verify collection created
-    collections = do_manager._connection_router.list_dataset_collections_as_do()
+    collections = do_manager._connection_router.owner_list_dataset_collections()
     assert "private dataset" in collections
 
     # DO should be able to see their own dataset
@@ -454,7 +454,7 @@ def test_dataset_empty_permissions_no_access():
     ds_manager.sync()
 
     # DS should NOT see the collection (no permissions)
-    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.watcher_list_dataset_collections()
     assert not any(c["tag"] == "private dataset" for c in ds_collections)
 
     # DS should not have downloaded any datasets
@@ -1417,7 +1417,7 @@ def test_job_files_sync_to_submitter_only():
     do_manager.datasite_owner_syncer.process_local_changes(recipients)
 
     messages_for_non_submitter = (
-        ds_manager._connection_router.get_events_messages_for_datasite_watcher(
+        ds_manager._connection_router.watcher_get_events_messages(
             do_manager.email, None
         )
     )
@@ -1429,7 +1429,7 @@ def test_job_files_sync_to_submitter_only():
     ]
 
     messages_for_submitter = (
-        recipient_connection.get_events_messages_for_datasite_watcher(
+        recipient_connection.watcher_get_events_messages(
             do_manager.email, None
         )
     )
@@ -1492,7 +1492,7 @@ def test_ds_dataset_cache_aware_sync():
     assert dataset.mock_files[0].exists()
 
     # Get the original hash from the collection
-    collections = ds_manager._connection_router.list_dataset_collections_as_ds()
+    collections = ds_manager._connection_router.watcher_list_dataset_collections()
     remote_hash = None
     for c in collections:
         if c["tag"] == "cached dataset":
@@ -1722,7 +1722,7 @@ def test_in_memory_connection_load_state():
     )
 
     # Verify dataset was created and cache populated
-    assert len(do_manager1._connection_router.list_dataset_collections_as_do()) == 1
+    assert len(do_manager1._connection_router.owner_list_dataset_collections()) == 1
     assert len(do_manager1.datasite_owner_syncer._any_shared_datasets) == 1
 
     # Create second pair (simulates restart, tests loading peers and processing inbox)
@@ -1813,7 +1813,7 @@ def test_datasets_shared_with_any():
     )
 
     # DS should NOT see the dataset yet (not approved)
-    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.watcher_list_dataset_collections()
     assert not any(c["tag"] == "any dataset" for c in ds_collections)
 
     # DS adds peer, DO approves (this should share 'any' datasets)
@@ -1822,7 +1822,7 @@ def test_datasets_shared_with_any():
     do_manager.approve_peer_request(ds_manager.email, peer_must_exist=False)
 
     # DS should now see the dataset
-    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.watcher_list_dataset_collections()
     assert any(c["tag"] == "any dataset" for c in ds_collections)
 
 
@@ -1860,7 +1860,7 @@ def test_datasets_shared_with_any_after_peer_approved():
     )
 
     # DS should see the dataset immediately (shared at creation time)
-    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.watcher_list_dataset_collections()
     assert any(c["tag"] == "late any dataset" for c in ds_collections)
 
 
@@ -2006,7 +2006,7 @@ def test_permission_change_triggers_resend():
     do_manager.datasite_owner_syncer.process_local_changes(recipients)
 
     messages_for_a = (
-        ds_manager._connection_router.get_events_messages_for_datasite_watcher(
+        ds_manager._connection_router.watcher_get_events_messages(
             do_manager.email, None
         )
     )
@@ -2014,7 +2014,7 @@ def test_permission_change_triggers_resend():
         str(e.path_in_datasite) for msg in messages_for_a for e in msg.events
     ]
 
-    messages_for_b = peer_b_connection.get_events_messages_for_datasite_watcher(
+    messages_for_b = peer_b_connection.watcher_get_events_messages(
         do_manager.email, None
     )
     paths_for_b = [
@@ -2032,7 +2032,7 @@ def test_permission_change_triggers_resend():
     # Second sync: peer B should receive data.txt via resend
     do_manager.datasite_owner_syncer.process_local_changes(recipients)
 
-    messages_for_b_after = peer_b_connection.get_events_messages_for_datasite_watcher(
+    messages_for_b_after = peer_b_connection.watcher_get_events_messages(
         do_manager.email, None
     )
     paths_for_b_after = [

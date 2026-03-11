@@ -62,14 +62,16 @@ def test_encrypt_without_peer_bundle_raises():
 def test_try_decrypt_no_keys():
     ps = PeerStore(email="alice@example.com", use_encryption=True)
     data = b"some unencrypted data"
-    assert ps.try_decrypt("bob@example.com", data) == data
+    with pytest.raises(ValueError, match="No private key"):
+        ps.decrypt("bob@example.com", data) == data
 
 
 def test_try_decrypt_no_peer_bundle():
     ps = PeerStore(email="alice@example.com", use_encryption=True)
     ps.generate_keys()
     data = b"some unencrypted data"
-    assert ps.try_decrypt("bob@example.com", data) == data
+    with pytest.raises(ValueError, match="No public key for peer"):
+        ps.decrypt("bob@example.com", data) == data
 
 
 def test_try_decrypt_invalid_envelope():
@@ -85,8 +87,8 @@ def test_try_decrypt_invalid_envelope():
     bob.set_peer_bundle("alice@example.com", alice.get_public_bundle())
 
     bad_data = b"not encrypted at all"
-    result = bob.try_decrypt("alice@example.com", bad_data)
-    assert result == bad_data
+    with pytest.raises(ValueError, match="Serialization error"):
+        bob.decrypt("alice@example.com", bad_data)
 
 
 def test_save_and_load_keys():
@@ -188,6 +190,9 @@ def test_encrypted_sync_down_ds():
         encryption=True,
     )
 
+    # DS needs DO's bundle to decrypt
+    ds_manager.load_peers()
+
     # DS sends a file
     file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/test.job"
     ds_manager._send_file_change(file_path, "test data")
@@ -251,25 +256,3 @@ def test_bundle_exchange_through_peer_approval():
     assert ds_ps.has_peer_bundle(do_manager.email)
 
 
-def test_unencrypted_fallback_when_no_bundles():
-    """Messages sent without encryption can be read by encrypted client."""
-    ds_no_enc, do_no_enc = SyftboxManager.pair_with_mock_drive_service_connection(
-        encryption=False,
-    )
-
-    # Send unencrypted message
-    file_path = f"{do_no_enc.email}/app_data/job/{ds_no_enc.email}/test.job"
-    ds_no_enc._send_file_change(file_path, "plain text")
-
-    # Now enable encryption on DO side for receiving
-    from syft_client.sync.peers.peer_store import PeerStore
-
-    ps = PeerStore(email=do_no_enc.email, use_encryption=True)
-    ps.generate_keys()
-    do_no_enc._set_peer_store(ps)
-
-    # DO syncs - should still be able to read unencrypted message via try_decrypt
-    do_no_enc.sync()
-
-    events = do_no_enc._get_all_accepted_events_do()
-    assert len(events) > 0

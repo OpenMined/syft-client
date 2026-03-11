@@ -449,7 +449,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return pending_peers
 
-    def download_raw_events_from_datasite_owner_outbox(
+    def watcher_download_raw_events_from_outbox(
         self, peer_email: str, since_timestamp: float | None
     ) -> list[bytes]:
         folder_id = self._get_peer_datasite_outbox_id(peer_email)
@@ -478,15 +478,15 @@ class GDriveConnection(SyftboxPlatformConnection):
                 res.append(self.download_file(name_to_id[file_name]))
         return res
 
-    def get_events_messages_for_datasite_watcher(
+    def watcher_get_events_messages(
         self, peer_email: str, since_timestamp: float | None
     ) -> List[FileChangeEventsMessage]:
-        raw_list = self.download_raw_events_from_datasite_owner_outbox(
+        raw_list = self.watcher_download_raw_events_from_outbox(
             peer_email, since_timestamp
         )
         return [FileChangeEventsMessage.from_compressed_data(data) for data in raw_list]
 
-    def get_outbox_file_metadatas_for_ds(
+    def watcher_get_outbox_file_metadatas(
         self, peer_email: str, since_timestamp: float | None
     ) -> List[Dict]:
         """Get file metadata from peer's outbox folder without downloading."""
@@ -514,7 +514,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                     )
         return result
 
-    def write_events_message_to_syftbox(self, event_message: FileChangeEventsMessage):
+    def owner_write_events_message_to_syftbox(self, event_message: FileChangeEventsMessage):
         """Writes to /SyftBox/myemail"""
         personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
         filename = event_message.message_filepath.as_string()
@@ -534,13 +534,13 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.personal_syftbox_event_id_cache[filename] = gdrive_id
         return gdrive_id
 
-    def download_events_message_by_id(
+    def owner_download_events_message_by_id(
         self, events_message_id: str
     ) -> FileChangeEventsMessage:
         file_data = self.download_file(events_message_id)
         return FileChangeEventsMessage.from_compressed_data(file_data)
 
-    def get_all_accepted_event_file_ids_do(
+    def owner_get_all_accepted_event_file_ids(
         self, since_timestamp: float | None = None
     ) -> List[str]:
         personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
@@ -550,7 +550,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         valid_fname_objs = self._filter_valid_file_metadatas(file_metadatas)
         return [f["id"] for f in valid_fname_objs]
 
-    def get_all_events_messages_do(self) -> List[FileChangeEventsMessage]:
+    def owner_get_all_events_messages(self) -> List[FileChangeEventsMessage]:
         """Reads from /SyftBox/myemail"""
         personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
         file_metadatas = self.get_file_metadatas_from_folder(personal_syftbox_folder_id)
@@ -570,7 +570,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             result.append(event)
         return result
 
-    def write_raw_bytes_to_outbox_do(
+    def owner_write_raw_bytes_to_outbox(
         self, recipient: str, filename: str, data: bytes
     ) -> None:
         outbox_folder_id = self._get_own_datasite_outbox_id(recipient)
@@ -602,14 +602,14 @@ class GDriveConnection(SyftboxPlatformConnection):
                 )
             )
 
-    def write_event_messages_to_outbox_do(
+    def owner_write_event_messages_to_outbox(
         self, recipient: str, events_message: FileChangeEventsMessage
     ):
         data = events_message.as_compressed_data()
         fname = events_message.message_filepath.as_string()
-        self.write_raw_bytes_to_outbox_do(recipient, fname, data)
+        self.owner_write_raw_bytes_to_outbox(recipient, fname, data)
 
-    def remove_proposed_filechange_message_from_inbox(
+    def owner_remove_proposed_filechange_message_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage
     ):
         fname = proposed_filechange_message.message_filename.as_string()
@@ -627,7 +627,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             self.drive_service.files().get(fileId=gdrive_id, fields="parents")
         )
         previous_parents = ",".join(file_info.get("parents", []))
-        archive_folder_id = self.get_archive_folder_id_as_do(sender_email)
+        archive_folder_id = self.owner_get_archive_folder_id(sender_email)
         execute_with_retries(
             self.drive_service.files().update(
                 fileId=gdrive_id,
@@ -727,7 +727,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         items = results.get("files", [])
         return items[0]["id"] if items else None
 
-    def get_archive_folder_id_as_do(self, sender_email: str) -> str:
+    def owner_get_archive_folder_id(self, sender_email: str) -> str:
         if sender_email in self.archive_folder_id_cache:
             return self.archive_folder_id_cache[sender_email]
         else:
@@ -880,7 +880,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                 continue
         return res
 
-    def download_next_raw_proposed_message_from_datasite_owner_inbox(
+    def owner_download_next_raw_proposed_message_from_inbox(
         self, sender_email: str
     ) -> tuple[bytes, str] | None:
         inbox_folder_id = self._get_own_datasite_inbox_id(sender_email)
@@ -899,10 +899,10 @@ class GDriveConnection(SyftboxPlatformConnection):
         raw_data = self.download_file(first_file_id)
         return raw_data, first_file_id
 
-    def get_next_proposed_filechange_message(
+    def owner_get_next_proposed_filechange_message(
         self, sender_email: str
     ) -> ProposedFileChangesMessage | None:
-        result = self.download_next_raw_proposed_message_from_datasite_owner_inbox(sender_email)
+        result = self.owner_download_next_raw_proposed_message_from_inbox(sender_email)
         if result is None:
             return None
         raw_data, file_id = result
@@ -970,7 +970,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             self.own_datasite_outbox_cache[peer_email] = folder_id
         return folder_id
 
-    def send_raw_bytes_to_inbox_ds(
+    def watcher_send_raw_bytes_to_inbox(
         self, recipient: str, filename: str, data: bytes
     ) -> None:
         inbox_id = self._get_peer_datasite_inbox_id(recipient)
@@ -1002,14 +1002,14 @@ class GDriveConnection(SyftboxPlatformConnection):
                 )
             )
 
-    def send_proposed_file_changes_message(
+    def watcher_send_proposed_file_changes_message(
         self,
         recipient: str,
         proposed_file_changes_message: ProposedFileChangesMessage,
     ):
         data = proposed_file_changes_message.as_compressed_data()
         filename = proposed_file_changes_message.message_filename.as_string()
-        self.send_raw_bytes_to_inbox_ds(recipient, filename, data)
+        self.watcher_send_raw_bytes_to_inbox(recipient, filename, data)
 
     def reset_caches(self):
         self._syftbox_folder_id = None
@@ -1214,7 +1214,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         items = results.get("files", [])
         return items[0]["id"] if items else None
 
-    def create_dataset_collection_folder(
+    def owner_create_dataset_collection_folder(
         self, tag: str, content_hash: str, owner_email: str
     ) -> str:
         """Create /SyftBox/{DATASET_COLLECTION_PREFIX}_{tag}_{hash} folder."""
@@ -1239,7 +1239,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.dataset_collection_folder_id_cache[cache_key] = folder_id
         return folder_id
 
-    def tag_dataset_collection_as_any(self, tag: str, content_hash: str) -> None:
+    def owner_tag_dataset_collection_as_any(self, tag: str, content_hash: str) -> None:
         """Mark dataset collection as shared with 'any' via appProperties."""
         folder_id = self._get_dataset_collection_folder_id(tag, content_hash)
         execute_with_retries(
@@ -1249,7 +1249,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             )
         )
 
-    def share_dataset_collection(
+    def owner_share_dataset_collection(
         self, tag: str, content_hash: str, users: list[str]
     ) -> None:
         """Share dataset collection folder with specific users via batch API."""
@@ -1286,7 +1286,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                 )
             batch_execute_with_retries(batch)
 
-    def upload_dataset_files(
+    def owner_upload_dataset_files(
         self, tag: str, content_hash: str, files: dict[str, bytes]
     ) -> None:
         """Upload dataset files to collection folder."""
@@ -1303,7 +1303,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                 )
             )
 
-    def list_dataset_collections_as_do(self) -> list[str]:
+    def owner_list_dataset_collections(self) -> list[str]:
         """List collections created by DO (owned by me)."""
         syftbox_folder_id = self.get_syftbox_folder_id()
         query = (
@@ -1324,7 +1324,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                 continue
         return result
 
-    def list_all_dataset_collections_as_do_with_permissions(
+    def owner_list_all_dataset_collections_with_permissions(
         self,
     ) -> list[FileCollection]:
         """List all DO's dataset collections with permissions info."""
@@ -1361,7 +1361,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return collections
 
-    def list_dataset_collections_as_ds(self) -> list[dict]:
+    def watcher_list_dataset_collections(self) -> list[dict]:
         """List collections shared with DS (not owned by me).
 
         Returns list of dicts with keys: owner_email, tag, content_hash
@@ -1394,7 +1394,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                 continue
         return result
 
-    def download_dataset_collection(
+    def watcher_download_dataset_collection(
         self, tag: str, content_hash: str, owner_email: str
     ) -> dict[str, bytes]:
         """Download all files from a dataset collection."""
@@ -1415,7 +1415,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return files
 
-    def get_dataset_collection_file_metadatas(
+    def watcher_get_dataset_collection_file_metadatas(
         self, tag: str, content_hash: str, owner_email: str
     ) -> List[Dict]:
         """Get file metadata from a dataset collection without downloading."""
@@ -1429,7 +1429,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         file_metadatas = self.get_file_metadatas_from_folder(folder_id)
         return [{"file_id": f["id"], "file_name": f["name"]} for f in file_metadatas]
 
-    def download_dataset_file(self, file_id: str) -> bytes:
+    def watcher_download_dataset_file(self, file_id: str) -> bytes:
         """Download a single file from a dataset collection."""
         return self.download_file(file_id)
 
@@ -1456,7 +1456,7 @@ class GDriveConnection(SyftboxPlatformConnection):
     # PRIVATE DATASET COLLECTION METHODS
     # =========================================================================
 
-    def create_private_dataset_collection_folder(
+    def owner_create_private_dataset_collection_folder(
         self, tag: str, content_hash: str, owner_email: str
     ) -> str:
         """Create /SyftBox/{PRIVATE_DATASET_COLLECTION_PREFIX}_{tag}_{hash} folder.
@@ -1480,7 +1480,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.dataset_collection_folder_id_cache[cache_key] = folder_id
         return folder_id
 
-    def upload_private_dataset_files(
+    def owner_upload_private_dataset_files(
         self, tag: str, content_hash: str, files: dict[str, bytes]
     ) -> None:
         """Upload files to a private dataset collection folder."""
@@ -1495,7 +1495,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                 )
             )
 
-    def list_private_dataset_collections_as_do(self) -> list[FileCollection]:
+    def owner_list_private_dataset_collections(self) -> list[FileCollection]:
         """List private collections owned by DO."""
         syftbox_folder_id = self.get_syftbox_folder_id()
         query = (
@@ -1523,7 +1523,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                 continue
         return collections
 
-    def get_private_collection_file_metadatas(
+    def owner_get_private_collection_file_metadatas(
         self, tag: str, content_hash: str, owner_email: str
     ) -> List[Dict]:
         """Get file metadata from a private dataset collection without downloading."""

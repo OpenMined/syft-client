@@ -78,7 +78,7 @@ class PeerManager(BaseModel):
     def from_config(cls, config: PeerManagerConfig, email: str = "") -> "PeerManager":
         """Create a PeerManager from a config."""
         peer_store = PeerStore(email=email, use_encryption=config.use_encryption)
-        connection_router = ConnectionRouter.from_configs(config.connection_configs)
+        connection_router = ConnectionRouter.from_configs(email, config.connection_configs)
         connection_router.peer_store = peer_store
         return cls(
             connection_router=connection_router,

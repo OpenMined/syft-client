@@ -111,6 +111,7 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                email=email,
                 use_in_memory_cache=use_in_memory_cache,
                 syftbox_folder=syftbox_folder,
                 collection_subpath=COLLECTION_SUBPATH,
@@ -179,6 +180,7 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                email=email,
                 use_in_memory_cache=False,
                 syftbox_folder=syftbox_folder,
                 collection_subpath=COLLECTION_SUBPATH,
@@ -242,6 +244,7 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             syftbox_folder=syftbox_folder,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                email=email,
                 use_in_memory_cache=use_in_memory_cache,
                 syftbox_folder=syftbox_folder,
                 collection_subpath=COLLECTION_SUBPATH,
@@ -314,6 +317,7 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                email=email,
                 use_in_memory_cache=use_in_memory_cache,
                 syftbox_folder=syftbox_folder,
                 collection_subpath=COLLECTION_SUBPATH,
@@ -846,7 +850,7 @@ class SyftboxManager(BaseModel):
         """
         for tag, content_hash in self.datasite_owner_syncer._any_shared_datasets:
             try:
-                self._connection_router.share_dataset_collection(
+                self._connection_router.owner_share_dataset_collection(
                     tag, content_hash, [peer_email]
                 )
             except Exception:
@@ -961,7 +965,7 @@ class SyftboxManager(BaseModel):
         self.file_writer.write_file(path, content)
 
     def _get_all_accepted_events_do(self) -> List[FileChangeEvent]:
-        return self.datasite_owner_syncer.connection_router.get_all_accepted_events_messages_do()
+        return self.datasite_owner_syncer.connection_router.owner_get_all_accepted_events_messages()
 
     def create_dataset(
         self,
@@ -1022,18 +1026,18 @@ class SyftboxManager(BaseModel):
         content_hash = DatasetCollectionFolder.compute_hash(files)
 
         # Create collection folder with hash in name
-        self._connection_router.create_dataset_collection_folder(
+        self._connection_router.owner_create_dataset_collection_folder(
             tag=collection_tag, content_hash=content_hash, owner_email=self.email
         )
 
         # Upload files
-        self._connection_router.upload_dataset_files(
+        self._connection_router.owner_upload_dataset_files(
             collection_tag, content_hash, files
         )
 
         # Share with users
         if users == "any":
-            self._connection_router.tag_dataset_collection_as_any(
+            self._connection_router.owner_tag_dataset_collection_as_any(
                 collection_tag, content_hash
             )
             self.datasite_owner_syncer._any_shared_datasets.append(
@@ -1042,11 +1046,11 @@ class SyftboxManager(BaseModel):
             # Share with all already-approved peers
             peer_emails = [p.email for p in self.peer_manager.approved_peers]
             if peer_emails:
-                self._connection_router.share_dataset_collection(
+                self._connection_router.owner_share_dataset_collection(
                     collection_tag, content_hash, peer_emails
                 )
         else:
-            self._connection_router.share_dataset_collection(
+            self._connection_router.owner_share_dataset_collection(
                 collection_tag, content_hash, users
             )
 
@@ -1070,12 +1074,12 @@ class SyftboxManager(BaseModel):
         content_hash = PrivateDatasetCollectionFolder.compute_hash(files)
 
         # Create private collection folder (no sharing)
-        self._connection_router.create_private_dataset_collection_folder(
+        self._connection_router.owner_create_private_dataset_collection_folder(
             tag=collection_tag, content_hash=content_hash, owner_email=self.email
         )
 
         # Upload files
-        self._connection_router.upload_private_dataset_files(
+        self._connection_router.owner_upload_private_dataset_files(
             collection_tag, content_hash, files
         )
 
@@ -1125,17 +1129,17 @@ class SyftboxManager(BaseModel):
 
         # Share collection
         if users == "any":
-            self._connection_router.tag_dataset_collection_as_any(tag, content_hash)
+            self._connection_router.owner_tag_dataset_collection_as_any(tag, content_hash)
             self.datasite_owner_syncer._any_shared_datasets.append((tag, content_hash))
             peer_emails = [p.email for p in self.peer_manager.approved_peers]
             if peer_emails:
-                self._connection_router.share_dataset_collection(
+                self._connection_router.owner_share_dataset_collection(
                     tag, content_hash, peer_emails
                 )
         else:
             if isinstance(users, str):
                 users = [users]
-            self._connection_router.share_dataset_collection(tag, content_hash, users)
+            self._connection_router.owner_share_dataset_collection(tag, content_hash, users)
 
         if sync:
             self.sync()
@@ -1218,7 +1222,7 @@ class SyftboxManager(BaseModel):
         msg = FileChangeEventsMessage(events=events)
         for peer_email in peer_emails:
             try:
-                self._connection_router.write_event_messages_to_outbox_do(
+                self._connection_router.owner_write_event_messages_to_outbox(
                     peer_email, msg
                 )
             except Exception:

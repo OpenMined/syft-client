@@ -209,7 +209,7 @@ def test_datasets_shared_with_any():
     )
 
     # DS should NOT see the dataset yet (not approved)
-    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.watcher_list_dataset_collections()
     assert not any(c["tag"] == "any dataset" for c in ds_collections)
 
     # DS adds peer, DO approves (this should share 'any' datasets)
@@ -220,7 +220,7 @@ def test_datasets_shared_with_any():
     # DS should now see the dataset
     # Google Drive search index takes time to propagate permission changes
     time.sleep(5)
-    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.watcher_list_dataset_collections()
     assert any(c["tag"] == "any dataset" for c in ds_collections)
 
 
