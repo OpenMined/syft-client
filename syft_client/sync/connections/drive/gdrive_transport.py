@@ -489,9 +489,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         self, peer_email: str, since_timestamp: float | None
     ) -> List[FileChangeEventsMessage]:
         raw_list = self.download_raw_events_from_outbox(peer_email, since_timestamp)
-        return [
-            FileChangeEventsMessage.from_compressed_data(data) for data in raw_list
-        ]
+        return [FileChangeEventsMessage.from_compressed_data(data) for data in raw_list]
 
     def get_outbox_file_metadatas_for_ds(
         self, peer_email: str, since_timestamp: float | None
@@ -912,9 +910,9 @@ class GDriveConnection(SyftboxPlatformConnection):
         valid_file_names = self._get_valid_messages_from_file_metadatas(file_metadatas)
         if len(valid_file_names) == 0:
             return None
-        first_file_name = sorted(
-            valid_file_names, key=lambda x: x.submitted_timestamp
-        )[0]
+        first_file_name = sorted(valid_file_names, key=lambda x: x.submitted_timestamp)[
+            0
+        ]
         first_file_id = [
             x for x in file_metadatas if x["name"] == first_file_name.as_string()
         ][0]["id"]

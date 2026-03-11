@@ -30,9 +30,7 @@ def test_peer_request_blocks_sync_until_approved():
     do_manager.load_peers()
     assert len(do_manager.peer_manager.requested_by_peer_peers) == 1
     assert len(do_manager.peer_manager.approved_peers) == 0
-    assert (
-        do_manager.peer_manager.requested_by_peer_peers[0].email == ds_manager.email
-    )
+    assert do_manager.peer_manager.requested_by_peer_peers[0].email == ds_manager.email
 
     # Step 2: DS submits a file to their job folder
     job_file_path = path_for_job(do_manager.email, ds_manager.email)

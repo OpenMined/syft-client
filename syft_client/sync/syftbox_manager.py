@@ -456,7 +456,9 @@ class SyftboxManager(BaseModel):
                 config.datasite_watcher_syncer_config
             )
 
-        peer_manager = PeerManager.from_config(config.peer_manager_config, email=config.email)
+        peer_manager = PeerManager.from_config(
+            config.peer_manager_config, email=config.email
+        )
 
         manager_res = cls(
             syftbox_folder=config.syftbox_folder,

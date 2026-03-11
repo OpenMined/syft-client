@@ -128,18 +128,14 @@ class TestPeerManager:
         )
 
         # Before adding peer, DO cannot read DS's version
-        ds_version_before = do_manager.peer_manager.load_peer_version(
-            ds_manager.email
-        )
+        ds_version_before = do_manager.peer_manager.load_peer_version(ds_manager.email)
         assert ds_version_before is None, "DO should not be able to read DS version yet"
 
         # DS adds DO as peer
         ds_manager.add_peer(do_manager.email)
 
         # Now DO should be able to read DS's version (shared on add_peer)
-        ds_version_after = do_manager.peer_manager.load_peer_version(
-            ds_manager.email
-        )
+        ds_version_after = do_manager.peer_manager.load_peer_version(ds_manager.email)
         assert ds_version_after is not None, (
             "DO should be able to read DS version after add_peer"
         )
@@ -155,9 +151,7 @@ class TestPeerManager:
         do_manager.load_peers()
 
         # Before approval, DS cannot read DO's version
-        do_version_before = ds_manager.peer_manager.load_peer_version(
-            do_manager.email
-        )
+        do_version_before = ds_manager.peer_manager.load_peer_version(do_manager.email)
         assert do_version_before is None, (
             "DS should not be able to read DO version before approval"
         )
@@ -166,9 +160,7 @@ class TestPeerManager:
         do_manager.approve_peer_request(ds_manager.email)
 
         # Now DS should be able to read DO's version (shared on approve)
-        do_version_after = ds_manager.peer_manager.load_peer_version(
-            do_manager.email
-        )
+        do_version_after = ds_manager.peer_manager.load_peer_version(do_manager.email)
         assert do_version_after is not None, (
             "DS should be able to read DO version after approval"
         )
@@ -347,9 +339,7 @@ class TestIgnoreVersionFlags:
 
         # Without ignore flag, should be incompatible
         ds_manager.peer_manager.ignore_client_version = False
-        assert not ds_manager.peer_manager.is_peer_version_compatible(
-            do_manager.email
-        )
+        assert not ds_manager.peer_manager.is_peer_version_compatible(do_manager.email)
 
         # With ignore flag, should be compatible
         ds_manager.peer_manager.ignore_client_version = True
@@ -386,8 +376,7 @@ class TestIgnoreVersionFlags:
         # With ignore flag, should be compatible
         ds_manager.peer_manager.ignore_protocol_version = True
         assert (
-            ds_manager.peer_manager.is_peer_version_compatible(do_manager.email)
-            is True
+            ds_manager.peer_manager.is_peer_version_compatible(do_manager.email) is True
         )
 
     def test_ignore_both_versions(self):
@@ -414,8 +403,7 @@ class TestIgnoreVersionFlags:
         ds_manager.peer_manager.load_peer_version(do_manager.email)
 
         assert (
-            ds_manager.peer_manager.is_peer_version_compatible(do_manager.email)
-            is True
+            ds_manager.peer_manager.is_peer_version_compatible(do_manager.email) is True
         )
 
 
@@ -583,12 +571,12 @@ class TestVersionMismatchBehavior:
         ds_manager.peer_manager.load_peer_version(do_manager.email)
         do_manager.peer_manager.load_peer_version(ds_manager.email)
 
-        assert ds_manager.peer_manager.is_peer_version_compatible(
-            do_manager.email
-        ), "DS should see DO as compatible initially"
-        assert do_manager.peer_manager.is_peer_version_compatible(
-            ds_manager.email
-        ), "DO should see DS as compatible initially"
+        assert ds_manager.peer_manager.is_peer_version_compatible(do_manager.email), (
+            "DS should see DO as compatible initially"
+        )
+        assert do_manager.peer_manager.is_peer_version_compatible(ds_manager.email), (
+            "DO should see DS as compatible initially"
+        )
 
         # Phase 2: Simulate DS "upgrading" to a new incompatible version
         current = VersionInfo.current()
@@ -607,9 +595,7 @@ class TestVersionMismatchBehavior:
         do_manager.peer_manager.clear_peer_version(ds_manager.email)
 
         # Reload DS's version
-        reloaded_version = do_manager.peer_manager.load_peer_version(
-            ds_manager.email
-        )
+        reloaded_version = do_manager.peer_manager.load_peer_version(ds_manager.email)
 
         # Verify the new version was loaded
         assert reloaded_version is not None, "Should be able to reload peer version"

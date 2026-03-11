@@ -105,9 +105,7 @@ class PeerStore(BaseModel):
         if peer_bundle is None:
             raise ValueError(f"No public key for peer {recipient_email}")
         recipient = syc.EncryptionRecipient(recipient_email, peer_bundle)
-        return syc.encrypt_message(
-            self.email, self._keys, [recipient], plaintext
-        )
+        return syc.encrypt_message(self.email, self._keys, [recipient], plaintext)
 
     def decrypt(self, sender_email: str, envelope: bytes) -> bytes:
         if self._keys is None:
@@ -116,9 +114,7 @@ class PeerStore(BaseModel):
         if sender_bundle is None:
             raise ValueError(f"No public key for peer {sender_email}")
         parsed = syc.parse_envelope(envelope)
-        return syc.decrypt_message(
-            self.email, self._keys, sender_bundle, parsed
-        )
+        return syc.decrypt_message(self.email, self._keys, sender_bundle, parsed)
 
     def try_decrypt(self, sender_email: str, data: bytes) -> bytes:
         if not self.has_my_keys() or not self.has_peer_bundle(sender_email):
