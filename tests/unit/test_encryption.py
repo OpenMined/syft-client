@@ -3,38 +3,41 @@ from pathlib import Path
 
 import pytest
 
-from syft_client.sync.crypto.encryption import KeyManager
+from syft_client.sync.peers.peer import Peer
+from syft_client.sync.peers.peer_store import PeerStore
 from syft_client.sync.syftbox_manager import SyftboxManager
 
 
 # =========================================================================
-# KeyManager unit tests
+# PeerStore unit tests
 # =========================================================================
 
 
 def test_key_generation():
-    km = KeyManager(email="alice@example.com")
-    assert not km.has_keys()
-    km.generate_keys()
-    assert km.has_keys()
-    assert km.public_key is not None
-    assert km.get_public_bundle() is not None
+    ps = PeerStore(email="alice@example.com", use_encryption=True)
+    assert not ps.has_my_keys()
+    ps.generate_keys()
+    assert ps.has_my_keys()
+    assert ps.public_key is not None
+    assert ps.get_public_bundle() is not None
 
 
 def test_encrypt_decrypt_roundtrip():
-    alice = KeyManager(email="alice@example.com")
+    alice = PeerStore(email="alice@example.com", use_encryption=True)
     alice.generate_keys()
-
-    bob = KeyManager(email="bob@example.com")
+    bob = PeerStore(email="bob@example.com", use_encryption=True)
     bob.generate_keys()
 
-    # Exchange bundles (DID document dicts)
+    # Add peers so bundles can be stored on Peer objects
+    alice.add_peer(Peer(email="bob@example.com"))
+    bob.add_peer(Peer(email="alice@example.com"))
+
+    # Exchange bundles
     alice.set_peer_bundle("bob@example.com", bob.get_public_bundle())
     bob.set_peer_bundle("alice@example.com", alice.get_public_bundle())
 
     plaintext = b"Hello, this is a secret message!"
     envelope = alice.encrypt("bob@example.com", plaintext)
-
     assert envelope != plaintext
 
     decrypted = bob.decrypt("alice@example.com", envelope)
@@ -42,36 +45,42 @@ def test_encrypt_decrypt_roundtrip():
 
 
 def test_encrypt_without_keys_raises():
-    km = KeyManager(email="alice@example.com")
+    ps = PeerStore(email="alice@example.com", use_encryption=True)
+    ps.add_peer(Peer(email="bob@example.com"))
     with pytest.raises(ValueError, match="No private key"):
-        km.encrypt("bob@example.com", b"data")
+        ps.encrypt("bob@example.com", b"data")
 
 
 def test_encrypt_without_peer_bundle_raises():
-    km = KeyManager(email="alice@example.com")
-    km.generate_keys()
+    ps = PeerStore(email="alice@example.com", use_encryption=True)
+    ps.generate_keys()
+    ps.add_peer(Peer(email="bob@example.com"))
     with pytest.raises(ValueError, match="No public key for peer"):
-        km.encrypt("bob@example.com", b"data")
+        ps.encrypt("bob@example.com", b"data")
 
 
 def test_try_decrypt_no_keys():
-    km = KeyManager(email="alice@example.com")
+    ps = PeerStore(email="alice@example.com", use_encryption=True)
     data = b"some unencrypted data"
-    assert km.try_decrypt("bob@example.com", data) == data
+    assert ps.try_decrypt("bob@example.com", data) == data
 
 
 def test_try_decrypt_no_peer_bundle():
-    km = KeyManager(email="alice@example.com")
-    km.generate_keys()
+    ps = PeerStore(email="alice@example.com", use_encryption=True)
+    ps.generate_keys()
     data = b"some unencrypted data"
-    assert km.try_decrypt("bob@example.com", data) == data
+    assert ps.try_decrypt("bob@example.com", data) == data
 
 
 def test_try_decrypt_invalid_envelope():
-    alice = KeyManager(email="alice@example.com")
+    alice = PeerStore(email="alice@example.com", use_encryption=True)
     alice.generate_keys()
-    bob = KeyManager(email="bob@example.com")
+    bob = PeerStore(email="bob@example.com", use_encryption=True)
     bob.generate_keys()
+
+    alice.add_peer(Peer(email="bob@example.com"))
+    bob.add_peer(Peer(email="alice@example.com"))
+
     alice.set_peer_bundle("bob@example.com", bob.get_public_bundle())
     bob.set_peer_bundle("alice@example.com", alice.get_public_bundle())
 
@@ -81,33 +90,57 @@ def test_try_decrypt_invalid_envelope():
 
 
 def test_save_and_load_keys():
-    alice = KeyManager(email="alice@example.com")
+    alice = PeerStore(email="alice@example.com", use_encryption=True)
     alice.generate_keys()
-    bob = KeyManager(email="bob@example.com")
+    bob = PeerStore(email="bob@example.com", use_encryption=True)
     bob.generate_keys()
+
+    alice.add_peer(Peer(email="bob@example.com"))
     alice.set_peer_bundle("bob@example.com", bob.get_public_bundle())
 
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         path = Path(f.name)
 
     alice.save_keys(path)
-    loaded = KeyManager.load_keys(path)
+    loaded = PeerStore.load_keys(path)
 
     assert loaded.email == "alice@example.com"
-    assert loaded.has_keys()
+    assert loaded.has_my_keys()
     assert loaded.get_public_bundle() is not None
     assert loaded.has_peer_bundle("bob@example.com")
     path.unlink()
 
 
 def test_from_keys_data():
-    alice = KeyManager(email="alice@example.com")
+    alice = PeerStore(email="alice@example.com", use_encryption=True)
     alice.generate_keys()
 
     keys_data = {"keys_jwk": alice._keys.to_jwks()}
-    loaded = KeyManager.from_keys_data("alice@example.com", keys_data)
-    assert loaded.has_keys()
+    loaded = PeerStore.from_keys_data("alice@example.com", keys_data)
+    assert loaded.has_my_keys()
     assert loaded.get_public_bundle() is not None
+
+
+def test_peer_use_encryption_inherited():
+    """Peers added to PeerStore inherit its use_encryption flag."""
+    ps = PeerStore(email="alice@example.com", use_encryption=True)
+    peer = Peer(email="bob@example.com")
+    assert not peer.use_encryption
+    ps.add_peer(peer)
+    assert peer.use_encryption
+
+    ps2 = PeerStore(email="alice@example.com", use_encryption=False)
+    peer2 = Peer(email="bob@example.com", use_encryption=True)
+    ps2.add_peer(peer2)
+    assert not peer2.use_encryption
+
+
+def test_set_peers_inherits_encryption():
+    """set_peers propagates use_encryption to all peers."""
+    ps = PeerStore(email="alice@example.com", use_encryption=True)
+    peers = [Peer(email="bob@example.com"), Peer(email="carol@example.com")]
+    ps.set_peers(peers)
+    assert all(p.use_encryption for p in peers)
 
 
 # =========================================================================
@@ -121,18 +154,18 @@ def test_encrypted_message_flow():
         encryption=True,
     )
 
-    # Verify key managers are set
-    assert ds_manager._key_manager is not None
-    assert do_manager._key_manager is not None
+    # Verify peer stores are set with encryption enabled
+    assert ds_manager._peer_store is not None
+    assert do_manager._peer_store is not None
 
     # DO has DS's bundle after approval
-    do_km = do_manager._key_manager
-    assert do_km.has_peer_bundle(ds_manager.email)
+    do_ps = do_manager._peer_store
+    assert do_ps.has_peer_bundle(ds_manager.email)
 
     # DS needs to load_peers to pick up DO's bundle
     ds_manager.load_peers()
-    ds_km = ds_manager._key_manager
-    assert ds_km.has_peer_bundle(do_manager.email)
+    ds_ps = ds_manager._peer_store
+    assert ds_ps.has_peer_bundle(do_manager.email)
 
     # DS sends a file change (encrypted)
     file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
@@ -144,7 +177,6 @@ def test_encrypted_message_flow():
     events = do_manager._get_all_accepted_events_do()
     assert len(events) > 0
 
-    # Check the events have the right content
     all_events = [e for msg in events for e in msg.events]
     matching = [e for e in all_events if "encrypted content" in str(e.content)]
     assert len(matching) > 0
@@ -179,8 +211,8 @@ def test_no_encryption_backward_compat():
         encryption=False,
     )
 
-    assert ds_manager._key_manager is None
-    assert do_manager._key_manager is None
+    assert ds_manager._peer_store is None
+    assert do_manager._peer_store is None
 
     file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
     ds_manager._send_file_change(file_path, "hello unencrypted")
@@ -197,12 +229,12 @@ def test_bundle_exchange_through_peer_approval():
         add_peers=False,
     )
 
-    ds_km = ds_manager._key_manager
-    do_km = do_manager._key_manager
+    ds_ps = ds_manager._peer_store
+    do_ps = do_manager._peer_store
 
     # Before peer add, no peer bundles
-    assert not ds_km.has_peer_bundle(do_manager.email)
-    assert not do_km.has_peer_bundle(ds_manager.email)
+    assert not ds_ps.has_peer_bundle(do_manager.email)
+    assert not do_ps.has_peer_bundle(ds_manager.email)
 
     # DS adds peer (writes bundle)
     ds_manager.add_peer(do_manager.email)
@@ -212,11 +244,11 @@ def test_bundle_exchange_through_peer_approval():
     do_manager.approve_peer_request(ds_manager.email)
 
     # DO should now have DS's bundle
-    assert do_km.has_peer_bundle(ds_manager.email)
+    assert do_ps.has_peer_bundle(ds_manager.email)
 
     # DS loads peers again to pick up DO's bundle
     ds_manager.load_peers()
-    assert ds_km.has_peer_bundle(do_manager.email)
+    assert ds_ps.has_peer_bundle(do_manager.email)
 
 
 def test_unencrypted_fallback_when_no_bundles():
@@ -230,11 +262,11 @@ def test_unencrypted_fallback_when_no_bundles():
     ds_no_enc._send_file_change(file_path, "plain text")
 
     # Now enable encryption on DO side for receiving
-    from syft_client.sync.crypto.encryption import KeyManager
+    from syft_client.sync.peers.peer_store import PeerStore
 
-    km = KeyManager(email=do_no_enc.email)
-    km.generate_keys()
-    do_no_enc._set_key_manager(km)
+    ps = PeerStore(email=do_no_enc.email, use_encryption=True)
+    ps.generate_keys()
+    do_no_enc._set_peer_store(ps)
 
     # DO syncs - should still be able to read unencrypted message via try_decrypt
     do_no_enc.sync()

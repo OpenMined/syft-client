@@ -118,7 +118,7 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
         connection = self.connection_router.connection_for_parallel_download()
         # Use router's decrypt if key_manager is set
         raw = connection.download_file(file_id)
-        km = self.connection_router.key_manager
+        km = self.connection_router.peer_store
         if km and peer_email:
             raw = km.try_decrypt(peer_email, raw)
         return FileChangeEventsMessage.from_compressed_data(raw)
@@ -129,7 +129,7 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
         """Download dataset file using a new connection (thread-safe)."""
         connection = self.connection_router.connection_for_parallel_download()
         data = connection.download_dataset_file(file_id)
-        km = self.connection_router.key_manager
+        km = self.connection_router.peer_store
         if km and owner_email:
             data = km.try_decrypt(owner_email, data)
         return data

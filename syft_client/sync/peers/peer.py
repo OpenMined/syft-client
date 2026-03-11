@@ -18,6 +18,7 @@ class Peer(BaseModel):
     state: PeerState = PeerState.ACCEPTED  # Default for backward compatibility
     version: Optional[VersionInfo] = None
     public_bundle: Optional[dict] = None
+    use_encryption: bool = False
 
     @property
     def is_approved(self) -> bool:

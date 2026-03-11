@@ -374,7 +374,7 @@ class SyftboxManager(BaseModel):
     _executor: ThreadPoolExecutor = PrivateAttr(
         default_factory=lambda: ThreadPoolExecutor(max_workers=10)
     )
-    _key_manager: object = PrivateAttr(default=None)
+    _peer_store: object = PrivateAttr(default=None)
 
     _PUBLIC_API = (
         "email",
@@ -456,7 +456,7 @@ class SyftboxManager(BaseModel):
                 config.datasite_watcher_syncer_config
             )
 
-        peer_manager = PeerManager.from_config(config.peer_manager_config)
+        peer_manager = PeerManager.from_config(config.peer_manager_config, email=config.email)
 
         manager_res = cls(
             syftbox_folder=config.syftbox_folder,
@@ -476,20 +476,21 @@ class SyftboxManager(BaseModel):
 
         return manager_res
 
-    def _set_key_manager(self, key_manager) -> None:
-        """Wire key_manager into all connection routers."""
-        from syft_client.sync.crypto.encryption import KeyManager
+    def _set_peer_store(self, peer_store) -> None:
+        """Wire shared peer_store into all connection routers."""
+        from syft_client.sync.peers.peer_store import PeerStore
 
-        if not isinstance(key_manager, KeyManager):
+        if not isinstance(peer_store, PeerStore):
             return
-        self._key_manager = key_manager
-        if self.datasite_owner_syncer:
-            self.datasite_owner_syncer.connection_router.key_manager = key_manager
-        if self.datasite_watcher_syncer:
-            self.datasite_watcher_syncer.connection_router.key_manager = key_manager
-            self.datasite_watcher_syncer.datasite_watcher_cache.connection_router.key_manager = key_manager
+        self._peer_store = peer_store
         if self.peer_manager:
-            self.peer_manager.connection_router.key_manager = key_manager
+            self.peer_manager.peer_store = peer_store
+            self.peer_manager.connection_router.peer_store = peer_store
+        if self.datasite_owner_syncer:
+            self.datasite_owner_syncer.connection_router.peer_store = peer_store
+        if self.datasite_watcher_syncer:
+            self.datasite_watcher_syncer.connection_router.peer_store = peer_store
+            self.datasite_watcher_syncer.datasite_watcher_cache.connection_router.peer_store = peer_store
 
     @classmethod
     def for_colab(
@@ -517,19 +518,19 @@ class SyftboxManager(BaseModel):
         """Initialize encryption if requested."""
         if not encryption and not encryption_keys:
             return
-        from syft_client.sync.crypto.encryption import KeyManager
+        from syft_client.sync.peers.peer_store import PeerStore
 
         if encryption_keys:
-            km = KeyManager.from_keys_data(self.email, encryption_keys)
+            ps = PeerStore.from_keys_data(self.email, encryption_keys)
         else:
             keys_path = Path.home() / ".syftbox" / "crypto_keys.json"
             if keys_path.exists():
-                km = KeyManager.load_keys(keys_path)
+                ps = PeerStore.load_keys(keys_path)
             else:
-                km = KeyManager(email=self.email)
-                km.generate_keys()
-                km.save_keys(keys_path)
-        self._set_key_manager(km)
+                ps = PeerStore(email=self.email, use_encryption=True)
+                ps.generate_keys()
+                ps.save_keys(keys_path)
+        self._set_peer_store(ps)
 
     @classmethod
     def for_jupyter(
@@ -721,15 +722,15 @@ class SyftboxManager(BaseModel):
 
         # Initialize encryption if requested
         if encryption:
-            from syft_client.sync.crypto.encryption import KeyManager
+            from syft_client.sync.peers.peer_store import PeerStore
 
-            ds_km = KeyManager(email=ds_manager.email)
-            ds_km.generate_keys()
-            ds_manager._set_key_manager(ds_km)
+            ds_ps = PeerStore(email=ds_manager.email, use_encryption=True)
+            ds_ps.generate_keys()
+            ds_manager._set_peer_store(ds_ps)
 
-            do_km = KeyManager(email=do_manager.email)
-            do_km.generate_keys()
-            do_manager._set_key_manager(do_km)
+            do_ps = PeerStore(email=do_manager.email, use_encryption=True)
+            do_ps.generate_keys()
+            do_manager._set_peer_store(do_ps)
 
         if add_peers:
             # DS creates peer request
@@ -904,13 +905,9 @@ class SyftboxManager(BaseModel):
                 if job.submitted_by == "unknown":
                     continue
 
-                if not self.peer_manager.is_peer_version_compatible(
-                    job.submitted_by
-                ):
+                if not self.peer_manager.is_peer_version_compatible(job.submitted_by):
                     # Warn about incompatible job
-                    peer_version = self.peer_manager.get_peer_version(
-                        job.submitted_by
-                    )
+                    peer_version = self.peer_manager.get_peer_version(job.submitted_by)
                     if peer_version is None:
                         warnings.warn(
                             f"Skipping job '{job.name}' from {job.submitted_by}: "

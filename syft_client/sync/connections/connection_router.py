@@ -11,7 +11,7 @@ from syft_client.sync.events.file_change_event import (
 )
 from syft_client.sync.checkpoints.checkpoint import Checkpoint, IncrementalCheckpoint
 from syft_client.sync.checkpoints.rolling_state import RollingState
-from syft_client.sync.crypto.encryption import KeyManager
+from syft_client.sync.peers.peer_store import PeerStore
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
 from syft_client.sync.peers.peer import Peer, PeerState
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 class ConnectionRouter(BaseModel):
     connections: List[SyftboxPlatformConnection]
 
-    key_manager: KeyManager | None = None
+    peer_store: PeerStore | None = None
 
     @classmethod
     def from_configs(cls, connection_configs: List[ConnectionConfig]):
@@ -78,17 +78,22 @@ class ConnectionRouter(BaseModel):
     # =========================================================================
 
     def _encrypt_bytes(self, recipient_email: str, data: bytes) -> bytes:
-        """Encrypt data if key_manager is set and peer bundle is available."""
-        km = self.key_manager
-        if km and km.has_keys() and km.has_peer_bundle(recipient_email):
-            return km.encrypt(recipient_email, data)
-        return data
+        """Encrypt data if peer requires encryption and keys/bundle are available."""
+        ps = self.peer_store
+        if not ps:
+            return data
+        peer = ps.get_cached_peer(recipient_email)
+        if not peer or not peer.use_encryption:
+            return data
+        if not ps.has_my_keys() or not ps.has_peer_bundle(recipient_email):
+            return data
+        return ps.encrypt(recipient_email, data)
 
     def _try_decrypt_bytes(self, sender_email: str, data: bytes) -> bytes:
         """Try to decrypt data; returns data as-is if not possible."""
-        km = self.key_manager
-        if km:
-            return km.try_decrypt(sender_email, data)
+        ps = self.peer_store
+        if ps:
+            return ps.try_decrypt(sender_email, data)
         return data
 
     # =========================================================================
@@ -152,7 +157,7 @@ class ConnectionRouter(BaseModel):
         """Download event message from outbox by ID, decrypting if needed."""
         connection = self.connection_for_datasite_watcher()
         raw = connection.download_file(file_id)
-        if peer_email and self.key_manager:
+        if peer_email and self.peer_store:
             raw = self._try_decrypt_bytes(peer_email, raw)
         return FileChangeEventsMessage.from_compressed_data(raw)
 
@@ -291,7 +296,7 @@ class ConnectionRouter(BaseModel):
         recipient_email: str | None = None,
     ) -> None:
         """Upload dataset files, encrypting each file if encryption is enabled."""
-        if recipient_email and self.key_manager:
+        if recipient_email and self.peer_store:
             files = {
                 name: self._encrypt_bytes(recipient_email, data)
                 for name, data in files.items()
@@ -318,7 +323,7 @@ class ConnectionRouter(BaseModel):
     ) -> dict[str, bytes]:
         connection = self.connection_for_datasite_watcher()
         files = connection.download_dataset_collection(tag, content_hash, owner_email)
-        if self.key_manager and owner_email:
+        if self.peer_store and owner_email:
             files = {
                 name: self._try_decrypt_bytes(owner_email, data)
                 for name, data in files.items()
@@ -389,7 +394,7 @@ class ConnectionRouter(BaseModel):
     ) -> bytes:
         connection = self.connection_for_datasite_watcher()
         data = connection.download_dataset_file(file_id)
-        if owner_email and self.key_manager:
+        if owner_email and self.peer_store:
             data = self._try_decrypt_bytes(owner_email, data)
         return data
 
