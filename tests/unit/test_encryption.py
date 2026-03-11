@@ -167,7 +167,9 @@ def test_encrypted_sync_down_ds():
     ds_manager.sync()
 
     # DS should have cached events
-    cached = ds_manager.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
+    cached = (
+        ds_manager.datasite_watcher_syncer.datasite_watcher_cache.get_cached_events()
+    )
     assert len(cached) > 0
 
 
@@ -229,6 +231,7 @@ def test_unencrypted_fallback_when_no_bundles():
 
     # Now enable encryption on DO side for receiving
     from syft_client.sync.crypto.encryption import KeyManager
+
     km = KeyManager(email=do_no_enc.email)
     km.generate_keys()
     do_no_enc._set_key_manager(km)

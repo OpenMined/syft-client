@@ -2165,30 +2165,22 @@ class GDriveConnection(SyftboxPlatformConnection):
         """Get or create the encryption bundles folder for this user."""
         folder_name = self._get_encryption_bundles_folder_name()
         syftbox_folder_id = self.get_syftbox_folder_id()
-        folder_id = self._find_folder_by_name(
-            folder_name, parent_id=syftbox_folder_id
-        )
+        folder_id = self._find_folder_by_name(folder_name, parent_id=syftbox_folder_id)
         if folder_id:
             return folder_id
         return self.create_folder(folder_name, syftbox_folder_id)
 
-    def _encryption_bundle_filename(
-        self, owner_email: str, peer_email: str
-    ) -> str:
+    def _encryption_bundle_filename(self, owner_email: str, peer_email: str) -> str:
         return f"encryption_bundle_{owner_email}_for_{peer_email}.json"
 
-    def write_encryption_bundle(
-        self, peer_email: str, bundle_json: str
-    ) -> None:
+    def write_encryption_bundle(self, peer_email: str, bundle_json: str) -> None:
         """Write own encryption bundle for a peer to own bundles folder."""
         folder_id = self._get_or_create_encryption_bundles_folder_id()
         filename = self._encryption_bundle_filename(self.email, peer_email)
         file_payload, _ = self.create_file_payload(bundle_json)
 
         # Check if file already exists
-        query = (
-            f"name='{filename}' and '{folder_id}' in parents and trashed=false"
-        )
+        query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
         results = execute_with_retries(
             self.drive_service.files().list(q=query, fields="files(id)")
         )
@@ -2222,10 +2214,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         in peer's bundles folder.
         """
         filename = self._encryption_bundle_filename(peer_email, self.email)
-        query = (
-            f"name='{filename}' and trashed=false "
-            f"and '{peer_email}' in owners"
-        )
+        query = f"name='{filename}' and trashed=false and '{peer_email}' in owners"
         results = execute_with_retries(
             self.drive_service.files().list(q=query, fields="files(id)")
         )

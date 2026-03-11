@@ -140,11 +140,15 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
             self.datasite_watcher_cache.sync_down_parallel(
                 peer_email,
                 self._executor,
-                lambda fid, pe=peer_email: self.download_events_message_with_new_connection(fid, pe),
+                lambda fid,
+                pe=peer_email: self.download_events_message_with_new_connection(
+                    fid, pe
+                ),
             )
             # Sync datasets with parallel download
             self.datasite_watcher_cache.sync_down_datasets_parallel(
                 peer_email,
                 self._executor,
-                lambda fid, pe=peer_email: self.download_dataset_file_with_new_connection(fid, pe),
+                lambda fid,
+                pe=peer_email: self.download_dataset_file_with_new_connection(fid, pe),
             )

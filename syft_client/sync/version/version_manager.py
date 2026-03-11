@@ -383,7 +383,7 @@ class VersionManager(BaseModel):
         peer.state = new_state
 
         # Exchange encryption bundles if key_manager is set
-        own_bundle = self._write_encryption_bundle_for_peer(peer_email)
+        self._write_encryption_bundle_for_peer(peer_email)
         peer_bundle = None
         if is_accepting:
             peer_bundle = self._read_peer_encryption_bundle(peer_email)
@@ -419,6 +419,7 @@ class VersionManager(BaseModel):
         bundle = km.get_public_bundle()
         if bundle:
             import json as _json
+
             bundle_json = _json.dumps({"public_bundle": bundle})
             self.connection_router.write_encryption_bundle(peer_email, bundle_json)
             self.connection_router.share_encryption_bundles_folder(peer_email)
@@ -434,6 +435,7 @@ class VersionManager(BaseModel):
             return None
         try:
             import json as _json
+
             data = _json.loads(bundle_json)
             return data.get("public_bundle")
         except Exception:

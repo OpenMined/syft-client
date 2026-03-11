@@ -68,9 +68,7 @@ class KeyManager:
             raise ValueError(f"No public key for peer {recipient_email}")
 
         recipient = syc.EncryptionRecipient(recipient_email, peer_bundle)
-        return syc.encrypt_message(
-            self.email, self._keys, [recipient], plaintext
-        )
+        return syc.encrypt_message(self.email, self._keys, [recipient], plaintext)
 
     def decrypt(self, sender_email: str, envelope: bytes) -> bytes:
         if self._keys is None:
@@ -80,9 +78,7 @@ class KeyManager:
             raise ValueError(f"No public key for peer {sender_email}")
 
         parsed = syc.parse_envelope(envelope)
-        return syc.decrypt_message(
-            self.email, self._keys, sender_bundle, parsed
-        )
+        return syc.decrypt_message(self.email, self._keys, sender_bundle, parsed)
 
     def try_decrypt(self, sender_email: str, data: bytes) -> bytes:
         """Try to decrypt; return data as-is if not possible or fails."""

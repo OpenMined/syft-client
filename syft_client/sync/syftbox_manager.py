@@ -493,8 +493,12 @@ class SyftboxManager(BaseModel):
 
     @classmethod
     def for_colab(
-        cls, email: str, has_ds_role: bool = False, has_do_role: bool = False,
-        encryption: bool = False, encryption_keys: dict | None = None,
+        cls,
+        email: str,
+        has_ds_role: bool = False,
+        has_do_role: bool = False,
+        encryption: bool = False,
+        encryption_keys: dict | None = None,
     ):
         manager = cls.from_config(
             SyftboxManagerConfig.for_colab(

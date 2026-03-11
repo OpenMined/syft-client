@@ -147,13 +147,6 @@ class ConnectionRouter(BaseModel):
             )
 
         # Encryption path: get raw bytes, decrypt, then deserialize
-        from syft_client.sync.messages.proposed_filechange import (
-            MessageFileName,
-            FileNameParseError,
-        )
-        from syft_client.sync.connections.drive.gdrive_retry import (
-            execute_with_retries,
-        )
 
         inbox_folder_id = connection._get_own_datasite_inbox_id(sender_email)
         if inbox_folder_id is None:
@@ -166,9 +159,9 @@ class ConnectionRouter(BaseModel):
         if not valid_file_names:
             return None
 
-        first_file_name = sorted(
-            valid_file_names, key=lambda x: x.submitted_timestamp
-        )[0]
+        first_file_name = sorted(valid_file_names, key=lambda x: x.submitted_timestamp)[
+            0
+        ]
         first_file_id = [
             x for x in file_metadatas if x["name"] == first_file_name.as_string()
         ][0]["id"]
@@ -221,9 +214,6 @@ class ConnectionRouter(BaseModel):
                 peer_email=peer_email, since_timestamp=since_timestamp
             )
         # Encryption path: download raw bytes and decrypt
-        from syft_client.sync.events.file_change_event import (
-            FileChangeEventsMessageFileName,
-        )
 
         folder_id = connection._get_peer_datasite_outbox_id(peer_email)
         if folder_id is None:
@@ -250,9 +240,7 @@ class ConnectionRouter(BaseModel):
             if file_name in name_to_id:
                 raw = connection.download_file(name_to_id[file_name])
                 decrypted = self._try_decrypt_bytes(peer_email, raw)
-                res.append(
-                    FileChangeEventsMessage.from_compressed_data(decrypted)
-                )
+                res.append(FileChangeEventsMessage.from_compressed_data(decrypted))
         return res
 
     def download_events_message_by_id_from_outbox(
@@ -393,7 +381,10 @@ class ConnectionRouter(BaseModel):
         connection.share_dataset_collection(tag, content_hash, users)
 
     def upload_dataset_files(
-        self, tag: str, content_hash: str, files: dict[str, bytes],
+        self,
+        tag: str,
+        content_hash: str,
+        files: dict[str, bytes],
         recipient_email: str | None = None,
     ) -> None:
         """Upload dataset files, encrypting each file if encryption is enabled."""
