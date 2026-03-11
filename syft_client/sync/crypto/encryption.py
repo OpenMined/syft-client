@@ -9,15 +9,19 @@ import json
 from pathlib import Path
 
 import syft_crypto_python as syc
+from pydantic import BaseModel, PrivateAttr
 
 
-class KeyManager:
+class KeyManager(BaseModel):
     """Manages encryption keys and peer public bundles for E2E encryption."""
 
-    def __init__(self, email: str):
-        self.email = email
-        self._keys: syc.SyftPrivateKeys | None = None
-        self._peer_bundles: dict[str, syc.SyftPublicKeyBundle] = {}
+    model_config = {"arbitrary_types_allowed": True}
+
+    email: str
+    _keys: syc.SyftPrivateKeys | None = PrivateAttr(default=None)
+    _peer_bundles: dict[str, syc.SyftPublicKeyBundle] = PrivateAttr(
+        default_factory=dict
+    )
 
     def generate_keys(self) -> None:
         self._keys = syc.SyftRecoveryKey.generate().derive_keys()

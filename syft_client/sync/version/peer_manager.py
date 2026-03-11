@@ -1,5 +1,5 @@
 """
-VersionManager for managing version information and compatibility checks.
+PeerManager for managing peers, version information, and compatibility checks.
 """
 
 import warnings
@@ -21,8 +21,8 @@ from syft_client.sync.version.exceptions import (
 from syft_client.sync.version.version_info import VersionInfo
 
 
-class VersionManagerConfig(BaseModel):
-    """Configuration for VersionManager."""
+class PeerManagerConfig(BaseModel):
+    """Configuration for PeerManager."""
 
     connection_configs: List[ConnectionConfig] = []
     ignore_protocol_version: bool = False
@@ -33,7 +33,7 @@ class VersionManagerConfig(BaseModel):
     has_ds_role: bool = False
 
 
-class VersionManager(BaseModel):
+class PeerManager(BaseModel):
     """Manages version information for self and peers."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -77,8 +77,8 @@ class VersionManager(BaseModel):
         return [p for p in self._peers if p.is_requested_by_me or p.is_approved]
 
     @classmethod
-    def from_config(cls, config: VersionManagerConfig) -> "VersionManager":
-        """Create a VersionManager from a config."""
+    def from_config(cls, config: PeerManagerConfig) -> "PeerManager":
+        """Create a PeerManager from a config."""
         return cls(
             connection_router=ConnectionRouter.from_configs(config.connection_configs),
             ignore_protocol_version=config.ignore_protocol_version,

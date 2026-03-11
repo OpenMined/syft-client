@@ -40,7 +40,7 @@ class JobApprovalHandler:
     def _get_approved_peers(self) -> list[str]:
         """Get list of approved peer emails."""
         self.client.load_peers()
-        return [p.email for p in self.client.version_manager.approved_peers]
+        return [p.email for p in self.client.peer_manager.approved_peers]
 
     def check_and_approve(self) -> list[JobInfo]:
         """Check all jobs and approve those matching criteria."""

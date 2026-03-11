@@ -1,8 +1,8 @@
 """
 Version negotiation module for syft-client.
 
-Note: VersionManager is not exported here to avoid circular imports.
-Import it directly: from syft_client.sync.version.version_manager import VersionManager
+Note: PeerManager is not exported here to avoid circular imports.
+Import it directly: from syft_client.sync.version.peer_manager import PeerManager
 """
 
 from syft_client.sync.version.version_info import VersionInfo

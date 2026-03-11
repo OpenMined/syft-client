@@ -1,4 +1,4 @@
-from pydantic import BaseModel, PrivateAttr
+from pydantic import BaseModel
 from typing import TYPE_CHECKING, List, Optional
 from syft_client.sync.connections.base_connection import (
     ConnectionConfig,
@@ -11,6 +11,7 @@ from syft_client.sync.events.file_change_event import (
 )
 from syft_client.sync.checkpoints.checkpoint import Checkpoint, IncrementalCheckpoint
 from syft_client.sync.checkpoints.rolling_state import RollingState
+from syft_client.sync.crypto.encryption import KeyManager
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.platforms.gdrive_files_platform import GdriveFilesPlatform
 from syft_client.sync.peers.peer import Peer, PeerState
@@ -20,22 +21,13 @@ from syft_client.sync.utils.print_utils import (
 )
 
 if TYPE_CHECKING:
-    from syft_client.sync.crypto.encryption import KeyManager
     from syft_client.sync.version.version_info import VersionInfo
 
 
 class ConnectionRouter(BaseModel):
     connections: List[SyftboxPlatformConnection]
 
-    _key_manager: Optional["KeyManager"] = PrivateAttr(default=None)
-
-    @property
-    def key_manager(self) -> Optional["KeyManager"]:
-        return self._key_manager
-
-    @key_manager.setter
-    def key_manager(self, value: Optional["KeyManager"]):
-        self._key_manager = value
+    key_manager: KeyManager | None = None
 
     @classmethod
     def from_configs(cls, connection_configs: List[ConnectionConfig]):
@@ -87,14 +79,14 @@ class ConnectionRouter(BaseModel):
 
     def _encrypt_bytes(self, recipient_email: str, data: bytes) -> bytes:
         """Encrypt data if key_manager is set and peer bundle is available."""
-        km = self._key_manager
+        km = self.key_manager
         if km and km.has_keys() and km.has_peer_bundle(recipient_email):
             return km.encrypt(recipient_email, data)
         return data
 
     def _try_decrypt_bytes(self, sender_email: str, data: bytes) -> bytes:
         """Try to decrypt data; returns data as-is if not possible."""
-        km = self._key_manager
+        km = self.key_manager
         if km:
             return km.try_decrypt(sender_email, data)
         return data
@@ -106,142 +98,53 @@ class ConnectionRouter(BaseModel):
     def send_proposed_file_changes_message(
         self, recipient: str, proposed_file_changes_message: ProposedFileChangesMessage
     ):
-        connection = self.connection_for_send_message()
-
-        if not self._key_manager:
-            connection.send_proposed_file_changes_message(
-                recipient, proposed_file_changes_message
-            )
-            return
-
-        # Encryption path: serialize, encrypt, upload raw bytes
         data = proposed_file_changes_message.as_compressed_data()
         data = self._encrypt_bytes(recipient, data)
-
         filename = proposed_file_changes_message.message_filename.as_string()
-        inbox_id = connection._get_peer_datasite_inbox_id(recipient)
-        if inbox_id is None:
-            raise Exception(f"Inbox folder for {recipient}'s datasite not found")
-
-        payload, _ = connection.create_file_payload(data)
-        file_metadata = {"name": filename, "parents": [inbox_id]}
-
-        from syft_client.sync.connections.drive.gdrive_retry import (
-            execute_with_retries,
-        )
-
-        execute_with_retries(
-            connection.drive_service.files().create(
-                body=file_metadata, media_body=payload, fields="id, parents"
-            )
+        self.connection_for_send_message().send_raw_bytes_to_inbox(
+            recipient, filename, data
         )
 
     def get_next_proposed_filechange_message(
         self, sender_email: str = None
     ) -> ProposedFileChangesMessage | None:
         connection = self.connection_for_receive_message()
-
-        if not self._key_manager or not sender_email:
+        if not sender_email:
             return connection.get_next_proposed_filechange_message(
                 sender_email=sender_email
             )
-
-        # Encryption path: get raw bytes, decrypt, then deserialize
-
-        inbox_folder_id = connection._get_own_datasite_inbox_id(sender_email)
-        if inbox_folder_id is None:
-            raise ValueError(f"Inbox folder for {sender_email} not found")
-
-        file_metadatas = connection.get_file_metadatas_from_folder(inbox_folder_id)
-        valid_file_names = connection._get_valid_messages_from_file_metadatas(
-            file_metadatas
-        )
-        if not valid_file_names:
+        result = connection.download_next_raw_from_inbox(sender_email)
+        if result is None:
             return None
-
-        first_file_name = sorted(valid_file_names, key=lambda x: x.submitted_timestamp)[
-            0
-        ]
-        first_file_id = [
-            x for x in file_metadatas if x["name"] == first_file_name.as_string()
-        ][0]["id"]
-
-        raw_data = connection.download_file(first_file_id)
-        decrypted = self._try_decrypt_bytes(sender_email, raw_data)
-        msg = ProposedFileChangesMessage.from_compressed_data(decrypted)
-        msg.platform_id = first_file_id
+        raw_data, file_id = result
+        raw_data = self._try_decrypt_bytes(sender_email, raw_data)
+        msg = ProposedFileChangesMessage.from_compressed_data(raw_data)
+        msg.platform_id = file_id
         return msg
 
     def write_event_messages_to_outbox_do(
         self, recipient_email: str, events_message: FileChangeEventsMessage
     ):
-        connection = self.connection_for_outbox()
-
-        if not self._key_manager:
-            connection.write_event_messages_to_outbox_do(
-                recipient_email, events_message
-            )
-            return
-
-        # Encryption path
         data = events_message.as_compressed_data()
         data = self._encrypt_bytes(recipient_email, data)
-
         fname = events_message.message_filepath.as_string()
-        outbox_folder_id = connection._get_own_datasite_outbox_id(recipient_email)
-        if outbox_folder_id is None:
-            raise ValueError(f"Outbox folder for {recipient_email} not found")
-
-        payload, _ = connection.create_file_payload(data)
-        file_metadata = {"name": fname, "parents": [outbox_folder_id]}
-
-        from syft_client.sync.connections.drive.gdrive_retry import (
-            execute_with_retries,
-        )
-
-        execute_with_retries(
-            connection.drive_service.files().create(
-                body=file_metadata, media_body=payload, fields="id, parents"
-            )
+        self.connection_for_outbox().write_raw_bytes_to_outbox(
+            recipient_email, fname, data
         )
 
     def get_events_messages_for_datasite_watcher(
         self, peer_email: str, since_timestamp: float | None
     ) -> List[FileChangeEventsMessage]:
         connection = self.connection_for_datasite_watcher()
-        if not self._key_manager:
-            return connection.get_events_messages_for_datasite_watcher(
-                peer_email=peer_email, since_timestamp=since_timestamp
+        raw_list = connection.download_raw_events_from_outbox(
+            peer_email, since_timestamp
+        )
+        return [
+            FileChangeEventsMessage.from_compressed_data(
+                self._try_decrypt_bytes(peer_email, raw)
             )
-        # Encryption path: download raw bytes and decrypt
-
-        folder_id = connection._get_peer_datasite_outbox_id(peer_email)
-        if folder_id is None:
-            raise ValueError(f"Outbox folder for peer {peer_email} not found")
-
-        file_metadatas = connection.get_file_metadatas_from_folder(
-            folder_id, since_timestamp=since_timestamp
-        )
-        valid_fname_objs = connection._get_valid_events_from_file_metadatas(
-            file_metadatas
-        )
-        name_to_id = {f["name"]: f["id"] for f in file_metadatas}
-        sorted_fnames = [
-            x
-            for x in sorted(valid_fname_objs, key=lambda x: x.timestamp)
-            if since_timestamp is None or x.timestamp > since_timestamp
+            for raw in raw_list
         ]
-        if not sorted_fnames:
-            return []
-
-        res = []
-        for fname_obj in sorted_fnames:
-            file_name = fname_obj.as_string()
-            if file_name in name_to_id:
-                raw = connection.download_file(name_to_id[file_name])
-                decrypted = self._try_decrypt_bytes(peer_email, raw)
-                res.append(FileChangeEventsMessage.from_compressed_data(decrypted))
-        return res
 
     def download_events_message_by_id_from_outbox(
         self, file_id: str, peer_email: str | None = None
@@ -249,7 +152,7 @@ class ConnectionRouter(BaseModel):
         """Download event message from outbox by ID, decrypting if needed."""
         connection = self.connection_for_datasite_watcher()
         raw = connection.download_file(file_id)
-        if peer_email and self._key_manager:
+        if peer_email and self.key_manager:
             raw = self._try_decrypt_bytes(peer_email, raw)
         return FileChangeEventsMessage.from_compressed_data(raw)
 
@@ -388,7 +291,7 @@ class ConnectionRouter(BaseModel):
         recipient_email: str | None = None,
     ) -> None:
         """Upload dataset files, encrypting each file if encryption is enabled."""
-        if recipient_email and self._key_manager:
+        if recipient_email and self.key_manager:
             files = {
                 name: self._encrypt_bytes(recipient_email, data)
                 for name, data in files.items()
@@ -415,7 +318,7 @@ class ConnectionRouter(BaseModel):
     ) -> dict[str, bytes]:
         connection = self.connection_for_datasite_watcher()
         files = connection.download_dataset_collection(tag, content_hash, owner_email)
-        if self._key_manager and owner_email:
+        if self.key_manager and owner_email:
             files = {
                 name: self._try_decrypt_bytes(owner_email, data)
                 for name, data in files.items()
@@ -486,7 +389,7 @@ class ConnectionRouter(BaseModel):
     ) -> bytes:
         connection = self.connection_for_datasite_watcher()
         data = connection.download_dataset_file(file_id)
-        if owner_email and self._key_manager:
+        if owner_email and self.key_manager:
             data = self._try_decrypt_bytes(owner_email, data)
         return data
 

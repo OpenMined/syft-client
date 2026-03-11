@@ -123,6 +123,15 @@ class GdriveP2PFolder(BaseModel):
         return cls(datasite_email=parts[1], folder_type=parts[2], peer_email=parts[3])
 
 
+class GdriveEncryptionBundlesFolder(BaseModel):
+    """Folder for encryption bundles: syft_encryption_bundles#email"""
+
+    email: str
+
+    def as_string(self) -> str:
+        return f"syft_encryption_bundles#{self.email}"
+
+
 class DatasetCollectionFolder(BaseModel):
     """Represents a dataset collection folder with format: {prefix}_{tag}_{hash}"""
 
@@ -221,6 +230,9 @@ class GDriveConnection(SyftboxPlatformConnection):
     # Rolling state caches for single-API-call optimization
     _rolling_state_folder_id: str | None = None
     _rolling_state_file_id: str | None = None
+
+    # Encryption bundles folder cache
+    _encryption_bundles_folder_id: str | None = None
 
     @classmethod
     def from_config(cls, config: "GdriveConnectionConfig") -> "GDriveConnection":
@@ -444,9 +456,9 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return pending_peers
 
-    def get_events_messages_for_datasite_watcher(
+    def download_raw_events_from_outbox(
         self, peer_email: str, since_timestamp: float | None
-    ) -> List[FileChangeEventsMessage]:
+    ) -> list[bytes]:
         folder_id = self._get_peer_datasite_outbox_id(peer_email)
         if folder_id is None:
             raise ValueError(f"Outbox folder for peer {peer_email} not found")
@@ -455,7 +467,6 @@ class GDriveConnection(SyftboxPlatformConnection):
             folder_id, since_timestamp=since_timestamp
         )
         valid_fname_objs = self._get_valid_events_from_file_metadatas(file_metadatas)
-
         name_to_id = {f["name"]: f["id"] for f in file_metadatas}
 
         sorted_fname_objs = [
@@ -471,11 +482,16 @@ class GDriveConnection(SyftboxPlatformConnection):
         for fname_obj in sorted_fname_objs:
             file_name = fname_obj.as_string()
             if file_name in name_to_id:
-                file_id = name_to_id[file_name]
-                file_data = self.download_file(file_id)
-                res.append(FileChangeEventsMessage.from_compressed_data(file_data))
-
+                res.append(self.download_file(name_to_id[file_name]))
         return res
+
+    def get_events_messages_for_datasite_watcher(
+        self, peer_email: str, since_timestamp: float | None
+    ) -> List[FileChangeEventsMessage]:
+        raw_list = self.download_raw_events_from_outbox(peer_email, since_timestamp)
+        return [
+            FileChangeEventsMessage.from_compressed_data(data) for data in raw_list
+        ]
 
     def get_outbox_file_metadatas_for_ds(
         self, peer_email: str, since_timestamp: float | None
@@ -567,23 +583,15 @@ class GDriveConnection(SyftboxPlatformConnection):
             result.append(event)
         return result
 
-    def write_event_messages_to_outbox_do(
-        self, recipient: str, events_message: FileChangeEventsMessage
-    ):
-        fname = events_message.message_filepath.as_string()
-        message_data = events_message.as_compressed_data()
-
+    def write_raw_bytes_to_outbox(
+        self, recipient: str, filename: str, data: bytes
+    ) -> None:
         outbox_folder_id = self._get_own_datasite_outbox_id(recipient)
-
         if outbox_folder_id is None:
             raise ValueError(f"Outbox folder for {recipient} not found")
 
-        file_payload, _ = self.create_file_payload(message_data)
-
-        file_metadata = {
-            "name": fname,
-            "parents": [outbox_folder_id],
-        }
+        file_payload, _ = self.create_file_payload(data)
+        file_metadata = {"name": filename, "parents": [outbox_folder_id]}
 
         result = execute_with_retries(
             self.drive_service.files().create(
@@ -591,7 +599,6 @@ class GDriveConnection(SyftboxPlatformConnection):
             )
         )
 
-        # Verify the file landed in the correct folder
         file_id = result.get("id")
         actual_parents = result.get("parents", [])
         if outbox_folder_id not in actual_parents:
@@ -607,6 +614,13 @@ class GDriveConnection(SyftboxPlatformConnection):
                     fields="id, parents",
                 )
             )
+
+    def write_event_messages_to_outbox_do(
+        self, recipient: str, events_message: FileChangeEventsMessage
+    ):
+        data = events_message.as_compressed_data()
+        fname = events_message.message_filepath.as_string()
+        self.write_raw_bytes_to_outbox(recipient, fname, data)
 
     def remove_proposed_filechange_message_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage
@@ -888,9 +902,9 @@ class GDriveConnection(SyftboxPlatformConnection):
                 continue
         return res
 
-    def get_next_proposed_filechange_message(
+    def download_next_raw_from_inbox(
         self, sender_email: str
-    ) -> ProposedFileChangesMessage | None:
+    ) -> tuple[bytes, str] | None:
         inbox_folder_id = self._get_own_datasite_inbox_id(sender_email)
         if inbox_folder_id is None:
             raise ValueError(f"Inbox folder for {sender_email} not found")
@@ -898,18 +912,25 @@ class GDriveConnection(SyftboxPlatformConnection):
         valid_file_names = self._get_valid_messages_from_file_metadatas(file_metadatas)
         if len(valid_file_names) == 0:
             return None
-        else:
-            first_file_name = sorted(
-                valid_file_names, key=lambda x: x.submitted_timestamp
-            )[0]
-            first_file_id = [
-                x for x in file_metadatas if x["name"] == first_file_name.as_string()
-            ][0]["id"]
-            file_data = self.download_file(first_file_id)
-            res = ProposedFileChangesMessage.from_compressed_data(file_data)
-            # Store the platform-specific file ID to avoid re-querying when removing
-            res.platform_id = first_file_id
-            return res
+        first_file_name = sorted(
+            valid_file_names, key=lambda x: x.submitted_timestamp
+        )[0]
+        first_file_id = [
+            x for x in file_metadatas if x["name"] == first_file_name.as_string()
+        ][0]["id"]
+        raw_data = self.download_file(first_file_id)
+        return raw_data, first_file_id
+
+    def get_next_proposed_filechange_message(
+        self, sender_email: str
+    ) -> ProposedFileChangesMessage | None:
+        result = self.download_next_raw_from_inbox(sender_email)
+        if result is None:
+            return None
+        raw_data, file_id = result
+        msg = ProposedFileChangesMessage.from_compressed_data(raw_data)
+        msg.platform_id = file_id
+        return msg
 
     def _get_peer_datasite_inbox_id(self, peer_email: str) -> str | None:
         """Get folder: syft_datasite_{peer}_inbox_{self}, owned by self."""
@@ -971,24 +992,15 @@ class GDriveConnection(SyftboxPlatformConnection):
             self.own_datasite_outbox_cache[peer_email] = folder_id
         return folder_id
 
-    def send_proposed_file_changes_message(
-        self,
-        recipient: str,
-        proposed_file_changes_message: ProposedFileChangesMessage,
-    ):
-        data_compressed = proposed_file_changes_message.as_compressed_data()
-
-        filename = proposed_file_changes_message.message_filename.as_string()
-
-        inbox_outbox_id = self._get_peer_datasite_inbox_id(recipient)
-        if inbox_outbox_id is None:
+    def send_raw_bytes_to_inbox(
+        self, recipient: str, filename: str, data: bytes
+    ) -> None:
+        inbox_id = self._get_peer_datasite_inbox_id(recipient)
+        if inbox_id is None:
             raise Exception(f"Inbox folder for {recipient}'s datasite not found")
 
-        payload, _ = self.create_file_payload(data_compressed)
-        file_metadata = {
-            "name": filename,
-            "parents": [inbox_outbox_id],
-        }
+        payload, _ = self.create_file_payload(data)
+        file_metadata = {"name": filename, "parents": [inbox_id]}
 
         result = execute_with_retries(
             self.drive_service.files().create(
@@ -996,22 +1008,30 @@ class GDriveConnection(SyftboxPlatformConnection):
             )
         )
 
-        # Verify the file landed in the correct folder
         file_id = result.get("id")
         actual_parents = result.get("parents", [])
-        if inbox_outbox_id not in actual_parents:
+        if inbox_id not in actual_parents:
             print(
-                f"WARNING: Message file {file_id} was not placed in outbox folder "
-                f"{inbox_outbox_id}. Actual parents: {actual_parents}. "
+                f"WARNING: Message file {file_id} was not placed in inbox folder "
+                f"{inbox_id}. Actual parents: {actual_parents}. "
                 f"Moving file to correct folder..."
             )
             execute_with_retries(
                 self.drive_service.files().update(
                     fileId=file_id,
-                    addParents=inbox_outbox_id,
+                    addParents=inbox_id,
                     fields="id, parents",
                 )
             )
+
+    def send_proposed_file_changes_message(
+        self,
+        recipient: str,
+        proposed_file_changes_message: ProposedFileChangesMessage,
+    ):
+        data = proposed_file_changes_message.as_compressed_data()
+        filename = proposed_file_changes_message.message_filename.as_string()
+        self.send_raw_bytes_to_inbox(recipient, filename, data)
 
     def reset_caches(self):
         self._syftbox_folder_id = None
@@ -1025,6 +1045,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.dataset_collection_folder_id_cache.clear()
         self._rolling_state_folder_id = None
         self._rolling_state_file_id = None
+        self._encryption_bundles_folder_id = None
 
     def gather_all_file_and_folder_ids(self) -> List[str]:
         syftbox_folder_id = self.get_syftbox_folder_id()
@@ -1101,6 +1122,8 @@ class GDriveConnection(SyftboxPlatformConnection):
             ROLLING_STATE_FILENAME_PREFIX,  # rolling state files
             GDRIVE_P2P_FOLDER_DATASITE_PREFIX,  # new: syft_datasite_ folders
             LEGACY_GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX,  # legacy: syft_outbox_inbox folders
+            "syft_encryption_bundles",  # encryption bundles folders
+            "encryption_bundle_",  # encryption bundle files
         ]
         file_ids = []
 
@@ -2158,17 +2181,17 @@ class GDriveConnection(SyftboxPlatformConnection):
     # ENCRYPTION BUNDLE METHODS
     # =========================================================================
 
-    def _get_encryption_bundles_folder_name(self) -> str:
-        return f"syft_encryption_bundles#{self.email}"
-
     def _get_or_create_encryption_bundles_folder_id(self) -> str:
         """Get or create the encryption bundles folder for this user."""
-        folder_name = self._get_encryption_bundles_folder_name()
+        if self._encryption_bundles_folder_id:
+            return self._encryption_bundles_folder_id
+        folder_name = GdriveEncryptionBundlesFolder(email=self.email).as_string()
         syftbox_folder_id = self.get_syftbox_folder_id()
         folder_id = self._find_folder_by_name(folder_name, parent_id=syftbox_folder_id)
-        if folder_id:
-            return folder_id
-        return self.create_folder(folder_name, syftbox_folder_id)
+        if not folder_id:
+            folder_id = self.create_folder(folder_name, syftbox_folder_id)
+        self._encryption_bundles_folder_id = folder_id
+        return folder_id
 
     def _encryption_bundle_filename(self, owner_email: str, peer_email: str) -> str:
         return f"encryption_bundle_{owner_email}_for_{peer_email}.json"
