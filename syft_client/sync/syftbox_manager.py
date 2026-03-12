@@ -49,9 +49,9 @@ from syft_client.sync.sync.datasite_watcher_syncer import (
     DatasiteWatcherSyncer,
     DatasiteWatcherSyncerConfig,
 )
-from syft_client.sync.version.version_manager import (
-    VersionManager,
-    VersionManagerConfig,
+from syft_client.sync.version.peer_manager import (
+    PeerManager,
+    PeerManagerConfig,
 )
 import os
 
@@ -77,7 +77,7 @@ class SyftboxManagerConfig(BaseModel):
     use_in_memory_cache: bool = True
 
     datasite_owner_syncer_config: DatasiteOwnerSyncerConfig
-    version_manager_config: VersionManagerConfig
+    peer_manager_config: PeerManagerConfig
 
     datasite_watcher_syncer_config: DatasiteWatcherSyncerConfig
     dataset_manager_config: SyftBoxConfig
@@ -111,6 +111,7 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                email=email,
                 use_in_memory_cache=use_in_memory_cache,
                 syftbox_folder=syftbox_folder,
                 collection_subpath=COLLECTION_SUBPATH,
@@ -125,7 +126,7 @@ class SyftboxManagerConfig(BaseModel):
             syftbox_folder=syftbox_folder,
             email=email,
         )
-        version_manager_config = VersionManagerConfig(
+        peer_manager_config = PeerManagerConfig(
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
@@ -141,7 +142,7 @@ class SyftboxManagerConfig(BaseModel):
             datasite_watcher_syncer_config=datasite_watcher_syncer_config,
             dataset_manager_config=dataset_manager_config,
             job_client_config=job_client_config,
-            version_manager_config=version_manager_config,
+            peer_manager_config=peer_manager_config,
         )
 
     @classmethod
@@ -179,6 +180,7 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                email=email,
                 use_in_memory_cache=False,
                 syftbox_folder=syftbox_folder,
                 collection_subpath=COLLECTION_SUBPATH,
@@ -193,7 +195,7 @@ class SyftboxManagerConfig(BaseModel):
             syftbox_folder=syftbox_folder,
             email=email,
         )
-        version_manager_config = VersionManagerConfig(
+        peer_manager_config = PeerManagerConfig(
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
@@ -208,7 +210,7 @@ class SyftboxManagerConfig(BaseModel):
             datasite_watcher_syncer_config=datasite_watcher_syncer_config,
             dataset_manager_config=dataset_manager_config,
             job_client_config=job_client_config,
-            version_manager_config=version_manager_config,
+            peer_manager_config=peer_manager_config,
         )
 
     @classmethod
@@ -242,6 +244,7 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             syftbox_folder=syftbox_folder,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                email=email,
                 use_in_memory_cache=use_in_memory_cache,
                 syftbox_folder=syftbox_folder,
                 collection_subpath=COLLECTION_SUBPATH,
@@ -256,7 +259,7 @@ class SyftboxManagerConfig(BaseModel):
             syftbox_folder=Path(syftbox_folder),
             email=email,
         )
-        version_manager_config = VersionManagerConfig(
+        peer_manager_config = PeerManagerConfig(
             connection_configs=[],  # Empty for in-memory, connections added later
             n_threads=2,  # Use fewer threads for testing
             ignore_protocol_version=not check_versions,
@@ -276,7 +279,7 @@ class SyftboxManagerConfig(BaseModel):
             datasite_watcher_syncer_config=datasite_watcher_syncer_config,
             dataset_manager_config=dataset_manager_config,
             job_client_config=job_client_config,
-            version_manager_config=version_manager_config,
+            peer_manager_config=peer_manager_config,
         )
 
     @classmethod
@@ -314,6 +317,7 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
             connection_configs=connection_configs,
             datasite_watcher_cache_config=DataSiteWatcherCacheConfig(
+                email=email,
                 use_in_memory_cache=use_in_memory_cache,
                 syftbox_folder=syftbox_folder,
                 collection_subpath=COLLECTION_SUBPATH,
@@ -329,7 +333,7 @@ class SyftboxManagerConfig(BaseModel):
             syftbox_folder=syftbox_folder,
             email=email,
         )
-        version_manager_config = VersionManagerConfig(
+        peer_manager_config = PeerManagerConfig(
             connection_configs=connection_configs,
             ignore_protocol_version=not check_versions,
             ignore_client_version=not check_versions,
@@ -347,7 +351,7 @@ class SyftboxManagerConfig(BaseModel):
             use_in_memory_cache=False,
             dataset_manager_config=dataset_manager_config,
             job_client_config=job_client_config,
-            version_manager_config=version_manager_config,
+            peer_manager_config=peer_manager_config,
         )
 
 
@@ -366,7 +370,7 @@ class SyftboxManager(BaseModel):
     dataset_manager: SyftDatasetManager | None = None
     job_client: JobClient | None = None
     job_runner: SyftJobRunner | None = None
-    version_manager: VersionManager | None = None
+    peer_manager: PeerManager | None = None
     has_do_role: bool = False
     has_ds_role: bool = False
     config: SyftboxManagerConfig | None = None
@@ -374,6 +378,7 @@ class SyftboxManager(BaseModel):
     _executor: ThreadPoolExecutor = PrivateAttr(
         default_factory=lambda: ThreadPoolExecutor(max_workers=10)
     )
+    _peer_store: object = PrivateAttr(default=None)
 
     _PUBLIC_API = (
         "email",
@@ -383,7 +388,7 @@ class SyftboxManager(BaseModel):
         "has_do_role",
         "has_ds_role",
         "dataset_manager",
-        "version_manager",
+        "peer_manager",
         "peers",
         "jobs",
         "datasets",
@@ -422,7 +427,7 @@ class SyftboxManager(BaseModel):
         if os.environ.get("PRE_SYNC", "true").lower() == "true":
             self.sync()
 
-        vm = self.version_manager
+        vm = self.peer_manager
         combined = PeerList(
             vm.approved_peers + vm.requested_by_me_peers + vm.requested_by_peer_peers
         )
@@ -455,7 +460,9 @@ class SyftboxManager(BaseModel):
                 config.datasite_watcher_syncer_config
             )
 
-        version_manager = VersionManager.from_config(config.version_manager_config)
+        peer_manager = PeerManager.from_config(
+            config.peer_manager_config, email=config.email
+        )
 
         manager_res = cls(
             syftbox_folder=config.syftbox_folder,
@@ -467,7 +474,7 @@ class SyftboxManager(BaseModel):
             dataset_manager=dataset_manager,
             job_client=job_client,
             job_runner=job_runner,
-            version_manager=version_manager,
+            peer_manager=peer_manager,
             has_do_role=config.has_do_role,
             has_ds_role=config.has_ds_role,
             config=config,
@@ -475,9 +482,30 @@ class SyftboxManager(BaseModel):
 
         return manager_res
 
+    def _set_peer_store(self, peer_store) -> None:
+        """Wire shared peer_store into all connection routers."""
+        from syft_client.sync.peers.peer_store import PeerStore
+
+        if not isinstance(peer_store, PeerStore):
+            return
+        self._peer_store = peer_store
+        if self.peer_manager:
+            self.peer_manager.peer_store = peer_store
+            self.peer_manager.connection_router.peer_store = peer_store
+        if self.datasite_owner_syncer:
+            self.datasite_owner_syncer.connection_router.peer_store = peer_store
+        if self.datasite_watcher_syncer:
+            self.datasite_watcher_syncer.connection_router.peer_store = peer_store
+            self.datasite_watcher_syncer.datasite_watcher_cache.connection_router.peer_store = peer_store
+
     @classmethod
     def for_colab(
-        cls, email: str, has_ds_role: bool = False, has_do_role: bool = False
+        cls,
+        email: str,
+        has_ds_role: bool = False,
+        has_do_role: bool = False,
+        encryption: bool = False,
+        encryption_keys: dict | None = None,
     ):
         manager = cls.from_config(
             SyftboxManagerConfig.for_colab(
@@ -486,8 +514,29 @@ class SyftboxManager(BaseModel):
                 has_do_role=has_do_role,
             )
         )
-        manager.version_manager.write_own_version()
+        manager._init_encryption(encryption, encryption_keys)
+        manager.peer_manager.write_own_version()
         return manager
+
+    def _init_encryption(
+        self, encryption: bool = False, encryption_keys: dict | None = None
+    ):
+        """Initialize encryption if requested."""
+        if not encryption and not encryption_keys:
+            return
+        from syft_client.sync.peers.peer_store import PeerStore
+
+        if encryption_keys:
+            ps = PeerStore.from_keys_data(self.email, encryption_keys)
+        else:
+            keys_path = Path.home() / ".syftbox" / "crypto_keys.json"
+            if keys_path.exists():
+                ps = PeerStore.load_keys(keys_path)
+            else:
+                ps = PeerStore(email=self.email, use_encryption=True)
+                ps.generate_keys()
+                ps.save_keys(keys_path)
+        self._set_peer_store(ps)
 
     @classmethod
     def for_jupyter(
@@ -496,6 +545,8 @@ class SyftboxManager(BaseModel):
         has_ds_role: bool = False,
         has_do_role: bool = False,
         token_path: Path | None = None,
+        encryption: bool = False,
+        encryption_keys: dict | None = None,
     ):
         if token_path is not None:
             token_path = Path(token_path)
@@ -507,7 +558,8 @@ class SyftboxManager(BaseModel):
                 token_path=token_path,
             )
         )
-        manager.version_manager.write_own_version()
+        manager._init_encryption(encryption, encryption_keys)
+        manager.peer_manager.write_own_version()
         return manager
 
     @classmethod
@@ -550,8 +602,8 @@ class SyftboxManager(BaseModel):
 
         # Write version files if version checking is enabled
         if check_versions:
-            sender_manager.version_manager.write_own_version()
-            receiver_manager.version_manager.write_own_version()
+            sender_manager.peer_manager.write_own_version()
+            receiver_manager.peer_manager.write_own_version()
 
         # this makes sure that when we write a file as sender, the inactive file watcher picks it up
         sender_manager.file_writer.add_callback(
@@ -604,6 +656,7 @@ class SyftboxManager(BaseModel):
         add_peers: bool = True,
         use_in_memory_cache: bool = True,
         check_versions: bool = False,
+        encryption: bool = False,
     ):
         """Create a pair of managers using mock Google Drive services for testing.
 
@@ -670,8 +723,20 @@ class SyftboxManager(BaseModel):
         )
 
         # Write version files
-        ds_manager.version_manager.write_own_version()
-        do_manager.version_manager.write_own_version()
+        ds_manager.peer_manager.write_own_version()
+        do_manager.peer_manager.write_own_version()
+
+        # Initialize encryption if requested
+        if encryption:
+            from syft_client.sync.peers.peer_store import PeerStore
+
+            ds_ps = PeerStore(email=ds_manager.email, use_encryption=True)
+            ds_ps.generate_keys()
+            ds_manager._set_peer_store(ds_ps)
+
+            do_ps = PeerStore(email=do_manager.email, use_encryption=True)
+            do_ps.generate_keys()
+            do_manager._set_peer_store(do_ps)
 
         if add_peers:
             # DS creates peer request
@@ -683,15 +748,15 @@ class SyftboxManager(BaseModel):
         return ds_manager, do_manager
 
     def add_peer(self, peer_email: str, force: bool = False, verbose: bool = True):
-        """Add a peer. Delegates to VersionManager."""
-        self.version_manager.add_peer(peer_email, force=force, verbose=verbose)
+        """Add a peer. Delegates to PeerManager."""
+        self.peer_manager.add_peer(peer_email, force=force, verbose=verbose)
 
     def submit_bash_job(
         self, user: str, *args, sync=True, force_submission: bool = False, **kwargs
     ):
         # Check version compatibility before submission (uses cached versions)
         if not force_submission:
-            self.version_manager.check_version_for_submission(user, force=False)
+            self.peer_manager.check_version_for_submission(user, force=False)
         job_dir = self.job_client.submit_bash_job(user, *args, **kwargs)
         self.push_job_files(job_dir)
 
@@ -700,7 +765,7 @@ class SyftboxManager(BaseModel):
     ):
         # Check version compatibility before submission (uses cached versions)
         if not force_submission:
-            self.version_manager.check_version_for_submission(user, force=False)
+            self.peer_manager.check_version_for_submission(user, force=False)
         job_dir = self.job_client.submit_python_job(user, *args, **kwargs)
         self.push_job_files(job_dir)
         print(f"Submitted python job, job files are in {job_dir}")
@@ -730,8 +795,8 @@ class SyftboxManager(BaseModel):
         """
         self.load_peers()
         if self.has_do_role:
-            peer_emails = [peer.email for peer in self.version_manager.approved_peers]
-            compatible_emails = self.version_manager.get_compatible_peer_emails(
+            peer_emails = [peer.email for peer in self.peer_manager.approved_peers]
+            compatible_emails = self.peer_manager.get_compatible_peer_emails(
                 peer_emails, warn_incompatible=True
             )
             self.datasite_owner_syncer.sync(compatible_emails)
@@ -739,17 +804,17 @@ class SyftboxManager(BaseModel):
                 self.try_create_checkpoint(checkpoint_threshold)
 
         if self.has_ds_role:
-            peer_emails = [peer.email for peer in self.version_manager.syncable_peers]
-            self.version_manager.warn_if_all_peers_incompatible(peer_emails)
+            peer_emails = [peer.email for peer in self.peer_manager.syncable_peers]
+            self.peer_manager.warn_if_all_peers_incompatible(peer_emails)
             self.datasite_watcher_syncer.sync_down(peer_emails)
 
     def load_peers(self):
-        """Load peers from connection router. Delegates to VersionManager."""
-        cast(VersionManager, self.version_manager).load_peers()
+        """Load peers from connection router. Delegates to PeerManager."""
+        cast(PeerManager, self.peer_manager).load_peers()
 
     def _check_peer_request_exists(self, email: str) -> bool:
-        """Check if a peer request exists. Delegates to VersionManager."""
-        return self.version_manager.check_peer_request_exists(email)
+        """Check if a peer request exists. Delegates to PeerManager."""
+        return self.peer_manager.check_peer_request_exists(email)
 
     def approve_peer_request(
         self,
@@ -757,8 +822,8 @@ class SyftboxManager(BaseModel):
         verbose: bool = True,
         peer_must_exist: bool = True,
     ):
-        """Approve a pending peer request. Delegates to VersionManager."""
-        self.version_manager.approve_peer_request(
+        """Approve a pending peer request. Delegates to PeerManager."""
+        self.peer_manager.approve_peer_request(
             email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
         )
         self._post_approve_peer(email_or_peer)
@@ -785,7 +850,7 @@ class SyftboxManager(BaseModel):
         """
         for tag, content_hash in self.datasite_owner_syncer._any_shared_datasets:
             try:
-                self._connection_router.share_dataset_collection(
+                self._connection_router.owner_share_dataset_collection(
                     tag, content_hash, [peer_email]
                 )
             except Exception:
@@ -793,8 +858,8 @@ class SyftboxManager(BaseModel):
                 pass
 
     def reject_peer_request(self, email_or_peer: str | Peer):
-        """Reject a pending peer request. Delegates to VersionManager."""
-        self.version_manager.reject_peer_request(email_or_peer)
+        """Reject a pending peer request. Delegates to PeerManager."""
+        self.peer_manager.reject_peer_request(email_or_peer)
 
     @property
     def jobs(self) -> JobsList:
@@ -846,20 +911,16 @@ class SyftboxManager(BaseModel):
                 if job.submitted_by == "unknown":
                     continue
 
-                if not self.version_manager.is_peer_version_compatible(
-                    job.submitted_by
-                ):
+                if not self.peer_manager.is_peer_version_compatible(job.submitted_by):
                     # Warn about incompatible job
-                    peer_version = self.version_manager.get_peer_version(
-                        job.submitted_by
-                    )
+                    peer_version = self.peer_manager.get_peer_version(job.submitted_by)
                     if peer_version is None:
                         warnings.warn(
                             f"Skipping job '{job.name}' from {job.submitted_by}: "
                             "version unknown. Use force_execution=True to override."
                         )
                     else:
-                        own_version = self.version_manager.get_own_version()
+                        own_version = self.peer_manager.get_own_version()
                         reason = own_version.get_incompatibility_reason(peer_version)
                         warnings.warn(
                             f"Skipping job '{job.name}' from {job.submitted_by}: "
@@ -898,13 +959,13 @@ class SyftboxManager(BaseModel):
             )
 
         # Add connection to version manager's router
-        self.version_manager.connection_router.add_connection(connection)
+        self.peer_manager.connection_router.add_connection(connection)
 
     def _send_file_change(self, path: str | Path, content: str):
         self.file_writer.write_file(path, content)
 
     def _get_all_accepted_events_do(self) -> List[FileChangeEvent]:
-        return self.datasite_owner_syncer.connection_router.get_all_accepted_events_messages_do()
+        return self.datasite_owner_syncer.connection_router.owner_get_all_accepted_events_messages()
 
     def create_dataset(
         self,
@@ -965,31 +1026,31 @@ class SyftboxManager(BaseModel):
         content_hash = DatasetCollectionFolder.compute_hash(files)
 
         # Create collection folder with hash in name
-        self._connection_router.create_dataset_collection_folder(
+        self._connection_router.owner_create_dataset_collection_folder(
             tag=collection_tag, content_hash=content_hash, owner_email=self.email
         )
 
         # Upload files
-        self._connection_router.upload_dataset_files(
+        self._connection_router.owner_upload_dataset_files(
             collection_tag, content_hash, files
         )
 
         # Share with users
         if users == "any":
-            self._connection_router.tag_dataset_collection_as_any(
+            self._connection_router.owner_tag_dataset_collection_as_any(
                 collection_tag, content_hash
             )
             self.datasite_owner_syncer._any_shared_datasets.append(
                 (collection_tag, content_hash)
             )
             # Share with all already-approved peers
-            peer_emails = [p.email for p in self.version_manager.approved_peers]
+            peer_emails = [p.email for p in self.peer_manager.approved_peers]
             if peer_emails:
-                self._connection_router.share_dataset_collection(
+                self._connection_router.owner_share_dataset_collection(
                     collection_tag, content_hash, peer_emails
                 )
         else:
-            self._connection_router.share_dataset_collection(
+            self._connection_router.owner_share_dataset_collection(
                 collection_tag, content_hash, users
             )
 
@@ -1013,12 +1074,12 @@ class SyftboxManager(BaseModel):
         content_hash = PrivateDatasetCollectionFolder.compute_hash(files)
 
         # Create private collection folder (no sharing)
-        self._connection_router.create_private_dataset_collection_folder(
+        self._connection_router.owner_create_private_dataset_collection_folder(
             tag=collection_tag, content_hash=content_hash, owner_email=self.email
         )
 
         # Upload files
-        self._connection_router.upload_private_dataset_files(
+        self._connection_router.owner_upload_private_dataset_files(
             collection_tag, content_hash, files
         )
 
@@ -1068,17 +1129,21 @@ class SyftboxManager(BaseModel):
 
         # Share collection
         if users == "any":
-            self._connection_router.tag_dataset_collection_as_any(tag, content_hash)
+            self._connection_router.owner_tag_dataset_collection_as_any(
+                tag, content_hash
+            )
             self.datasite_owner_syncer._any_shared_datasets.append((tag, content_hash))
-            peer_emails = [p.email for p in self.version_manager.approved_peers]
+            peer_emails = [p.email for p in self.peer_manager.approved_peers]
             if peer_emails:
-                self._connection_router.share_dataset_collection(
+                self._connection_router.owner_share_dataset_collection(
                     tag, content_hash, peer_emails
                 )
         else:
             if isinstance(users, str):
                 users = [users]
-            self._connection_router.share_dataset_collection(tag, content_hash, users)
+            self._connection_router.owner_share_dataset_collection(
+                tag, content_hash, users
+            )
 
         if sync:
             self.sync()
@@ -1161,7 +1226,7 @@ class SyftboxManager(BaseModel):
         msg = FileChangeEventsMessage(events=events)
         for peer_email in peer_emails:
             try:
-                self._connection_router.write_event_messages_to_outbox_do(
+                self._connection_router.owner_write_event_messages_to_outbox(
                     peer_email, msg
                 )
             except Exception:
@@ -1188,7 +1253,7 @@ class SyftboxManager(BaseModel):
         peer_emails = []
         file_hashes = {}
         if broadcast_delete_events and self.has_do_role:
-            peer_emails = [p.email for p in self.version_manager.approved_peers]
+            peer_emails = [p.email for p in self.peer_manager.approved_peers]
             file_hashes = dict(self.datasite_owner_syncer.event_cache.file_hashes)
 
         # Get files by folder hierarchy
@@ -1295,7 +1360,7 @@ class SyftboxManager(BaseModel):
 
     def _get_all_peer_platforms(self) -> List[BasePlatform]:
         all_platforms = set(
-            [plat for p in self.version_manager.approved_peers for plat in p.platforms]
+            [plat for p in self.peer_manager.approved_peers for plat in p.platforms]
         )
         return list(all_platforms)
 

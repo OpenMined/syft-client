@@ -49,7 +49,9 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
         return cls(
             syftbox_folder=config.syftbox_folder,
             email=config.email,
-            connection_router=ConnectionRouter.from_configs(config.connection_configs),
+            connection_router=ConnectionRouter.from_configs(
+                config.email, config.connection_configs
+            ),
             datasite_watcher_cache=DataSiteWatcherCache.from_config(
                 config.datasite_watcher_cache_config
             ),
@@ -99,7 +101,9 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
         message = ProposedFileChangesMessage(
             sender_email=self.email, proposed_file_changes=file_changes
         )
-        self.connection_router.send_proposed_file_changes_message(recipient, message)
+        self.connection_router.watcher_send_proposed_file_changes_message(
+            recipient, message
+        )
 
     def on_file_change(
         self, relative_path: Path | str, content: str | None = None, process_now=True
@@ -112,16 +116,22 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
     # --- Pulling from datasite outboxes ---
 
     def download_events_message_with_new_connection(
-        self, file_id: str
+        self, file_id: str, peer_email: str
     ) -> FileChangeEventsMessage:
         """Download from outbox using a new connection (thread-safe)."""
         connection = self.connection_router.connection_for_parallel_download()
-        return connection.download_events_message_by_id_from_outbox(file_id)
+        raw = connection.download_file(file_id)
+        raw = self.connection_router.peer_store.decrypt_if_needed(peer_email, raw)
+        return FileChangeEventsMessage.from_compressed_data(raw)
 
-    def download_dataset_file_with_new_connection(self, file_id: str) -> bytes:
+    def download_dataset_file_with_new_connection(
+        self, file_id: str, owner_email: str
+    ) -> bytes:
         """Download dataset file using a new connection (thread-safe)."""
         connection = self.connection_router.connection_for_parallel_download()
-        return connection.download_dataset_file(file_id)
+        data = connection.watcher_download_dataset_file(file_id)
+        data = self.connection_router.peer_store.decrypt_if_needed(owner_email, data)
+        return data
 
     def sync_down(self, peer_emails: list[str]):
         for peer_email in peer_emails:
@@ -129,11 +139,15 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
             self.datasite_watcher_cache.sync_down_parallel(
                 peer_email,
                 self._executor,
-                self.download_events_message_with_new_connection,
+                lambda fid,
+                pe=peer_email: self.download_events_message_with_new_connection(
+                    fid, pe
+                ),
             )
             # Sync datasets with parallel download
             self.datasite_watcher_cache.sync_down_datasets_parallel(
                 peer_email,
                 self._executor,
-                self.download_dataset_file_with_new_connection,
+                lambda fid,
+                pe=peer_email: self.download_dataset_file_with_new_connection(fid, pe),
             )

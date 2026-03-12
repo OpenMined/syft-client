@@ -29,7 +29,7 @@ def test_quad_initialization():
 
     # Helper to get approved peer emails for a manager
     def approved_emails(client):
-        return {p.email for p in client._manager.version_manager.approved_peers}
+        return {p.email for p in client._manager.peer_manager.approved_peers}
 
     # Enclave (DO-only): approved DS, DO1, DO2
     assert approved_emails(enclave) == {ds.email, do1.email, do2.email}

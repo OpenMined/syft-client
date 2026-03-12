@@ -19,6 +19,7 @@ SECONDS_BEFORE_SYNCING_DOWN = 0
 
 
 class DataSiteWatcherCacheConfig(BaseModel):
+    email: str = ""
     use_in_memory_cache: bool = True
     syftbox_folder: Path | None = None
     events_base_path: Path | None = None
@@ -57,7 +58,8 @@ class DataSiteWatcherCache(BaseModel):
                 events_connection=InMemoryCacheFileConnection[FileChangeEvent](),
                 file_connection=InMemoryCacheFileConnection[str](),
                 connection_router=ConnectionRouter.from_configs(
-                    connection_configs=config.connection_configs
+                    email=config.email,
+                    connection_configs=config.connection_configs,
                 ),
                 syftbox_folder=config.syftbox_folder,
                 collection_subpath=config.collection_subpath,
@@ -81,7 +83,8 @@ class DataSiteWatcherCache(BaseModel):
                 ),
                 file_connection=FSFileConnection(base_dir=config.syftbox_folder),
                 connection_router=ConnectionRouter.from_configs(
-                    connection_configs=config.connection_configs
+                    email=config.email,
+                    connection_configs=config.connection_configs,
                 ),
                 syftbox_folder=config.syftbox_folder,
                 collection_subpath=config.collection_subpath,
@@ -184,11 +187,9 @@ class DataSiteWatcherCache(BaseModel):
         # Use per-peer timestamp to avoid filtering out events from other peers
         peer_timestamp = self.last_event_timestamp_per_peer.get(peer_email)
 
-        new_event_messages = (
-            self.connection_router.get_events_messages_for_datasite_watcher(
-                peer_email=peer_email,
-                since_timestamp=peer_timestamp,
-            )
+        new_event_messages = self.connection_router.watcher_get_events_messages(
+            peer_email=peer_email,
+            since_timestamp=peer_timestamp,
         )
         for event_message in sorted(new_event_messages, key=lambda x: x.timestamp):
             self.apply_event_message(event_message)
@@ -206,7 +207,7 @@ class DataSiteWatcherCache(BaseModel):
         peer_timestamp = self.last_event_timestamp_per_peer.get(peer_email)
 
         # Get file metadata (no download yet)
-        file_metadatas = self.connection_router.get_outbox_file_metadatas_for_ds(
+        file_metadatas = self.connection_router.watcher_get_outbox_file_metadatas(
             peer_email=peer_email,
             since_timestamp=peer_timestamp,
         )
@@ -291,7 +292,7 @@ class DataSiteWatcherCache(BaseModel):
         Separate from message sync. Uses hash to skip unchanged collections.
         """
         # Get list of collections shared with us (now returns list of dicts)
-        collections = self.connection_router.list_dataset_collections_as_ds()
+        collections = self.connection_router.watcher_list_dataset_collections()
 
         # Filter by peer
         peer_collections = [c for c in collections if c["owner_email"] == peer_email]
@@ -312,7 +313,7 @@ class DataSiteWatcherCache(BaseModel):
                 continue
 
             # Download collection files
-            files = self.connection_router.download_dataset_collection(
+            files = self.connection_router.watcher_download_dataset_collection(
                 tag, content_hash, owner_email
             )
 
@@ -334,7 +335,7 @@ class DataSiteWatcherCache(BaseModel):
         Sync dataset collections from peer with parallel file downloads.
         Downloads all files from all collections in a single parallel batch.
         """
-        collections = self.connection_router.list_dataset_collections_as_ds()
+        collections = self.connection_router.watcher_list_dataset_collections()
         peer_collections = [c for c in collections if c["owner_email"] == peer_email]
 
         self._cleanup_stale_dataset_collections(peer_email, peer_collections)
@@ -358,7 +359,7 @@ class DataSiteWatcherCache(BaseModel):
 
             # Get file metadata (no download yet)
             file_metadatas = (
-                self.connection_router.get_dataset_collection_file_metadatas(
+                self.connection_router.watcher_get_dataset_collection_file_metadatas(
                     tag, content_hash, owner_email
                 )
             )

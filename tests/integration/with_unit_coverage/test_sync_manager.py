@@ -209,7 +209,7 @@ def test_datasets_shared_with_any():
     )
 
     # DS should NOT see the dataset yet (not approved)
-    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.watcher_list_dataset_collections()
     assert not any(c["tag"] == "any dataset" for c in ds_collections)
 
     # DS adds peer, DO approves (this should share 'any' datasets)
@@ -220,7 +220,7 @@ def test_datasets_shared_with_any():
     # DS should now see the dataset
     # Google Drive search index takes time to propagate permission changes
     time.sleep(5)
-    ds_collections = ds_manager._connection_router.list_dataset_collections_as_ds()
+    ds_collections = ds_manager._connection_router.watcher_list_dataset_collections()
     assert any(c["tag"] == "any dataset" for c in ds_collections)
 
 
@@ -465,13 +465,13 @@ def test_version_upgrade_breaks_communication():
     sleep(2)
 
     # Verify initial version compatibility
-    ds_manager.version_manager.load_peer_version(do_manager.email)
-    do_manager.version_manager.load_peer_version(ds_manager.email)
+    ds_manager.peer_manager.load_peer_version(do_manager.email)
+    do_manager.peer_manager.load_peer_version(ds_manager.email)
 
-    assert ds_manager.version_manager.is_peer_version_compatible(do_manager.email), (
+    assert ds_manager.peer_manager.is_peer_version_compatible(do_manager.email), (
         "DS should see DO as compatible initially"
     )
-    assert do_manager.version_manager.is_peer_version_compatible(ds_manager.email), (
+    assert do_manager.peer_manager.is_peer_version_compatible(ds_manager.email), (
         "DO should see DS as compatible initially"
     )
 
@@ -491,10 +491,10 @@ def test_version_upgrade_breaks_communication():
     ds_connection.write_version_file(new_version)
 
     # Phase 3: Clear DO's cached version of DS and reload from GDrive
-    do_manager.version_manager.clear_peer_version(ds_manager.email)
+    do_manager.peer_manager.clear_peer_version(ds_manager.email)
 
     # Reload DS's version (this fetches from GDrive)
-    reloaded_version = do_manager.version_manager.load_peer_version(ds_manager.email)
+    reloaded_version = do_manager.peer_manager.load_peer_version(ds_manager.email)
 
     # Verify the new version was loaded
     assert reloaded_version is not None, "Should be able to reload peer version"
@@ -503,9 +503,9 @@ def test_version_upgrade_breaks_communication():
     )
 
     # Verify versions are now incompatible
-    assert not do_manager.version_manager.is_peer_version_compatible(
-        ds_manager.email
-    ), "DO should now see DS as incompatible after version upgrade"
+    assert not do_manager.peer_manager.is_peer_version_compatible(ds_manager.email), (
+        "DO should now see DS as incompatible after version upgrade"
+    )
 
     # Cleanup: Restore DS's version file to the original version
     ds_connection.write_version_file(current)

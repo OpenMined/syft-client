@@ -490,7 +490,7 @@ class TestPairWithMockDriveServiceConnection:
         # Peers should be set up
         do_manager.load_peers()
         assert ds_manager.email in [
-            p.email for p in do_manager.version_manager.approved_peers
+            p.email for p in do_manager.peer_manager.approved_peers
         ]
 
     def test_ds_to_do_file_sync(self):

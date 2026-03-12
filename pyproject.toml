@@ -38,10 +38,11 @@ dependencies = [
     "click>=8.0.0",
     "python-daemon>=3.0.0",
     "syft-bg",
-    "syft-job",     # TODO: move to optional-dependencies after adding lazy imports
+    "syft-job", # TODO: move to optional-dependencies after adding lazy imports
     "syft-dataset", # TODO: move to optional-dependencies after adding lazy imports
     "syft-permissions",
     "syft-perm",
+    "syft-crypto-python>=0.1.2b2",
 ]
 
 [project.optional-dependencies]

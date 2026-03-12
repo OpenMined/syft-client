@@ -28,7 +28,7 @@ msgs = ProposedFileChangesMessage(
     ],
 )
 
-transport.send_proposed_file_changes_message(
+transport.watcher_send_proposed_file_changes_message(
     recipient="koenlennartvanderveen@gmail.com",
     messages=msgs.proposed_file_changes,
 )
