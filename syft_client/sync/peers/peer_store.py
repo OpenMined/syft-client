@@ -128,9 +128,7 @@ class PeerStore(BaseModel):
         peer = self.get_cached_peer(peer_email)
         return peer is not None and peer.public_encryption_bundle is not None
 
-    def _get_parsed_peer_bundle(
-        self, peer_email: str
-    ) -> syc.SyftPublicKeyBundle:
+    def _get_parsed_peer_bundle(self, peer_email: str) -> syc.SyftPublicKeyBundle:
         bundle = self._ensure_peer_bundle(peer_email)
         return syc.SyftPublicKeyBundle.from_did_document(bundle)
 

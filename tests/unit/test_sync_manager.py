@@ -215,7 +215,9 @@ def test_sync_existing_datasite_state_ds():
     )
     events_messages = get_mock_events_messages(2)
     for message in events_messages:
-        do_manager._connection_router.owner_write_event_messages_to_outbox(ds_manager.email, message)
+        do_manager._connection_router.owner_write_event_messages_to_outbox(
+            ds_manager.email, message
+        )
 
     ds_manager.sync()
 
@@ -2021,9 +2023,7 @@ def test_permission_change_triggers_resend():
         str(e.path_in_datasite) for msg in messages_for_a for e in msg.events
     ]
 
-    messages_for_b = peer_b_router.watcher_get_events_messages(
-        do_manager.email, None
-    )
+    messages_for_b = peer_b_router.watcher_get_events_messages(do_manager.email, None)
     paths_for_b = [
         str(e.path_in_datasite) for msg in messages_for_b for e in msg.events
     ]

@@ -208,9 +208,7 @@ class ConnectionRouter(BaseModel):
     ):
         """Update peer state in storage"""
         connection = self.connection_for_send_message()
-        connection._update_peer_state(
-            peer_email, state, public_encryption_bundle
-        )
+        connection._update_peer_state(peer_email, state, public_encryption_bundle)
 
     def owner_remove_proposed_filechange_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage
@@ -364,9 +362,7 @@ class ConnectionRouter(BaseModel):
             tag, content_hash, owner_email
         )
 
-    def watcher_download_dataset_file(
-        self, file_id: str, owner_email: str
-    ) -> bytes:
+    def watcher_download_dataset_file(self, file_id: str, owner_email: str) -> bytes:
         connection = self.connection_for_datasite_watcher()
         data = connection.watcher_download_dataset_file(file_id)
         data = self.peer_store.decrypt_if_needed(owner_email, data)

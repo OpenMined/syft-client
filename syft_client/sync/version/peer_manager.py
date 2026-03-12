@@ -478,7 +478,9 @@ class PeerManager(BaseModel):
                         if bundle:
                             self.peer_store.set_peer_bundle(peer.email, bundle)
                             self.connection_router.update_peer_state(
-                                peer.email, peer.state.value, public_encryption_bundle=bundle
+                                peer.email,
+                                peer.state.value,
+                                public_encryption_bundle=bundle,
                             )
 
         self.load_peer_versions_parallel([peer.email for peer in peers])
