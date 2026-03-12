@@ -400,17 +400,20 @@ class GDriveConnection(SyftboxPlatformConnection):
             return file_id
 
     def _update_peer_state(
-        self, peer_email: str, state: str, public_bundle: dict | None = None
+        self,
+        peer_email: str,
+        state: str,
+        public_encryption_bundle: dict | None = None,
     ):
         """Update a single peer's state in the JSON file.
 
-        Preserves existing fields (e.g. public_bundle) when updating state.
+        Preserves existing fields when updating state.
         """
         peers_data = self._read_peers_json()
         existing = peers_data.get(peer_email, {})
         existing["state"] = state
-        if public_bundle is not None:
-            existing["public_bundle"] = public_bundle
+        if public_encryption_bundle is not None:
+            existing["public_encryption_bundle"] = public_encryption_bundle
         peers_data[peer_email] = existing
         self._write_peers_json(peers_data)
 

@@ -47,7 +47,7 @@ def test_encrypt_decrypt_roundtrip():
 def test_encrypt_without_keys_raises():
     ps = PeerStore(email="alice@example.com", use_encryption=True)
     ps.add_peer(Peer(email="bob@example.com"))
-    with pytest.raises(ValueError, match="No private key"):
+    with pytest.raises(ValueError, match="No private keys"):
         ps.encrypt("bob@example.com", b"data")
 
 
@@ -55,14 +55,14 @@ def test_encrypt_without_peer_bundle_raises():
     ps = PeerStore(email="alice@example.com", use_encryption=True)
     ps.generate_keys()
     ps.add_peer(Peer(email="bob@example.com"))
-    with pytest.raises(ValueError, match="No public key for peer"):
+    with pytest.raises(ValueError, match="No public encryption bundle"):
         ps.encrypt("bob@example.com", b"data")
 
 
 def test_try_decrypt_no_keys():
     ps = PeerStore(email="alice@example.com", use_encryption=True)
     data = b"some unencrypted data"
-    with pytest.raises(ValueError, match="No private key"):
+    with pytest.raises(ValueError, match="No private keys"):
         ps.decrypt("bob@example.com", data) == data
 
 
@@ -70,7 +70,7 @@ def test_try_decrypt_no_peer_bundle():
     ps = PeerStore(email="alice@example.com", use_encryption=True)
     ps.generate_keys()
     data = b"some unencrypted data"
-    with pytest.raises(ValueError, match="No public key for peer"):
+    with pytest.raises(ValueError, match="No cached peer for"):
         ps.decrypt("bob@example.com", data) == data
 
 
@@ -117,7 +117,7 @@ def test_from_keys_data():
     alice = PeerStore(email="alice@example.com", use_encryption=True)
     alice.generate_keys()
 
-    keys_data = {"keys_jwk": alice._keys.to_jwks()}
+    keys_data = {"keys_jwk": alice._private_keys.to_jwks()}
     loaded = PeerStore.from_keys_data("alice@example.com", keys_data)
     assert loaded.has_my_keys()
     assert loaded.get_public_bundle() is not None

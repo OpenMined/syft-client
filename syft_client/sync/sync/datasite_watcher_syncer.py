@@ -116,14 +116,12 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
     # --- Pulling from datasite outboxes ---
 
     def download_events_message_with_new_connection(
-        self, file_id: str, peer_email: str | None = None
+        self, file_id: str, peer_email: str
     ) -> FileChangeEventsMessage:
         """Download from outbox using a new connection (thread-safe)."""
         connection = self.connection_router.connection_for_parallel_download()
-        # Use router's decrypt if key_manager is set
         raw = connection.download_file(file_id)
-        if peer_email:
-            raw = self.connection_router.peer_store.decrypt_if_needed(peer_email, raw)
+        raw = self.connection_router.peer_store.decrypt_if_needed(peer_email, raw)
         return FileChangeEventsMessage.from_compressed_data(raw)
 
     def download_dataset_file_with_new_connection(

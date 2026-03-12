@@ -2,6 +2,7 @@
 PeerManager for managing peers, version information, and compatibility checks.
 """
 
+import json
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
@@ -364,81 +365,68 @@ class PeerManager(BaseModel):
         - If peer is REQUESTED_BY_ME or ACCEPTED, skips (unless force=True).
         - If no existing peer, creates folders and marks REQUESTED_BY_ME.
         """
-        existing = self.get_cached_peer(peer_email)
-        if existing and not force:
-            if existing.state == PeerState.REQUESTED_BY_PEER:
+        existing_peer_obj = self.get_cached_peer(peer_email)
+        if existing_peer_obj and not force:
+            if existing_peer_obj.state == PeerState.REQUESTED_BY_PEER:
                 pass  # Fall through to create our folders and accept
-            elif existing.state == PeerState.REQUESTED_BY_ME:
+            elif existing_peer_obj.state == PeerState.REQUESTED_BY_ME:
                 if verbose:
                     print(f"Peer {peer_email} already requested, skipping")
                 return
-            elif existing.state == PeerState.ACCEPTED:
+            elif existing_peer_obj.state == PeerState.ACCEPTED:
                 if verbose:
                     print(f"Peer {peer_email} already accepted, skipping")
                 return
 
-        is_accepting = existing and existing.state == PeerState.REQUESTED_BY_PEER
+        is_accepting = (
+            existing_peer_obj and existing_peer_obj.state == PeerState.REQUESTED_BY_PEER
+        )
         new_state = PeerState.ACCEPTED if is_accepting else PeerState.REQUESTED_BY_ME
 
-        peer = self.connection_router.add_peer(peer_email=peer_email)
-        peer.state = new_state
+        new_peer_obj = self.connection_router.add_peer(peer_email=peer_email)
+
+        if existing_peer_obj:
+            new_peer_obj = existing_peer_obj
 
         # Exchange encryption bundles if key_manager is set
-        self._write_encryption_bundle_for_peer(peer_email)
+        if self.peer_store.use_encryption:
+            self._write_encryption_bundle_for_peer(peer_email)
+
         peer_bundle = None
-        if is_accepting:
+        if self.peer_store.use_encryption and is_accepting:
             peer_bundle = self._read_peer_encryption_bundle(peer_email)
 
         self.connection_router.update_peer_state(
-            peer_email, new_state.value, public_bundle=peer_bundle
+            peer_email, new_state.value, public_encryption_bundle=peer_bundle
         )
         self.share_version_with_peer(peer_email)
         version_info = self.connection_router.read_peer_version_file(peer_email)
-        peer.version = version_info
-        peer.public_bundle = peer_bundle
 
-        if existing:
-            existing.state = new_state
-            existing.version = version_info
-            existing.public_bundle = peer_bundle
-        else:
-            self.peer_store.add_peer(peer)
-
-        # Store peer bundle on the Peer object via PeerStore
-        if peer_bundle and not self.peer_store.has_peer_bundle(peer_email):
-            self.peer_store.set_peer_bundle(peer_email, peer_bundle)
+        new_peer_obj.version = version_info
+        new_peer_obj.public_encryption_bundle = peer_bundle
+        new_peer_obj.state = new_state
+        self.peer_store.set_peer(new_peer_obj)
 
         if verbose:
-            print_peer_added(peer)
+            print_peer_added(new_peer_obj)
 
     def _write_encryption_bundle_for_peer(self, peer_email: str) -> dict | None:
         """Write own encryption bundle for a peer if encryption is enabled."""
-        ps = self.peer_store
-        if not ps.use_encryption or not ps.has_my_keys():
-            return None
-        bundle = ps.get_public_bundle()
-        if bundle:
-            import json as _json
-
-            bundle_json = _json.dumps({"public_bundle": bundle})
-            self.connection_router.write_encryption_bundle(peer_email, bundle_json)
-            self.connection_router.share_encryption_bundles_folder(peer_email)
+        if not self.peer_store.use_encryption:
+            raise ValueError("Encryption is not enabled")
+        bundle = self.peer_store.get_public_bundle()
+        bundle_json = json.dumps({"public_encryption_bundle": bundle})
+        self.connection_router.write_encryption_bundle(peer_email, bundle_json)
+        self.connection_router.share_encryption_bundles_folder(peer_email)
         return bundle
 
     def _read_peer_encryption_bundle(self, peer_email: str) -> dict | None:
         """Read a peer's encryption bundle if available."""
-        if not self.peer_store.use_encryption:
-            return None
         bundle_json = self.connection_router.read_peer_encryption_bundle(peer_email)
         if not bundle_json:
             return None
-        try:
-            import json as _json
-
-            data = _json.loads(bundle_json)
-            return data.get("public_bundle")
-        except Exception:
-            return None
+        data = json.loads(bundle_json)
+        return data.get("public_encryption_bundle")
 
     def load_peers(self):
         """Load peers: from JSON (accepted + requested_by_me) + new requests from folder scan."""
@@ -490,7 +478,7 @@ class PeerManager(BaseModel):
                         if bundle:
                             self.peer_store.set_peer_bundle(peer.email, bundle)
                             self.connection_router.update_peer_state(
-                                peer.email, peer.state.value, public_bundle=bundle
+                                peer.email, peer.state.value, public_encryption_bundle=bundle
                             )
 
         self.load_peer_versions_parallel([peer.email for peer in peers])

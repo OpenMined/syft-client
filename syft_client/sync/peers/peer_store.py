@@ -22,7 +22,7 @@ class PeerStore(BaseModel):
     email: str
     use_encryption: bool = False
 
-    _keys: syc.SyftPrivateKeys | None = PrivateAttr(default=None)
+    _private_keys: syc.SyftPrivateKeys | None = PrivateAttr(default=None)
     _peers: List[Peer] = PrivateAttr(default_factory=list)
 
     # ========== Peer list methods ==========
@@ -63,6 +63,14 @@ class PeerStore(BaseModel):
         peer = self.get_cached_peer(email)
         return peer is not None and peer.use_encryption
 
+    def set_peer(self, peer: Peer) -> None:
+        peer.use_encryption = self.use_encryption
+        for i, p in enumerate(self._peers):
+            if p.email == peer.email:
+                self._peers[i] = peer
+                return
+        self._peers.append(peer)
+
     def add_peer(self, peer: Peer) -> None:
         peer.use_encryption = self.use_encryption
         self._peers.append(peer)
@@ -72,76 +80,83 @@ class PeerStore(BaseModel):
             p.use_encryption = self.use_encryption
         self._peers = peers
 
+    # ========== Ensure helpers ==========
+
+    def _ensure_private_keys(self) -> syc.SyftPrivateKeys:
+        if self._private_keys is None:
+            raise ValueError("No private keys — call generate_keys() first")
+        return self._private_keys
+
+    def _ensure_peer(self, email: str) -> Peer:
+        peer = self.get_cached_peer(email)
+        if peer is None:
+            raise ValueError(f"No cached peer for {email}")
+        return peer
+
+    def _ensure_peer_bundle(self, email: str) -> dict:
+        peer = self._ensure_peer(email)
+        if peer.public_encryption_bundle is None:
+            raise ValueError(f"No public encryption bundle for {email}")
+        return peer.public_encryption_bundle
+
     # ========== Crypto methods ==========
 
     def generate_keys(self) -> None:
-        self._keys = syc.SyftRecoveryKey.generate().derive_keys()
+        self._private_keys = syc.SyftRecoveryKey.generate().derive_keys()
 
     def has_my_keys(self) -> bool:
-        return self._keys is not None
+        return self._private_keys is not None
 
     @property
-    def public_key(self) -> syc.SyftPublicKeyBundle | None:
-        if self._keys is None:
-            return None
-        return self._keys.to_public_bundle()
+    def public_key(self) -> syc.SyftPublicKeyBundle:
+        keys = self._ensure_private_keys()
+        return keys.to_public_bundle()
 
-    def get_public_bundle(self) -> dict | None:
-        if self._keys is None:
-            return None
-        bundle = self._keys.to_public_bundle()
+    def get_public_bundle(self) -> dict:
+        keys = self._ensure_private_keys()
+        bundle = keys.to_public_bundle()
         did = f"did:syft:{self.email}"
         did_doc = bundle.to_did_document(did)
         did_doc["identity"] = self.email
         return did_doc
 
     def set_peer_bundle(self, peer_email: str, bundle: dict) -> None:
-        peer = self.get_cached_peer(peer_email)
-        if peer:
-            peer.public_bundle = bundle
+        peer = self._ensure_peer(peer_email)
+        peer.public_encryption_bundle = bundle
 
     def has_peer_bundle(self, peer_email: str) -> bool:
         peer = self.get_cached_peer(peer_email)
-        return peer is not None and peer.public_bundle is not None
+        return peer is not None and peer.public_encryption_bundle is not None
 
     def _get_parsed_peer_bundle(
         self, peer_email: str
-    ) -> syc.SyftPublicKeyBundle | None:
-        peer = self.get_cached_peer(peer_email)
-        if not peer or not peer.public_bundle:
-            return None
-        return syc.SyftPublicKeyBundle.from_did_document(peer.public_bundle)
+    ) -> syc.SyftPublicKeyBundle:
+        bundle = self._ensure_peer_bundle(peer_email)
+        return syc.SyftPublicKeyBundle.from_did_document(bundle)
 
     def encrypt(self, recipient_email: str, plaintext: bytes) -> bytes:
-        if self._keys is None:
-            raise ValueError("No private key — call generate_keys() first")
+        keys = self._ensure_private_keys()
         peer_bundle = self._get_parsed_peer_bundle(recipient_email)
-        if peer_bundle is None:
-            raise ValueError(f"No public key for peer {recipient_email}")
         recipient = syc.EncryptionRecipient(recipient_email, peer_bundle)
-        return syc.encrypt_message(self.email, self._keys, [recipient], plaintext)
+        return syc.encrypt_message(self.email, keys, [recipient], plaintext)
 
     def decrypt(self, sender_email: str, envelope: bytes) -> bytes:
-        if self._keys is None:
-            raise ValueError("No private key — call generate_keys() first")
+        keys = self._ensure_private_keys()
         sender_bundle = self._get_parsed_peer_bundle(sender_email)
-        if sender_bundle is None:
-            raise ValueError(f"No public key for peer {sender_email}")
         parsed = syc.parse_envelope(envelope)
-        return syc.decrypt_message(self.email, self._keys, sender_bundle, parsed)
+        return syc.decrypt_message(self.email, keys, sender_bundle, parsed)
 
     # ========== Persistence ==========
 
     def save_keys(self, path: Path) -> None:
-        if self._keys is None:
-            raise ValueError("No keys to save")
+        keys = self._ensure_private_keys()
         data = {
             "email": self.email,
-            "keys_jwk": self._keys.to_jwks(),
+            "keys_jwk": keys.to_jwks(),
             "peer_bundles": {
-                peer.email: self._bundle_to_dict(peer.email, peer.public_bundle)
+                peer.email: peer.public_encryption_bundle
                 for peer in self._peers
-                if peer.public_bundle is not None
+                if peer.public_encryption_bundle is not None
             },
         }
         path = Path(path)
@@ -152,24 +167,25 @@ class PeerStore(BaseModel):
     def load_keys(cls, path: Path) -> "PeerStore":
         data = json.loads(Path(path).read_text())
         store = cls(email=data["email"], use_encryption=True)
-        store._keys = syc.SyftPrivateKeys.from_jwks(data["keys_jwk"])
+        store._private_keys = syc.SyftPrivateKeys.from_jwks(data["keys_jwk"])
         for email, bundle_dict in data.get("peer_bundles", {}).items():
-            peer = Peer(email=email, public_bundle=bundle_dict, use_encryption=True)
+            peer = Peer(
+                email=email,
+                public_encryption_bundle=bundle_dict,
+                use_encryption=True,
+            )
             store._peers.append(peer)
         return store
 
     @classmethod
     def from_keys_data(cls, email: str, keys_data: dict) -> "PeerStore":
         store = cls(email=email, use_encryption=True)
-        store._keys = syc.SyftPrivateKeys.from_jwks(keys_data["keys_jwk"])
+        store._private_keys = syc.SyftPrivateKeys.from_jwks(keys_data["keys_jwk"])
         for peer_email, bundle_dict in keys_data.get("peer_bundles", {}).items():
             peer = Peer(
-                email=peer_email, public_bundle=bundle_dict, use_encryption=True
+                email=peer_email,
+                public_encryption_bundle=bundle_dict,
+                use_encryption=True,
             )
             store._peers.append(peer)
         return store
-
-    @staticmethod
-    def _bundle_to_dict(email: str, bundle: dict) -> dict:
-        """Peer bundles are already stored as dicts, just return as-is."""
-        return bundle

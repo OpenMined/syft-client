@@ -129,7 +129,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         connection = self.connection_router.connection_for_eventlog(create_new=True)
         return connection.owner_download_events_message_by_id(events_message_id)
 
-    def owner_get_all_accepted_events_messages(
+    def get_all_accepted_events_messages(
         self, since_timestamp: float | None = None
     ) -> list[FileChangeEventsMessage]:
         message_ids = self.connection_router.owner_get_all_accepted_event_file_ids(
@@ -228,9 +228,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             print("No checkpoints found, downloading all events...")
             since_timestamp = self.event_cache.latest_cached_timestamp
             events_messages_list: list[FileChangeEventsMessage] = (
-                self.owner_get_all_accepted_events_messages(
-                    since_timestamp=since_timestamp
-                )
+                self.get_all_accepted_events_messages(since_timestamp=since_timestamp)
             )
             for events_message in events_messages_list:
                 self.event_cache.add_events_message_to_local_cache(events_message)

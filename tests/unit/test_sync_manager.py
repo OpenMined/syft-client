@@ -6,8 +6,10 @@ import shutil
 import pytest
 import yaml
 
+from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.sync.connections.drive import mock_drive_service
+from syft_client.sync.peers.peer_store import PeerStore
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from syft_client.sync.syftbox_manager import SyftboxManager
@@ -147,7 +149,7 @@ def test_sync_existing_datasite_state_do():
 
     for message in events_messages:
         connection_do.owner_write_events_message_to_syftbox(message)
-        connection_do.owner_write_event_messages_to_outbox(
+        do_manager._connection_router.owner_write_event_messages_to_outbox(
             ds_manager.email, events_messages[0]
         )
 
@@ -211,10 +213,9 @@ def test_sync_existing_datasite_state_ds():
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
     )
-    connection_do = do_manager._connection_router.connections[0]
     events_messages = get_mock_events_messages(2)
     for message in events_messages:
-        connection_do.owner_write_event_messages_to_outbox(ds_manager.email, message)
+        do_manager._connection_router.owner_write_event_messages_to_outbox(ds_manager.email, message)
 
     ds_manager.sync()
 
@@ -1412,10 +1413,14 @@ def test_job_files_sync_to_submitter_only():
 
     # Process local changes with both recipients
     recipients = [submitter_email, non_submitter_email]
-    recipient_connection = GDriveConnection.from_service(
+    submitter_conn = GDriveConnection.from_service(
         submitter_email, ds_manager._connection_router.connections[0].drive_service
     )
-    recipient_connection.add_peer(do_manager.email)
+    submitter_conn.add_peer(do_manager.email)
+    submitter_router = ConnectionRouter(
+        connections=[submitter_conn],
+        peer_store=PeerStore(email=submitter_email),
+    )
     do_manager.datasite_owner_syncer.process_local_changes(recipients)
 
     messages_for_non_submitter = (
@@ -1430,7 +1435,7 @@ def test_job_files_sync_to_submitter_only():
         for event in msg.events
     ]
 
-    messages_for_submitter = recipient_connection.watcher_get_events_messages(
+    messages_for_submitter = submitter_router.watcher_get_events_messages(
         do_manager.email, None
     )
     paths_for_submitter = [
@@ -1986,11 +1991,15 @@ def test_permission_change_triggers_resend():
 
     datasite_dir_do = do_manager.syftbox_folder / do_manager.email
 
-    # Set up a second peer connection for peer B
-    peer_b_connection = GDriveConnection.from_service(
+    # Set up a second peer connection router for peer B
+    peer_b_conn = GDriveConnection.from_service(
         peer_b_email, ds_manager._connection_router.connections[0].drive_service
     )
-    peer_b_connection.add_peer(do_manager.email)
+    peer_b_conn.add_peer(do_manager.email)
+    peer_b_router = ConnectionRouter(
+        connections=[peer_b_conn],
+        peer_store=PeerStore(email=peer_b_email),
+    )
 
     # Grant only peer A read access to project/
     ctx = do_manager.datasite_owner_syncer.perm_context
@@ -2012,7 +2021,7 @@ def test_permission_change_triggers_resend():
         str(e.path_in_datasite) for msg in messages_for_a for e in msg.events
     ]
 
-    messages_for_b = peer_b_connection.watcher_get_events_messages(
+    messages_for_b = peer_b_router.watcher_get_events_messages(
         do_manager.email, None
     )
     paths_for_b = [
@@ -2030,7 +2039,7 @@ def test_permission_change_triggers_resend():
     # Second sync: peer B should receive data.txt via resend
     do_manager.datasite_owner_syncer.process_local_changes(recipients)
 
-    messages_for_b_after = peer_b_connection.watcher_get_events_messages(
+    messages_for_b_after = peer_b_router.watcher_get_events_messages(
         do_manager.email, None
     )
     paths_for_b_after = [

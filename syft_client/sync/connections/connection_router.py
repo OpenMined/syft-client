@@ -182,7 +182,7 @@ class ConnectionRouter(BaseModel):
                 email=email,
                 platforms=[GdriveFilesPlatform()],
                 state=state,
-                public_bundle=data.get("public_bundle"),
+                public_encryption_bundle=data.get("public_encryption_bundle"),
             )
             peers.append(peer)
         return peers
@@ -201,11 +201,16 @@ class ConnectionRouter(BaseModel):
         ]
 
     def update_peer_state(
-        self, peer_email: str, state: str, public_bundle: dict | None = None
+        self,
+        peer_email: str,
+        state: str,
+        public_encryption_bundle: dict | None = None,
     ):
         """Update peer state in storage"""
         connection = self.connection_for_send_message()
-        connection._update_peer_state(peer_email, state, public_bundle)
+        connection._update_peer_state(
+            peer_email, state, public_encryption_bundle
+        )
 
     def owner_remove_proposed_filechange_from_inbox(
         self, proposed_filechange_message: ProposedFileChangesMessage
@@ -360,12 +365,11 @@ class ConnectionRouter(BaseModel):
         )
 
     def watcher_download_dataset_file(
-        self, file_id: str, owner_email: str | None = None
+        self, file_id: str, owner_email: str
     ) -> bytes:
         connection = self.connection_for_datasite_watcher()
         data = connection.watcher_download_dataset_file(file_id)
-        if owner_email and self.peer_store:
-            data = self.peer_store.decrypt_if_needed(owner_email, data)
+        data = self.peer_store.decrypt_if_needed(owner_email, data)
         return data
 
     # =========================================================================
