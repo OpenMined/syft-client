@@ -60,3 +60,39 @@ class SyftJobConfig(BaseModel):
         Path: SyftBox/<user_email>/app_data/job/
         """
         return self.get_user_dir(user_email) / "app_data" / "job"
+
+    def get_inbox_dir(self, datasite_email: str) -> Path:
+        """
+        Get the inbox directory for job submissions.
+
+        Path: SyftBox/<datasite_email>/app_data/job/inbox/
+        """
+        return self.get_job_dir(datasite_email) / "inbox"
+
+    def get_review_dir(self, datasite_email: str) -> Path:
+        """
+        Get the review directory for job state and results.
+
+        Path: SyftBox/<datasite_email>/app_data/job/review/
+        """
+        return self.get_job_dir(datasite_email) / "review"
+
+    def get_inbox_job_dir(
+        self, datasite_email: str, ds_email: str, job_name: str
+    ) -> Path:
+        """
+        Get the inbox path for a specific job.
+
+        Path: SyftBox/<datasite_email>/app_data/job/inbox/<ds_email>/<job_name>/
+        """
+        return self.get_inbox_dir(datasite_email) / ds_email / job_name
+
+    def get_review_job_dir(
+        self, datasite_email: str, ds_email: str, job_name: str
+    ) -> Path:
+        """
+        Get the review path for a specific job.
+
+        Path: SyftBox/<datasite_email>/app_data/job/review/<ds_email>/<job_name>/
+        """
+        return self.get_review_dir(datasite_email) / ds_email / job_name
