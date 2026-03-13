@@ -148,7 +148,9 @@ def test_sync_existing_datasite_state_do():
     events_messages = get_mock_events_messages(2)
 
     for message in events_messages:
-        connection_do.owner_write_events_message_to_syftbox(message)
+        connection_do.owner_write_raw_bytes_to_syftbox(
+            message.message_filepath.as_string(), message.as_compressed_data()
+        )
         do_manager._connection_router.owner_write_event_messages_to_outbox(
             ds_manager.email, events_messages[0]
         )

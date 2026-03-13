@@ -517,18 +517,14 @@ class GDriveConnection(SyftboxPlatformConnection):
                     )
         return result
 
-    def owner_write_events_message_to_syftbox(
-        self, event_message: FileChangeEventsMessage
-    ):
-        """Writes to /SyftBox/myemail"""
+    def owner_write_raw_bytes_to_syftbox(self, filename: str, data: bytes) -> str:
+        """Write raw bytes to /SyftBox/myemail."""
         personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
-        filename = event_message.message_filepath.as_string()
-        message_data = event_message.as_compressed_data()
         file_metadata = {
             "name": filename,
             "parents": [personal_syftbox_folder_id],
         }
-        file_payload, _ = self.create_file_payload(message_data)
+        file_payload, _ = self.create_file_payload(data)
 
         res = execute_with_retries(
             self.drive_service.files().create(
@@ -539,11 +535,9 @@ class GDriveConnection(SyftboxPlatformConnection):
         self.personal_syftbox_event_id_cache[filename] = gdrive_id
         return gdrive_id
 
-    def owner_download_events_message_by_id(
-        self, events_message_id: str
-    ) -> FileChangeEventsMessage:
-        file_data = self.download_file(events_message_id)
-        return FileChangeEventsMessage.from_compressed_data(file_data)
+    def owner_download_raw_bytes_by_id(self, file_id: str) -> bytes:
+        """Download raw bytes by file ID."""
+        return self.download_file(file_id)
 
     def owner_get_all_accepted_event_file_ids(
         self, since_timestamp: float | None = None
@@ -555,8 +549,8 @@ class GDriveConnection(SyftboxPlatformConnection):
         valid_fname_objs = self._filter_valid_file_metadatas(file_metadatas)
         return [f["id"] for f in valid_fname_objs]
 
-    def owner_get_all_events_messages(self) -> List[FileChangeEventsMessage]:
-        """Reads from /SyftBox/myemail"""
+    def owner_download_all_raw_events_from_syftbox(self) -> list[bytes]:
+        """Download all event files from /SyftBox/myemail as raw bytes."""
         personal_syftbox_folder_id = self.get_personal_syftbox_folder_id()
         file_metadatas = self.get_file_metadatas_from_folder(personal_syftbox_folder_id)
         valid_fname_objs = self._get_valid_events_from_file_metadatas(file_metadatas)
@@ -571,8 +565,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             except Exception as e:
                 print(e)
                 continue
-            event = FileChangeEventsMessage.from_compressed_data(file_data)
-            result.append(event)
+            result.append(file_data)
         return result
 
     def owner_write_raw_bytes_to_outbox(
@@ -1671,25 +1664,16 @@ class GDriveConnection(SyftboxPlatformConnection):
         syftbox_folder_id = self.get_syftbox_folder_id()
         return self.create_folder(folder_name, syftbox_folder_id)
 
-    def upload_checkpoint(self, checkpoint: Checkpoint) -> str:
-        """
-        Upload a checkpoint to Google Drive.
+    def upload_raw_checkpoint(self, filename: str, data: bytes) -> str:
+        """Upload raw checkpoint bytes to Google Drive.
 
         Uploads the new checkpoint first, then deletes old ones.
-        This ensures we never lose checkpoint data if the upload fails.
-
-        Returns:
-            The Google Drive file ID of the uploaded checkpoint.
         """
-        # Get or create checkpoints folder
         folder_id = self._get_or_create_checkpoints_folder_id()
-
-        # Compress and upload new checkpoint first
-        compressed_data = checkpoint.as_compressed_data()
-        payload, _ = self.create_file_payload(compressed_data)
+        payload, _ = self.create_file_payload(data)
 
         file_metadata = {
-            "name": checkpoint.filename,
+            "name": filename,
             "parents": [folder_id],
         }
 
@@ -1704,18 +1688,12 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return result.get("id")
 
-    def get_latest_checkpoint(self) -> Checkpoint | None:
-        """
-        Download the latest checkpoint from Google Drive.
-
-        Returns:
-            The Checkpoint object, or None if no checkpoint exists.
-        """
+    def download_raw_latest_checkpoint(self) -> bytes | None:
+        """Download the latest checkpoint as raw bytes, or None."""
         folder_id = self._get_checkpoints_folder_id()
         if folder_id is None:
             return None
 
-        # List checkpoint files
         query = (
             f"'{folder_id}' in parents and trashed=false "
             f"and name contains '{CHECKPOINT_FILENAME_PREFIX}'"
@@ -1728,10 +1706,8 @@ class GDriveConnection(SyftboxPlatformConnection):
         if not items:
             return None
 
-        # Find the latest checkpoint by timestamp in filename
         latest_file = None
         latest_timestamp = -1.0
-
         for item in items:
             timestamp = Checkpoint.filename_to_timestamp(item["name"])
             if timestamp is not None and timestamp > latest_timestamp:
@@ -1741,10 +1717,8 @@ class GDriveConnection(SyftboxPlatformConnection):
         if latest_file is None:
             return None
 
-        # Download the checkpoint
         try:
-            file_data = self.download_file(latest_file["id"])
-            return Checkpoint.from_compressed_data(file_data)
+            return self.download_file(latest_file["id"])
         except Exception as e:
             print(f"Warning: Failed to load checkpoint: {e}")
             return None
@@ -1785,23 +1759,13 @@ class GDriveConnection(SyftboxPlatformConnection):
     # INCREMENTAL CHECKPOINT METHODS
     # =========================================================================
 
-    def upload_incremental_checkpoint(self, checkpoint: IncrementalCheckpoint) -> str:
-        """
-        Upload an incremental checkpoint to Google Drive.
-
-        Does NOT delete existing incremental checkpoints - they accumulate
-        until compacting is triggered.
-
-        Returns:
-            The Google Drive file ID of the uploaded checkpoint.
-        """
+    def upload_raw_incremental_checkpoint(self, filename: str, data: bytes) -> str:
+        """Upload raw incremental checkpoint bytes to Google Drive."""
         folder_id = self._get_or_create_checkpoints_folder_id()
-
-        compressed_data = checkpoint.as_compressed_data()
-        payload, _ = self.create_file_payload(compressed_data)
+        payload, _ = self.create_file_payload(data)
 
         file_metadata = {
-            "name": checkpoint.filename,
+            "name": filename,
             "parents": [folder_id],
         }
 
@@ -1812,18 +1776,12 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
         return result.get("id")
 
-    def get_all_incremental_checkpoints(self) -> List[IncrementalCheckpoint]:
-        """
-        Download all incremental checkpoints from Google Drive.
-
-        Returns:
-            List of IncrementalCheckpoint objects, sorted by sequence number.
-        """
+    def download_all_raw_incremental_checkpoints(self) -> list[bytes]:
+        """Download all incremental checkpoints as raw bytes."""
         folder_id = self._get_checkpoints_folder_id()
         if folder_id is None:
             return []
 
-        # List only incremental checkpoint files
         query = (
             f"'{folder_id}' in parents and trashed=false "
             f"and name contains '{INCREMENTAL_CHECKPOINT_PREFIX}'"
@@ -1836,20 +1794,17 @@ class GDriveConnection(SyftboxPlatformConnection):
         if not items:
             return []
 
-        checkpoints = []
+        result = []
         for item in items:
             try:
                 file_data = self.download_file(item["id"])
-                cp = IncrementalCheckpoint.from_compressed_data(file_data)
-                checkpoints.append(cp)
+                result.append(file_data)
             except Exception as e:
                 print(
                     f"Warning: Failed to load incremental checkpoint {item['name']}: {e}"
                 )
                 continue
-
-        # Sort by sequence number
-        return sorted(checkpoints, key=lambda c: c.sequence_number)
+        return result
 
     def get_incremental_checkpoint_count(self) -> int:
         """Get the number of incremental checkpoints on Google Drive."""
@@ -1949,31 +1904,19 @@ class GDriveConnection(SyftboxPlatformConnection):
                 count += 1
         return count
 
-    def get_events_messages_since_timestamp(
+    def download_raw_events_since_timestamp(
         self, since_timestamp: float
-    ) -> List[FileChangeEventsMessage]:
-        """
-        Get events created after a specific timestamp.
-
-        Used to get events created after a checkpoint.
-
-        Args:
-            since_timestamp: Only return events with timestamp > this value.
-
-        Returns:
-            List of FileChangeEventsMessage created after the timestamp.
-        """
+    ) -> list[bytes]:
+        """Download event files created after a timestamp as raw bytes."""
         personal_folder_id = self.get_personal_syftbox_folder_id()
         file_metadatas = self.get_file_metadatas_from_folder(
             personal_folder_id, since_timestamp=since_timestamp
         )
 
-        # Filter to valid event files
         valid_fname_objs = self._get_valid_events_from_file_metadatas(file_metadatas)
 
         result = []
         for fname_obj in valid_fname_objs:
-            # Only include events after the timestamp
             if fname_obj.timestamp <= since_timestamp:
                 continue
 
@@ -1983,8 +1926,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
             try:
                 file_data = self.download_file(gdrive_id)
-                event = FileChangeEventsMessage.from_compressed_data(file_data)
-                result.append(event)
+                result.append(file_data)
             except Exception as e:
                 print(f"Warning: Failed to download event: {e}")
                 continue
@@ -2034,43 +1976,28 @@ class GDriveConnection(SyftboxPlatformConnection):
         self._rolling_state_folder_id = folder_id
         return folder_id
 
-    def upload_rolling_state(self, rolling_state: RollingState) -> str:
+    def upload_raw_rolling_state(self, filename: str, data: bytes) -> str:
+        """Upload raw rolling state bytes to Google Drive.
+
+        Optimized to use update() if file ID is cached.
         """
-        Upload rolling state to Google Drive.
-
-        Optimized to use a single API call when possible:
-        - If file ID is cached, uses update() (1 API call)
-        - If file ID not cached, uses create() (1-2 API calls)
-        - Falls back to create() if update() fails
-
-        Args:
-            rolling_state: The RollingState object to upload.
-
-        Returns:
-            The Google Drive file ID of the uploaded rolling state.
-        """
-        compressed_data = rolling_state.as_compressed_data()
-        payload, _ = self.create_file_payload(compressed_data)
+        payload, _ = self.create_file_payload(data)
 
         # Try to update existing file if we have a cached ID
         if self._rolling_state_file_id is not None:
             try:
-                # Update existing file (1 API call)
                 self.drive_service.files().update(
                     fileId=self._rolling_state_file_id,
                     media_body=payload,
                 ).execute()
                 return self._rolling_state_file_id
             except Exception:
-                # File was deleted externally, fall back to create
                 self._rolling_state_file_id = None
 
-        # Get or create rolling state folder
         folder_id = self._get_or_create_rolling_state_folder_id()
 
-        # Create new file
         file_metadata = {
-            "name": rolling_state.filename,
+            "name": filename,
             "parents": [folder_id],
         }
 
@@ -2083,20 +2010,15 @@ class GDriveConnection(SyftboxPlatformConnection):
         self._rolling_state_file_id = file_id
         return file_id
 
-    def get_rolling_state(self) -> RollingState | None:
-        """
-        Download the rolling state from Google Drive.
+    def download_raw_rolling_state(self) -> bytes | None:
+        """Download the latest rolling state as raw bytes, or None.
 
         Also populates the folder and file ID caches for subsequent uploads.
-
-        Returns:
-            The RollingState object, or None if no rolling state exists.
         """
         folder_id = self._get_rolling_state_folder_id()
         if folder_id is None:
             return None
 
-        # List rolling state files
         query = (
             f"'{folder_id}' in parents and trashed=false "
             f"and name contains '{ROLLING_STATE_FILENAME_PREFIX}'"
@@ -2109,10 +2031,8 @@ class GDriveConnection(SyftboxPlatformConnection):
         if not items:
             return None
 
-        # Find the latest rolling state by timestamp in filename
         latest_file = None
         latest_timestamp = -1.0
-
         for item in items:
             timestamp = RollingState.filename_to_timestamp(item["name"])
             if timestamp is not None and timestamp > latest_timestamp:
@@ -2122,13 +2042,10 @@ class GDriveConnection(SyftboxPlatformConnection):
         if latest_file is None:
             return None
 
-        # Cache the file ID for subsequent uploads
         self._rolling_state_file_id = latest_file["id"]
 
-        # Download the rolling state
         try:
-            file_data = self.download_file(latest_file["id"])
-            return RollingState.from_compressed_data(file_data)
+            return self.download_file(latest_file["id"])
         except Exception as e:
             print(f"Warning: Failed to load rolling state: {e}")
             self._rolling_state_file_id = None

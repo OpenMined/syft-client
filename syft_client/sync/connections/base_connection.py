@@ -106,3 +106,39 @@ class SyftboxPlatformConnection(BaseModel):
         self, peer_email: str, since_timestamp: float | None
     ) -> list[bytes]:
         raise NotImplementedError()
+
+    # =========================================================================
+    # RAW BYTES TRANSPORT — owner's own storage (events, checkpoints, rolling state)
+    # =========================================================================
+
+    def owner_write_raw_bytes_to_syftbox(self, filename: str, data: bytes) -> str:
+        raise NotImplementedError()
+
+    def owner_download_raw_bytes_by_id(self, file_id: str) -> bytes:
+        raise NotImplementedError()
+
+    def owner_download_all_raw_events_from_syftbox(self) -> list[bytes]:
+        raise NotImplementedError()
+
+    def upload_raw_checkpoint(self, filename: str, data: bytes) -> str:
+        raise NotImplementedError()
+
+    def download_raw_latest_checkpoint(self) -> bytes | None:
+        raise NotImplementedError()
+
+    def upload_raw_incremental_checkpoint(self, filename: str, data: bytes) -> str:
+        raise NotImplementedError()
+
+    def download_all_raw_incremental_checkpoints(self) -> list[bytes]:
+        raise NotImplementedError()
+
+    def upload_raw_rolling_state(self, filename: str, data: bytes) -> str:
+        raise NotImplementedError()
+
+    def download_raw_rolling_state(self) -> bytes | None:
+        raise NotImplementedError()
+
+    def download_raw_events_since_timestamp(
+        self, since_timestamp: float
+    ) -> list[bytes]:
+        raise NotImplementedError()

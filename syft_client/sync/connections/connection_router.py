@@ -138,18 +138,35 @@ class ConnectionRouter(BaseModel):
         return self.copy_connection(self.connection_for_datasite_watcher())
 
     # =========================================================================
-    # EVENT LOG (NOT encrypted — own personal storage)
+    # EVENT LOG (self-encrypted at rest when encryption enabled)
     # =========================================================================
 
     def owner_write_events_message_to_syftbox(
         self, events_message: FileChangeEventsMessage
     ):
-        connection = self.connection_for_eventlog()
-        connection.owner_write_events_message_to_syftbox(events_message)
+        data = events_message.as_compressed_data()
+        data = self.peer_store.encrypt_for_self_if_needed(data)
+        filename = events_message.message_filepath.as_string()
+        self.connection_for_eventlog().owner_write_raw_bytes_to_syftbox(filename, data)
 
     def owner_get_all_accepted_events_messages(self) -> List[FileChangeEventsMessage]:
         connection = self.connection_for_eventlog()
-        return connection.owner_get_all_events_messages()
+        raw_list = connection.owner_download_all_raw_events_from_syftbox()
+        return [
+            FileChangeEventsMessage.from_compressed_data(
+                self.peer_store.decrypt_for_self_if_needed(raw)
+            )
+            for raw in raw_list
+        ]
+
+    def download_events_message_by_id(
+        self, events_message_id: str
+    ) -> FileChangeEventsMessage:
+        """Download and decrypt a single events message (thread-safe)."""
+        connection = self.connection_for_eventlog(create_new=True)
+        raw = connection.owner_download_raw_bytes_by_id(events_message_id)
+        raw = self.peer_store.decrypt_for_self_if_needed(raw)
+        return FileChangeEventsMessage.from_compressed_data(raw)
 
     # =========================================================================
     # PEER MANAGEMENT
@@ -413,14 +430,24 @@ class ConnectionRouter(BaseModel):
     # =========================================================================
 
     def upload_checkpoint(self, checkpoint: Checkpoint) -> str:
-        """Upload a checkpoint to the storage backend."""
+        """Serialize, encrypt, and upload a checkpoint."""
+        data = checkpoint.as_compressed_data()
+        data = self.peer_store.encrypt_for_self_if_needed(data)
         connection = self.connection_for_own_syftbox()
-        return connection.upload_checkpoint(checkpoint)
+        return connection.upload_raw_checkpoint(checkpoint.filename, data)
 
     def get_latest_checkpoint(self) -> Checkpoint | None:
-        """Get the latest checkpoint from the storage backend."""
+        """Download, decrypt, and deserialize the latest checkpoint."""
         connection = self.connection_for_own_syftbox()
-        return connection.get_latest_checkpoint()
+        raw = connection.download_raw_latest_checkpoint()
+        if raw is None:
+            return None
+        try:
+            raw = self.peer_store.decrypt_for_self_if_needed(raw)
+            return Checkpoint.from_compressed_data(raw)
+        except Exception as e:
+            print(f"Warning: Failed to load checkpoint: {e}")
+            return None
 
     def get_events_count_since_checkpoint(
         self, checkpoint_timestamp: float | None
@@ -432,23 +459,41 @@ class ConnectionRouter(BaseModel):
     def get_events_messages_since_timestamp(
         self, since_timestamp: float
     ) -> List[FileChangeEventsMessage]:
-        """Get events created after a specific timestamp."""
+        """Download, decrypt, and deserialize events since a timestamp."""
         connection = self.connection_for_eventlog()
-        return connection.get_events_messages_since_timestamp(since_timestamp)
+        raw_list = connection.download_raw_events_since_timestamp(since_timestamp)
+        return [
+            FileChangeEventsMessage.from_compressed_data(
+                self.peer_store.decrypt_for_self_if_needed(raw)
+            )
+            for raw in raw_list
+        ]
 
     # =========================================================================
     # INCREMENTAL CHECKPOINT METHODS
     # =========================================================================
 
     def upload_incremental_checkpoint(self, checkpoint: IncrementalCheckpoint) -> str:
-        """Upload an incremental checkpoint to the storage backend."""
+        """Serialize, encrypt, and upload an incremental checkpoint."""
+        data = checkpoint.as_compressed_data()
+        data = self.peer_store.encrypt_for_self_if_needed(data)
         connection = self.connection_for_own_syftbox()
-        return connection.upload_incremental_checkpoint(checkpoint)
+        return connection.upload_raw_incremental_checkpoint(checkpoint.filename, data)
 
     def get_all_incremental_checkpoints(self) -> List[IncrementalCheckpoint]:
-        """Get all incremental checkpoints from the storage backend."""
+        """Download, decrypt, and deserialize all incremental checkpoints."""
         connection = self.connection_for_own_syftbox()
-        return connection.get_all_incremental_checkpoints()
+        raw_list = connection.download_all_raw_incremental_checkpoints()
+        checkpoints = []
+        for raw in raw_list:
+            try:
+                raw = self.peer_store.decrypt_for_self_if_needed(raw)
+                cp = IncrementalCheckpoint.from_compressed_data(raw)
+                checkpoints.append(cp)
+            except Exception as e:
+                print(f"Warning: Failed to load incremental checkpoint: {e}")
+                continue
+        return sorted(checkpoints, key=lambda c: c.sequence_number)
 
     def get_incremental_checkpoint_count(self) -> int:
         """Get the number of incremental checkpoints."""
@@ -470,14 +515,24 @@ class ConnectionRouter(BaseModel):
     # =========================================================================
 
     def upload_rolling_state(self, rolling_state: RollingState) -> str:
-        """Upload rolling state to the storage backend."""
+        """Serialize, encrypt, and upload rolling state."""
+        data = rolling_state.as_compressed_data()
+        data = self.peer_store.encrypt_for_self_if_needed(data)
         connection = self.connection_for_own_syftbox()
-        return connection.upload_rolling_state(rolling_state)
+        return connection.upload_raw_rolling_state(rolling_state.filename, data)
 
     def get_rolling_state(self) -> RollingState | None:
-        """Get the rolling state from the storage backend."""
+        """Download, decrypt, and deserialize rolling state."""
         connection = self.connection_for_own_syftbox()
-        return connection.get_rolling_state()
+        raw = connection.download_raw_rolling_state()
+        if raw is None:
+            return None
+        try:
+            raw = self.peer_store.decrypt_for_self_if_needed(raw)
+            return RollingState.from_compressed_data(raw)
+        except Exception as e:
+            print(f"Warning: Failed to load rolling state: {e}")
+            return None
 
     def delete_rolling_state(self) -> None:
         """Delete rolling state from the storage backend."""
