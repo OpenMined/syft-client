@@ -144,6 +144,34 @@ class PeerStore(BaseModel):
         parsed = syc.parse_envelope(envelope)
         return syc.decrypt_message(self.email, keys, sender_bundle, parsed)
 
+    # ========== Self-encryption (DO at-rest) ==========
+
+    def encrypt_for_self(self, plaintext: bytes) -> bytes:
+        """Encrypt data using own keys with self as recipient."""
+        keys = self._ensure_private_keys()
+        own_bundle = keys.to_public_bundle()
+        recipient = syc.EncryptionRecipient(self.email, own_bundle)
+        return syc.encrypt_message(self.email, keys, [recipient], plaintext)
+
+    def decrypt_for_self(self, envelope: bytes) -> bytes:
+        """Decrypt data that was encrypted for self."""
+        keys = self._ensure_private_keys()
+        own_bundle = keys.to_public_bundle()
+        parsed = syc.parse_envelope(envelope)
+        return syc.decrypt_message(self.email, keys, own_bundle, parsed)
+
+    def encrypt_for_self_if_needed(self, data: bytes) -> bytes:
+        """Encrypt for self if encryption is enabled and keys are available."""
+        if self.use_encryption and self.has_my_keys():
+            return self.encrypt_for_self(data)
+        return data
+
+    def decrypt_for_self_if_needed(self, data: bytes) -> bytes:
+        """Decrypt self-encrypted data if encryption is enabled and keys are available."""
+        if self.use_encryption and self.has_my_keys():
+            return self.decrypt_for_self(data)
+        return data
+
     # ========== Persistence ==========
 
     def save_keys(self, path: Path) -> None:
