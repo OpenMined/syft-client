@@ -85,7 +85,7 @@ class NotificationOrchestrator(BaseOrchestrator):
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
         state = JsonStateManager(self.state_path)
 
-        job_handler = JobHandler(sender, state)
+        job_handler = JobHandler(sender, state, do_email=self.do_email)
         peer_handler = PeerHandler(sender, state)
 
         self._job_monitor = JobMonitor(

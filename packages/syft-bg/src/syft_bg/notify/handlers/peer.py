@@ -35,14 +35,12 @@ class PeerHandler:
         if self.state.was_notified(state_key, "new_peer_request"):
             return False
 
-        success = self.sender.notify_new_peer_request_to_do(
-            do_email, ds_email, peer_url
-        )
+        result = self.sender.notify_new_peer_request_to_do(do_email, ds_email, peer_url)
 
-        if success:
+        if result.success:
             self.state.mark_notified(state_key, "new_peer_request")
 
-        return success
+        return result.success
 
     def on_peer_request_sent(
         self,
@@ -57,12 +55,12 @@ class PeerHandler:
         if self.state.was_notified(state_key, "peer_request_sent"):
             return False
 
-        success = self.sender.notify_peer_request_sent(ds_email, do_email)
+        result = self.sender.notify_peer_request_sent(ds_email, do_email)
 
-        if success:
+        if result.success:
             self.state.mark_notified(state_key, "peer_request_sent")
 
-        return success
+        return result.success
 
     def on_peer_added(
         self,
@@ -77,12 +75,12 @@ class PeerHandler:
         if self.state.was_notified(state_key, "peer_added"):
             return False
 
-        success = self.sender.notify_peer_added_to_ds(ds_email, do_email)
+        result = self.sender.notify_peer_added_to_ds(ds_email, do_email)
 
-        if success:
+        if result.success:
             self.state.mark_notified(state_key, "peer_added")
 
-        return success
+        return result.success
 
     def on_peer_granted(
         self,
@@ -97,9 +95,9 @@ class PeerHandler:
         if self.state.was_notified(state_key, "peer_granted"):
             return False
 
-        success = self.sender.notify_peer_request_granted(ds_email, do_email)
+        result = self.sender.notify_peer_request_granted(ds_email, do_email)
 
-        if success:
+        if result.success:
             self.state.mark_notified(state_key, "peer_granted")
 
-        return success
+        return result.success

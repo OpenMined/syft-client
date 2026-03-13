@@ -36,9 +36,6 @@ class InitConfig:
 
     # Job approval settings
     approve_jobs: bool | None = None
-    jobs_peers_only: bool | None = None
-    required_filenames: list[str] | None = None
-    allowed_users: list[str] | None = None
 
     # Peer approval settings
     approve_peers: bool | None = None
@@ -51,99 +48,65 @@ class InitConfig:
     drive_token_path: str | None = None
 
 
-def run_init_flow(
-    config: InitConfig | None = None,
-    # Legacy parameters for backwards compatibility
-    cli_email: str | None = None,
-    cli_syftbox_root: str | None = None,
-    cli_filenames: list[str] | None = None,
-    cli_allowed_users: list[str] | None = None,
-) -> bool:
-    """Run unified setup for all background services.
+def _print_section(title: str) -> None:
+    """Print a section header."""
+    click.echo()
+    click.echo("-" * 50)
+    click.echo(title)
+    click.echo("-" * 50)
+    click.echo()
 
-    Args:
-        config: InitConfig object with all settings (preferred)
-        cli_email: Data Owner email (legacy, use config.email)
-        cli_syftbox_root: SyftBox root directory (legacy, use config.syftbox_root)
-        cli_filenames: Required filenames (legacy, use config.required_filenames)
-        cli_allowed_users: Allowed users (legacy, use config.allowed_users)
 
-    Returns:
-        True if setup completed successfully, False if cancelled
+def _load_existing_config(config: InitConfig, config_path: Path) -> dict | None:
+    """Load existing config and confirm overwrite.
+
+    Returns the existing config dict, or None if the user cancelled.
+    An empty dict is returned when no config file exists.
     """
-    # Build config from legacy params if not provided
-    if config is None:
-        config = InitConfig(
-            email=cli_email,
-            syftbox_root=cli_syftbox_root,
-            required_filenames=cli_filenames,
-            allowed_users=cli_allowed_users,
-        )
-    else:
-        # Merge legacy params into config if provided
-        if cli_email is not None and config.email is None:
-            config.email = cli_email
-        if cli_syftbox_root is not None and config.syftbox_root is None:
-            config.syftbox_root = cli_syftbox_root
-        if cli_filenames is not None and config.required_filenames is None:
-            config.required_filenames = cli_filenames
-        if cli_allowed_users is not None and config.allowed_users is None:
-            config.allowed_users = cli_allowed_users
-    # quiet mode implies skip_oauth
-    if config.quiet:
-        config.skip_oauth = True
+    if not config_path.exists():
+        return {}
+
+    with open(config_path) as f:
+        existing = yaml.safe_load(f) or {}
 
     if not config.quiet:
-        click.echo()
-        click.echo("SYFTBOX BACKGROUND SERVICES SETUP")
-        click.echo("=" * 50)
-        click.echo()
-        click.echo("This will configure both notification and auto-approval services.")
-        click.echo()
+        click.echo(f"Found existing config at {config_path}")
 
-    creds_dir = get_creds_dir()
-    config_path = creds_dir / "config.yaml"
+    if not (config.yes or config.quiet):
+        if not click.confirm("Update existing configuration?", default=True):
+            click.echo("Setup cancelled.")
+            return None
 
-    # Load existing config if present
-    existing_config = {}
-    if config_path.exists():
-        with open(config_path) as f:
-            existing_config = yaml.safe_load(f) or {}
-        if not config.quiet:
-            click.echo(f"Found existing config at {config_path}")
-        if not (config.yes or config.quiet):
-            if not click.confirm("Update existing configuration?", default=True):
-                click.echo("Setup cancelled.")
-                return False
+    return existing
 
-    # Common settings
-    if not config.quiet:
-        click.echo()
-        click.echo("-" * 50)
-        click.echo("COMMON SETTINGS")
-        click.echo("-" * 50)
-        click.echo()
 
-    default_email = existing_config.get("do_email", "")
+def _resolve_common_settings(
+    config: InitConfig, existing: dict
+) -> tuple[str, str] | None:
+    """Resolve email and syftbox_root.
+
+    Returns (email, syftbox_root) or None if required values are missing.
+    """
+    default_email = existing.get("do_email", "")
+
     if config.email is not None:
         do_email = config.email
         if not config.quiet:
             click.echo(f"Data Owner email address: {do_email}")
     elif config.quiet:
-        # In quiet mode, email is required
         if not default_email:
             click.echo("Error: --email is required in quiet mode")
             click.echo()
             click.echo("Usage:")
             click.echo("  syft-bg init --email user@example.com --quiet")
-            return False
+            return None
         do_email = default_email
     else:
         do_email = click.prompt(
             "Data Owner email address", default=default_email or None
         )
 
-    default_syftbox = existing_config.get(
+    default_syftbox = existing.get(
         "syftbox_root", str(Path.home() / f"SyftBox_{do_email}")
     )
     if config.syftbox_root is not None:
@@ -155,18 +118,14 @@ def run_init_flow(
     else:
         syftbox_root = click.prompt("SyftBox root directory", default=default_syftbox)
 
-    # Gmail setup
-    if not config.quiet:
-        click.echo()
-        click.echo("-" * 50)
-        click.echo("GMAIL AUTHENTICATION")
-        click.echo("-" * 50)
-        click.echo()
+    return do_email, syftbox_root
 
+
+def _setup_auth(config: InitConfig, creds_dir: Path) -> bool:
+    """Run Gmail and Drive OAuth setup. Returns False on failure."""
     gmail_token_path = creds_dir / "gmail_token.json"
     credentials_path = creds_dir / "credentials.json"
 
-    # Allow custom token/credentials paths from config
     if config.gmail_token_path:
         gmail_token_path = Path(config.gmail_token_path).expanduser()
     if config.credentials_path:
@@ -177,13 +136,8 @@ def run_init_flow(
     ):
         return False
 
-    # Drive setup (only needed outside Colab)
     if not config.quiet:
-        click.echo()
-        click.echo("-" * 50)
-        click.echo("GOOGLE DRIVE AUTHENTICATION")
-        click.echo("-" * 50)
-        click.echo()
+        _print_section("GOOGLE DRIVE AUTHENTICATION")
 
     if is_colab():
         if not config.quiet:
@@ -201,16 +155,11 @@ def run_init_flow(
         ):
             return False
 
-    # Notification settings
-    if not config.quiet:
-        click.echo()
-        click.echo("-" * 50)
-        click.echo("NOTIFICATION SERVICE")
-        click.echo("-" * 50)
-        click.echo()
+    return True
 
-    existing_notify = existing_config.get("notify", {})
 
+def _resolve_notify_settings(config: InitConfig, existing_notify: dict) -> dict:
+    """Resolve notification service settings."""
     if config.notify_jobs is not None:
         notify_jobs = config.notify_jobs
     elif config.quiet:
@@ -242,15 +191,15 @@ def run_init_flow(
             default=existing_notify.get("interval", 30),
         )
 
-    # Auto-approval settings
-    if not config.quiet:
-        click.echo()
-        click.echo("-" * 50)
-        click.echo("AUTO-APPROVAL SERVICE")
-        click.echo("-" * 50)
-        click.echo()
+    return {
+        "interval": notify_interval,
+        "monitor_jobs": notify_jobs,
+        "monitor_peers": notify_peers,
+    }
 
-    existing_approve = existing_config.get("approve", {})
+
+def _resolve_approve_settings(config: InitConfig, existing_approve: dict) -> dict:
+    """Resolve auto-approval service settings."""
     existing_jobs = existing_approve.get("jobs", {})
     existing_peers = existing_approve.get("peers", {})
 
@@ -267,74 +216,6 @@ def run_init_flow(
             default=existing_jobs.get("enabled", True),
         )
 
-    jobs_peers_only = False
-    required_filenames = []
-    allowed_users = []
-
-    if approve_jobs:
-        if config.jobs_peers_only is not None:
-            jobs_peers_only = config.jobs_peers_only
-        elif config.quiet:
-            jobs_peers_only = existing_jobs.get("peers_only", True)
-        else:
-            jobs_peers_only = click.confirm(
-                "  Only approve jobs from approved peers?",
-                default=existing_jobs.get("peers_only", True),
-            )
-
-        # Required filenames
-        if not config.quiet:
-            click.echo()
-            click.echo("  Job File Validation (leave empty to allow any files):")
-
-        if config.required_filenames is not None:
-            required_filenames = config.required_filenames
-            if not config.quiet:
-                click.echo(f"     Using CLI filenames: {', '.join(required_filenames)}")
-        elif config.quiet:
-            required_filenames = existing_jobs.get(
-                "required_filenames", ["main.py", "params.json"]
-            )
-        else:
-            default_filenames = existing_jobs.get(
-                "required_filenames", ["main.py", "params.json"]
-            )
-            default_str = ",".join(default_filenames) if default_filenames else ""
-            filenames_input = click.prompt(
-                "     Required filenames (comma-separated)",
-                default=default_str,
-                show_default=True,
-            )
-            required_filenames = [
-                f.strip() for f in filenames_input.split(",") if f.strip()
-            ]
-
-        # Allowed users
-        if not config.quiet:
-            click.echo()
-            click.echo("  User Restrictions (leave empty to allow all approved peers):")
-
-        if config.allowed_users is not None:
-            allowed_users = config.allowed_users
-            if not config.quiet:
-                if allowed_users:
-                    click.echo(
-                        f"     Using CLI allowed users: {', '.join(allowed_users)}"
-                    )
-                else:
-                    click.echo("     No user restrictions (all approved peers allowed)")
-        elif config.quiet:
-            allowed_users = existing_jobs.get("allowed_users", [])
-        else:
-            default_users = existing_jobs.get("allowed_users", [])
-            default_users_str = ",".join(default_users) if default_users else ""
-            users_input = click.prompt(
-                "     Allowed users (comma-separated emails, empty for all)",
-                default=default_users_str,
-                show_default=bool(default_users_str),
-            )
-            allowed_users = [u.strip() for u in users_input.split(",") if u.strip()]
-
     if not config.quiet:
         click.echo()
         click.echo("Peer Auto-Approval:")
@@ -349,7 +230,7 @@ def run_init_flow(
             default=existing_peers.get("enabled", False),
         )
 
-    approved_domains = []
+    approved_domains: list[str] = []
     if approve_peers:
         if config.approved_domains is not None:
             approved_domains = config.approved_domains
@@ -377,54 +258,113 @@ def run_init_flow(
             default=existing_approve.get("interval", 5),
         )
 
-    # Build config dict (using 'final_config' to avoid shadowing the InitConfig 'config')
-    final_config = {
-        "do_email": do_email,
-        "syftbox_root": syftbox_root,
-        "notify": {
-            "interval": notify_interval,
-            "monitor_jobs": notify_jobs,
-            "monitor_peers": notify_peers,
+    return {
+        "interval": approve_interval,
+        "jobs": {
+            "enabled": approve_jobs,
+            "peers": existing_jobs.get("peers", {}),
         },
-        "approve": {
-            "interval": approve_interval,
-            "jobs": {
-                "enabled": approve_jobs,
-                "peers_only": jobs_peers_only,
-                "required_scripts": existing_jobs.get("required_scripts", {}),
-                "required_filenames": required_filenames,
-                "allowed_users": allowed_users,
-            },
-            "peers": {
-                "enabled": approve_peers,
-                "approved_domains": approved_domains,
-                "auto_share_datasets": existing_peers.get("auto_share_datasets", []),
-            },
+        "peers": {
+            "enabled": approve_peers,
+            "approved_domains": approved_domains,
+            "auto_share_datasets": existing_peers.get("auto_share_datasets", []),
         },
     }
 
-    # Save config
+
+def _save_config(
+    config_path: Path, do_email: str, syftbox_root: str, notify: dict, approve: dict
+) -> None:
+    """Build final config dict and write to YAML."""
+    final_config = {
+        "do_email": do_email,
+        "syftbox_root": syftbox_root,
+        "notify": notify,
+        "approve": approve,
+    }
+
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with open(config_path, "w") as f:
         yaml.dump(final_config, f, default_flow_style=False, sort_keys=False)
 
+
+def _print_summary(config_path: Path) -> None:
+    """Print setup complete summary."""
+    _print_section("SETUP COMPLETE")
+    click.echo(f"Config saved: {config_path}")
+    click.echo()
+    click.echo("To approve scripts for data scientists:")
+    click.echo(
+        "  syft-bg set-script <script.py> --peers email1@example.com email2@example.com"
+    )
+    click.echo()
+    click.echo("Available commands:")
+    click.echo("  syft-bg status     - Show service status")
+    click.echo("  syft-bg start      - Start all services")
+    click.echo("  syft-bg stop       - Stop all services")
+    click.echo("  syft-bg logs <svc> - View service logs")
+    click.echo()
+
+
+def run_init_flow(
+    config: InitConfig | None = None,
+) -> bool:
+    """Run unified setup for all background services.
+
+    Args:
+        config: InitConfig object with all settings
+
+    Returns:
+        True if setup completed successfully, False if cancelled
+    """
+    if config is None:
+        config = InitConfig()
+
+    if config.quiet:
+        config.skip_oauth = True
+
     if not config.quiet:
         click.echo()
-        click.echo("-" * 50)
-        click.echo("SETUP COMPLETE")
-        click.echo("-" * 50)
+        click.echo("SYFTBOX BACKGROUND SERVICES SETUP")
+        click.echo("=" * 50)
         click.echo()
-        click.echo(f"Config saved: {config_path}")
+        click.echo("This will configure both notification and auto-approval services.")
         click.echo()
-        click.echo("Available commands:")
-        click.echo("  syft-bg status     - Show service status")
-        click.echo("  syft-bg start      - Start all services")
-        click.echo("  syft-bg stop       - Stop all services")
-        click.echo("  syft-bg logs <svc> - View service logs")
-        click.echo()
-        click.echo("To add script hashes for exact code matching:")
-        click.echo("  syft-bg hash main.py")
-        click.echo(f"  Then edit: {config_path}")
-        click.echo()
+
+    creds_dir = get_creds_dir()
+    config_path = creds_dir / "config.yaml"
+
+    existing = _load_existing_config(config, config_path)
+    if existing is None:
+        return False
+
+    if not config.quiet:
+        _print_section("COMMON SETTINGS")
+
+    common = _resolve_common_settings(config, existing)
+    if common is None:
+        return False
+    do_email, syftbox_root = common
+
+    if not config.quiet:
+        _print_section("GMAIL AUTHENTICATION")
+
+    if not _setup_auth(config, creds_dir):
+        return False
+
+    if not config.quiet:
+        _print_section("NOTIFICATION SERVICE")
+
+    notify = _resolve_notify_settings(config, existing.get("notify", {}))
+
+    if not config.quiet:
+        _print_section("AUTO-APPROVAL SERVICE")
+
+    approve = _resolve_approve_settings(config, existing.get("approve", {}))
+
+    _save_config(config_path, do_email, syftbox_root, notify, approve)
+
+    if not config.quiet:
+        _print_summary(config_path)
 
     return True

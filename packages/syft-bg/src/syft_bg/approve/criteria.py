@@ -5,98 +5,105 @@ from pathlib import Path
 
 from syft_job.job import JobInfo
 
-from syft_bg.approve.config import JobApprovalConfig
+from syft_bg.approve.config import JobApprovalConfig, PeerApprovalEntry
 
 JOB_METADATA_FILES = {"config.yaml", "run.sh"}
 
 
-def _get_user_files(job: JobInfo) -> list[Path]:
-    """Get all user-submitted files from a job (excluding metadata)."""
-    user_files = []
+def _get_python_files(job: JobInfo) -> list[Path]:
+    """Get all .py files from a job (excluding metadata)."""
+    py_files = []
     for f in job.files:
-        if f.is_file() and f.name not in JOB_METADATA_FILES:
-            user_files.append(f)
+        if f.is_file() and f.suffix == ".py" and f.name not in JOB_METADATA_FILES:
+            py_files.append(f)
         elif f.is_dir():
-            for subf in f.rglob("*"):
+            for subf in f.rglob("*.py"):
                 if subf.is_file():
-                    user_files.append(subf)
-    return user_files
+                    py_files.append(subf)
+    return py_files
 
 
-def _file_hash_matches(file_path: Path, expected_hash: str) -> bool:
-    """Check if file content matches expected hash (sha256:abc123...)."""
+def _compute_file_hash(file_path: Path) -> str | None:
+    """Compute SHA256 hash of a file's content."""
     try:
         content = file_path.read_text(encoding="utf-8")
-        full_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-        if expected_hash.startswith("sha256:"):
-            expected = expected_hash[7:]  # strip "sha256:" prefix
-        else:
-            expected = expected_hash
-
-        # Compare using the length of expected (supports short hashes)
-        return full_hash[: len(expected)] == expected
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
     except Exception:
-        return False
+        return None
 
 
-def _find_file_by_name(job: JobInfo, filename: str) -> Path | None:
-    """Find a file in job by name."""
-    for f in _get_user_files(job):
-        if f.name == filename:
-            return f
-    return None
+def _hash_matches(actual_hash: str, expected_hash: str) -> bool:
+    """Check if actual hash matches expected (supports sha256: prefix and short hashes)."""
+    if expected_hash.startswith("sha256:"):
+        expected = expected_hash[7:]
+    else:
+        expected = expected_hash
+    return actual_hash[: len(expected)] == expected
 
 
-def job_matches_criteria(
-    job: JobInfo,
-    config: JobApprovalConfig,
-    approved_peers: list[str] | None = None,
+def validate_approved_scripts(
+    job: JobInfo, peer_config: PeerApprovalEntry
 ) -> tuple[bool, str]:
-    """
-    Check if a job matches all approval criteria.
+    """Validate that all submitted .py files are approved for this peer.
+
+    Validates every .py file against the peer's approved scripts list:
+    - Unapproved filename → reject
+    - Hash mismatch → reject
+    - Subset of approved scripts → pass
 
     Returns:
-        (True, "ok") if job matches all criteria
-        (False, reason) if job doesn't match
+        (True, "ok") if job passes
+        (False, reason) if job fails
     """
-    # Only process inbox jobs
     if job.status != "inbox":
         return (False, f"status is {job.status}, not inbox")
 
-    # Check allowed users
-    if config.allowed_users and job.submitted_by not in config.allowed_users:
-        return (False, f"user {job.submitted_by} not in allowed_users")
+    py_files = _get_python_files(job)
 
-    # Check peers filter
-    if config.peers_only:
-        if approved_peers is None:
-            return (False, "peers_only enabled but no approved_peers provided")
-        if job.submitted_by not in approved_peers:
-            return (False, f"user {job.submitted_by} is not an approved peer")
+    if len(py_files) == 0:
+        return (False, "no Python files found in submission")
 
-    # Check required scripts (hash match)
-    for filename, expected_hash in config.required_scripts.items():
-        file_path = _find_file_by_name(job, filename)
-        if file_path is None:
-            return (False, f"required script not found: {filename}")
-        if not _file_hash_matches(file_path, expected_hash):
-            return (False, f"script hash mismatch: {filename}")
+    # Build lookup: filename → expected hash
+    approved = {rule.name: rule.hash for rule in peer_config.scripts}
 
-    # Check required filenames exist (exact match when specified)
-    if config.required_filenames:
-        job_filenames = {f.name for f in _get_user_files(job)}
-        required_set = set(config.required_filenames)
+    for py_file in py_files:
+        if py_file.name not in approved:
+            return (False, f"unapproved file: {py_file.name}")
 
-        missing_files = required_set - job_filenames
-        if missing_files:
+        actual_hash = _compute_file_hash(py_file)
+        if actual_hash is None:
+            return (False, f"could not read file: {py_file.name}")
+
+        if not _hash_matches(actual_hash, approved[py_file.name]):
             return (
                 False,
-                f"missing required files: {', '.join(sorted(missing_files))}",
+                f"script hash mismatch for {py_file.name}: "
+                f"expected {approved[py_file.name]}, got sha256:{actual_hash}",
             )
 
-        extra_files = job_filenames - required_set
-        if extra_files:
-            return (False, f"unexpected files: {', '.join(sorted(extra_files))}")
-
     return (True, "ok")
+
+
+# Backwards-compatible alias
+strict_mode_check = validate_approved_scripts
+
+
+def resolve_peer_criteria(job: JobInfo, config: JobApprovalConfig) -> tuple[bool, str]:
+    """Look up peer config and check job against it.
+
+    Returns:
+        (True, "ok") if job passes criteria
+        (False, reason) if job fails
+    """
+    if job.status != "inbox":
+        return (False, f"status is {job.status}, not inbox")
+
+    if job.submitted_by not in config.peers:
+        return (False, f"unknown peer: {job.submitted_by}")
+
+    peer_config = config.peers[job.submitted_by]
+
+    if peer_config.mode == "strict":
+        return validate_approved_scripts(job, peer_config)
+
+    return (False, f"unknown mode: {peer_config.mode}")
