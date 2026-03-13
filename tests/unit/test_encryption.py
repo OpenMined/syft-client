@@ -254,3 +254,157 @@ def test_bundle_exchange_through_peer_approval():
     # DS loads peers again to pick up DO's bundle
     ds_manager.load_peers()
     assert ds_ps.has_peer_bundle(do_manager.email)
+
+
+# =========================================================================
+# Self-encryption (at-rest) tests
+# =========================================================================
+
+
+def test_self_encrypt_decrypt_roundtrip():
+    """PeerStore can encrypt and decrypt data for itself."""
+    ps = PeerStore(email="alice@example.com", use_encryption=True)
+    ps.generate_keys()
+
+    plaintext = b"secret at-rest data"
+    encrypted = ps.encrypt_for_self(plaintext)
+    assert encrypted != plaintext
+
+    decrypted = ps.decrypt_for_self(encrypted)
+    assert decrypted == plaintext
+
+
+def test_self_encrypt_if_needed_with_encryption():
+    """encrypt_for_self_if_needed encrypts when enabled and keys exist."""
+    ps = PeerStore(email="alice@example.com", use_encryption=True)
+    ps.generate_keys()
+
+    data = b"hello"
+    encrypted = ps.encrypt_for_self_if_needed(data)
+    assert encrypted != data
+
+    decrypted = ps.decrypt_for_self_if_needed(encrypted)
+    assert decrypted == data
+
+
+def test_self_encrypt_if_needed_without_encryption():
+    """encrypt_for_self_if_needed is a no-op when encryption is disabled."""
+    ps = PeerStore(email="alice@example.com", use_encryption=False)
+    ps.generate_keys()
+
+    data = b"hello"
+    assert ps.encrypt_for_self_if_needed(data) == data
+    assert ps.decrypt_for_self_if_needed(data) == data
+
+
+def test_self_encrypt_if_needed_without_keys():
+    """encrypt_for_self_if_needed is a no-op when keys are missing."""
+    ps = PeerStore(email="alice@example.com", use_encryption=True)
+
+    data = b"hello"
+    assert ps.encrypt_for_self_if_needed(data) == data
+    assert ps.decrypt_for_self_if_needed(data) == data
+
+
+# =========================================================================
+# At-rest encryption via mock drive: events, checkpoints, rolling state
+# =========================================================================
+
+
+def test_encrypted_events_at_rest():
+    """DO events are encrypted at rest and decrypted on read back."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        encryption=True,
+    )
+    ds_manager.load_peers()
+
+    # DS sends a file change
+    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    ds_manager._send_file_change(file_path, "at-rest encrypted")
+    do_manager.sync()
+
+    # Read back events — should be decrypted transparently
+    events = do_manager._get_all_accepted_events_do()
+    assert len(events) > 0
+    all_events = [e for msg in events for e in msg.events]
+    matching = [e for e in all_events if "at-rest encrypted" in str(e.content)]
+    assert len(matching) > 0
+
+
+def test_encrypted_checkpoint_roundtrip():
+    """Checkpoint is encrypted at rest and decrypted on read."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        encryption=True,
+    )
+    ds_manager.load_peers()
+
+    # Create some data and a checkpoint
+    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    ds_manager._send_file_change(file_path, "checkpoint data")
+    do_manager.sync()
+
+    checkpoint = do_manager.datasite_owner_syncer.create_checkpoint()
+    assert len(checkpoint.files) > 0
+
+    # Read back checkpoint — should decrypt transparently
+    loaded = do_manager._connection_router.get_latest_checkpoint()
+    assert loaded is not None
+    assert len(loaded.files) == len(checkpoint.files)
+
+
+def test_encrypted_rolling_state_roundtrip():
+    """Rolling state is encrypted at rest and decrypted on read."""
+    from syft_client.sync.checkpoints.rolling_state import RollingState
+    from syft_client.sync.events.file_change_event import (
+        FileChangeEvent,
+        FileChangeEventsMessage,
+    )
+    from pathlib import Path
+    from uuid import uuid4
+
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        encryption=True,
+    )
+
+    # Create and upload rolling state
+    rs = RollingState(email=do_manager.email, base_checkpoint_timestamp=0.0)
+    event = FileChangeEvent(
+        id=uuid4(),
+        path_in_datasite=Path("test/file.txt"),
+        content=b"rolling state content",
+        old_hash=None,
+        new_hash="abc123",
+        is_deleted=False,
+        submitted_timestamp=1.0,
+        timestamp=1.0,
+        datasite_email=do_manager.email,
+    )
+    rs.add_events_message(FileChangeEventsMessage(events=[event]))
+
+    do_manager._connection_router.upload_rolling_state(rs)
+
+    # Read back — should decrypt transparently
+    loaded = do_manager._connection_router.get_rolling_state()
+    assert loaded is not None
+    assert loaded.event_count == 1
+
+
+def test_at_rest_no_encryption_backward_compat():
+    """Events, checkpoints, rolling state work without encryption."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        encryption=False,
+    )
+
+    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    ds_manager._send_file_change(file_path, "unencrypted data")
+    do_manager.sync()
+
+    events = do_manager._get_all_accepted_events_do()
+    assert len(events) > 0
+
+    checkpoint = do_manager.datasite_owner_syncer.create_checkpoint()
+    assert len(checkpoint.files) > 0
+
+    loaded = do_manager._connection_router.get_latest_checkpoint()
+    assert loaded is not None
+    assert len(loaded.files) == len(checkpoint.files)

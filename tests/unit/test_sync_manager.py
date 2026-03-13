@@ -144,11 +144,10 @@ def test_sync_existing_datasite_state_do():
         use_in_memory_cache=False
     )
     connection_ds = ds_manager._connection_router.connections[0]
-    connection_do = do_manager._connection_router.connections[0]
     events_messages = get_mock_events_messages(2)
 
     for message in events_messages:
-        connection_do.owner_write_events_message_to_syftbox(message)
+        do_manager._connection_router.owner_write_events_message_to_syftbox(message)
         do_manager._connection_router.owner_write_event_messages_to_outbox(
             ds_manager.email, events_messages[0]
         )

@@ -127,7 +127,9 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     ) -> FileChangeEventsMessage:
         # we need a new connection object because gdrive connections are not thread safe
         connection = self.connection_router.connection_for_eventlog(create_new=True)
-        return connection.owner_download_events_message_by_id(events_message_id)
+        raw = connection.owner_download_raw_bytes_by_id(events_message_id)
+        raw = self.connection_router.peer_store.decrypt_for_self_if_needed(raw)
+        return FileChangeEventsMessage.from_compressed_data(raw)
 
     def get_all_accepted_events_messages(
         self, since_timestamp: float | None = None
