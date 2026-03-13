@@ -1,10 +1,19 @@
 """Integration tests for CLI commands."""
 
 import hashlib
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from syft_bg.cli.commands import hash, main, status
+from syft_bg.cli.commands import (
+    hash,
+    list_scripts,
+    main,
+    remove_peer,
+    remove_script,
+    set_script,
+    status,
+)
 
 
 class TestHashCommand:
@@ -86,5 +95,253 @@ class TestMainCommand:
         assert "tui" in result.output
         assert "run" in result.output
         assert "hash" in result.output
+        assert "set-script" in result.output
         assert "install" in result.output
         assert "uninstall" in result.output
+        assert "remove-script" in result.output
+        assert "remove-peer" in result.output
+        assert "list-scripts" in result.output
+
+
+class TestSetScriptCommand:
+    """Tests for the set-script command."""
+
+    @patch("syft_bg.cli.commands.ServiceManager")
+    @patch("syft_bg.approve.config.ApproveConfig.load")
+    def test_set_script_basic(self, mock_load, mock_svc_mgr, temp_dir, sample_script):
+        """Should accept a .py file and a single peer."""
+        mock_config = MagicMock()
+        mock_config.jobs.peers = {}
+        mock_load.return_value = mock_config
+
+        mock_mgr_instance = MagicMock()
+        mock_mgr_instance.get_status.return_value.status = "stopped"
+        mock_svc_mgr.return_value = mock_mgr_instance
+
+        runner = CliRunner()
+        result = runner.invoke(
+            set_script, [str(sample_script), "--peers", "alice@test.com"]
+        )
+
+        assert result.exit_code == 0
+        mock_load.assert_called_once()
+        mock_config.save.assert_called_once()
+
+    def test_set_script_non_py_file(self, temp_dir):
+        """Should reject a non-.py file."""
+        txt_file = temp_dir / "script.txt"
+        txt_file.write_text("some content")
+
+        runner = CliRunner()
+        result = runner.invoke(set_script, [str(txt_file), "--peers", "alice@test.com"])
+
+        assert result.exit_code != 0
+
+    @patch("syft_bg.cli.commands.ServiceManager")
+    @patch("syft_bg.approve.config.ApproveConfig.load")
+    def test_set_script_multiple_peers(
+        self, mock_load, mock_svc_mgr, temp_dir, sample_script
+    ):
+        """Should accept multiple peers via -p flags."""
+        mock_config = MagicMock()
+        mock_config.jobs.peers = {}
+        mock_load.return_value = mock_config
+
+        mock_mgr_instance = MagicMock()
+        mock_mgr_instance.get_status.return_value.status = "stopped"
+        mock_svc_mgr.return_value = mock_mgr_instance
+
+        runner = CliRunner()
+        result = runner.invoke(
+            set_script,
+            [str(sample_script), "-p", "alice@test.com", "-p", "bob@test.com"],
+        )
+
+        assert result.exit_code == 0
+        # Both peers should have been set in the config
+        assert "alice@test.com" in mock_config.jobs.peers
+        assert "bob@test.com" in mock_config.jobs.peers
+        mock_config.save.assert_called_once()
+
+    @patch("syft_bg.cli.commands.ServiceManager")
+    @patch("syft_bg.approve.config.ApproveConfig.load")
+    def test_set_script_multiple_files(self, mock_load, mock_svc_mgr, sample_scripts):
+        """Should accept multiple .py files."""
+        mock_config = MagicMock()
+        mock_config.jobs.peers = {}
+        mock_load.return_value = mock_config
+
+        mock_mgr_instance = MagicMock()
+        mock_mgr_instance.get_status.return_value.status = "stopped"
+        mock_svc_mgr.return_value = mock_mgr_instance
+
+        runner = CliRunner()
+        result = runner.invoke(
+            set_script,
+            [str(sample_scripts[0]), str(sample_scripts[1]), "-p", "alice@test.com"],
+        )
+
+        assert result.exit_code == 0
+        mock_config.save.assert_called_once()
+
+    @patch("syft_bg.cli.commands.ServiceManager")
+    @patch("syft_bg.approve.config.ApproveConfig.load")
+    def test_set_script_directory(self, mock_load, mock_svc_mgr, temp_dir):
+        """Should expand directory to all .py files."""
+        subdir = temp_dir / "src"
+        subdir.mkdir()
+        (subdir / "main.py").write_text('print("a")\n')
+        (subdir / "utils.py").write_text('print("b")\n')
+
+        mock_config = MagicMock()
+        mock_config.jobs.peers = {}
+        mock_load.return_value = mock_config
+
+        mock_mgr_instance = MagicMock()
+        mock_mgr_instance.get_status.return_value.status = "stopped"
+        mock_svc_mgr.return_value = mock_mgr_instance
+
+        runner = CliRunner()
+        result = runner.invoke(set_script, [str(subdir), "-p", "alice@test.com"])
+
+        assert result.exit_code == 0
+        assert "main.py" in result.output
+        assert "utils.py" in result.output
+        mock_config.save.assert_called_once()
+
+
+class TestRemoveScriptCommand:
+    """Tests for the remove-script command."""
+
+    @patch("syft_bg.approve.config.ApproveConfig.load")
+    def test_remove_script(self, mock_load):
+        """Should remove scripts by filename."""
+        from syft_bg.approve.config import PeerApprovalEntry, ScriptRule
+
+        entry = PeerApprovalEntry(
+            scripts=[
+                ScriptRule(name="main.py", hash="sha256:aaa"),
+                ScriptRule(name="utils.py", hash="sha256:bbb"),
+            ]
+        )
+        mock_config = MagicMock()
+        mock_config.jobs.peers = {"alice@test.com": entry}
+        mock_load.return_value = mock_config
+
+        runner = CliRunner()
+        result = runner.invoke(remove_script, ["utils.py", "-p", "alice@test.com"])
+
+        assert result.exit_code == 0
+        assert "Removed 1" in result.output
+        assert len(entry.scripts) == 1
+        assert entry.scripts[0].name == "main.py"
+
+    @patch("syft_bg.approve.config.ApproveConfig.load")
+    def test_remove_script_unknown_peer(self, mock_load):
+        """Should warn about unknown peer."""
+        mock_config = MagicMock()
+        mock_config.jobs.peers = {}
+        mock_load.return_value = mock_config
+
+        runner = CliRunner()
+        result = runner.invoke(remove_script, ["main.py", "-p", "unknown@test.com"])
+
+        assert result.exit_code == 0
+        assert "not found" in result.output
+
+
+class TestRemovePeerCommand:
+    """Tests for the remove-peer command."""
+
+    @patch("syft_bg.approve.config.ApproveConfig.load")
+    def test_remove_peer(self, mock_load):
+        """Should remove peer from config."""
+        from syft_bg.approve.config import PeerApprovalEntry
+
+        mock_config = MagicMock()
+        mock_config.jobs.peers = {"alice@test.com": PeerApprovalEntry()}
+        mock_load.return_value = mock_config
+
+        runner = CliRunner()
+        result = runner.invoke(remove_peer, ["alice@test.com"])
+
+        assert result.exit_code == 0
+        assert "Removed peer" in result.output
+        assert "alice@test.com" not in mock_config.jobs.peers
+
+    @patch("syft_bg.approve.config.ApproveConfig.load")
+    def test_remove_peer_not_found(self, mock_load):
+        """Should error if peer not found."""
+        mock_config = MagicMock()
+        mock_config.jobs.peers = {}
+        mock_load.return_value = mock_config
+
+        runner = CliRunner()
+        result = runner.invoke(remove_peer, ["unknown@test.com"])
+
+        assert result.exit_code != 0
+
+
+class TestListScriptsCommand:
+    """Tests for the list-scripts command."""
+
+    @patch("syft_bg.approve.config.ApproveConfig.load")
+    def test_list_scripts(self, mock_load):
+        """Should list all peers and their scripts."""
+        from syft_bg.approve.config import PeerApprovalEntry, ScriptRule
+
+        mock_config = MagicMock()
+        mock_config.jobs.peers = {
+            "alice@test.com": PeerApprovalEntry(
+                scripts=[ScriptRule(name="main.py", hash="sha256:aaa")]
+            ),
+            "bob@test.com": PeerApprovalEntry(
+                scripts=[ScriptRule(name="train.py", hash="sha256:bbb")]
+            ),
+        }
+        mock_load.return_value = mock_config
+
+        runner = CliRunner()
+        result = runner.invoke(list_scripts)
+
+        assert result.exit_code == 0
+        assert "alice@test.com" in result.output
+        assert "main.py" in result.output
+        assert "bob@test.com" in result.output
+        assert "train.py" in result.output
+
+    @patch("syft_bg.approve.config.ApproveConfig.load")
+    def test_list_scripts_single_peer(self, mock_load):
+        """Should filter to a specific peer."""
+        from syft_bg.approve.config import PeerApprovalEntry, ScriptRule
+
+        mock_config = MagicMock()
+        mock_config.jobs.peers = {
+            "alice@test.com": PeerApprovalEntry(
+                scripts=[ScriptRule(name="main.py", hash="sha256:aaa")]
+            ),
+            "bob@test.com": PeerApprovalEntry(
+                scripts=[ScriptRule(name="train.py", hash="sha256:bbb")]
+            ),
+        }
+        mock_load.return_value = mock_config
+
+        runner = CliRunner()
+        result = runner.invoke(list_scripts, ["-p", "alice@test.com"])
+
+        assert result.exit_code == 0
+        assert "alice@test.com" in result.output
+        assert "bob@test.com" not in result.output
+
+    @patch("syft_bg.approve.config.ApproveConfig.load")
+    def test_list_scripts_empty(self, mock_load):
+        """Should show message when no peers configured."""
+        mock_config = MagicMock()
+        mock_config.jobs.peers = {}
+        mock_load.return_value = mock_config
+
+        runner = CliRunner()
+        result = runner.invoke(list_scripts)
+
+        assert result.exit_code == 0
+        assert "No peers configured" in result.output

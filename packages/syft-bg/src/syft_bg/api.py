@@ -26,9 +26,6 @@ def init(
     notify_interval: int = 30,
     # Job approval settings
     approve_jobs: bool = True,
-    jobs_peers_only: bool = True,
-    required_filenames: list[str] | None = None,
-    allowed_users: list[str] | None = None,
     # Peer approval settings
     approve_peers: bool = False,
     approved_domains: list[str] | None = None,
@@ -53,9 +50,6 @@ def init(
         notify_peers: Enable email notifications for peer requests
         notify_interval: Notification check interval in seconds
         approve_jobs: Enable automatic job approval
-        jobs_peers_only: Only approve jobs from approved peers
-        required_filenames: Required filenames for job validation
-        allowed_users: Allowed users (empty = all approved peers)
         approve_peers: Enable automatic peer approval
         approved_domains: Approved domains for peer auto-approval
         approve_interval: Approval check interval in seconds
@@ -86,19 +80,13 @@ def init(
     else:
         syftbox_root = str(syftbox_root)
 
-    # Set default values for lists
-    if required_filenames is None:
-        required_filenames = ["main.py", "params.json"]
     if approved_domains is None:
         approved_domains = ["openmined.org"]
-    if allowed_users is None:
-        allowed_users = []
 
     try:
         creds_dir = get_creds_dir()
         config_path = creds_dir / "config.yaml"
 
-        # Build InitConfig
         config = InitConfig(
             email=email,
             syftbox_root=syftbox_root,
@@ -109,9 +97,6 @@ def init(
             notify_peers=notify_peers,
             notify_interval=notify_interval,
             approve_jobs=approve_jobs,
-            jobs_peers_only=jobs_peers_only,
-            required_filenames=required_filenames,
-            allowed_users=allowed_users,
             approve_peers=approve_peers,
             approved_domains=approved_domains,
             approve_interval=approve_interval,
@@ -120,7 +105,6 @@ def init(
             drive_token_path=str(drive_token_path) if drive_token_path else None,
         )
 
-        # Run init flow
         success = run_init_flow(config=config)
 
         if success:

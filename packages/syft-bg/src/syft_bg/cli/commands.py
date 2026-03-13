@@ -232,21 +232,6 @@ def logs(service: str, follow: bool, lines: int):
     default=None,
     help="Enable/disable automatic job approval.",
 )
-@click.option(
-    "--jobs-peers-only/--no-jobs-peers-only",
-    default=None,
-    help="Only approve jobs from approved peers.",
-)
-@click.option(
-    "--filenames",
-    "-f",
-    help="Required filenames for job validation (comma-separated).",
-)
-@click.option(
-    "--allowed-users",
-    "-u",
-    help="Allowed users for job submission (comma-separated). Empty = all peers.",
-)
 # Peer approval settings
 @click.option(
     "--approve-peers/--no-approve-peers",
@@ -288,9 +273,6 @@ def init(
     notify_peers: bool | None,
     notify_interval: int | None,
     approve_jobs: bool | None,
-    jobs_peers_only: bool | None,
-    filenames: str | None,
-    allowed_users: str | None,
     approve_peers: bool | None,
     approved_domains: str | None,
     approve_interval: int | None,
@@ -309,21 +291,8 @@ def init(
       syft-bg init -e user@example.com -r ~/SyftBox --quiet --skip-oauth
 
       syft-bg init --notify-jobs --no-notify-peers --approve-jobs
-
-      syft-bg init -f main.py,params.json -u alice@example.com
     """
     from syft_bg.cli.init import InitConfig, run_init_flow
-
-    # Parse comma-separated options
-    parsed_filenames = None
-    if filenames:
-        parsed_filenames = [f.strip() for f in filenames.split(",") if f.strip()]
-
-    parsed_allowed_users = None
-    if allowed_users is not None:
-        parsed_allowed_users = [
-            u.strip() for u in allowed_users.split(",") if u.strip()
-        ]
 
     parsed_approved_domains = None
     if approved_domains:
@@ -331,7 +300,6 @@ def init(
             d.strip() for d in approved_domains.split(",") if d.strip()
         ]
 
-    # Build InitConfig
     config = InitConfig(
         email=email,
         syftbox_root=syftbox_root,
@@ -342,9 +310,6 @@ def init(
         notify_peers=notify_peers,
         notify_interval=notify_interval,
         approve_jobs=approve_jobs,
-        jobs_peers_only=jobs_peers_only,
-        required_filenames=parsed_filenames,
-        allowed_users=parsed_allowed_users,
         approve_peers=approve_peers,
         approved_domains=parsed_approved_domains,
         approve_interval=approve_interval,
@@ -538,7 +503,8 @@ def run(service: str, once: bool):
 def hash(file: str, length: int):
     """Generate SHA256 hash for a script file.
 
-    Use this to create hash values for the 'required_scripts' config option.
+    Prefer using 'syft-bg set-script' which hashes and updates config
+    in one step. This command is useful for inspecting hashes directly.
 
     Examples:
 
@@ -559,6 +525,210 @@ def hash(file: str, length: int):
     except Exception as e:
         click.echo(f"Error reading file: {e}", err=True)
         raise SystemExit(1)
+
+
+@main.command("set-script")
+@click.argument("scripts", nargs=-1, required=True, type=click.Path(exists=True))
+@click.option(
+    "--peers",
+    "-p",
+    required=True,
+    multiple=True,
+    help="Peer email(s) to assign scripts to. Can be specified multiple times.",
+)
+@click.option(
+    "--replace",
+    is_flag=True,
+    help="Replace all existing scripts for these peers instead of adding.",
+)
+def set_script(scripts: tuple[str, ...], peers: tuple[str, ...], replace: bool):
+    """Set approved scripts for one or more peers.
+
+    Accepts multiple .py files or directories. Directories are expanded
+    to all .py files within them. By default, scripts are added to the
+    existing list (updating the hash if the name already exists).
+
+    Examples:
+
+      syft-bg set-script main.py -p alice@uni.edu -p bob@co.com
+
+      syft-bg set-script main.py utils.py -p charlie@org.com
+
+      syft-bg set-script ./src/ -p alice@uni.edu
+
+      syft-bg set-script main.py -p alice@uni.edu --replace
+    """
+    from pathlib import Path
+
+    from syft_bg.approve.config import ApproveConfig, PeerApprovalEntry, ScriptRule
+
+    # Resolve all .py files from arguments (files and directories)
+    py_files: list[Path] = []
+    for s in scripts:
+        p = Path(s)
+        if p.is_dir():
+            found = sorted(p.rglob("*.py"))
+            if not found:
+                click.echo(f"Warning: no .py files found in {p}", err=True)
+            py_files.extend(found)
+        elif p.suffix != ".py":
+            click.echo(f"Error: {p.name} is not a .py file", err=True)
+            raise SystemExit(1)
+        else:
+            py_files.append(p)
+
+    if not py_files:
+        click.echo("Error: no .py files to process", err=True)
+        raise SystemExit(1)
+
+    # Hash each file
+    new_rules: list[ScriptRule] = []
+    for file_path in py_files:
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+        except Exception as e:
+            click.echo(f"Error reading {file_path}: {e}", err=True)
+            raise SystemExit(1)
+        new_rules.append(ScriptRule(name=file_path.name, hash=file_hash))
+
+    config = ApproveConfig.load()
+
+    for peer_email in peers:
+        if replace or peer_email not in config.jobs.peers:
+            config.jobs.peers[peer_email] = PeerApprovalEntry(
+                mode="strict", scripts=list(new_rules)
+            )
+        else:
+            # Additive: update hash if name exists, append if new
+            existing = config.jobs.peers[peer_email]
+            existing_by_name = {r.name: r for r in existing.scripts}
+            for rule in new_rules:
+                existing_by_name[rule.name] = rule
+            existing.scripts = list(existing_by_name.values())
+
+    config.save()
+
+    for rule in new_rules:
+        click.echo(f"  {rule.name}  {rule.hash}")
+    click.echo(f"Peers: {', '.join(peers)}")
+    click.echo()
+    click.echo("Config updated.")
+
+    # Check if services are running and suggest restart
+    manager = ServiceManager()
+    approve_svc = manager.get_service("approve")
+    approve_status = approve_svc.get_status() if approve_svc else None
+    if approve_status and approve_status.status == ServiceStatus.RUNNING:
+        click.echo()
+        if click.confirm("Approve service is running. Restart to apply changes?"):
+            success, msg = manager.restart_service("approve")
+            if success:
+                click.echo(f"Restarted: {msg}")
+            else:
+                click.echo(f"Restart failed: {msg}", err=True)
+
+
+@main.command("remove-script")
+@click.argument("files", nargs=-1, required=True)
+@click.option(
+    "--peers",
+    "-p",
+    required=True,
+    multiple=True,
+    help="Peer email(s) to remove scripts from.",
+)
+def remove_script(files: tuple[str, ...], peers: tuple[str, ...]):
+    """Remove approved scripts by filename for one or more peers.
+
+    Examples:
+
+      syft-bg remove-script utils.py -p alice@uni.edu
+
+      syft-bg remove-script main.py utils.py -p bob@co.com
+    """
+    from syft_bg.approve.config import ApproveConfig
+
+    config = ApproveConfig.load()
+    removed = 0
+
+    for peer_email in peers:
+        if peer_email not in config.jobs.peers:
+            click.echo(f"Warning: peer {peer_email} not found in config", err=True)
+            continue
+        entry = config.jobs.peers[peer_email]
+        before = len(entry.scripts)
+        entry.scripts = [r for r in entry.scripts if r.name not in files]
+        removed += before - len(entry.scripts)
+
+    config.save()
+    click.echo(f"Removed {removed} script(s) from {len(peers)} peer(s).")
+
+
+@main.command("remove-peer")
+@click.argument("peer")
+def remove_peer(peer: str):
+    """Remove a peer and all their approved scripts from config.
+
+    Examples:
+
+      syft-bg remove-peer alice@uni.edu
+    """
+    from syft_bg.approve.config import ApproveConfig
+
+    config = ApproveConfig.load()
+
+    if peer not in config.jobs.peers:
+        click.echo(f"Peer {peer} not found in config.", err=True)
+        raise SystemExit(1)
+
+    del config.jobs.peers[peer]
+    config.save()
+    click.echo(f"Removed peer: {peer}")
+
+
+@main.command("list-scripts")
+@click.option(
+    "--peer",
+    "-p",
+    default=None,
+    help="Show scripts for a specific peer only.",
+)
+def list_scripts(peer: str | None):
+    """List approved scripts for all peers (or a specific peer).
+
+    Examples:
+
+      syft-bg list-scripts
+
+      syft-bg list-scripts -p alice@uni.edu
+    """
+    from syft_bg.approve.config import ApproveConfig
+
+    config = ApproveConfig.load()
+
+    if not config.jobs.peers:
+        click.echo("No peers configured.")
+        return
+
+    peers_to_show = (
+        {peer: config.jobs.peers[peer]}
+        if peer and peer in config.jobs.peers
+        else config.jobs.peers
+    )
+
+    if peer and peer not in config.jobs.peers:
+        click.echo(f"Peer {peer} not found in config.", err=True)
+        raise SystemExit(1)
+
+    for email, entry in peers_to_show.items():
+        click.echo(f"\n{email} (mode: {entry.mode})")
+        if entry.scripts:
+            for rule in entry.scripts:
+                click.echo(f"  {rule.name:<30} {rule.hash}")
+        else:
+            click.echo("  (no scripts)")
+    click.echo()
 
 
 @main.command()

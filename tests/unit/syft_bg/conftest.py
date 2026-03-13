@@ -30,13 +30,17 @@ approve:
   interval: 5
   jobs:
     enabled: true
-    peers_only: true
-    required_scripts:
-      main.py: "sha256:abc123"
-    required_filenames:
-      - main.py
-      - params.json
-    allowed_users: []
+    peers:
+      alice@uni.edu:
+        mode: strict
+        scripts:
+          - name: main.py
+            hash: "sha256:abc123"
+      bob@co.com:
+        mode: strict
+        scripts:
+          - name: main.py
+            hash: "sha256:abc123"
   peers:
     enabled: false
     approved_domains: []
