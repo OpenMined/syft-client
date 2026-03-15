@@ -46,24 +46,27 @@ def test_full_job_lifecycle(tmp_path: Path):
     assert job_dir.exists()
     assert (job_dir / "run.sh").exists()
     assert (job_dir / "config.yaml").exists()
-    assert (job_dir / "main.py").exists()
+    assert (job_dir / "code" / "main.py").exists()
 
-    # Job dir should be under the DS email subdirectory
-    expected_parent = ds_config.get_job_dir(DO_EMAIL) / DS_EMAIL
+    # Job dir should be under inbox/<ds_email>/<job_name>
+    expected_parent = ds_config.get_inbox_dir(DO_EMAIL) / DS_EMAIL
     assert job_dir.parent == expected_parent
 
-    # --- DO lists jobs and sees it as inbox ---
+    # --- DO lists jobs (auto-scans inbox) and sees it as pending ---
+    review_path = do_config.get_review_job_dir(DO_EMAIL, DS_EMAIL, "test.job")
     jobs = do_client.jobs
+
+    # Verify state.yaml was auto-created in review/
+    assert (review_path / "state.yaml").exists()
     assert len(jobs) == 1
     job = jobs[0]
     assert job.name == "test.job"
-    assert job.status == "inbox"
+    assert job.status == "pending"
     assert job.submitted_by == DS_EMAIL
 
     # --- DO approves the job ---
     job.approve()
     assert job.status == "approved"
-    assert (job_dir / "approved").exists()
 
     # --- DO runs approved jobs ---
     do_runner.process_approved_jobs(stream_output=False, timeout=120)
@@ -71,7 +74,6 @@ def test_full_job_lifecycle(tmp_path: Path):
     # Re-fetch to get updated status
     job = do_client.jobs[0]
     assert job.status == "done"
-    assert (job_dir / "done").exists()
 
     # --- Check outputs ---
     # output_paths includes syft.pub.yaml created by _prepare_outputs_dir
@@ -80,31 +82,31 @@ def test_full_job_lifecycle(tmp_path: Path):
     result_file = next(p for p in job.output_paths if p.name == "result.txt")
     assert result_file.read_text().strip() == "done"
 
-    # --- Check stdout / stderr ---
-    stdout_path = job_dir / "stdout.txt"
-    stderr_path = job_dir / "stderr.txt"
+    # --- Check stdout / stderr (now in review/) ---
+    stdout_path = review_path / "stdout.txt"
+    stderr_path = review_path / "stderr.txt"
     assert stdout_path.exists()
     assert stderr_path.exists()
     assert "hello from job" in stdout_path.read_text()
 
-    # --- Check returncode ---
-    returncode_path = job_dir / "returncode.txt"
+    # --- Check returncode (now in review/) ---
+    returncode_path = review_path / "returncode.txt"
     assert returncode_path.exists()
     assert returncode_path.read_text().strip() == "0"
 
     # --- Before sharing, DS should NOT have read access ---
     ctx = SyftPermContext(datasite=syftbox / DO_EMAIL)
-    assert not ctx.open("app_data/job/ds@test.org/test.job/outputs/").has_read_access(
-        DS_EMAIL
-    )
-    assert not ctx.open("app_data/job/ds@test.org/test.job/stdout.txt").has_read_access(
-        DS_EMAIL
-    )
-    assert not ctx.open("app_data/job/ds@test.org/test.job/stderr.txt").has_read_access(
-        DS_EMAIL
-    )
     assert not ctx.open(
-        "app_data/job/ds@test.org/test.job/returncode.txt"
+        f"app_data/job/review/{DS_EMAIL}/test.job/outputs/"
+    ).has_read_access(DS_EMAIL)
+    assert not ctx.open(
+        f"app_data/job/review/{DS_EMAIL}/test.job/stdout.txt"
+    ).has_read_access(DS_EMAIL)
+    assert not ctx.open(
+        f"app_data/job/review/{DS_EMAIL}/test.job/stderr.txt"
+    ).has_read_access(DS_EMAIL)
+    assert not ctx.open(
+        f"app_data/job/review/{DS_EMAIL}/test.job/returncode.txt"
     ).has_read_access(DS_EMAIL)
 
     # --- Share outputs and logs with DS ---
@@ -114,21 +116,23 @@ def test_full_job_lifecycle(tmp_path: Path):
     # --- Verify DS has read access via SyftPermContext ---
     ctx = SyftPermContext(datasite=syftbox / DO_EMAIL)
 
-    outputs_folder = ctx.open("app_data/job/ds@test.org/test.job/outputs/")
+    outputs_folder = ctx.open(f"app_data/job/review/{DS_EMAIL}/test.job/outputs/")
     assert outputs_folder.has_read_access(DS_EMAIL)
 
-    stdout_file = ctx.open("app_data/job/ds@test.org/test.job/stdout.txt")
+    stdout_file = ctx.open(f"app_data/job/review/{DS_EMAIL}/test.job/stdout.txt")
     assert stdout_file.has_read_access(DS_EMAIL)
 
-    stderr_file = ctx.open("app_data/job/ds@test.org/test.job/stderr.txt")
+    stderr_file = ctx.open(f"app_data/job/review/{DS_EMAIL}/test.job/stderr.txt")
     assert stderr_file.has_read_access(DS_EMAIL)
 
-    returncode_file = ctx.open("app_data/job/ds@test.org/test.job/returncode.txt")
+    returncode_file = ctx.open(
+        f"app_data/job/review/{DS_EMAIL}/test.job/returncode.txt"
+    )
     assert returncode_file.has_read_access(DS_EMAIL)
 
 
 def test_ds_job_folder_permissions(tmp_path: Path):
-    """Test that ensure_ds_job_folder creates a folder with correct permissions."""
+    """Test that setup_ds_job_folder_as_do creates inbox and review folders with correct permissions."""
     syftbox = tmp_path / "SyftBox"
     syftbox.mkdir()
 
@@ -136,17 +140,80 @@ def test_ds_job_folder_permissions(tmp_path: Path):
     do_client = JobClient(config=do_config)
 
     # Create DS job folder with permissions
-    ds_folder = do_client.setup_ds_job_folder_as_do(DS_EMAIL)
-    assert ds_folder.exists()
-    assert ds_folder == do_config.get_job_dir(DO_EMAIL) / DS_EMAIL
+    ds_inbox_folder = do_client.setup_ds_job_folder_as_do(DS_EMAIL)
+    assert ds_inbox_folder.exists()
+    assert ds_inbox_folder == do_config.get_inbox_dir(DO_EMAIL) / DS_EMAIL
 
-    # DS should have write access to their folder
+    # Review folder should also exist
+    ds_review_folder = do_config.get_review_dir(DO_EMAIL) / DS_EMAIL
+    assert ds_review_folder.exists()
+
+    # DS should have write access to their inbox folder
     ctx = SyftPermContext(datasite=syftbox / DO_EMAIL)
-    folder = ctx.open(f"app_data/job/{DS_EMAIL}/")
-    assert folder.has_write_access(DS_EMAIL)
-    assert folder.has_read_access(DO_EMAIL)
+    inbox_folder = ctx.open(f"app_data/job/inbox/{DS_EMAIL}/")
+    assert inbox_folder.has_write_access(DS_EMAIL)
+    assert inbox_folder.has_read_access(DO_EMAIL)
+
+    # DS should have read access to their review folder
+    review_folder = ctx.open(f"app_data/job/review/{DS_EMAIL}/")
+    assert review_folder.has_read_access(DS_EMAIL)
 
     # Another user should NOT have write access
     other_email = "other@test.org"
-    assert not folder.has_write_access(other_email)
-    assert not folder.has_read_access(other_email)
+    assert not inbox_folder.has_write_access(other_email)
+    assert not inbox_folder.has_read_access(other_email)
+
+
+def test_job_reject(tmp_path: Path):
+    """Test that a DO can reject a pending job."""
+    syftbox = tmp_path / "SyftBox"
+    syftbox.mkdir()
+
+    code_file = tmp_path / "main.py"
+    code_file.write_text("print('hello')")
+
+    do_config = SyftJobConfig(syftbox_folder=syftbox, email=DO_EMAIL)
+    ds_config = SyftJobConfig(syftbox_folder=syftbox, email=DS_EMAIL)
+
+    ds_client = JobClient(config=ds_config)
+    do_client = JobClient(config=do_config)
+
+    ds_client.submit_python_job(
+        user=DO_EMAIL, code_path=str(code_file), job_name="reject.job"
+    )
+    job = do_client.jobs[0]  # auto-scans inbox
+    assert job.status == "pending"
+
+    job.reject(reason="Not approved")
+    assert job.status == "rejected"
+
+
+def test_submission_validation(tmp_path: Path):
+    """Test that invalid submissions are auto-rejected during scan_inbox."""
+    syftbox = tmp_path / "SyftBox"
+    syftbox.mkdir()
+
+    do_config = SyftJobConfig(syftbox_folder=syftbox, email=DO_EMAIL)
+    do_client = JobClient(config=do_config)
+
+    # Manually create an invalid submission (missing code/ directory)
+    inbox_job = do_config.get_inbox_job_dir(DO_EMAIL, DS_EMAIL, "bad.job")
+    inbox_job.mkdir(parents=True)
+    (inbox_job / "config.yaml").write_text(
+        "name: bad.job\ntype: python\nsubmitted_by: ds@test.org\nsubmitted_at: '2025-01-01T00:00:00+00:00'\n"
+    )
+    (inbox_job / "run.sh").write_text("#!/bin/bash\necho hi")
+    # Missing code/ directory — should fail validation
+
+    do_client.scan_inbox()
+
+    review_state = (
+        do_config.get_review_job_dir(DO_EMAIL, DS_EMAIL, "bad.job") / "state.yaml"
+    )
+    assert review_state.exists()
+
+    from syft_job.models.state import JobState
+
+    state = JobState.load(review_state)
+    assert state.status.value == "rejected"
+    assert state.rejection_reason is not None

@@ -72,21 +72,31 @@ def test_dataset_manager_repr_html():
 # --- JobsList tests ---
 
 
-def _make_job_info(name: str, status: str = "inbox") -> JobInfo:
+def _make_job_info(name: str, status: str = "pending") -> JobInfo:
     """Create a minimal JobInfo for testing."""
+    from datetime import datetime, timezone
     from pathlib import Path
 
     from syft_job.client import JobClient
     from syft_job.config import SyftJobConfig
+    from syft_job.models.config import JobSubmissionConfig
+    from syft_job.models.state import JobState, JobStatus
 
     config = SyftJobConfig(syftbox_folder=Path("/tmp/fake"), email="test@test.com")
     client = JobClient(config=config)
-    return JobInfo(
+    submission_config = JobSubmissionConfig(
         name=name,
-        datasite_owner_email="test@test.com",
-        status=status,
+        type="python",
         submitted_by="ds@test.com",
-        location=Path("/tmp/fake/job"),
+        submitted_at=datetime.now(timezone.utc),
+    )
+    state = JobState(status=JobStatus(status))
+    return JobInfo(
+        config=submission_config,
+        state=state,
+        inbox_path=Path("/tmp/fake/job/inbox"),
+        review_path=Path("/tmp/fake/job/review"),
+        datasite_owner_email="test@test.com",
         client=client,
         current_user_email="test@test.com",
     )
