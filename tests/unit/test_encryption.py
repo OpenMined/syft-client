@@ -283,7 +283,7 @@ def test_self_encrypt_if_needed_with_encryption():
     encrypted = ps.encrypt_for_self_if_needed(data)
     assert encrypted != data
 
-    decrypted = ps.decrypt_for_self_if_needed(encrypted)
+    decrypted = ps.decrypt_and_verify_for_self_if_needed(encrypted)
     assert decrypted == data
 
 
@@ -294,7 +294,7 @@ def test_self_encrypt_if_needed_without_encryption():
 
     data = b"hello"
     assert ps.encrypt_for_self_if_needed(data) == data
-    assert ps.decrypt_for_self_if_needed(data) == data
+    assert ps.decrypt_and_verify_for_self_if_needed(data) == data
 
 
 def test_self_encrypt_if_needed_without_keys():
@@ -303,7 +303,7 @@ def test_self_encrypt_if_needed_without_keys():
 
     data = b"hello"
     assert ps.encrypt_for_self_if_needed(data) == data
-    assert ps.decrypt_for_self_if_needed(data) == data
+    assert ps.decrypt_and_verify_for_self_if_needed(data) == data
 
 
 # =========================================================================
@@ -408,3 +408,128 @@ def test_at_rest_no_encryption_backward_compat():
     loaded = do_manager._connection_router.get_latest_checkpoint()
     assert loaded is not None
     assert len(loaded.files) == len(checkpoint.files)
+
+
+# =========================================================================
+# Signature verification tests
+# =========================================================================
+
+
+def _setup_alice_bob():
+    """Helper: create alice and bob PeerStores with exchanged bundles."""
+    alice = PeerStore(email="alice@example.com", use_encryption=True)
+    alice.generate_keys()
+    bob = PeerStore(email="bob@example.com", use_encryption=True)
+    bob.generate_keys()
+
+    alice.add_peer(Peer(email="bob@example.com"))
+    bob.add_peer(Peer(email="alice@example.com"))
+
+    alice.set_peer_bundle("bob@example.com", bob.get_public_bundle())
+    bob.set_peer_bundle("alice@example.com", alice.get_public_bundle())
+    return alice, bob
+
+
+def test_verify_message():
+    """Verify signature of a message from a known sender."""
+    alice, bob = _setup_alice_bob()
+
+    plaintext = b"signed message"
+    envelope = alice.encrypt("bob@example.com", plaintext)
+
+    # Bob verifies Alice's signature — should not raise
+    bob.verify_message("alice@example.com", envelope)
+
+
+def test_verify_message_wrong_sender_raises():
+    """Verification fails when checked against the wrong sender's key."""
+    alice, bob = _setup_alice_bob()
+
+    carol = PeerStore(email="carol@example.com", use_encryption=True)
+    carol.generate_keys()
+    bob.add_peer(Peer(email="carol@example.com"))
+    bob.set_peer_bundle("carol@example.com", carol.get_public_bundle())
+
+    envelope = alice.encrypt("bob@example.com", b"hello")
+
+    with pytest.raises(Exception):
+        bob.verify_message("carol@example.com", envelope)
+
+
+def test_decrypt_tampered_envelope_raises():
+    """Decrypting a tampered envelope should raise."""
+    alice, bob = _setup_alice_bob()
+
+    envelope = alice.encrypt("bob@example.com", b"secret")
+    tampered = bytearray(envelope)
+    tampered[-1] ^= 0xFF
+    tampered = bytes(tampered)
+
+    with pytest.raises(Exception):
+        bob.decrypt("alice@example.com", tampered)
+
+
+def test_verify_message_from_self():
+    """Verify signature of a self-encrypted envelope."""
+    ps = PeerStore(email="alice@example.com", use_encryption=True)
+    ps.generate_keys()
+
+    plaintext = b"self-signed data"
+    envelope = ps.encrypt_for_self(plaintext)
+
+    # Should not raise
+    ps.verify_message_from_self(envelope)
+
+
+# =========================================================================
+# E2E signature verification through mock drive sync
+# =========================================================================
+
+
+def test_verified_encrypted_message_flow():
+    """Good message passes signature verification + decryption through full sync."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        encryption=True,
+    )
+    ds_manager.load_peers()
+
+    # DS sends a file change (encrypted + signed)
+    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    ds_manager._send_file_change(file_path, "verified content")
+
+    # DO syncs — decrypt_and_verify_if_needed runs internally
+    do_manager.sync()
+
+    events = do_manager._get_all_accepted_events_do()
+    assert len(events) > 0
+    all_events = [e for msg in events for e in msg.events]
+    matching = [e for e in all_events if "verified content" in str(e.content)]
+    assert len(matching) > 0
+
+
+def test_tampered_inbox_message_raises():
+    """Tampered message in mock inbox fails signature verification on sync."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        encryption=True,
+    )
+    ds_manager.load_peers()
+
+    # DS sends a file change
+    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    ds_manager._send_file_change(file_path, "will be tampered")
+
+    # Tamper with raw bytes in the mock backing store
+    do_conn = do_manager._connection_router.connections[0]
+    inbox_id = do_conn._get_own_datasite_inbox_id(ds_manager.email)
+    files = do_conn.get_file_metadatas_from_folder(inbox_id)
+    assert len(files) > 0
+
+    file_id = files[0]["id"]
+    mock_file = do_conn.drive_service._backing_store.files[file_id]
+    tampered = bytearray(mock_file.content)
+    tampered[-1] ^= 0xFF
+    mock_file.content = bytes(tampered)
+
+    # DO sync should fail due to signature verification
+    with pytest.raises(Exception):
+        do_manager.sync()

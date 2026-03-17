@@ -54,8 +54,9 @@ class PeerStore(BaseModel):
             return self.encrypt(email, data)
         return data
 
-    def decrypt_if_needed(self, email: str, data: bytes) -> bytes:
+    def decrypt_and_verify_if_needed(self, email: str, data: bytes) -> bytes:
         if self.peer_uses_encryption(email):
+            self.verify_message(email, data)
             return self.decrypt(email, data)
         return data
 
@@ -132,6 +133,19 @@ class PeerStore(BaseModel):
         bundle = self._ensure_peer_bundle(peer_email)
         return syc.SyftPublicKeyBundle.from_did_document(bundle)
 
+    def verify_message(self, sender_email: str, envelope: bytes) -> None:
+        """Verify the envelope signature against the sender's public key. Raises on failure."""
+        sender_bundle = self._get_parsed_peer_bundle(sender_email)
+        parsed = syc.parse_envelope(envelope)
+        syc.verify_envelope_signature(parsed, sender_bundle.identity_key_bytes)
+
+    def verify_message_from_self(self, envelope: bytes) -> None:
+        """Verify the envelope signature against own public key. Raises on failure."""
+        keys = self._ensure_private_keys()
+        own_bundle = keys.to_public_bundle()
+        parsed = syc.parse_envelope(envelope)
+        syc.verify_envelope_signature(parsed, own_bundle.identity_key_bytes)
+
     def encrypt(self, recipient_email: str, plaintext: bytes) -> bytes:
         keys = self._ensure_private_keys()
         peer_bundle = self._get_parsed_peer_bundle(recipient_email)
@@ -166,9 +180,10 @@ class PeerStore(BaseModel):
             return self.encrypt_for_self(data)
         return data
 
-    def decrypt_for_self_if_needed(self, data: bytes) -> bytes:
-        """Decrypt self-encrypted data if encryption is enabled and keys are available."""
+    def decrypt_and_verify_for_self_if_needed(self, data: bytes) -> bytes:
+        """Verify and decrypt self-encrypted data if encryption is enabled and keys are available."""
         if self.use_encryption and self.has_my_keys():
+            self.verify_message_from_self(data)
             return self.decrypt_for_self(data)
         return data
 

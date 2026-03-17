@@ -121,7 +121,9 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
         """Download from outbox using a new connection (thread-safe)."""
         connection = self.connection_router.connection_for_parallel_download()
         raw = connection.download_file(file_id)
-        raw = self.connection_router.peer_store.decrypt_if_needed(peer_email, raw)
+        raw = self.connection_router.peer_store.decrypt_and_verify_if_needed(
+            peer_email, raw
+        )
         return FileChangeEventsMessage.from_compressed_data(raw)
 
     def download_dataset_file_with_new_connection(
@@ -130,7 +132,9 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
         """Download dataset file using a new connection (thread-safe)."""
         connection = self.connection_router.connection_for_parallel_download()
         data = connection.watcher_download_dataset_file(file_id)
-        data = self.connection_router.peer_store.decrypt_if_needed(owner_email, data)
+        data = self.connection_router.peer_store.decrypt_and_verify_if_needed(
+            owner_email, data
+        )
         return data
 
     def sync_down(self, peer_emails: list[str]):

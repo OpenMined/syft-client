@@ -98,7 +98,7 @@ class ConnectionRouter(BaseModel):
         if result is None:
             return None
         raw_data, file_id = result
-        raw_data = self.peer_store.decrypt_if_needed(sender_email, raw_data)
+        raw_data = self.peer_store.decrypt_and_verify_if_needed(sender_email, raw_data)
         msg = ProposedFileChangesMessage.from_compressed_data(raw_data)
         msg.platform_id = file_id
         return msg
@@ -122,7 +122,7 @@ class ConnectionRouter(BaseModel):
         )
         return [
             FileChangeEventsMessage.from_compressed_data(
-                self.peer_store.decrypt_if_needed(peer_email, raw)
+                self.peer_store.decrypt_and_verify_if_needed(peer_email, raw)
             )
             for raw in raw_list
         ]
@@ -154,7 +154,7 @@ class ConnectionRouter(BaseModel):
         raw_list = connection.owner_download_all_raw_events_from_syftbox()
         return [
             FileChangeEventsMessage.from_compressed_data(
-                self.peer_store.decrypt_for_self_if_needed(raw)
+                self.peer_store.decrypt_and_verify_for_self_if_needed(raw)
             )
             for raw in raw_list
         ]
@@ -165,7 +165,7 @@ class ConnectionRouter(BaseModel):
         """Download and decrypt a single events message (thread-safe)."""
         connection = self.connection_for_eventlog(create_new=True)
         raw = connection.owner_download_raw_bytes_by_id(events_message_id)
-        raw = self.peer_store.decrypt_for_self_if_needed(raw)
+        raw = self.peer_store.decrypt_and_verify_for_self_if_needed(raw)
         return FileChangeEventsMessage.from_compressed_data(raw)
 
     # =========================================================================
@@ -315,7 +315,7 @@ class ConnectionRouter(BaseModel):
         )
         if self.peer_store and owner_email:
             files = {
-                name: self.peer_store.decrypt_if_needed(owner_email, data)
+                name: self.peer_store.decrypt_and_verify_if_needed(owner_email, data)
                 for name, data in files.items()
             }
         return files
@@ -382,7 +382,7 @@ class ConnectionRouter(BaseModel):
     def watcher_download_dataset_file(self, file_id: str, owner_email: str) -> bytes:
         connection = self.connection_for_datasite_watcher()
         data = connection.watcher_download_dataset_file(file_id)
-        data = self.peer_store.decrypt_if_needed(owner_email, data)
+        data = self.peer_store.decrypt_and_verify_if_needed(owner_email, data)
         return data
 
     # =========================================================================
@@ -443,7 +443,7 @@ class ConnectionRouter(BaseModel):
         if raw is None:
             return None
         try:
-            raw = self.peer_store.decrypt_for_self_if_needed(raw)
+            raw = self.peer_store.decrypt_and_verify_for_self_if_needed(raw)
             return Checkpoint.from_compressed_data(raw)
         except Exception as e:
             print(f"Warning: Failed to load checkpoint: {e}")
@@ -464,7 +464,7 @@ class ConnectionRouter(BaseModel):
         raw_list = connection.download_raw_events_since_timestamp(since_timestamp)
         return [
             FileChangeEventsMessage.from_compressed_data(
-                self.peer_store.decrypt_for_self_if_needed(raw)
+                self.peer_store.decrypt_and_verify_for_self_if_needed(raw)
             )
             for raw in raw_list
         ]
@@ -487,7 +487,7 @@ class ConnectionRouter(BaseModel):
         checkpoints = []
         for raw in raw_list:
             try:
-                raw = self.peer_store.decrypt_for_self_if_needed(raw)
+                raw = self.peer_store.decrypt_and_verify_for_self_if_needed(raw)
                 cp = IncrementalCheckpoint.from_compressed_data(raw)
                 checkpoints.append(cp)
             except Exception as e:
@@ -528,7 +528,7 @@ class ConnectionRouter(BaseModel):
         if raw is None:
             return None
         try:
-            raw = self.peer_store.decrypt_for_self_if_needed(raw)
+            raw = self.peer_store.decrypt_and_verify_for_self_if_needed(raw)
             return RollingState.from_compressed_data(raw)
         except Exception as e:
             print(f"Warning: Failed to load rolling state: {e}")
