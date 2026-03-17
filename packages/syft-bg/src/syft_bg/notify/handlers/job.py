@@ -6,6 +6,34 @@ from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.gmail.sender import GmailSender
 
 
+def _friendly_reason(reason: str, job_name: str) -> str:
+    """Convert internal rejection reason to a DS-friendly message."""
+    if "unknown peer" in reason:
+        return (
+            f'Your job "{job_name}" could not be processed because your account '
+            "is not yet registered with this data owner. Please contact them to "
+            "get added as an approved collaborator."
+        )
+    if "unapproved file" in reason:
+        return (
+            f'Your job "{job_name}" contained a script file that hasn\'t been '
+            "approved by the data owner. Please check that you're submitting "
+            "the correct files."
+        )
+    if "hash mismatch" in reason:
+        return (
+            f'Your job "{job_name}" contained a script that differs from the '
+            "approved version. This can happen if the file was modified after "
+            "approval. Please contact the data owner to re-approve your script."
+        )
+    if "no Python files" in reason:
+        return (
+            f'Your job "{job_name}" did not contain any Python files. '
+            "Please make sure your submission includes the required scripts."
+        )
+    return f'Your job "{job_name}" was not approved: {reason}'
+
+
 class JobHandler:
     """Handles job-related notification events."""
 
@@ -13,12 +41,14 @@ class JobHandler:
         self,
         sender: GmailSender,
         state: JsonStateManager,
+        do_email: str = "",
         notify_on_new: bool = True,
         notify_on_approved: bool = True,
         notify_on_executed: bool = True,
     ):
         self.sender = sender
         self.state = state
+        self.do_email = do_email
         self.notify_on_new = notify_on_new
         self.notify_on_approved = notify_on_approved
         self.notify_on_executed = notify_on_executed
@@ -38,16 +68,18 @@ class JobHandler:
             print(f"[JobHandler] Skip {job_name}/new: already notified")
             return False
 
-        success = self.sender.notify_new_job(
+        result = self.sender.notify_new_job(
             do_email, job_name, submitter, job_url=job_url
         )
 
-        if success:
+        if result.success:
             self.state.mark_notified(job_name, "new")
+            if result.thread_id:
+                self.state.store_thread_id(job_name, result.thread_id)
         else:
             print(f"[JobHandler] Failed to send new job notification for {job_name}")
 
-        return success
+        return result.success
 
     def on_job_approved(
         self,
@@ -55,7 +87,7 @@ class JobHandler:
         job_name: str,
         job_url: Optional[str] = None,
     ) -> bool:
-        """Notify DS that their job was approved."""
+        """Notify DS that their job was approved, and DO in the same thread."""
         if not self.notify_on_approved:
             return False
 
@@ -63,16 +95,22 @@ class JobHandler:
             print(f"[JobHandler] Skip {job_name}/approved: already notified")
             return False
 
-        success = self.sender.notify_job_approved(ds_email, job_name, job_url=job_url)
+        result = self.sender.notify_job_approved(ds_email, job_name, job_url=job_url)
 
-        if success:
+        if result.success:
             self.state.mark_notified(job_name, "approved")
+            # Also notify DO in the same thread
+            if self.do_email:
+                thread_id = self.state.get_thread_id(job_name)
+                self.sender.notify_job_approved_to_do(
+                    self.do_email, job_name, ds_email, thread_id=thread_id
+                )
         else:
             print(
                 f"[JobHandler] Failed to send approved notification for {job_name} to {ds_email}"
             )
 
-        return success
+        return result.success
 
     def on_job_executed(
         self,
@@ -81,7 +119,7 @@ class JobHandler:
         duration: Optional[int] = None,
         results_url: Optional[str] = None,
     ) -> bool:
-        """Notify DS that their job finished."""
+        """Notify DS that their job finished, and DO in the same thread."""
         if not self.notify_on_executed:
             return False
 
@@ -89,15 +127,52 @@ class JobHandler:
             print(f"[JobHandler] Skip {job_name}/executed: already notified")
             return False
 
-        success = self.sender.notify_job_executed(
+        result = self.sender.notify_job_executed(
             ds_email, job_name, duration=duration, results_url=results_url
         )
 
-        if success:
+        if result.success:
             self.state.mark_notified(job_name, "executed")
+            # Also notify DO in the same thread
+            if self.do_email:
+                thread_id = self.state.get_thread_id(job_name)
+                self.sender.notify_job_completed_to_do(
+                    self.do_email,
+                    job_name,
+                    ds_email,
+                    duration=duration,
+                    thread_id=thread_id,
+                )
         else:
             print(
                 f"[JobHandler] Failed to send executed notification for {job_name} to {ds_email}"
             )
 
-        return success
+        return result.success
+
+    def on_job_rejected(
+        self,
+        do_email: str,
+        job_name: str,
+        ds_email: str,
+        reason: str,
+    ) -> bool:
+        """Notify DO and DS that a job was rejected."""
+        if self.state.was_notified(job_name, "rejected"):
+            print(f"[JobHandler] Skip {job_name}/rejected: already notified")
+            return False
+
+        thread_id = self.state.get_thread_id(job_name)
+        result = self.sender.notify_job_rejected_to_do(
+            do_email, job_name, ds_email, reason, thread_id=thread_id
+        )
+
+        if result.success:
+            self.state.mark_notified(job_name, "rejected")
+            # Also notify DS with a friendly message
+            friendly = _friendly_reason(reason, job_name)
+            self.sender.notify_job_rejected_to_ds(ds_email, job_name, friendly)
+        else:
+            print(f"[JobHandler] Failed to send rejected notification for {job_name}")
+
+        return result.success

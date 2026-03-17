@@ -111,6 +111,22 @@ class JsonStateManager:
         """Get all approved peers."""
         return self._load_all().get("approved_peers", {})
 
+    # --- Email thread tracking ---
+
+    def store_thread_id(self, job_name: str, thread_id: str) -> None:
+        """Store Gmail thread ID for a job (for threaded notifications)."""
+        with self._file_lock():
+            data = self._load_all()
+            if "thread_ids" not in data:
+                data["thread_ids"] = {}
+            data["thread_ids"][job_name] = thread_id
+            self._save_all(data)
+
+    def get_thread_id(self, job_name: str) -> Optional[str]:
+        """Get stored Gmail thread ID for a job."""
+        data = self._load_all()
+        return data.get("thread_ids", {}).get(job_name)
+
     # --- State inspection ---
 
     def is_empty(self) -> bool:

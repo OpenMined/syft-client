@@ -1,62 +1,56 @@
 """Configuration for the approval service."""
 
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 import yaml
+from pydantic import BaseModel, Field
 
 from syft_bg.common.config import get_default_paths
 
 
-@dataclass
-class JobApprovalConfig:
+class ScriptRule(BaseModel):
+    """A single approved script with its expected hash."""
+
+    name: str
+    hash: str
+
+
+class PeerApprovalEntry(BaseModel):
+    """Configuration for a single peer's job approval."""
+
+    mode: str = "strict"
+    scripts: list[ScriptRule] = Field(default_factory=list)
+
+
+# Backwards-compatible alias
+PeerJobConfig = PeerApprovalEntry
+
+
+class JobApprovalConfig(BaseModel):
     """Configuration for job auto-approval."""
 
     enabled: bool = True
-    peers_only: bool = True
-    required_scripts: dict[str, str] = field(default_factory=dict)
-    required_filenames: list[str] = field(default_factory=list)
-    allowed_users: list[str] = field(default_factory=list)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "JobApprovalConfig":
-        return cls(
-            enabled=data.get("enabled", True),
-            peers_only=data.get("peers_only", True),
-            required_scripts=data.get("required_scripts", {}),
-            required_filenames=data.get("required_filenames", []),
-            allowed_users=data.get("allowed_users", []),
-        )
+    peers: dict[str, PeerApprovalEntry] = Field(default_factory=dict)
 
 
-@dataclass
-class PeerApprovalConfig:
+class PeerApprovalConfig(BaseModel):
     """Configuration for peer auto-approval."""
 
     enabled: bool = False
-    approved_domains: list[str] = field(default_factory=list)
-    auto_share_datasets: list[str] = field(default_factory=list)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "PeerApprovalConfig":
-        return cls(
-            enabled=data.get("enabled", False),
-            approved_domains=data.get("approved_domains", []),
-            auto_share_datasets=data.get("auto_share_datasets", []),
-        )
+    approved_domains: list[str] = Field(default_factory=list)
+    auto_share_datasets: list[str] = Field(default_factory=list)
 
 
-@dataclass
-class ApproveConfig:
+class ApproveConfig(BaseModel):
     """Main configuration for the approval service."""
 
     do_email: Optional[str] = None
     syftbox_root: Optional[Path] = None
     drive_token_path: Optional[Path] = None
     interval: int = 5
-    jobs: JobApprovalConfig = field(default_factory=JobApprovalConfig)
-    peers: PeerApprovalConfig = field(default_factory=PeerApprovalConfig)
+    jobs: JobApprovalConfig = Field(default_factory=JobApprovalConfig)
+    peers: PeerApprovalConfig = Field(default_factory=PeerApprovalConfig)
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "ApproveConfig":
@@ -87,8 +81,10 @@ class ApproveConfig:
             if common.get("drive_token_path")
             else None,
             interval=approve_section.get("interval", 5),
-            jobs=JobApprovalConfig.from_dict(jobs_data),
-            peers=PeerApprovalConfig.from_dict(peers_data),
+            jobs=JobApprovalConfig(**jobs_data) if jobs_data else JobApprovalConfig(),
+            peers=PeerApprovalConfig(**peers_data)
+            if peers_data
+            else PeerApprovalConfig(),
         )
 
     def save(self, config_path: Optional[Path] = None) -> None:
@@ -114,18 +110,8 @@ class ApproveConfig:
 
         data["approve"] = {
             "interval": self.interval,
-            "jobs": {
-                "enabled": self.jobs.enabled,
-                "peers_only": self.jobs.peers_only,
-                "required_scripts": self.jobs.required_scripts,
-                "required_filenames": self.jobs.required_filenames,
-                "allowed_users": self.jobs.allowed_users,
-            },
-            "peers": {
-                "enabled": self.peers.enabled,
-                "approved_domains": self.peers.approved_domains,
-                "auto_share_datasets": self.peers.auto_share_datasets,
-            },
+            "jobs": self.jobs.model_dump(),
+            "peers": self.peers.model_dump(),
         }
 
         with open(config_path, "w") as f:

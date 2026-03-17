@@ -105,3 +105,18 @@ class TestJsonStateManager:
         assert state.get_data("custom_key") is None
         state.set_data("custom_key", {"foo": "bar"})
         assert state.get_data("custom_key") == {"foo": "bar"}
+
+    def test_store_and_get_thread_id(self, temp_dir):
+        """Should store a thread_id for a job and retrieve it."""
+        state_path = temp_dir / "state.json"
+        state = JsonStateManager(state_path)
+
+        state.store_thread_id("job1", "thread-abc-123")
+        assert state.get_thread_id("job1") == "thread-abc-123"
+
+    def test_get_thread_id_nonexistent(self, temp_dir):
+        """Should return None for an unknown job's thread_id."""
+        state_path = temp_dir / "state.json"
+        state = JsonStateManager(state_path)
+
+        assert state.get_thread_id("nonexistent_job") is None
