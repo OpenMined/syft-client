@@ -162,6 +162,7 @@ dev = [
     "pre-commit>=4.3.0",
     "jupyter>=1.0.0",
     "notebook>=6.5.0",
+    "tornado>=6.5.5",
     "ipython>=8.0.0",
 ]
 test = [
@@ -169,7 +170,7 @@ test = [
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.0.0",
     "pytest-rerunfailures>=14.0",
-    "black>=23.0.0",
+    "black>=26.3.1",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
     "isort>=5.12.0",
