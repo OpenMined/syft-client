@@ -58,33 +58,82 @@ syft-bg start [service]    # Start all or specific service
 syft-bg stop [service]     # Stop all or specific service
 syft-bg restart [service]  # Restart all or specific service
 syft-bg logs <service>     # View logs (notify or approve)
-syft-bg hash <file>        # Generate script hash for auto-approval
+syft-bg hash <file>        # Generate script hash for a file
+syft-bg set-script         # Set approved scripts for peers
+syft-bg remove-script      # Remove approved scripts from peers
+syft-bg remove-peer        # Remove a peer from config
+syft-bg list-scripts       # List approved scripts per peer
 syft-bg install            # Install systemd service (auto-start on boot)
 syft-bg uninstall          # Remove systemd service
 ```
 
+## Per-Peer Script Approval
+
+Data owners can restrict job auto-approval on a per-peer basis.
+Each peer gets a list of approved scripts (name + SHA256 hash).
+Only jobs that match every submitted `.py` file against the approved list are auto-approved.
+
+### Setting up approved scripts
+
+```bash
+# Approve a single script for one or more peers
+syft-bg set-script main.py -p alice@uni.edu -p bob@co.com
+
+# Approve multiple scripts
+syft-bg set-script main.py utils.py -p charlie@org.com
+
+# Approve all .py files in a directory
+syft-bg set-script ./src/ -p alice@uni.edu
+
+# Replace all existing scripts (instead of adding)
+syft-bg set-script main.py -p alice@uni.edu --replace
+```
+
+### Managing scripts and peers
+
+```bash
+# List all peers and their approved scripts
+syft-bg list-scripts
+
+# List scripts for a specific peer
+syft-bg list-scripts -p alice@uni.edu
+
+# Remove a script from a peer
+syft-bg remove-script utils.py -p alice@uni.edu
+
+# Remove a peer entirely
+syft-bg remove-peer alice@uni.edu
+```
+
+### How validation works
+
+When a job is submitted, the approval service checks:
+
+1. The submitting peer must be in the `peers` config
+2. Every `.py` file in the job must match an approved script name
+3. The SHA256 hash of each file must match the approved hash
+
+Rejection reasons are specific: "unknown peer", "unapproved file", "hash mismatch".
+
 ## CLI Flags for `syft-bg init`
 
-| Flag                                     | Description                                     |
-| ---------------------------------------- | ----------------------------------------------- |
-| `--email, -e`                            | Data Owner email address                        |
-| `--syftbox-root`                         | SyftBox directory path                          |
-| `--yes, -y`                              | Auto-confirm config overwrite                   |
-| `--quiet, -q`                            | No prompts, use defaults (implies --skip-oauth) |
-| `--skip-oauth`                           | Skip OAuth setup (tokens must exist)            |
-| `--notify-jobs/--no-notify-jobs`         | Job email notifications                         |
-| `--notify-peers/--no-notify-peers`       | Peer email notifications                        |
-| `--notify-interval`                      | Notification check interval (seconds)           |
-| `--approve-jobs/--no-approve-jobs`       | Auto-approve jobs                               |
-| `--jobs-peers-only/--no-jobs-peers-only` | Only approve jobs from approved peers           |
-| `--approve-peers/--no-approve-peers`     | Auto-approve peers                              |
-| `--approved-domains`                     | Comma-separated domains for peer approval       |
-| `--approve-interval`                     | Approval check interval (seconds)               |
-| `--filenames`                            | Required filenames (comma-separated)            |
-| `--allowed-users`                        | Allowed users (comma-separated emails)          |
-| `--credentials-path`                     | Path to credentials.json                        |
-| `--gmail-token`                          | Path to existing Gmail token                    |
-| `--drive-token`                          | Path to existing Drive token                    |
+| Flag                                 | Description                                          |
+| ------------------------------------ | ---------------------------------------------------- |
+| `--email, -e`                        | Data Owner email address                             |
+| `--syftbox-root`                     | SyftBox directory path                               |
+| `--yes, -y`                          | Auto-confirm config overwrite                        |
+| `--quiet, -q`                        | No prompts, use defaults (implies --skip-oauth)      |
+| `--skip-oauth`                       | Skip OAuth setup (tokens must exist)                 |
+| `--notify-jobs/--no-notify-jobs`     | Job email notifications                              |
+| `--notify-peers/--no-notify-peers`   | Peer email notifications                             |
+| `--notify-interval`                  | Notification check interval (seconds)                |
+| `--approve-jobs/--no-approve-jobs`   | Auto-approve jobs                                    |
+| `--approve-peers/--no-approve-peers` | Auto-approve peers                                   |
+| `--approved-domains`                 | Approved domains for peer approval (comma-separated) |
+| `--approve-interval`                 | Approval check interval (seconds)                    |
+| `--credentials-path`                 | Path to credentials.json                             |
+| `--gmail-token`                      | Path to existing Gmail token                         |
+| `--drive-token`                      | Path to existing Drive token                         |
 
 ## Environment Check
 
@@ -137,13 +186,16 @@ Sends email notifications via Gmail when:
 - A data scientist submits a job to you
 - A job you submitted is approved
 - A job completes (results ready)
+- A job is rejected (with reason sent to the data scientist)
+
+DO notifications are threaded per job (new → approved/rejected → completed in one Gmail conversation).
 
 ### approve
 
 Auto-approves peers and jobs based on your config:
 
-- **Peers**: Auto-accept connection requests
-- **Jobs**: Auto-approve if script hash and filenames match allowed criteria
+- **Peers**: Auto-accept connection requests from approved domains
+- **Jobs**: Auto-approve if every submitted script matches an approved name + hash for that peer
 
 ## Configuration
 
@@ -162,12 +214,19 @@ approve:
   interval: 5
   jobs:
     enabled: true
-    peers_only: true
-    required_filenames:
-      - main.py
-      - params.json
-    required_scripts: {} # sha256 hashes
-    allowed_users: [] # empty = all approved peers
+    peers:
+      alice@uni.edu:
+        mode: strict
+        scripts:
+          - name: main.py
+            hash: 'sha256:a1b2c3d4...'
+          - name: utils.py
+            hash: 'sha256:e5f6a7b8...'
+      bob@co.com:
+        mode: strict
+        scripts:
+          - name: main.py
+            hash: 'sha256:c9d0e1f2...'
   peers:
     enabled: false
     approved_domains:
@@ -179,24 +238,6 @@ After editing, restart services:
 ```bash
 syft-bg restart
 ```
-
-## Script Hash Validation
-
-Data owners can restrict auto-approval to specific scripts:
-
-```bash
-# Generate hash for a script
-syft-bg hash main.py
-# Output: sha256:a1b2c3d4...
-
-# Add to config.yaml
-approve:
-  jobs:
-    allowed_script_hashes:
-      - "sha256:a1b2c3d4..."
-```
-
-Jobs with non-matching scripts require manual approval.
 
 ## Systemd Integration
 
