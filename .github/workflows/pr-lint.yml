@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: amannn/action-semantic-pull-request@v5
+        id: lint_title
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -32,6 +33,34 @@ jobs:
           subjectPatternError: >
             The subject "{subject}" must not start with an uppercase letter.
             Use lowercase after the type prefix, e.g. "feat: add retry logic".
+
+      - uses: marocchino/sticky-pull-request-comment@v2
+        if: always() && (steps.lint_title.outputs.error_message != null)
+        with:
+          header: pr-title-lint-error
+          message: |
+            ### PR title does not follow the required format
+
+            ```
+            ${{ steps.lint_title.outputs.error_message }}
+            ```
+
+            **Your title must match:** `type: description` or `type(scope): description`
+
+            **Allowed types:** `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`, `build`
+
+            **Examples:**
+            - `feat: add retry logic to job approval`
+            - `fix(syft-bg): handle timeout in notification sender`
+            - `docs: update README`
+
+            See the [PR naming convention](../blob/main/.github/PULL_REQUEST_TEMPLATE.md#pr-naming-convention) for details.
+
+      - uses: marocchino/sticky-pull-request-comment@v2
+        if: ${{ steps.lint_title.outputs.error_message == null }}
+        with:
+          header: pr-title-lint-error
+          delete: true
 
   label:
     name: Auto-label PR
