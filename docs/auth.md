@@ -1,8 +1,6 @@
 # Authentication
 
-When you log in with a Gmail account in Google Colab, Colab handles authentication automatically via a browser pop-up. Once authenticated, Syft Client uses Google Drive as its communication protocol — all messages, events, and files are synced through the Drive API.
-
-**If you're using Google Colab, you can skip the rest of this page.**
+**If you're using Google Colab, authentication is handled by colab via a browser pop-up when you initialize a SyftClient, you can stop reading here.** Once authenticated, Syft Client uses Google Drive as its communication protocol — all messages, events, and files are synced through the Drive API.
 
 ## Local / Jupyter Lab Setup
 
