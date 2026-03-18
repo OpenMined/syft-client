@@ -1,0 +1,69 @@
+name: 'PR: Lint & Label'
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: write
+  statuses: write
+
+jobs:
+  validate-title:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            chore
+            refactor
+            test
+            ci
+            perf
+            build
+          requireScope: false
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: >
+            The subject "{subject}" must not start with an uppercase letter.
+            Use lowercase after the type prefix, e.g. "feat: add retry logic".
+
+  label:
+    name: Auto-label PR
+    runs-on: ubuntu-latest
+    steps:
+      # Apply type label based on PR title prefix
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const typeMap = {
+              feat: 'feature',
+              fix: 'bugfix',
+              docs: 'documentation',
+              chore: 'chore',
+              refactor: 'refactor',
+              test: 'testing',
+              ci: 'ci',
+              perf: 'performance',
+              build: 'build',
+            };
+            const match = title.match(/^(\w+)(\(.+\))?:/);
+            if (match && typeMap[match[1]]) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: [typeMap[match[1]]],
+              });
+            }
+
+      # Apply package labels based on changed files
+      - uses: actions/labeler@v5
+        with:
+          configuration-path: .github/labeler.yml
