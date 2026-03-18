@@ -59,7 +59,7 @@ jobs:
 
       - name: Build package
         working-directory: packages/syft-datasets
-        run: uv build
+        run: uv build --output-directory dist
 
       - name: Publish to PyPI
         working-directory: packages/syft-datasets
