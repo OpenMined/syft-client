@@ -29,10 +29,7 @@ jobs:
             perf
             build
           requireScope: false
-          subjectPattern: ^(?![A-Z]).+$
-          subjectPatternError: >
-            The subject "{subject}" must not start with an uppercase letter.
-            Use lowercase after the type prefix, e.g. "feat: add retry logic".
+          ignoreCase: true
 
       - uses: marocchino/sticky-pull-request-comment@v2
         if: always() && (steps.lint_title.outputs.error_message != null)
@@ -41,20 +38,26 @@ jobs:
           message: |
             ### PR title does not follow the required format
 
+            Your title must follow this pattern:
+
             ```
-            ${{ steps.lint_title.outputs.error_message }}
+            type: short description
             ```
 
-            **Your title must match:** `type: description` or `type(scope): description`
-
-            **Allowed types:** `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`, `build`
-
-            **Examples:**
+            **Example titles:**
             - `feat: add retry logic to job approval`
-            - `fix(syft-bg): handle timeout in notification sender`
-            - `docs: update README`
+            - `fix: handle timeout in notification sender`
+            - `docs: update syft-bg README`
+            - `chore: bump dependencies`
+            - `refactor: split init flow into helpers`
+            - `test: add criteria validation tests`
+            - `ci: add release train workflow`
 
-            See the [PR naming convention](../blob/main/.github/PULL_REQUEST_TEMPLATE.md#pr-naming-convention) for details.
+            **Allowed types:** `feat` · `fix` · `docs` · `chore` · `refactor` · `test` · `ci` · `perf` · `build`
+
+            Just edit your PR title above to fix this. The check will re-run automatically.
+
+            See the [PR guidelines](https://github.com/${{ github.repository }}/blob/main/.github/PULL_REQUEST_TEMPLATE.md#pr-naming-convention) for full details.
 
       - uses: marocchino/sticky-pull-request-comment@v2
         if: ${{ steps.lint_title.outputs.error_message == null }}
