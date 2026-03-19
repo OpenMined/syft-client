@@ -87,22 +87,22 @@ jobs:
       bump_type: ${{ inputs.bump_type }}
     secrets: inherit
 
-  release-syft-job:
-    needs: [release-syft-perms]
-    if: >-
-      !cancelled() && !failure() &&
-      inputs.release_syft_job == true
-    uses: ./.github/workflows/cd-syft-job.yml
-    with:
-      bump_type: ${{ inputs.bump_type }}
-    secrets: inherit
-
   release-syft-dataset:
     needs: [release-syft-perms]
     if: >-
       !cancelled() && !failure() &&
       inputs.release_syft_dataset == true
     uses: ./.github/workflows/cd-syft-dataset.yml
+    with:
+      bump_type: ${{ inputs.bump_type }}
+    secrets: inherit
+
+  release-syft-job:
+    needs: [release-syft-dataset]
+    if: >-
+      !cancelled() && !failure() &&
+      inputs.release_syft_job == true
+    uses: ./.github/workflows/cd-syft-job.yml
     with:
       bump_type: ${{ inputs.bump_type }}
     secrets: inherit
