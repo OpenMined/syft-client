@@ -443,7 +443,7 @@ class SyftJobRunner:
             shutil.rmtree(outputs_dir)
         outputs_dir.mkdir(parents=True, exist_ok=True)
 
-        from syft_perm import SyftPermContext
+        from syft_perms import SyftPermContext
 
         datasite = self.config.syftbox_folder / self.config.email
         rel_path = str(outputs_dir.relative_to(datasite)) + "/"

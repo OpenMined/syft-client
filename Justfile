@@ -20,7 +20,7 @@ test-unit:
 
 test-unit-perm:
     #!/bin/bash
-    uv run pytest -n auto ./packages/syft-perm/tests
+    uv run pytest -n auto ./packages/syft-perms/tests
 
 test-unit-permissions:
     #!/bin/bash

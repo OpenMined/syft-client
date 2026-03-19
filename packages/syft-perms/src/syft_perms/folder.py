@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING
 
 from syft_permissions import ACLRequest, AccessLevel, User
 
-from syft_perm.explain import PermissionExplanation, explain
+from syft_perms.explain import PermissionExplanation, explain
 
 if TYPE_CHECKING:
-    from syft_perm.syftperm_context import SyftPermContext
+    from syft_perms.syftperm_context import SyftPermContext
 
 
 class SyftFolder:

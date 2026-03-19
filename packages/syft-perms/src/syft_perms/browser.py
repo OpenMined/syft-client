@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING, Literal
 from syft_permissions import PERMISSION_FILE_NAME
 
 if TYPE_CHECKING:
-    from syft_perm.syftperm_context import SyftPermContext
-    from syft_perm.file import SyftFile
-    from syft_perm.folder import SyftFolder
+    from syft_perms.syftperm_context import SyftPermContext
+    from syft_perms.file import SyftFile
+    from syft_perms.folder import SyftFolder
 
 Kind = Literal["files", "folders", "all"]
 
@@ -45,8 +45,8 @@ class FilesBrowser:
         return items[key]
 
     def _files_and_folders(self) -> list[SyftFile | SyftFolder]:
-        from syft_perm.file import SyftFile
-        from syft_perm.folder import SyftFolder
+        from syft_perms.file import SyftFile
+        from syft_perms.folder import SyftFolder
 
         root = self._perm_context.datasite
         items: list[SyftFile | SyftFolder] = []

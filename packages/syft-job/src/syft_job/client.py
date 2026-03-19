@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from syft_perm.syftperm_context import SyftPermContext
+from syft_perms.syftperm_context import SyftPermContext
 import yaml
 
 from .config import SyftJobConfig

@@ -94,7 +94,7 @@ result = open(ds.jobs[-1].output_paths[0]).read()
 | [`syft-datasets`](packages/syft-datasets)       | Dataset management and sharing                |
 | [`syft-job`](packages/syft-job)                 | Job submission and execution                  |
 | [`syft-permissions`](packages/syft-permissions) | Permission system for Syft datasites          |
-| [`syft-perm`](packages/syft-perm)               | User-facing permission API for Syft datasites |
+| [`syft-perms`](packages/syft-perms)             | User-facing permission API for Syft datasites |
 | [`syft-bg`](packages/syft-bg)                   | Background services TUI dashboard for SyftBox |
 | [`syft-notebook-ui`](packages/syft-notebook-ui) | Jupyter notebook display utilities            |
 

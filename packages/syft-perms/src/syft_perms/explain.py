@@ -8,7 +8,7 @@ from syft_permissions import PERMISSION_FILE_NAME, ACLRequest, AccessLevel, User
 from syft_permissions.engine.compiled_rule import ACLRule
 
 if TYPE_CHECKING:
-    from syft_perm.syftperm_context import SyftPermContext
+    from syft_perms.syftperm_context import SyftPermContext
 
 
 @dataclass

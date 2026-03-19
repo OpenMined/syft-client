@@ -37,11 +37,11 @@ dependencies = [
     "jinja2>=3.1.0",
     "click>=8.0.0",
     "python-daemon>=3.0.0",
-    "syft-bg>=0.2.0",
-    "syft-job>=0.1.23", # TODO: move to optional-dependencies after adding lazy imports
-    "syft-dataset>=0.1.5", # TODO: move to optional-dependencies after adding lazy imports
-    "syft-permissions>=0.1.0",
-    "syft-perm>=0.4.0",
+    "syft-bg==0.2.0",
+    "syft-job==0.1.23", # TODO: move to optional-dependencies after adding lazy imports
+    "syft-dataset==0.1.6", # TODO: move to optional-dependencies after adding lazy imports
+    "syft-permissions==0.1.0",
+    "syft-perms==0.1.0",
     "syft-crypto-python>=0.1.2b2",
 ]
 
@@ -68,7 +68,7 @@ members = ["packages/*"]
 "syft-dataset" = { workspace = true }
 "syft-bg" = { workspace = true }
 "syft-permissions" = { workspace = true }
-"syft-perm" = { workspace = true }
+"syft-perms" = { workspace = true }
 "syft-enclave" = { workspace = true }
 
 [project.urls]

@@ -11,6 +11,11 @@ on:
           - patch
           - minor
           - major
+  workflow_call:
+    inputs:
+      bump_type:
+        type: string
+        required: true
 
 concurrency:
   group: 'CD - Syft Dataset'
@@ -41,9 +46,12 @@ jobs:
       - name: Bump version
         run: |
           pip install packaging
-          VERSION=$(python packages/syft-datasets/scripts/bump_version.py ${{ github.event.inputs.bump_type }})
+          OUTPUT=$(python scripts/bump_version.py syft-dataset ${{ inputs.bump_type }})
+          VERSION=$(echo "$OUTPUT" | sed -n '1p')
+          MODIFIED=$(echo "$OUTPUT" | sed -n '2p')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "Bumped syft-dataset to $VERSION"
+          echo "MODIFIED=$MODIFIED" >> $GITHUB_ENV
+          echo "Bumped syft-dataset to $VERSION (modified: $MODIFIED)"
 
       - name: Build package
         working-directory: packages/syft-datasets
@@ -58,7 +66,7 @@ jobs:
 
       - name: Commit and tag
         run: |
-          git add packages/syft-datasets/pyproject.toml
+          git add ${{ env.MODIFIED }}
           git commit -m "Release syft-dataset v${{ env.VERSION }}"
           git tag "syft-dataset/v${{ env.VERSION }}"
           git push origin --follow-tags

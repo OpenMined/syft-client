@@ -1939,7 +1939,7 @@ def test_incoming_syft_pub_yaml_write_requires_admin():
 
     # DS has write access to their job folder (granted by approve_peer_request)
     # but NOT admin access. Verify this.
-    from syft_perm import SyftPermContext
+    from syft_perms import SyftPermContext
 
     ctx = SyftPermContext(datasite=datasite_dir_do)
     job_folder = ctx.open(f"app_data/job/{ds_email}/")
