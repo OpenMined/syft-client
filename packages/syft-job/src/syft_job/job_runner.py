@@ -6,9 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Set
 
+from .client import JobClient
+from .job import JobInfo
 from . import __version__
 from .config import SyftJobConfig
 from .models.state import JobState, JobStatus
+from .models.config import JobSubmissionMetadata
 
 # Default timeout for job execution (5 minutes)
 DEFAULT_JOB_TIMEOUT_SECONDS = 300
@@ -231,9 +234,11 @@ class SyftJobRunner:
 
     def _resolve_submission_dir(self, job_name: str, user: str | None = None) -> Path:
         """Resolve the inbox directory for a job."""
-        inbox_dir = self.config.get_all_submissions_dir(self.config.current_user_email)
         if user:
-            return inbox_dir / user / job_name
+            return self.config.get_job_submission_dir(
+                self.config.current_user_email, user, job_name
+            )
+        inbox_dir = self.config.get_all_submissions_dir(self.config.current_user_email)
         matches = list(inbox_dir.glob(f"*/{job_name}"))
         if len(matches) == 1:
             return matches[0]
@@ -529,38 +534,40 @@ class SyftJobRunner:
 
     def _get_job_submitter(self, job_name: str, user: str | None = None) -> str | None:
         """Read submitted_by from job config.yaml in inbox/."""
+        metadata = self._get_job_metadata(job_name, user)
+        if metadata is None:
+            return None
+        return metadata.submitted_by
+
+    def _get_job_metadata(
+        self, job_name: str, user: str | None = None
+    ) -> JobSubmissionMetadata:
         submission_dir = self._resolve_submission_dir(job_name, user)
         config_file = submission_dir / "config.yaml"
         if not config_file.exists():
             return None
         try:
-            from .models.config import JobSubmissionMetadata
-
-            config = JobSubmissionMetadata.load(config_file)
-            return config.submitted_by
+            return JobSubmissionMetadata.load(config_file)
         except Exception:
             return None
 
-    def _get_job_info(self, job_name: str, user: str | None = None):
-        """Create a JobInfo for a job by name."""
-        from .client import JobClient
-        from .job import JobInfo
-        from .models.config import JobSubmissionMetadata
-
-        submission_dir = self._resolve_submission_dir(job_name, user)
+    def _get_job_state(self, job_name: str, user: str | None = None) -> JobState:
         review_dir = self._resolve_review_dir(job_name, user)
-
-        config = JobSubmissionMetadata.load(submission_dir / "config.yaml")
-
         state_file = review_dir / "state.yaml"
         if state_file.exists():
-            state = JobState.load(state_file)
-        else:
-            state = JobState(status=JobStatus.RECEIVED)
+            return JobState.load(state_file)
+        return JobState(status=JobStatus.RECEIVED)
 
+    def _get_job_info(self, job_name: str, user: str | None = None):
+        """Create a JobInfo for a job by name."""
+        metadata = self._get_job_metadata(job_name, user)
+        if metadata is None:
+            raise ValueError(f"Job '{job_name}' not found")
+
+        state = self._get_job_state(job_name, user)
         client = JobClient(config=self.config)
         return JobInfo(
-            job_metadata=config,
+            job_metadata=metadata,
             state=state,
             datasite_owner_email=self.config.current_user_email,
             current_user_email=self.config.current_user_email,
