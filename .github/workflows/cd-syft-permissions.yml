@@ -1,4 +1,4 @@
-name: CD - Syft Dataset
+name: CD - Syft Permissions
 
 on:
   workflow_dispatch:
@@ -13,11 +13,11 @@ on:
           - major
 
 concurrency:
-  group: 'CD - Syft Dataset'
+  group: 'CD - Syft Permissions'
   cancel-in-progress: false
 
 jobs:
-  deploy-syft-dataset:
+  deploy-syft-permissions:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,24 +41,24 @@ jobs:
       - name: Bump version
         run: |
           pip install packaging
-          VERSION=$(python packages/syft-datasets/scripts/bump_version.py ${{ github.event.inputs.bump_type }})
+          VERSION=$(python packages/syft-permissions/scripts/bump_version.py ${{ github.event.inputs.bump_type }})
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "Bumped syft-dataset to $VERSION"
+          echo "Bumped syft-permissions to $VERSION"
 
       - name: Build package
-        working-directory: packages/syft-datasets
+        working-directory: packages/syft-permissions
         run: uv build --out-dir dist
 
       - name: Publish to PyPI
-        working-directory: packages/syft-datasets
+        working-directory: packages/syft-permissions
         env:
-          TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_DATASET }}
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_DATASET }}
+          TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_PERMISSIONS }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_PERMISSIONS }}
         run: uvx twine upload dist/*
 
       - name: Commit and tag
         run: |
-          git add packages/syft-datasets/pyproject.toml
-          git commit -m "Release syft-dataset v${{ env.VERSION }}"
-          git tag "syft-dataset/v${{ env.VERSION }}"
+          git add packages/syft-permissions/pyproject.toml
+          git commit -m "Release syft-permissions v${{ env.VERSION }}"
+          git tag "syft-permissions/v${{ env.VERSION }}"
           git push origin --follow-tags
