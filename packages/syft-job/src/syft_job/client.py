@@ -10,7 +10,7 @@ from syft_permissions.spec.ruleset import PERMISSION_FILE_NAME
 from .config import SyftJobConfig
 from .install_source import get_syft_client_install_source
 from .job import JobInfo, JobsList
-from .models.config import JobSubmissionConfig
+from .models.config import JobSubmissionMetadata
 from .models.state import JobState, JobStatus
 
 # Python version used when creating virtual environments for job execution
@@ -150,7 +150,7 @@ class JobClient:
         os.chmod(run_script_path, 0o755)
 
         # Write config.yaml using model
-        config = JobSubmissionConfig(
+        config = JobSubmissionMetadata(
             name=job_name,
             type="bash",
             submitted_by=self.current_user_email,
@@ -389,7 +389,7 @@ python {entrypoint_path}
         all_dependencies = [get_syft_client_install_source()] + dependencies
 
         # Write config.yaml using model
-        config = JobSubmissionConfig(
+        config = JobSubmissionMetadata(
             name=job_name,
             type="python",
             submitted_by=self.current_user_email,
@@ -439,7 +439,7 @@ python {entrypoint_path}
         Returns:
             The created JobState.
         """
-        inbox_path = self.config.get_inbox_job_dir(
+        inbox_path = self.config.get_job_submission_dir(
             self.current_user_email, ds_email, job_name
         )
         review_path = self.config.get_review_job_dir(
@@ -532,7 +532,7 @@ python {entrypoint_path}
                         continue
 
                     try:
-                        config = JobSubmissionConfig.load(config_file)
+                        config = JobSubmissionMetadata.load(config_file)
 
                         # Look up state from review/
                         review_path = self.config.get_review_job_dir(

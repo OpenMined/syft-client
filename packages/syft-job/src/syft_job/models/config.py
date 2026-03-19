@@ -8,7 +8,7 @@ import yaml
 from pydantic import BaseModel
 
 
-class JobSubmissionConfig(BaseModel):
+class JobSubmissionMetadata(BaseModel):
     """Represents the job submission metadata, stored as config.yaml in inbox/."""
 
     name: str
@@ -29,7 +29,7 @@ class JobSubmissionConfig(BaseModel):
             yaml.dump(self.model_dump(mode="json"), f, default_flow_style=False)
 
     @classmethod
-    def load(cls, path: Path) -> JobSubmissionConfig:
+    def load(cls, path: Path) -> JobSubmissionMetadata:
         """Load config from a YAML file."""
         with open(path, "r") as f:
             data = yaml.safe_load(f)

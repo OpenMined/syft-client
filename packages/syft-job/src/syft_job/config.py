@@ -77,7 +77,7 @@ class SyftJobConfig(BaseModel):
         """
         return self.get_job_dir(datasite_email) / "review"
 
-    def get_inbox_job_dir(
+    def get_job_submission_dir(
         self, datasite_email: str, ds_email: str, job_name: str
     ) -> Path:
         """

@@ -21,7 +21,7 @@ class JobStatus(str, Enum):
     FAILED = "failed"  # execution failed
 
 
-class PartyApproval(BaseModel):
+class PartyApprovalStatus(BaseModel):
     """Tracks approval from a single party in a multi-party (enclave) job."""
 
     party: str
@@ -50,7 +50,7 @@ class JobState(BaseModel):
     return_code: Optional[int] = None
 
     # Multi-party approval (enclave jobs) — empty for local jobs
-    approvals: list[PartyApproval] = []
+    approvals: list[PartyApprovalStatus] = []
 
     @property
     def all_parties_approved(self) -> bool:

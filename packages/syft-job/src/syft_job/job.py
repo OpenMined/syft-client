@@ -14,7 +14,7 @@ from .job_repr import (
     jobs_list_str,
 )
 from .job_stdout import StdoutViewer
-from .models.config import JobSubmissionConfig
+from .models.config import JobSubmissionMetadata
 from .models.state import JobState, JobStatus
 
 if TYPE_CHECKING:
@@ -26,7 +26,7 @@ class JobInfo:
 
     def __init__(
         self,
-        config: JobSubmissionConfig,
+        config: JobSubmissionMetadata,
         state: JobState,
         inbox_path: Path,
         review_path: Path,

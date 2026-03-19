@@ -197,7 +197,7 @@ def test_submission_validation(tmp_path: Path):
     do_client = JobClient(config=do_config)
 
     # Manually create an invalid submission (missing code/ directory)
-    inbox_job = do_config.get_inbox_job_dir(DO_EMAIL, DS_EMAIL, "bad.job")
+    inbox_job = do_config.get_job_submission_dir(DO_EMAIL, DS_EMAIL, "bad.job")
     inbox_job.mkdir(parents=True)
     (inbox_job / "config.yaml").write_text(
         "name: bad.job\ntype: python\nsubmitted_by: ds@test.org\nsubmitted_at: '2025-01-01T00:00:00+00:00'\n"

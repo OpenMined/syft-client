@@ -21,7 +21,7 @@ def test_exception_logs_not_truncated():
         job_name = "test_exception_job"
 
         # Create inbox dir with code/ and run.sh
-        inbox_dir = config.get_inbox_job_dir(email, ds_email, job_name)
+        inbox_dir = config.get_job_submission_dir(email, ds_email, job_name)
         inbox_dir.mkdir(parents=True)
         code_dir = inbox_dir / "code"
         code_dir.mkdir()

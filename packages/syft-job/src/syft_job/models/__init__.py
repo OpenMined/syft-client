@@ -1,9 +1,9 @@
-from .config import JobSubmissionConfig
-from .state import JobState, JobStatus, PartyApproval
+from .config import JobSubmissionMetadata
+from .state import JobState, JobStatus, PartyApprovalStatus
 
 __all__ = [
-    "JobSubmissionConfig",
+    "JobSubmissionMetadata",
     "JobState",
     "JobStatus",
-    "PartyApproval",
+    "PartyApprovalStatus",
 ]

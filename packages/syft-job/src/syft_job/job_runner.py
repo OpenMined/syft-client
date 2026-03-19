@@ -229,7 +229,7 @@ class SyftJobRunner:
                     continue
         return jobs
 
-    def _resolve_inbox_dir(self, job_name: str, user: str | None = None) -> Path:
+    def _resolve_submission_dir(self, job_name: str, user: str | None = None) -> Path:
         """Resolve the inbox directory for a job."""
         inbox_dir = self.config.get_inbox_dir(self.config.email)
         if user:
@@ -270,9 +270,9 @@ class SyftJobRunner:
 
         Reads run.sh from inbox/, writes stdout/stderr to review/.
         """
-        inbox_dir = self._resolve_inbox_dir(job_name, user)
+        submission_dir = self._resolve_submission_dir(job_name, user)
         review_dir = self._resolve_review_dir(job_name, user)
-        run_script = inbox_dir / "run.sh"
+        run_script = submission_dir / "run.sh"
 
         # Log prefix for streaming output
         log_prefix = f"[{self.config.email}][{job_name}]"
@@ -299,7 +299,7 @@ class SyftJobRunner:
         ):
             process = subprocess.Popen(
                 ["bash", str(run_script)],
-                cwd=inbox_dir,  # run.sh executes from inbox/ where code/ lives
+                cwd=submission_dir,  # run.sh executes from inbox/ where code/ lives
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -361,9 +361,9 @@ class SyftJobRunner:
 
         Reads run.sh from inbox/, writes stdout/stderr to review/.
         """
-        inbox_dir = self._resolve_inbox_dir(job_name, user)
+        submission_dir = self._resolve_submission_dir(job_name, user)
         review_dir = self._resolve_review_dir(job_name, user)
-        run_script = inbox_dir / "run.sh"
+        run_script = submission_dir / "run.sh"
 
         # Make run.sh executable
         os.chmod(run_script, 0o755)
@@ -378,7 +378,7 @@ class SyftJobRunner:
         # Execute run.sh with cwd=inbox/ where code/ lives
         result = subprocess.run(
             ["bash", str(run_script)],
-            cwd=inbox_dir,
+            cwd=submission_dir,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -420,9 +420,9 @@ class SyftJobRunner:
         if timeout is None:
             timeout = get_job_timeout_seconds()
 
-        inbox_dir = self._resolve_inbox_dir(job_name, user)
+        submission_dir = self._resolve_submission_dir(job_name, user)
         review_dir = self._resolve_review_dir(job_name, user)
-        run_script = inbox_dir / "run.sh"
+        run_script = submission_dir / "run.sh"
 
         if not run_script.exists():
             print(f" No run.sh found in {job_name}")
@@ -431,7 +431,7 @@ class SyftJobRunner:
         self._prepare_outputs_dir(job_name, user)
 
         print(f" Executing job: {job_name}")
-        print(f" Inbox: {inbox_dir}")
+        print(f" Inbox: {submission_dir}")
 
         # Update state to RUNNING
         state_file = review_dir / "state.yaml"
@@ -446,7 +446,7 @@ class SyftJobRunner:
                 returncode = self._execute_job_captured(job_name, timeout, user)
 
             # Move outputs from inbox/ to review/
-            inbox_outputs = inbox_dir / "outputs"
+            inbox_outputs = submission_dir / "outputs"
             review_outputs = review_dir / "outputs"
             if inbox_outputs.exists() and inbox_outputs.is_dir():
                 # Merge into review/outputs (which was pre-created by _prepare_outputs_dir)
@@ -512,8 +512,8 @@ class SyftJobRunner:
     def _prepare_outputs_dir(self, job_name: str, user: str | None = None) -> None:
         """Clear and recreate outputs dir in both inbox/ (for job cwd) and review/ (for final results)."""
         # Create outputs/ in inbox dir so job scripts can write there
-        inbox_dir = self._resolve_inbox_dir(job_name, user)
-        inbox_outputs = inbox_dir / "outputs"
+        submission_dir = self._resolve_submission_dir(job_name, user)
+        inbox_outputs = submission_dir / "outputs"
         inbox_outputs.mkdir(parents=True, exist_ok=True)
 
         # Create outputs/ in review dir with owner-only read permissions
@@ -533,14 +533,14 @@ class SyftJobRunner:
 
     def _get_job_submitter(self, job_name: str, user: str | None = None) -> str | None:
         """Read submitted_by from job config.yaml in inbox/."""
-        inbox_dir = self._resolve_inbox_dir(job_name, user)
+        inbox_dir = self._resolve_submission_dir(job_name, user)
         config_file = inbox_dir / "config.yaml"
         if not config_file.exists():
             return None
         try:
-            from .models.config import JobSubmissionConfig
+            from .models.config import JobSubmissionMetadata
 
-            config = JobSubmissionConfig.load(config_file)
+            config = JobSubmissionMetadata.load(config_file)
             return config.submitted_by
         except Exception:
             return None
@@ -549,12 +549,12 @@ class SyftJobRunner:
         """Create a JobInfo for a job by name."""
         from .client import JobClient
         from .job import JobInfo
-        from .models.config import JobSubmissionConfig
+        from .models.config import JobSubmissionMetadata
 
-        inbox_dir = self._resolve_inbox_dir(job_name, user)
+        inbox_dir = self._resolve_submission_dir(job_name, user)
         review_dir = self._resolve_review_dir(job_name, user)
 
-        config = JobSubmissionConfig.load(inbox_dir / "config.yaml")
+        config = JobSubmissionMetadata.load(inbox_dir / "config.yaml")
 
         state_file = review_dir / "state.yaml"
         if state_file.exists():
