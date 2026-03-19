@@ -17,12 +17,15 @@ class SyftPermContext:
         self.modifier = PermissionModifier(self)
         self._reload()
 
-    def open(self, path: str) -> SyftFile | SyftFolder:
+    def open(self, path: str | Path) -> SyftFile | SyftFolder:
         """Open a file or folder for permission management.
 
         The file/folder doesn't need to exist yet.
         Returns SyftFolder if path ends with '/' or is an existing directory.
         """
+        if isinstance(path, Path):
+            path = str(path)
+
         abs_path = self.datasite / path
         if path.endswith("/") or abs_path.is_dir():
             return SyftFolder(abs_path, self)

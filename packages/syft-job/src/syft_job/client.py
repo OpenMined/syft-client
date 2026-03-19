@@ -79,14 +79,14 @@ class JobClient:
         )
         ds_inbox_dir.mkdir(parents=True, exist_ok=True)
         ctx = SyftPermContext(datasite=datasite)
-        inbox_rel = str(ds_inbox_dir.relative_to(datasite)) + "/"
-        ctx.open(inbox_rel).grant_write_access(ds_email)
+        inbox_rel_dir = ds_inbox_dir.relative_to(datasite)
+        ctx.open(inbox_rel_dir).grant_write_access(ds_email)
 
         # Create review folder for DS with read access
         ds_review_dir = self.config.get_review_dir(self.current_user_email) / ds_email
         ds_review_dir.mkdir(parents=True, exist_ok=True)
-        review_rel = str(ds_review_dir.relative_to(datasite)) + "/"
-        ctx.open(review_rel).grant_read_access(ds_email)
+        review_rel_dir = ds_review_dir.relative_to(datasite)
+        ctx.open(review_rel_dir).grant_read_access(ds_email)
 
         return ds_inbox_dir
 

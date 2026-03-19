@@ -35,7 +35,7 @@ class SyftJobConfig(BaseModel):
         if not syftbox_path.is_dir():
             raise ValueError(f"Path is not a directory: {syftbox_folder_path}")
 
-        return cls(syftbox_folder=syftbox_path, email=email)
+        return cls(syftbox_folder=syftbox_path, current_user_email=email)
 
     @classmethod
     def from_file(cls, config_path: str) -> "SyftJobConfig":
