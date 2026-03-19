@@ -50,14 +50,19 @@ class JobState(BaseModel):
     return_code: Optional[int] = None
 
     # Multi-party approval (enclave jobs) — empty for local jobs
-    approvals: list[PartyApprovalStatus] = []
+    approval_states: list[PartyApprovalStatus] = []
+
+    @property
+    def is_enclave_job(self) -> bool:
+        """Check if the job is an enclave job."""
+        return len(self.approval_states) > 0
 
     @property
     def all_parties_approved(self) -> bool:
         """Check if all parties have approved (for enclave jobs)."""
-        if not self.approvals:
+        if not self.is_enclave_job:
             return self.status == JobStatus.APPROVED
-        return all(a.status == JobStatus.APPROVED for a in self.approvals)
+        return all(a.status == JobStatus.APPROVED for a in self.approval_states)
 
     def save(self, path: Path) -> None:
         """Write state to a YAML file."""
