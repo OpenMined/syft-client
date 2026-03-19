@@ -39,27 +39,15 @@ class JobInfo:
         self._client = client
 
     @property
-    def _inbox_path(self) -> Path:
-        return (
-            self._client.config.syftbox_folder
-            / self.job_metadata.datasite_email
-            / "app_data"
-            / "job"
-            / "inbox"
-            / self.job_metadata.submitted_by
-            / self.name
+    def job_submission_path(self) -> Path:
+        return self._client.config.get_job_submission_dir(
+            self.job_metadata.datasite_email, self.job_metadata.submitted_by, self.name
         )
 
     @property
-    def _review_path(self) -> Path:
-        return (
-            self._client.config.syftbox_folder
-            / self.job_metadata.datasite_email
-            / "app_data"
-            / "job"
-            / "review"
-            / self.job_metadata.submitted_by
-            / self.name
+    def job_review_path(self) -> Path:
+        return self._client.config.get_review_job_dir(
+            self.job_metadata.datasite_email, self.job_metadata.submitted_by, self.name
         )
 
     # ──────────────────────────────────────────────
@@ -83,7 +71,7 @@ class JobInfo:
     @property
     def code_dir(self) -> Path:
         """Path to the submitted code directory."""
-        return self._inbox_path / "code"
+        return self.job_submission_path / "code"
 
     @property
     def code(self) -> str:
@@ -101,7 +89,7 @@ class JobInfo:
     @property
     def run_script(self) -> str:
         """Read the run.sh content."""
-        run_sh = self._inbox_path / "run.sh"
+        run_sh = self.job_submission_path / "run.sh"
         if run_sh.exists():
             return run_sh.read_text()
         return ""
@@ -109,7 +97,7 @@ class JobInfo:
     @property
     def location(self) -> Path:
         """Backward compatibility — returns inbox path."""
-        return self._inbox_path
+        return self.job_submission_path
 
     # ──────────────────────────────────────────────
     # Properties from state (review/)
@@ -125,7 +113,7 @@ class JobInfo:
         if self._state.status not in (JobStatus.DONE, JobStatus.FAILED):
             return []
 
-        outputs_dir = self._review_path / "outputs"
+        outputs_dir = self.job_review_path / "outputs"
         if not outputs_dir.exists():
             return []
 
@@ -153,10 +141,14 @@ class JobInfo:
         """Get list of all files across both inbox and review."""
         all_files = []
         try:
-            if self._inbox_path.exists():
-                all_files.extend(f for f in self._inbox_path.rglob("*") if f.is_file())
-            if self._review_path.exists():
-                all_files.extend(f for f in self._review_path.rglob("*") if f.is_file())
+            if self.job_submission_path.exists():
+                all_files.extend(
+                    f for f in self.job_submission_path.rglob("*") if f.is_file()
+                )
+            if self.job_review_path.exists():
+                all_files.extend(
+                    f for f in self.job_review_path.rglob("*") if f.is_file()
+                )
         except Exception:
             pass
         return all_files
@@ -188,7 +180,7 @@ class JobInfo:
         self._state.status = JobStatus.APPROVED
         self._state.approved_by = self.current_user_email
         self._state.approved_at = datetime.now(timezone.utc)
-        self._state.save(self._review_path / "state.yaml")
+        self._state.save(self.job_review_path / "state.yaml")
         print(f"Job '{self.name}' approved successfully!")
 
     def reject(self, reason: str = "") -> None:
@@ -216,7 +208,7 @@ class JobInfo:
         self._state.rejected_by = self.current_user_email
         self._state.rejected_at = datetime.now(timezone.utc)
         self._state.rejection_reason = reason
-        self._state.save(self._review_path / "state.yaml")
+        self._state.save(self.job_review_path / "state.yaml")
         print(f"Job '{self.name}' rejected.")
 
     def accept_by_depositing_result(self, path: str) -> Path:
@@ -243,7 +235,7 @@ class JobInfo:
             raise FileNotFoundError(f"Result path not found: {path}")
 
         # Create outputs directory in review/
-        outputs_dir = self._review_path / "outputs"
+        outputs_dir = self.job_review_path / "outputs"
         outputs_dir.mkdir(parents=True, exist_ok=True)
 
         # Handle both files and folders
@@ -264,7 +256,7 @@ class JobInfo:
         self._state.approved_at = self._state.approved_at or now
         self._state.completed_at = now
         self._state.return_code = 0
-        self._state.save(self._review_path / "state.yaml")
+        self._state.save(self.job_review_path / "state.yaml")
 
         print(
             f"Job '{self.name}' completed successfully! Result deposited at: {destination}"
@@ -289,12 +281,12 @@ class JobInfo:
 
         # Clean up review/ artifacts
         for filename in ("stdout.txt", "stderr.txt", "returncode.txt"):
-            f = self._review_path / filename
+            f = self.job_review_path / filename
             if f.exists():
                 f.unlink()
                 changes_made.append(filename)
 
-        outputs_dir = self._review_path / "outputs"
+        outputs_dir = self.job_review_path / "outputs"
         if outputs_dir.exists() and outputs_dir.is_dir():
             shutil.rmtree(outputs_dir)
             changes_made.append("outputs directory")
@@ -303,7 +295,7 @@ class JobInfo:
         self._state.status = JobStatus.APPROVED
         self._state.completed_at = None
         self._state.return_code = None
-        self._state.save(self._review_path / "state.yaml")
+        self._state.save(self.job_review_path / "state.yaml")
 
         if changes_made:
             print(
@@ -324,7 +316,7 @@ class JobInfo:
 
     def _review_path_in_datasite(self, subpath: str) -> str:
         """Return path relative to the datasite for a review/ subpath."""
-        rel = self._review_path.relative_to(
+        rel = self.job_review_path.relative_to(
             self._client.config.syftbox_folder / self.datasite_owner_email
         )
         return str(rel / subpath)
