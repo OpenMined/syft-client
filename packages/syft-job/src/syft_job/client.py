@@ -143,6 +143,7 @@ class JobClient:
             name=job_name,
             type="bash",
             submitted_by=self.current_user_email,
+            datasite_email=submitting_to_email,
             submitted_at=datetime.now(timezone.utc),
             files=["script.sh"],
         )
@@ -396,6 +397,7 @@ python {entrypoint_path}
             name=job_name,
             type="python",
             submitted_by=self.current_user_email,
+            datasite_email=submitting_to_email,
             submitted_at=datetime.now(timezone.utc),
             entrypoint=entrypoint,
             dependencies=all_dependencies,
@@ -549,10 +551,8 @@ python {entrypoint_path}
 
                         jobs.append(
                             JobInfo(
-                                config=config,
+                                job_metadata=config,
                                 state=state,
-                                inbox_path=job_dir,
-                                review_path=review_path,
                                 datasite_owner_email=datasite_owner_email,
                                 current_user_email=self.current_user_email,
                                 client=self,

@@ -26,21 +26,41 @@ class JobInfo:
 
     def __init__(
         self,
-        config: JobSubmissionMetadata,
+        job_metadata: JobSubmissionMetadata,
         state: JobState,
-        inbox_path: Path,
-        review_path: Path,
         datasite_owner_email: str,
         current_user_email: str,
         client: JobClient,
     ):
-        self._config = config
+        self.job_metadata = job_metadata
         self._state = state
-        self._inbox_path = inbox_path  # inbox/ds@email/job-name/
-        self._review_path = review_path  # review/ds@email/job-name/
         self.datasite_owner_email = datasite_owner_email
         self.current_user_email = current_user_email
         self._client = client
+
+    @property
+    def _inbox_path(self) -> Path:
+        return (
+            self._client.config.syftbox_folder
+            / self.job_metadata.datasite_email
+            / "app_data"
+            / "job"
+            / "inbox"
+            / self.job_metadata.submitted_by
+            / self.name
+        )
+
+    @property
+    def _review_path(self) -> Path:
+        return (
+            self._client.config.syftbox_folder
+            / self.job_metadata.datasite_email
+            / "app_data"
+            / "job"
+            / "review"
+            / self.job_metadata.submitted_by
+            / self.name
+        )
 
     # ──────────────────────────────────────────────
     # Properties from config (inbox/)
@@ -48,16 +68,16 @@ class JobInfo:
 
     @property
     def name(self) -> str:
-        return self._config.name
+        return self.job_metadata.name
 
     @property
     def submitted_by(self) -> str:
-        return self._config.submitted_by
+        return self.job_metadata.submitted_by
 
     @property
     def submitted_at(self) -> Optional[str]:
-        if self._config.submitted_at:
-            return self._config.submitted_at.isoformat()
+        if self.job_metadata.submitted_at:
+            return self.job_metadata.submitted_at.isoformat()
         return None
 
     @property
@@ -68,7 +88,7 @@ class JobInfo:
     @property
     def code(self) -> str:
         """Read the entrypoint source code."""
-        ep = self._config.entrypoint
+        ep = self.job_metadata.entrypoint
         if ep:
             ep_path = self.code_dir / ep
             if ep_path.exists():

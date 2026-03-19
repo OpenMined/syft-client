@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ class JobSubmissionMetadata(BaseModel):
     name: str
     type: Literal["python", "bash"] = "python"
     submitted_by: str
+    datasite_email: str
     submitted_at: datetime
     entrypoint: Optional[str] = None
     dependencies: list[str] = []
@@ -27,11 +29,25 @@ class JobSubmissionMetadata(BaseModel):
         """Write config to a YAML file."""
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
-            yaml.dump(self.model_dump(mode="json"), f, default_flow_style=False)
+            yaml.dump(
+                self.model_dump(
+                    mode="json", exclude={"datasite_email", "submitted_by"}
+                ),
+                f,
+                default_flow_style=False,
+            )
+
+    @staticmethod
+    def is_valid_email(email):
+        return re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$", email) is not None
 
     @classmethod
     def load(cls, path: Path) -> JobSubmissionMetadata:
         """Load config from a YAML file."""
+        submitted_by = path.parent.parent.name
+        datasite_email = path.parent.parent.parent.parent.parent.parent.name
+        if not cls.is_valid_email(datasite_email):
+            raise ValueError(f"Invalid datasite email: {datasite_email}")
         with open(path, "r") as f:
             data = yaml.safe_load(f)
-        return cls(**data)
+        return cls(**data, submitted_by=submitted_by, datasite_email=datasite_email)

@@ -90,14 +90,13 @@ def _make_job_info(name: str, status: str = "pending") -> JobInfo:
         name=name,
         type="python",
         submitted_by="ds@test.com",
+        datasite_email="ds@test.com",
         submitted_at=datetime.now(timezone.utc),
     )
     state = JobState(status=JobStatus(status))
     return JobInfo(
-        config=submission_config,
+        job_metadata=submission_config,
         state=state,
-        inbox_path=Path("/tmp/fake/job/inbox"),
-        review_path=Path("/tmp/fake/job/review"),
         datasite_owner_email="test@test.com",
         client=client,
         current_user_email="test@test.com",

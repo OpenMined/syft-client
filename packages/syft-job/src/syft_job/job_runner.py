@@ -564,10 +564,8 @@ class SyftJobRunner:
 
         client = JobClient(config=self.config)
         return JobInfo(
-            config=config,
+            job_metadata=config,
             state=state,
-            inbox_path=submission_dir,
-            review_path=review_dir,
             datasite_owner_email=self.config.current_user_email,
             current_user_email=self.config.current_user_email,
             client=client,
