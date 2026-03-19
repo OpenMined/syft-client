@@ -353,7 +353,7 @@ def job_info_repr_html(job: "JobInfo") -> str:
     submitted_time = "Unknown"
     job_type = "bash"
     try:
-        config_file = job.location / "config.yaml"
+        config_file = job.job_submission_path / "config.yaml"
         if config_file.exists():
             from datetime import datetime
 
@@ -380,8 +380,8 @@ def job_info_repr_html(job: "JobInfo") -> str:
             import os
             from datetime import datetime
 
-            if job.location.exists():
-                mtime = os.path.getmtime(job.location)
+            if job.job_submission_path.exists():
+                mtime = os.path.getmtime(job.job_submission_path)
                 dt = datetime.fromtimestamp(mtime)
                 submitted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
@@ -389,7 +389,7 @@ def job_info_repr_html(job: "JobInfo") -> str:
 
     script_content = "No script available"
     try:
-        script_file = job.location / "run.sh"
+        script_file = job.job_submission_path / "run.sh"
         if script_file.exists():
             with open(script_file, "r") as f:
                 script_content = f.read().strip()
@@ -707,7 +707,7 @@ def job_info_repr_html(job: "JobInfo") -> str:
                     </div>
                     <div class="syftjob-single-detail">
                         <div class="syftjob-single-detail-label">Location:</div>
-                        <div class="syftjob-single-detail-value">{job.location}</div>
+                        <div class="syftjob-single-detail-value">{job.job_submission_path}</div>
                     </div>
                     <div class="syftjob-single-detail">
                         <div class="syftjob-single-detail-label">Submitted:</div>

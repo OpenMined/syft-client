@@ -446,20 +446,7 @@ class SyftJobRunner:
                 returncode = self._execute_job_captured(job_name, timeout, user)
 
             # Move outputs from inbox/ to review/
-            inbox_outputs = submission_dir / "outputs"
-            review_outputs = review_dir / "outputs"
-            if inbox_outputs.exists() and inbox_outputs.is_dir():
-                # Merge into review/outputs (which was pre-created by _prepare_outputs_dir)
-                for item in inbox_outputs.iterdir():
-                    dest = review_outputs / item.name
-                    if item.is_file():
-                        shutil.copy2(str(item), str(dest))
-                    elif item.is_dir():
-                        if dest.exists():
-                            shutil.rmtree(dest)
-                        shutil.copytree(str(item), str(dest))
-                # Clean up inbox outputs
-                shutil.rmtree(inbox_outputs)
+            self._move_outputs_to_review(submission_dir, review_dir)
 
             # Write return code to review/
             returncode_file = review_dir / "returncode.txt"
@@ -467,11 +454,7 @@ class SyftJobRunner:
                 f.write(str(returncode))
 
             # Update state to DONE or FAILED
-            state = JobState.load(state_file)
-            state.status = JobStatus.DONE if returncode == 0 else JobStatus.FAILED
-            state.completed_at = datetime.now(timezone.utc)
-            state.return_code = returncode
-            state.save(state_file)
+            self._set_finalized_job_state(state_file, returncode)
 
             stdout_file = review_dir / "stdout.txt"
             stderr_file = review_dir / "stderr.txt"
@@ -492,22 +475,35 @@ class SyftJobRunner:
 
         except subprocess.TimeoutExpired:
             print(f" Job {job_name} timed out after {timeout // 60} minutes")
-            state = JobState.load(state_file)
-            state.status = JobStatus.FAILED
-            state.completed_at = datetime.now(timezone.utc)
-            state.return_code = -1
-            state.save(state_file)
+            self._set_finalized_job_state(state_file, -1)
             return False
         except Exception as e:
             print(f" Error executing job {job_name}: {e}")
-            try:
-                state = JobState.load(state_file)
-                state.status = JobStatus.FAILED
-                state.completed_at = datetime.now(timezone.utc)
-                state.save(state_file)
-            except Exception:
-                pass
+            self._set_finalized_job_state(state_file, -1)
             return False
+
+    def _set_finalized_job_state(self, state_file: Path, returncode: int) -> None:
+        state = JobState.load(state_file)
+        state.status = JobStatus.DONE if returncode == 0 else JobStatus.FAILED
+        state.completed_at = datetime.now(timezone.utc)
+        state.return_code = returncode
+        state.save(state_file)
+
+    def _move_outputs_to_review(self, submission_dir: Path, review_dir: Path) -> None:
+        inbox_outputs = submission_dir / "outputs"
+        review_outputs = review_dir / "outputs"
+        if inbox_outputs.exists() and inbox_outputs.is_dir():
+            # Merge into review/outputs (which was pre-created by _prepare_outputs_dir)
+            for item in inbox_outputs.iterdir():
+                dest = review_outputs / item.name
+                if item.is_file():
+                    shutil.copy2(str(item), str(dest))
+                elif item.is_dir():
+                    if dest.exists():
+                        shutil.rmtree(dest)
+                    shutil.copytree(str(item), str(dest))
+            # Clean up inbox outputs
+            shutil.rmtree(inbox_outputs)
 
     def _prepare_outputs_dir(self, job_name: str, user: str | None = None) -> None:
         """Clear and recreate outputs dir in both inbox/ (for job cwd) and review/ (for final results)."""

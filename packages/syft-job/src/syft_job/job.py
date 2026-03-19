@@ -94,11 +94,6 @@ class JobInfo:
             return run_sh.read_text()
         return ""
 
-    @property
-    def location(self) -> Path:
-        """Backward compatibility — returns inbox path."""
-        return self.job_submission_path
-
     # ──────────────────────────────────────────────
     # Properties from state (review/)
     # ──────────────────────────────────────────────

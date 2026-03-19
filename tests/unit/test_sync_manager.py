@@ -672,7 +672,7 @@ def test_single_file_job_submission_without_pyproject():
 
     assert len(do_manager.job_client.jobs) == 1
     job = do_manager.job_client.jobs[0]
-    job_dir = job.location
+    job_dir = job.job_submission_path
 
     # Verify code is in job_dir/code/
     assert (job_dir / "code" / "test_direct_copy.py").exists(), (
@@ -726,7 +726,7 @@ with open("outputs/result.txt", "w") as f:
 
         assert len(do_manager.job_client.jobs) == 1
         job = do_manager.job_client.jobs[0]
-        job_dir = job.location
+        job_dir = job.job_submission_path
 
         # Verify folder structure - code is in code/ subdirectory
         assert (job_dir / "code").exists(), "code/ should exist in job_dir"
@@ -799,7 +799,7 @@ dependencies = []
 
         assert len(do_manager.job_client.jobs) == 1
         job = do_manager.job_client.jobs[0]
-        job_dir = job.location
+        job_dir = job.job_submission_path
 
         # Verify folder structure - code is in code/ subdirectory
         assert (job_dir / "code").exists(), "code/ should exist in job_dir"
@@ -849,7 +849,7 @@ def test_folder_job_auto_detect_main_py():
 
         do_manager.sync()
         job = do_manager.job_client.jobs[0]
-        job_dir = job.location
+        job_dir = job.job_submission_path
 
         # Verify main.py was auto-detected
         run_script = (job_dir / "run.sh").read_text()
@@ -885,7 +885,7 @@ def test_folder_job_auto_detect_single_py():
 
         do_manager.sync()
         job = do_manager.job_client.jobs[0]
-        job_dir = job.location
+        job_dir = job.job_submission_path
 
         # Verify script.py was auto-detected
         run_script = (job_dir / "run.sh").read_text()
@@ -1161,7 +1161,7 @@ def test_pyproject_folder_job_flow_with_dataset():
         do_manager.sync()
         assert len(do_manager.job_client.jobs) == 1
         job = do_manager.job_client.jobs[0]
-        job_dir = job.location
+        job_dir = job.job_submission_path
 
         # Verify folder structure before running - code is in code/ subdirectory
         assert (job_dir / "code").exists(), "code/ should exist in job_dir"
