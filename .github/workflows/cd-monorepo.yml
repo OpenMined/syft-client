@@ -152,7 +152,7 @@ jobs:
           git pull
           just bump-and-publish ${{ inputs.bump_type }}
 
-# bump and publish already does committing
+      # bump and publish already does committing
       - name: Push changes to syft-client repo
         run: |
           git tag "syft-client/v${{ env.VERSION }}"
