@@ -18,10 +18,10 @@ pkg:syft-dataset:
       - any-glob-to-any-file:
           - 'packages/syft-datasets/**'
 
-pkg:syft-perm:
+pkg:syft-perms:
   - changed-files:
       - any-glob-to-any-file:
-          - 'packages/syft-perm/**'
+          - 'packages/syft-perms/**'
 
 pkg:syft-permissions:
   - changed-files:

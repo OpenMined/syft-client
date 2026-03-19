@@ -28,7 +28,7 @@ from syft_client.sync.checkpoints.checkpoint import (
     DEFAULT_COMPACTING_THRESHOLD,
 )
 from syft_client.sync.checkpoints.rolling_state import RollingState
-from syft_perm import SyftPermContext
+from syft_perms import SyftPermContext
 
 # Default threshold for creating incremental checkpoint from rolling state
 DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from syft_perm import SyftPermContext
+from syft_perms import SyftPermContext
 
 
 def set_mock_dataset_permissions(

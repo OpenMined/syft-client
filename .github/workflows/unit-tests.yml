@@ -67,7 +67,7 @@ jobs:
         run: uv sync --all-extras
 
       - name: Run perm tests
-        run: uv run pytest packages/syft-perm/tests/ -n auto -v
+        run: uv run pytest packages/syft-perms/tests/ -n auto -v
 
   job-tests:
     runs-on: ubuntu-latest

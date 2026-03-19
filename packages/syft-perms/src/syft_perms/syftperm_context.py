@@ -2,10 +2,10 @@ from pathlib import Path
 
 from syft_permissions import ACLService
 
-from syft_perm.browser import FilesBrowser
-from syft_perm.file import SyftFile
-from syft_perm.folder import SyftFolder
-from syft_perm.syftperm_modifier import PermissionModifier
+from syft_perms.browser import FilesBrowser
+from syft_perms.file import SyftFile
+from syft_perms.folder import SyftFolder
+from syft_perms.syftperm_modifier import PermissionModifier
 
 
 class SyftPermContext:

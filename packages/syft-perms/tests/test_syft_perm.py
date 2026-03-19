@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from syft_perm import SyftPermContext, SyftFile, SyftFolder
+from syft_perms import SyftPermContext, SyftFile, SyftFolder
 
 
 OWNER = "alice@example.com"
