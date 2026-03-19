@@ -9,7 +9,8 @@ from pydantic import BaseModel
 
 
 class JobSubmissionMetadata(BaseModel):
-    """Represents the job submission metadata, stored as config.yaml in inbox/."""
+    """Represents the job submission metadata, stored under
+    SyftBox/<datasite_email>/app_data/job/inbox/<ds_email>/<job_name>/config.yaml."""
 
     name: str
     type: Literal["python", "bash"] = "python"
