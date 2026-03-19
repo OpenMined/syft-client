@@ -151,4 +151,9 @@ jobs:
         run: just bump-and-publish ${{ inputs.bump_type }}
 
       - name: Push changes to syft-client repo
-        run: git push origin --follow-tags
+        run: |
+          git pull
+          git add .
+          git commit -m "Release syft-client v${{ env.VERSION }}"
+          git tag "syft-client/v${{ env.VERSION }}"
+          git push origin --follow-tags

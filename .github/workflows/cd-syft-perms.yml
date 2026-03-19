@@ -66,6 +66,7 @@ jobs:
 
       - name: Commit and tag
         run: |
+          git pull
           git add ${{ env.MODIFIED }}
           git commit -m "Release syft-perms v${{ env.VERSION }}"
           git tag "syft-perms/v${{ env.VERSION }}"
