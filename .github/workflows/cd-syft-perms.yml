@@ -1,4 +1,4 @@
-name: CD - Syft Perm
+name: CD - Syft Perms
 
 on:
   workflow_dispatch:
@@ -11,13 +11,18 @@ on:
           - patch
           - minor
           - major
+  workflow_call:
+    inputs:
+      bump_type:
+        type: string
+        required: true
 
 concurrency:
-  group: 'CD - Syft Perm'
+  group: 'CD - Syft Perms'
   cancel-in-progress: false
 
 jobs:
-  deploy-syft-perm:
+  deploy-syft-perms:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,24 +46,27 @@ jobs:
       - name: Bump version
         run: |
           pip install packaging
-          VERSION=$(python packages/syft-perm/scripts/bump_version.py ${{ github.event.inputs.bump_type }})
+          OUTPUT=$(python scripts/bump_version.py syft-perms ${{ inputs.bump_type }})
+          VERSION=$(echo "$OUTPUT" | sed -n '1p')
+          MODIFIED=$(echo "$OUTPUT" | sed -n '2p')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "Bumped syft-perm to $VERSION"
+          echo "MODIFIED=$MODIFIED" >> $GITHUB_ENV
+          echo "Bumped syft-perms to $VERSION (modified: $MODIFIED)"
 
       - name: Build package
-        working-directory: packages/syft-perm
+        working-directory: packages/syft-perms
         run: uv build --out-dir dist
 
       - name: Publish to PyPI
-        working-directory: packages/syft-perm
+        working-directory: packages/syft-perms
         env:
-          TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_PERM }}
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_PERM }}
+          TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_PERMS }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_PERMS }}
         run: uvx twine upload dist/*
 
       - name: Commit and tag
         run: |
-          git add packages/syft-perm/pyproject.toml
-          git commit -m "Release syft-perm v${{ env.VERSION }}"
-          git tag "syft-perm/v${{ env.VERSION }}"
+          git add ${{ env.MODIFIED }}
+          git commit -m "Release syft-perms v${{ env.VERSION }}"
+          git tag "syft-perms/v${{ env.VERSION }}"
           git push origin --follow-tags

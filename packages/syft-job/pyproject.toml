@@ -8,7 +8,7 @@ dependencies = [
     "pydantic>=2.11.7",
     "pyyaml>=6.0",
     "pandas",
-    "syft-perms",
+    "syft-perms==0.1.0",
 ]
 
 [project.scripts]
