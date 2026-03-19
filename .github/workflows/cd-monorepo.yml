@@ -148,11 +148,12 @@ jobs:
         env:
           TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_CLIENT }}
           TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_CLIENT }}
-        run: just bump-and-publish ${{ inputs.bump_type }}
+        run: |
+          git pull
+          just bump-and-publish ${{ inputs.bump_type }}
 
       - name: Push changes to syft-client repo
         run: |
-          git pull
           git add .
           git commit -m "Release syft-client v${{ env.VERSION }}"
           git tag "syft-client/v${{ env.VERSION }}"

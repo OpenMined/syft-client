@@ -45,6 +45,7 @@ jobs:
 
       - name: Bump version
         run: |
+          git pull
           pip install packaging
           OUTPUT=$(python scripts/bump_version.py syft-dataset ${{ inputs.bump_type }})
           VERSION=$(echo "$OUTPUT" | sed -n '1p')
@@ -62,11 +63,10 @@ jobs:
         env:
           TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_DATASET }}
           TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_DATASET }}
-        run: uvx twine upload dist/*
+        run: uvx twine upload --verbose dist/*
 
       - name: Commit and tag
         run: |
-          git pull
           git add ${{ env.MODIFIED }}
           git commit -m "Release syft-dataset v${{ env.VERSION }}"
           git tag "syft-dataset/v${{ env.VERSION }}"
