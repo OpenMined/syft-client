@@ -7,7 +7,7 @@ class SyftJobConfig(BaseModel):
     """Configuration for SyftJob system."""
 
     syftbox_folder: Path = Field(..., description="Path to SyftBox root folder")
-    email: str = Field(..., description="User email address")
+    current_user_email: str = Field(..., description="User email address")
 
     @property
     def syftbox_folder_path_str(self) -> str:
@@ -61,7 +61,7 @@ class SyftJobConfig(BaseModel):
         """
         return self.get_user_dir(user_email) / "app_data" / "job"
 
-    def get_inbox_dir(self, datasite_email: str) -> Path:
+    def get_all_submissions_dir(self, datasite_email: str) -> Path:
         """
         Get the inbox directory for job submissions.
 
@@ -85,7 +85,7 @@ class SyftJobConfig(BaseModel):
 
         Path: SyftBox/<datasite_email>/app_data/job/inbox/<ds_email>/<job_name>/
         """
-        return self.get_inbox_dir(datasite_email) / ds_email / job_name
+        return self.get_all_submissions_dir(datasite_email) / ds_email / job_name
 
     def get_review_job_dir(
         self, datasite_email: str, ds_email: str, job_name: str
@@ -96,3 +96,10 @@ class SyftJobConfig(BaseModel):
         Path: SyftBox/<datasite_email>/app_data/job/review/<ds_email>/<job_name>/
         """
         return self.get_review_dir(datasite_email) / ds_email / job_name
+
+    def _get_job_submission_dir_for_me(self, target_datasite_owner_email: str) -> Path:
+        """Get my inbox directory on the target datasite owner's job folder."""
+        return (
+            self.get_all_submissions_dir(target_datasite_owner_email)
+            / self.current_user_email
+        )

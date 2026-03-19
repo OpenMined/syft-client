@@ -29,10 +29,10 @@ class JobClient:
         """Initialize JobClient with configuration and optional user email for job views."""
         self.config = config
         self.current_user_email = (
-            config.email
+            config.current_user_email
         )  # From SyftBox folder (for "submitted_by")
         self.target_datasite_owner_email = (
-            target_datasite_owner_email or config.email
+            target_datasite_owner_email or config.current_user_email
         )  # The email of the datasite owner of the jobs
 
         # Validate that user_email exists in SyftBox root
@@ -40,7 +40,7 @@ class JobClient:
 
     @classmethod
     def from_config(cls, config: SyftJobConfig) -> "JobClient":
-        return cls(config, config.email)
+        return cls(config, config.current_user_email)
 
     def _validate_user_email(self) -> None:
         """Validate that the user_email directory exists in SyftBox root."""
@@ -50,19 +50,14 @@ class JobClient:
             user_dir.mkdir(parents=True, exist_ok=True)
             print(f"Created user directory: {user_dir}")
 
-    def _get_inbox_dir_for_me(self, target_datasite_owner_email: str) -> Path:
-        """Get my inbox directory on the target datasite owner's job folder."""
-        return (
-            self.config.get_inbox_dir(target_datasite_owner_email)
-            / self.current_user_email
-        )
-
-    def _ensure_my_inbox_directory_exists(
+    def _ensure_my_submission_directory_exists(
         self, target_datasite_owner_email: str
     ) -> None:
         """Ensure inbox directory structure exists for submitting jobs."""
-        ds_inbox_dir = self._get_inbox_dir_for_me(target_datasite_owner_email)
-        ds_inbox_dir.mkdir(parents=True, exist_ok=True)
+        my_submission_dir = self.config._get_job_submission_dir_for_me(
+            target_datasite_owner_email
+        )
+        my_submission_dir.mkdir(parents=True, exist_ok=True)
 
     def setup_ds_job_folder_as_do(self, ds_email: str) -> Path:
         """Create inbox and review subdirectories for a DS with appropriate permissions.
@@ -79,7 +74,9 @@ class JobClient:
         datasite = self.config.syftbox_folder / self.current_user_email
 
         # Create inbox folder for DS with write access
-        ds_inbox_dir = self.config.get_inbox_dir(self.current_user_email) / ds_email
+        ds_inbox_dir = (
+            self.config.get_all_submissions_dir(self.current_user_email) / ds_email
+        )
         ds_inbox_dir.mkdir(parents=True, exist_ok=True)
         ctx = SyftPermContext(datasite=datasite)
         inbox_rel = str(ds_inbox_dir.relative_to(datasite)) + "/"
@@ -127,27 +124,19 @@ class JobClient:
             print(f"Created user directory: {user_dir}")
 
         # Ensure inbox directory structure exists
-        self._ensure_my_inbox_directory_exists(submitting_to_email)
+        self._ensure_my_submission_directory_exists(submitting_to_email)
 
         # Create job directory under inbox/<ds_email>/<job_name>/
-        job_dir = self._get_inbox_dir_for_me(submitting_to_email) / job_name
+        job_dir = self.config.get_job_submission_dir(
+            submitting_to_email, self.config.current_user_email, job_name
+        )
 
         if job_dir.exists():
             raise FileExistsError(
                 f"Job '{job_name}' already exists for user '{submitting_to_email}'"
             )
 
-        job_dir.mkdir(parents=True)
-
-        # Create code/ directory with the script
-        code_dir = job_dir / "code"
-        code_dir.mkdir()
-        (code_dir / "script.sh").write_text(script)
-
-        # Create run.sh at job root
-        run_script_path = job_dir / "run.sh"
-        run_script_path.write_text(script)
-        os.chmod(run_script_path, 0o755)
+        self._write_bash_script(job_dir, script)
 
         # Write config.yaml using model
         config = JobSubmissionMetadata(
@@ -160,6 +149,18 @@ class JobClient:
         config.save(job_dir / "config.yaml")
 
         return job_dir
+
+    def _write_bash_script(self, job_dir: Path, script: str) -> None:
+        job_dir.mkdir(parents=True)
+        # Create code/ directory with the script
+        code_dir = job_dir / "code"
+        code_dir.mkdir()
+        (code_dir / "script.sh").write_text(script)
+
+        # Create run.sh at job root
+        run_script_path = job_dir / "run.sh"
+        run_script_path.write_text(script)
+        os.chmod(run_script_path, 0o755)
 
     def _detect_entrypoint(self, folder_path: Path) -> Optional[str]:
         """Auto-detect entrypoint for folder submissions.
@@ -345,10 +346,12 @@ python {entrypoint_path}
             print(f"Created user directory: {user_dir}")
 
         # Ensure inbox directory structure exists
-        self._ensure_my_inbox_directory_exists(submitting_to_email)
+        self._ensure_my_submission_directory_exists(submitting_to_email)
 
         # Create job directory under inbox/<ds_email>/<job_name>/
-        job_dir = self._get_inbox_dir_for_me(submitting_to_email) / job_name
+        job_dir = self.config.get_job_submission_dir(
+            submitting_to_email, self.config.current_user_email, job_name
+        )
 
         if job_dir.exists():
             raise FileExistsError(f"Job '{job_name}' already exists for user '{user}'")
@@ -439,7 +442,7 @@ python {entrypoint_path}
         Returns:
             The created JobState.
         """
-        inbox_path = self.config.get_job_submission_dir(
+        submission_path = self.config.get_job_submission_dir(
             self.current_user_email, ds_email, job_name
         )
         review_path = self.config.get_review_job_dir(
@@ -447,7 +450,7 @@ python {entrypoint_path}
         )
 
         now = datetime.now(timezone.utc)
-        valid, reason = self.validate_submission(inbox_path)
+        valid, reason = self.validate_submission(submission_path)
 
         if not valid:
             state = JobState(
@@ -470,7 +473,7 @@ python {entrypoint_path}
         For each job in inbox/ that doesn't have a corresponding state.yaml
         in review/, validates the submission and creates the initial state.
         """
-        inbox_dir = self.config.get_inbox_dir(self.current_user_email)
+        inbox_dir = self.config.get_all_submissions_dir(self.current_user_email)
         if not inbox_dir.exists():
             return
 
@@ -513,7 +516,7 @@ python {entrypoint_path}
                 continue
 
             datasite_owner_email = datasite_owner_dir.name
-            inbox_dir = self.config.get_inbox_dir(datasite_owner_email)
+            inbox_dir = self.config.get_all_submissions_dir(datasite_owner_email)
 
             if not inbox_dir.exists():
                 continue

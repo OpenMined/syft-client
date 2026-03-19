@@ -54,8 +54,8 @@ class SyftJobRunner:
 
     def _ensure_root_user_directories(self) -> None:
         """Ensure inbox and review directory structure exists for the root user."""
-        root_email = self.config.email
-        inbox_dir = self.config.get_inbox_dir(root_email)
+        root_email = self.config.current_user_email
+        inbox_dir = self.config.get_all_submissions_dir(root_email)
         review_dir = self.config.get_review_dir(root_email)
 
         inbox_dir.mkdir(parents=True, exist_ok=True)
@@ -64,7 +64,7 @@ class SyftJobRunner:
 
     def _get_pending_jobs(self) -> List[str]:
         """Get list of job paths (ds_email/job_name) in pending status."""
-        review_dir = self.config.get_review_dir(self.config.email)
+        review_dir = self.config.get_review_dir(self.config.current_user_email)
 
         if not review_dir.exists():
             return []
@@ -89,7 +89,7 @@ class SyftJobRunner:
 
     def _print_new_job(self, job_name: str) -> None:
         """Print information about a new job in the inbox."""
-        inbox_dir = self.config.get_inbox_dir(self.config.email)
+        inbox_dir = self.config.get_all_submissions_dir(self.config.current_user_email)
         job_dir = inbox_dir / job_name
 
         print(f"\n NEW JOB DETECTED: {job_name}")
@@ -134,7 +134,7 @@ class SyftJobRunner:
         2. Recreate the empty folder structure
         3. Reset the known jobs tracking
         """
-        root_email = self.config.email
+        root_email = self.config.current_user_email
         job_dir = self.config.get_job_dir(root_email)
 
         print(f"RESETTING ALL JOBS for {root_email}")
@@ -147,7 +147,7 @@ class SyftJobRunner:
 
         # Count jobs before deletion
         total_jobs = 0
-        inbox_dir = self.config.get_inbox_dir(root_email)
+        inbox_dir = self.config.get_all_submissions_dir(root_email)
         review_dir = self.config.get_review_dir(root_email)
 
         for scan_dir in [inbox_dir, review_dir]:
@@ -206,7 +206,7 @@ class SyftJobRunner:
 
     def _get_jobs_in_approved(self) -> List[str]:
         """Get list of job paths (ds_email/job_name) in approved status."""
-        review_dir = self.config.get_review_dir(self.config.email)
+        review_dir = self.config.get_review_dir(self.config.current_user_email)
 
         if not review_dir.exists():
             return []
@@ -231,7 +231,7 @@ class SyftJobRunner:
 
     def _resolve_submission_dir(self, job_name: str, user: str | None = None) -> Path:
         """Resolve the inbox directory for a job."""
-        inbox_dir = self.config.get_inbox_dir(self.config.email)
+        inbox_dir = self.config.get_all_submissions_dir(self.config.current_user_email)
         if user:
             return inbox_dir / user / job_name
         matches = list(inbox_dir.glob(f"*/{job_name}"))
@@ -248,7 +248,7 @@ class SyftJobRunner:
 
     def _resolve_review_dir(self, job_name: str, user: str | None = None) -> Path:
         """Resolve the review directory for a job."""
-        review_dir = self.config.get_review_dir(self.config.email)
+        review_dir = self.config.get_review_dir(self.config.current_user_email)
         if user:
             return review_dir / user / job_name
         matches = list(review_dir.glob(f"*/{job_name}"))
@@ -275,7 +275,7 @@ class SyftJobRunner:
         run_script = submission_dir / "run.sh"
 
         # Log prefix for streaming output
-        log_prefix = f"[{self.config.email}][{job_name}]"
+        log_prefix = f"[{self.config.current_user_email}][{job_name}]"
 
         # Make run.sh executable
         os.chmod(run_script, 0o755)
@@ -283,7 +283,7 @@ class SyftJobRunner:
         # Prepare environment variables
         env = os.environ.copy()
         env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
-        env["SYFTBOX_EMAIL"] = self.config.email
+        env["SYFTBOX_EMAIL"] = self.config.current_user_email
         env[IS_IN_JOB_ENV_VAR] = "true"
         env["PYTHONUNBUFFERED"] = "1"
 
@@ -371,7 +371,7 @@ class SyftJobRunner:
         # Prepare environment variables
         env = os.environ.copy()
         env["SYFTBOX_FOLDER"] = self.config.syftbox_folder_path_str
-        env["SYFTBOX_EMAIL"] = self.config.email
+        env["SYFTBOX_EMAIL"] = self.config.current_user_email
         env[IS_IN_JOB_ENV_VAR] = "true"
         env["PYTHONUNBUFFERED"] = "1"
 
@@ -525,16 +525,16 @@ class SyftJobRunner:
 
         from syft_perm import SyftPermContext
 
-        datasite = self.config.syftbox_folder / self.config.email
+        datasite = self.config.syftbox_folder / self.config.current_user_email
         rel_path = str(outputs_dir.relative_to(datasite)) + "/"
         ctx = SyftPermContext(datasite=datasite)
         folder = ctx.open(rel_path)
-        folder.grant_read_access(self.config.email)
+        folder.grant_read_access(self.config.current_user_email)
 
     def _get_job_submitter(self, job_name: str, user: str | None = None) -> str | None:
         """Read submitted_by from job config.yaml in inbox/."""
-        inbox_dir = self._resolve_submission_dir(job_name, user)
-        config_file = inbox_dir / "config.yaml"
+        submission_dir = self._resolve_submission_dir(job_name, user)
+        config_file = submission_dir / "config.yaml"
         if not config_file.exists():
             return None
         try:
@@ -551,10 +551,10 @@ class SyftJobRunner:
         from .job import JobInfo
         from .models.config import JobSubmissionMetadata
 
-        inbox_dir = self._resolve_submission_dir(job_name, user)
+        submission_dir = self._resolve_submission_dir(job_name, user)
         review_dir = self._resolve_review_dir(job_name, user)
 
-        config = JobSubmissionMetadata.load(inbox_dir / "config.yaml")
+        config = JobSubmissionMetadata.load(submission_dir / "config.yaml")
 
         state_file = review_dir / "state.yaml"
         if state_file.exists():
@@ -566,10 +566,10 @@ class SyftJobRunner:
         return JobInfo(
             config=config,
             state=state,
-            inbox_path=inbox_dir,
+            inbox_path=submission_dir,
             review_path=review_dir,
-            datasite_owner_email=self.config.email,
-            current_user_email=self.config.email,
+            datasite_owner_email=self.config.current_user_email,
+            current_user_email=self.config.current_user_email,
             client=client,
         )
 
@@ -644,7 +644,7 @@ class SyftJobRunner:
 
     def run(self) -> None:
         """Start monitoring the inbox and approved folders for jobs."""
-        root_email = self.config.email
+        root_email = self.config.current_user_email
         job_dir = self.config.get_job_dir(root_email)
 
         print(f" SyftJob Runner started: version: {__version__}")

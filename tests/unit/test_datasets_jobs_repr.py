@@ -82,7 +82,9 @@ def _make_job_info(name: str, status: str = "pending") -> JobInfo:
     from syft_job.models.config import JobSubmissionMetadata
     from syft_job.models.state import JobState, JobStatus
 
-    config = SyftJobConfig(syftbox_folder=Path("/tmp/fake"), email="test@test.com")
+    config = SyftJobConfig(
+        syftbox_folder=Path("/tmp/fake"), current_user_email="test@test.com"
+    )
     client = JobClient(config=config)
     submission_config = JobSubmissionMetadata(
         name=name,

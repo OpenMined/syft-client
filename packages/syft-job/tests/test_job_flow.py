@@ -30,8 +30,8 @@ def test_full_job_lifecycle(tmp_path: Path):
     code_file.write_text(MAIN_PY)
 
     # Both configs share the same syftbox folder
-    do_config = SyftJobConfig(syftbox_folder=syftbox, email=DO_EMAIL)
-    ds_config = SyftJobConfig(syftbox_folder=syftbox, email=DS_EMAIL)
+    do_config = SyftJobConfig(syftbox_folder=syftbox, current_user_email=DO_EMAIL)
+    ds_config = SyftJobConfig(syftbox_folder=syftbox, current_user_email=DS_EMAIL)
 
     ds_client = JobClient(config=ds_config)
     do_client = JobClient(config=do_config)
@@ -49,7 +49,7 @@ def test_full_job_lifecycle(tmp_path: Path):
     assert (job_dir / "code" / "main.py").exists()
 
     # Job dir should be under inbox/<ds_email>/<job_name>
-    expected_parent = ds_config.get_inbox_dir(DO_EMAIL) / DS_EMAIL
+    expected_parent = ds_config.get_all_submissions_dir(DO_EMAIL) / DS_EMAIL
     assert job_dir.parent == expected_parent
 
     # --- DO lists jobs (auto-scans inbox) and sees it as pending ---
@@ -136,13 +136,13 @@ def test_ds_job_folder_permissions(tmp_path: Path):
     syftbox = tmp_path / "SyftBox"
     syftbox.mkdir()
 
-    do_config = SyftJobConfig(syftbox_folder=syftbox, email=DO_EMAIL)
+    do_config = SyftJobConfig(syftbox_folder=syftbox, current_user_email=DO_EMAIL)
     do_client = JobClient(config=do_config)
 
     # Create DS job folder with permissions
     ds_inbox_folder = do_client.setup_ds_job_folder_as_do(DS_EMAIL)
     assert ds_inbox_folder.exists()
-    assert ds_inbox_folder == do_config.get_inbox_dir(DO_EMAIL) / DS_EMAIL
+    assert ds_inbox_folder == do_config.get_all_submissions_dir(DO_EMAIL) / DS_EMAIL
 
     # Review folder should also exist
     ds_review_folder = do_config.get_review_dir(DO_EMAIL) / DS_EMAIL
@@ -172,8 +172,8 @@ def test_job_reject(tmp_path: Path):
     code_file = tmp_path / "main.py"
     code_file.write_text("print('hello')")
 
-    do_config = SyftJobConfig(syftbox_folder=syftbox, email=DO_EMAIL)
-    ds_config = SyftJobConfig(syftbox_folder=syftbox, email=DS_EMAIL)
+    do_config = SyftJobConfig(syftbox_folder=syftbox, current_user_email=DO_EMAIL)
+    ds_config = SyftJobConfig(syftbox_folder=syftbox, current_user_email=DS_EMAIL)
 
     ds_client = JobClient(config=ds_config)
     do_client = JobClient(config=do_config)
@@ -193,16 +193,16 @@ def test_submission_validation(tmp_path: Path):
     syftbox = tmp_path / "SyftBox"
     syftbox.mkdir()
 
-    do_config = SyftJobConfig(syftbox_folder=syftbox, email=DO_EMAIL)
+    do_config = SyftJobConfig(syftbox_folder=syftbox, current_user_email=DO_EMAIL)
     do_client = JobClient(config=do_config)
 
     # Manually create an invalid submission (missing code/ directory)
-    inbox_job = do_config.get_job_submission_dir(DO_EMAIL, DS_EMAIL, "bad.job")
-    inbox_job.mkdir(parents=True)
-    (inbox_job / "config.yaml").write_text(
+    submission_path = do_config.get_job_submission_dir(DO_EMAIL, DS_EMAIL, "bad.job")
+    submission_path.mkdir(parents=True)
+    (submission_path / "config.yaml").write_text(
         "name: bad.job\ntype: python\nsubmitted_by: ds@test.org\nsubmitted_at: '2025-01-01T00:00:00+00:00'\n"
     )
-    (inbox_job / "run.sh").write_text("#!/bin/bash\necho hi")
+    (submission_path / "run.sh").write_text("#!/bin/bash\necho hi")
     # Missing code/ directory — should fail validation
 
     do_client.scan_inbox()
