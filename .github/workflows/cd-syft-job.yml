@@ -45,6 +45,7 @@ jobs:
 
       - name: Bump version
         run: |
+          git pull
           pip install packaging
           OUTPUT=$(python scripts/bump_version.py syft-job ${{ inputs.bump_type }})
           VERSION=$(echo "$OUTPUT" | sed -n '1p')
@@ -62,7 +63,7 @@ jobs:
         env:
           TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_JOB }}
           TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_JOB }}
-        run: uvx twine upload dist/*
+        run: uvx twine upload --verbose dist/*
 
       - name: Commit and tag
         run: |

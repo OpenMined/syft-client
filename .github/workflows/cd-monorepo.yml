@@ -87,22 +87,22 @@ jobs:
       bump_type: ${{ inputs.bump_type }}
     secrets: inherit
 
-  release-syft-job:
-    needs: [release-syft-perms]
-    if: >-
-      !cancelled() && !failure() &&
-      inputs.release_syft_job == true
-    uses: ./.github/workflows/cd-syft-job.yml
-    with:
-      bump_type: ${{ inputs.bump_type }}
-    secrets: inherit
-
   release-syft-dataset:
     needs: [release-syft-perms]
     if: >-
       !cancelled() && !failure() &&
       inputs.release_syft_dataset == true
     uses: ./.github/workflows/cd-syft-dataset.yml
+    with:
+      bump_type: ${{ inputs.bump_type }}
+    secrets: inherit
+
+  release-syft-job:
+    needs: [release-syft-dataset]
+    if: >-
+      !cancelled() && !failure() &&
+      inputs.release_syft_job == true
+    uses: ./.github/workflows/cd-syft-job.yml
     with:
       bump_type: ${{ inputs.bump_type }}
     secrets: inherit
@@ -148,7 +148,12 @@ jobs:
         env:
           TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_CLIENT }}
           TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_CLIENT }}
-        run: just bump-and-publish ${{ inputs.bump_type }}
+        run: |
+          git pull
+          just bump-and-publish ${{ inputs.bump_type }}
 
+      # bump and publish already does committing
       - name: Push changes to syft-client repo
-        run: git push origin --follow-tags
+        run: |
+          git tag "syft-client/v${{ env.VERSION }}"
+          git push origin --follow-tags
