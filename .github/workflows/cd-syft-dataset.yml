@@ -39,23 +39,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Bump version
-        working-directory: packages/syft-datasets
         run: |
-          CURRENT=$(python -c "
-          import re
-          text = open('pyproject.toml').read()
-          print(re.search(r'version\s*=\s*\"(.+?)\"', text).group(1))
-          ")
-          IFS='.' read -r major minor patch <<< "$CURRENT"
-          case "${{ github.event.inputs.bump_type }}" in
-            major) major=$((major + 1)); minor=0; patch=0 ;;
-            minor) minor=$((minor + 1)); patch=0 ;;
-            patch) patch=$((patch + 1)) ;;
-          esac
-          NEW="$major.$minor.$patch"
-          sed -i "s/version = \"$CURRENT\"/version = \"$NEW\"/" pyproject.toml
-          echo "VERSION=$NEW" >> $GITHUB_ENV
-          echo "Bumped syft-dataset from $CURRENT to $NEW"
+          pip install packaging
+          VERSION=$(python packages/syft-datasets/scripts/bump_version.py ${{ github.event.inputs.bump_type }})
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Bumped syft-dataset to $VERSION"
 
       - name: Build package
         working-directory: packages/syft-datasets
@@ -64,8 +52,8 @@ jobs:
       - name: Publish to PyPI
         working-directory: packages/syft-datasets
         env:
-          TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_CLIENT }}
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_CLIENT }}
+          TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_DATASET }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_DATASET }}
         run: uvx twine upload dist/*
 
       - name: Commit and tag
