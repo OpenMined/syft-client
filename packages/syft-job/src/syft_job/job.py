@@ -309,17 +309,17 @@ class JobInfo:
         datasite = self._client.config.syftbox_folder / self.datasite_owner_email
         return SyftPermContext(datasite=datasite)
 
-    def _review_path_in_datasite(self, subpath: str) -> str:
+    def _relative_review_path(self, subpath: str) -> Path:
         """Return path relative to the datasite for a review/ subpath."""
         rel = self.job_review_path.relative_to(
             self._client.config.syftbox_folder / self.datasite_owner_email
         )
-        return str(rel / subpath)
+        return rel / subpath
 
     def share_outputs(self, users: list[str]) -> None:
         """Grant read access to the outputs directory for given users."""
         ctx = self._get_perm_context()
-        outputs_rel = self._review_path_in_datasite("outputs") + "/"
+        outputs_rel = self._relative_review_path("outputs")
         folder = ctx.open(outputs_rel)
         for user in users:
             folder.grant_read_access(user)
@@ -328,7 +328,7 @@ class JobInfo:
         """Grant read access to log files (stdout, stderr, returncode) for given users."""
         ctx = self._get_perm_context()
         for filename in ("stdout.txt", "stderr.txt", "returncode.txt"):
-            file_rel = self._review_path_in_datasite(filename)
+            file_rel = self._relative_review_path(filename)
             f = ctx.open(file_rel)
             for user in users:
                 f.grant_read_access(user)
