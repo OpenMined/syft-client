@@ -1,7 +1,8 @@
 """
-VersionManager for managing version information and compatibility checks.
+PeerManager for managing peers, version information, and compatibility checks.
 """
 
+import json
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
@@ -11,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, PrivateAttr
 from syft_client.sync.connections.base_connection import ConnectionConfig
 from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.peers.peer import Peer, PeerState
+from syft_client.sync.peers.peer_store import PeerStore
 from syft_client.sync.utils.print_utils import (
     print_peer_added,
 )
@@ -21,8 +23,8 @@ from syft_client.sync.version.exceptions import (
 from syft_client.sync.version.version_info import VersionInfo
 
 
-class VersionManagerConfig(BaseModel):
-    """Configuration for VersionManager."""
+class PeerManagerConfig(BaseModel):
+    """Configuration for PeerManager."""
 
     connection_configs: List[ConnectionConfig] = []
     ignore_protocol_version: bool = False
@@ -31,14 +33,16 @@ class VersionManagerConfig(BaseModel):
     n_threads: int = 10
     has_do_role: bool = False
     has_ds_role: bool = False
+    use_encryption: bool = False
 
 
-class VersionManager(BaseModel):
+class PeerManager(BaseModel):
     """Manages version information for self and peers."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     connection_router: ConnectionRouter
+    peer_store: PeerStore
     ignore_protocol_version: bool = False
     ignore_client_version: bool = False
     suppress_version_warnings: bool = False
@@ -48,39 +52,40 @@ class VersionManager(BaseModel):
 
     _own_version: Optional[VersionInfo] = PrivateAttr(default=None)
     _executor: Optional[ThreadPoolExecutor] = PrivateAttr(default=None)
-    _peers: List[Peer] = PrivateAttr(default_factory=list)
 
     # ========== Peer List Properties ==========
 
     @property
     def approved_peers(self) -> List[Peer]:
         """Get all approved peers (DO side)."""
-        return [p for p in self._peers if p.is_approved]
+        return self.peer_store.approved_peers
 
     @property
     def requested_by_peer_peers(self) -> List[Peer]:
         """Get all peers that requested us (DO side)."""
-        return [p for p in self._peers if p.is_requested_by_peer]
+        return self.peer_store.requested_by_peer_peers
 
     @property
     def requested_by_me_peers(self) -> List[Peer]:
         """Get all peers we requested but haven't reciprocated yet."""
-        return [p for p in self._peers if p.is_requested_by_me]
+        return self.peer_store.requested_by_me_peers
 
     @property
     def syncable_peers(self) -> List[Peer]:
-        """Get all peers we can sync with (DS side).
-
-        Returns all peers that have REQUESTED_BY_ME or ACCEPTED state — for DS,
-        all peers we've added are ones we want to sync with.
-        """
-        return [p for p in self._peers if p.is_requested_by_me or p.is_approved]
+        """Get all peers we can sync with (DS side)."""
+        return self.peer_store.syncable_peers
 
     @classmethod
-    def from_config(cls, config: VersionManagerConfig) -> "VersionManager":
-        """Create a VersionManager from a config."""
+    def from_config(cls, config: PeerManagerConfig, email: str = "") -> "PeerManager":
+        """Create a PeerManager from a config."""
+        peer_store = PeerStore(email=email, use_encryption=config.use_encryption)
+        connection_router = ConnectionRouter.from_configs(
+            email, config.connection_configs
+        )
+        connection_router.peer_store = peer_store
         return cls(
-            connection_router=ConnectionRouter.from_configs(config.connection_configs),
+            connection_router=connection_router,
+            peer_store=peer_store,
             ignore_protocol_version=config.ignore_protocol_version,
             ignore_client_version=config.ignore_client_version,
             suppress_version_warnings=config.suppress_version_warnings,
@@ -110,10 +115,7 @@ class VersionManager(BaseModel):
 
     def get_cached_peer(self, email: str) -> Optional[Peer]:
         """Get a peer by email, or None if not found."""
-        for p in self._peers:
-            if p.email == email:
-                return p
-        return None
+        return self.peer_store.get_cached_peer(email)
 
     def load_peer_version(self, peer_email: str) -> Optional[VersionInfo]:
         """Load version for a single peer (blocking)."""
@@ -363,37 +365,68 @@ class VersionManager(BaseModel):
         - If peer is REQUESTED_BY_ME or ACCEPTED, skips (unless force=True).
         - If no existing peer, creates folders and marks REQUESTED_BY_ME.
         """
-        existing = self.get_cached_peer(peer_email)
-        if existing and not force:
-            if existing.state == PeerState.REQUESTED_BY_PEER:
+        existing_peer_obj = self.get_cached_peer(peer_email)
+        if existing_peer_obj and not force:
+            if existing_peer_obj.state == PeerState.REQUESTED_BY_PEER:
                 pass  # Fall through to create our folders and accept
-            elif existing.state == PeerState.REQUESTED_BY_ME:
+            elif existing_peer_obj.state == PeerState.REQUESTED_BY_ME:
                 if verbose:
                     print(f"Peer {peer_email} already requested, skipping")
                 return
-            elif existing.state == PeerState.ACCEPTED:
+            elif existing_peer_obj.state == PeerState.ACCEPTED:
                 if verbose:
                     print(f"Peer {peer_email} already accepted, skipping")
                 return
 
-        is_accepting = existing and existing.state == PeerState.REQUESTED_BY_PEER
+        is_accepting = (
+            existing_peer_obj and existing_peer_obj.state == PeerState.REQUESTED_BY_PEER
+        )
         new_state = PeerState.ACCEPTED if is_accepting else PeerState.REQUESTED_BY_ME
 
-        peer = self.connection_router.add_peer(peer_email=peer_email)
-        peer.state = new_state
-        self.connection_router.update_peer_state(peer_email, new_state.value)
+        new_peer_obj = self.connection_router.add_peer(peer_email=peer_email)
+
+        if existing_peer_obj:
+            new_peer_obj = existing_peer_obj
+
+        # Exchange encryption bundles if key_manager is set
+        if self.peer_store.use_encryption:
+            self._write_encryption_bundle_for_peer(peer_email)
+
+        peer_bundle = None
+        if self.peer_store.use_encryption and is_accepting:
+            peer_bundle = self._read_peer_encryption_bundle(peer_email)
+
+        self.connection_router.update_peer_state(
+            peer_email, new_state.value, public_encryption_bundle=peer_bundle
+        )
         self.share_version_with_peer(peer_email)
         version_info = self.connection_router.read_peer_version_file(peer_email)
-        peer.version = version_info
 
-        if existing:
-            existing.state = new_state
-            existing.version = version_info
-        else:
-            self._peers.append(peer)
+        new_peer_obj.version = version_info
+        new_peer_obj.public_encryption_bundle = peer_bundle
+        new_peer_obj.state = new_state
+        self.peer_store.set_peer(new_peer_obj)
 
         if verbose:
-            print_peer_added(peer)
+            print_peer_added(new_peer_obj)
+
+    def _write_encryption_bundle_for_peer(self, peer_email: str) -> dict | None:
+        """Write own encryption bundle for a peer if encryption is enabled."""
+        if not self.peer_store.use_encryption:
+            raise ValueError("Encryption is not enabled")
+        bundle = self.peer_store.get_public_bundle()
+        bundle_json = json.dumps({"public_encryption_bundle": bundle})
+        self.connection_router.write_encryption_bundle(peer_email, bundle_json)
+        self.connection_router.share_encryption_bundles_folder(peer_email)
+        return bundle
+
+    def _read_peer_encryption_bundle(self, peer_email: str) -> dict | None:
+        """Read a peer's encryption bundle if available."""
+        bundle_json = self.connection_router.read_peer_encryption_bundle(peer_email)
+        if not bundle_json:
+            return None
+        data = json.loads(bundle_json)
+        return data.get("public_encryption_bundle")
 
     def load_peers(self):
         """Load peers: from JSON (accepted + requested_by_me) + new requests from folder scan."""
@@ -434,7 +467,22 @@ class VersionManager(BaseModel):
                         email, PeerState.ACCEPTED.value
                     )
 
-        self._peers = peers
+        self.peer_store.set_peers(peers)
+
+        # Try to read encryption bundles from GDrive for peers missing bundles
+        if self.peer_store.use_encryption:
+            for peer in peers:
+                if peer.state in (PeerState.ACCEPTED, PeerState.REQUESTED_BY_ME):
+                    if not self.peer_store.has_peer_bundle(peer.email):
+                        bundle = self._read_peer_encryption_bundle(peer.email)
+                        if bundle:
+                            self.peer_store.set_peer_bundle(peer.email, bundle)
+                            self.connection_router.update_peer_state(
+                                peer.email,
+                                peer.state.value,
+                                public_encryption_bundle=bundle,
+                            )
+
         self.load_peer_versions_parallel([peer.email for peer in peers])
 
     def check_peer_request_exists(self, email: str) -> bool:

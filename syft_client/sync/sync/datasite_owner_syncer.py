@@ -28,7 +28,7 @@ from syft_client.sync.checkpoints.checkpoint import (
     DEFAULT_COMPACTING_THRESHOLD,
 )
 from syft_client.sync.checkpoints.rolling_state import RollingState
-from syft_perm import SyftPermContext
+from syft_perms import SyftPermContext
 
 # Default threshold for creating incremental checkpoint from rolling state
 DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50
@@ -95,7 +95,9 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         return cls(
             event_cache=DataSiteOwnerEventCache.from_config(config.cache_config),
             write_files=config.write_files,
-            connection_router=ConnectionRouter.from_configs(config.connection_configs),
+            connection_router=ConnectionRouter.from_configs(
+                config.email, config.connection_configs
+            ),
             email=config.email,
             syftbox_folder=config.syftbox_folder,
             perm_context=SyftPermContext(datasite=datasite),
@@ -125,12 +127,16 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     ) -> FileChangeEventsMessage:
         # we need a new connection object because gdrive connections are not thread safe
         connection = self.connection_router.connection_for_eventlog(create_new=True)
-        return connection.download_events_message_by_id(events_message_id)
+        raw = connection.owner_download_raw_bytes_by_id(events_message_id)
+        raw = self.connection_router.peer_store.decrypt_and_verify_for_self_if_needed(
+            raw
+        )
+        return FileChangeEventsMessage.from_compressed_data(raw)
 
-    def get_all_accepted_events_messages_do(
+    def get_all_accepted_events_messages(
         self, since_timestamp: float | None = None
     ) -> list[FileChangeEventsMessage]:
-        message_ids = self.connection_router.get_all_accepted_event_file_ids_do(
+        message_ids = self.connection_router.owner_get_all_accepted_event_file_ids(
             since_timestamp=since_timestamp
         )
         result_messages = self._executor.map(
@@ -226,9 +232,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             print("No checkpoints found, downloading all events...")
             since_timestamp = self.event_cache.latest_cached_timestamp
             events_messages_list: list[FileChangeEventsMessage] = (
-                self.get_all_accepted_events_messages_do(
-                    since_timestamp=since_timestamp
-                )
+                self.get_all_accepted_events_messages(since_timestamp=since_timestamp)
             )
             for events_message in events_messages_list:
                 self.event_cache.add_events_message_to_local_cache(events_message)
@@ -273,7 +277,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         Restores datasets to local filesystem and populates the _any_shared_datasets cache.
         """
         collections = (
-            self.connection_router.list_all_dataset_collections_as_do_with_permissions()
+            self.connection_router.owner_list_all_dataset_collections_with_permissions()
         )
 
         self._update_any_shared_datasets_cache(collections)
@@ -356,7 +360,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     ) -> list:
         """Get file metadatas for a collection using a new connection for thread safety."""
         connection = self.connection_router.connection_for_parallel_download()
-        return connection.get_dataset_collection_file_metadatas(
+        return connection.watcher_get_dataset_collection_file_metadatas(
             tag=collection.tag,
             content_hash=collection.content_hash,
             owner_email=self.email,
@@ -365,7 +369,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     def _download_file_with_new_connection(self, file_id: str) -> bytes:
         """Download a file using a new connection for thread safety."""
         connection = self.connection_router.connection_for_parallel_download()
-        return connection.download_dataset_file(file_id)
+        return connection.watcher_download_dataset_file(file_id)
 
     # =========================================================================
     # PRIVATE DATASET RESTORE METHODS
@@ -377,7 +381,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         Downloads private data from owner-only collection folders
         to {syftbox_folder}/private/syft_datasets/{tag}/.
         """
-        collections = self.connection_router.list_private_dataset_collections_as_do()
+        collections = self.connection_router.owner_list_private_dataset_collections()
         if not collections:
             return
 
@@ -439,7 +443,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     ) -> list:
         """Get file metadatas for a private collection using a new connection."""
         connection = self.connection_router.connection_for_parallel_download()
-        return connection.get_private_collection_file_metadatas(
+        return connection.owner_get_private_collection_file_metadatas(
             tag=collection.tag,
             content_hash=collection.content_hash,
             owner_email=self.email,
@@ -601,7 +605,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         self, sender_email: str, raise_on_none=True
     ) -> ProposedFileChangesMessage | None:
         # raise on none is useful for testing, shouldnt be used in production
-        message = self.connection_router.get_next_proposed_filechange_message(
+        message = self.connection_router.owner_get_next_proposed_filechange_message(
             sender_email=sender_email
         )
         if message is not None:
@@ -609,7 +613,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             self.handle_proposed_filechange_events_message(sender_email, message)
 
             # delete the message once we are done
-            self.connection_router.remove_proposed_filechange_from_inbox(message)
+            self.connection_router.owner_remove_proposed_filechange_from_inbox(message)
             return message
         elif raise_on_none:
             raise ValueError("No proposed file change to process")
@@ -666,12 +670,12 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         # TODO: make this atomic
         while not self.syftbox_events_queue.empty():
             file_change_events_message = self.syftbox_events_queue.get()
-            self.connection_router.write_events_message_to_syftbox(
+            self.connection_router.owner_write_events_message_to_syftbox(
                 file_change_events_message
             )
         while not self.outbox_queue.empty():
             recipient, file_change_events_message = self.outbox_queue.get()
-            self.connection_router.write_event_messages_to_outbox_do(
+            self.connection_router.owner_write_event_messages_to_outbox(
                 recipient, file_change_events_message
             )
 

@@ -1,6 +1,7 @@
 """Gmail email sender."""
 
 import base64
+from dataclasses import dataclass
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -10,6 +11,14 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 from syft_bg.notify.email_templates import TemplateRenderer
+
+
+@dataclass
+class SendResult:
+    """Result of sending an email."""
+
+    success: bool
+    thread_id: str | None = None
 
 
 class GmailSender:
@@ -32,8 +41,9 @@ class GmailSender:
         subject: str,
         body_text: str,
         body_html: Optional[str] = None,
-    ) -> bool:
-        """Send an email."""
+        thread_id: Optional[str] = None,
+    ) -> SendResult:
+        """Send an email, optionally in an existing thread."""
         try:
             if body_html and self.use_html:
                 message = MIMEMultipart("alternative")
@@ -49,13 +59,23 @@ class GmailSender:
                 message["subject"] = subject
 
             raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
-            self.service.users().messages().send(
-                userId="me", body={"raw": raw_message}
-            ).execute()
-            return True
+            body_payload: dict = {"raw": raw_message}
+            if thread_id:
+                body_payload["threadId"] = thread_id
+
+            result = (
+                self.service.users()
+                .messages()
+                .send(userId="me", body=body_payload)
+                .execute()
+            )
+            return SendResult(
+                success=True,
+                thread_id=result.get("threadId"),
+            )
         except Exception as e:
             print(f"[GmailSender] Failed to send to {to_email}: {e}")
-            return False
+            return SendResult(success=False)
 
     def notify_new_job(
         self,
@@ -64,9 +84,9 @@ class GmailSender:
         submitter: str,
         timestamp: Optional[datetime] = None,
         job_url: Optional[str] = None,
-    ) -> bool:
+    ) -> SendResult:
         """Notify DO about a new job."""
-        subject = f"New Job: {job_name}"
+        subject = f"Job: {job_name}"
         body_text = f"""You have a new job request in SyftBox!
 
 Job: {job_name}
@@ -96,7 +116,7 @@ Log in to SyftBox to review and approve this job.
         ds_email: str,
         job_name: str,
         job_url: Optional[str] = None,
-    ) -> bool:
+    ) -> SendResult:
         """Notify DS that their job was approved."""
         subject = f"Job Approved: {job_name}"
         body_text = f"""Your job has been approved!
@@ -127,7 +147,7 @@ Your job will be executed soon.
         job_name: str,
         duration: Optional[int] = None,
         results_url: Optional[str] = None,
-    ) -> bool:
+    ) -> SendResult:
         """Notify DS that their job finished."""
         subject = f"Job Completed: {job_name}"
         body_text = f"""Your job has finished execution!
@@ -157,7 +177,7 @@ Your job has completed successfully. Results are available.
         do_email: str,
         ds_email: str,
         peer_url: Optional[str] = None,
-    ) -> bool:
+    ) -> SendResult:
         """Notify DO about a new peer request."""
         subject = f"New Peer Request from {ds_email}"
         body_text = f"""You have a new peer request in SyftBox!
@@ -187,7 +207,7 @@ Log in to SyftBox to review this peer request.
         self,
         ds_email: str,
         do_email: str,
-    ) -> bool:
+    ) -> SendResult:
         """Notify DS that their peer request was sent."""
         subject = f"Peer Request Sent to {do_email}"
         body_text = f"""Your peer request has been sent!
@@ -215,7 +235,7 @@ You will be notified when they accept your request.
         self,
         ds_email: str,
         do_email: str,
-    ) -> bool:
+    ) -> SendResult:
         """Notify DS that they added a peer."""
         subject = f"Peer Added: {do_email}"
         body_text = f"""You successfully added a peer in SyftBox!
@@ -242,7 +262,7 @@ You can now submit jobs and collaborate with this data owner.
         self,
         ds_email: str,
         do_email: str,
-    ) -> bool:
+    ) -> SendResult:
         """Notify DS that their peer request was accepted."""
         subject = f"Peer Request Accepted: {do_email}"
         body_text = f"""Your peer request has been accepted!
@@ -264,3 +284,135 @@ The data owner has accepted your request. You can now collaborate with them.
                 pass
 
         return self.send_email(ds_email, subject, body_text, body_html)
+
+    def notify_job_rejected_to_ds(
+        self,
+        ds_email: str,
+        job_name: str,
+        friendly_reason: str,
+    ) -> SendResult:
+        """Notify DS that their job was not approved."""
+        subject = f"Job Not Approved: {job_name}"
+        body_text = f"""Your job was not approved.
+
+Job: {job_name}
+
+{friendly_reason}
+
+If you believe this is an error, please contact the data owner.
+"""
+        body_html = None
+        if self.use_html and self.renderer:
+            try:
+                body_html = self.renderer.render(
+                    "emails/job_rejected_ds.html",
+                    {
+                        "job_name": job_name,
+                        "friendly_reason": friendly_reason,
+                    },
+                )
+            except Exception:
+                pass
+
+        return self.send_email(ds_email, subject, body_text, body_html)
+
+    # --- DO notifications for job lifecycle (threaded) ---
+
+    def notify_job_approved_to_do(
+        self,
+        do_email: str,
+        job_name: str,
+        ds_email: str,
+        thread_id: Optional[str] = None,
+    ) -> SendResult:
+        """Notify DO that a job was auto-approved."""
+        subject = f"Re: Job: {job_name}"
+        body_text = f"""Job auto-approved!
+
+Job: {job_name}
+From: {ds_email}
+
+This job matched your approval criteria and is now running.
+"""
+        body_html = None
+        if self.use_html and self.renderer:
+            try:
+                body_html = self.renderer.render(
+                    "emails/job_approved_do.html",
+                    {
+                        "job_name": job_name,
+                        "ds_email": ds_email,
+                    },
+                )
+            except Exception:
+                pass
+
+        return self.send_email(do_email, subject, body_text, body_html, thread_id)
+
+    def notify_job_completed_to_do(
+        self,
+        do_email: str,
+        job_name: str,
+        ds_email: str,
+        duration: Optional[int] = None,
+        thread_id: Optional[str] = None,
+    ) -> SendResult:
+        """Notify DO that a job completed."""
+        subject = f"Re: Job: {job_name}"
+        duration_text = f"\nDuration: {duration}s" if duration else ""
+        body_text = f"""Job completed!
+
+Job: {job_name}
+From: {ds_email}{duration_text}
+
+The job has finished execution. Results are available.
+"""
+        body_html = None
+        if self.use_html and self.renderer:
+            try:
+                body_html = self.renderer.render(
+                    "emails/job_completed_do.html",
+                    {
+                        "job_name": job_name,
+                        "ds_email": ds_email,
+                        "duration": duration,
+                    },
+                )
+            except Exception:
+                pass
+
+        return self.send_email(do_email, subject, body_text, body_html, thread_id)
+
+    def notify_job_rejected_to_do(
+        self,
+        do_email: str,
+        job_name: str,
+        ds_email: str,
+        reason: str,
+        thread_id: Optional[str] = None,
+    ) -> SendResult:
+        """Notify DO that a job was rejected."""
+        subject = f"Re: Job: {job_name}"
+        body_text = f"""Job rejected.
+
+Job: {job_name}
+From: {ds_email}
+Reason: {reason}
+
+This job did not match your approval criteria and was not executed.
+"""
+        body_html = None
+        if self.use_html and self.renderer:
+            try:
+                body_html = self.renderer.render(
+                    "emails/job_rejected_do.html",
+                    {
+                        "job_name": job_name,
+                        "ds_email": ds_email,
+                        "reason": reason,
+                    },
+                )
+            except Exception:
+                pass
+
+        return self.send_email(do_email, subject, body_text, body_html, thread_id)

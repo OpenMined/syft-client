@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Protocol
 from syft_job.job import JobInfo
 
 from syft_bg.approve.config import JobApprovalConfig
-from syft_bg.approve.criteria import job_matches_criteria
+from syft_bg.approve.criteria import resolve_peer_criteria
 
 if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
@@ -29,27 +29,25 @@ class JobApprovalHandler:
         config: JobApprovalConfig,
         state: Optional[StateManager] = None,
         on_approve: Optional[Callable[[JobInfo], None]] = None,
+        on_reject: Optional[Callable[[JobInfo, str], None]] = None,
         verbose: bool = True,
     ):
         self.client = client
         self.config = config
         self.state = state
         self.on_approve = on_approve
+        self.on_reject = on_reject
         self.verbose = verbose
 
     def _get_approved_peers(self) -> list[str]:
         """Get list of approved peer emails."""
         self.client.load_peers()
-        return [p.email for p in self.client.version_manager.approved_peers]
+        return [p.email for p in self.client.peer_manager.approved_peers]
 
     def check_and_approve(self) -> list[JobInfo]:
         """Check all jobs and approve those matching criteria."""
         if not self.config.enabled:
             return []
-
-        approved_peers = None
-        if self.config.peers_only:
-            approved_peers = self._get_approved_peers()
 
         approved_jobs = []
 
@@ -57,15 +55,17 @@ class JobApprovalHandler:
             if self.state and self.state.was_approved(job.name):
                 continue
 
-            matches, reason = job_matches_criteria(
+            matches, reason = resolve_peer_criteria(
                 job=job,
                 config=self.config,
-                approved_peers=approved_peers,
             )
 
             if not matches:
-                if self.verbose and job.status == "inbox":
-                    print(f"Skipped: {job.name} ({reason})")
+                if job.status == "inbox":
+                    if self.verbose:
+                        print(f"Skipped: {job.name} ({reason})")
+                    if self.on_reject:
+                        self.on_reject(job, reason)
                 continue
 
             try:

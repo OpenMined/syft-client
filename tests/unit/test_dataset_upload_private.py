@@ -37,13 +37,13 @@ class TestDatasetUploadPrivate:
 
         # DS should NOT see any private collections via the connection
         private_collections = (
-            ds_manager._connection_router.list_private_dataset_collections_as_do()
+            ds_manager._connection_router.owner_list_private_dataset_collections()
         )
         assert len(private_collections) == 0
 
         # Verify private collection folder exists on GDrive (visible to DO)
         do_private_collections = (
-            do_manager._connection_router.list_private_dataset_collections_as_do()
+            do_manager._connection_router.owner_list_private_dataset_collections()
         )
         assert len(do_private_collections) == 1
         assert do_private_collections[0].tag == "testdataset"
@@ -108,13 +108,13 @@ class TestDatasetUploadPrivate:
 
         # No private collection should exist
         private_collections = (
-            do_manager._connection_router.list_private_dataset_collections_as_do()
+            do_manager._connection_router.owner_list_private_dataset_collections()
         )
         assert len(private_collections) == 0
 
         # Mock collection should still exist
         mock_collections = (
-            do_manager._connection_router.list_dataset_collections_as_do()
+            do_manager._connection_router.owner_list_dataset_collections()
         )
         assert "testdataset" in mock_collections
 

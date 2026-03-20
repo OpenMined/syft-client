@@ -304,7 +304,7 @@ class JobInfo:
     # ──────────────────────────────────────────────
 
     def _get_perm_context(self):
-        from syft_perm import SyftPermContext
+        from syft_perms import SyftPermContext
 
         datasite = self._client.config.syftbox_folder / self.datasite_owner_email
         return SyftPermContext(datasite=datasite)

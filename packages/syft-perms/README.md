@@ -1,4 +1,4 @@
-# syft-perm
+# syft-perms
 
 User-facing permission API for Syft datasites.
 
@@ -11,7 +11,7 @@ uv pip install -e .
 ## Quick Start
 
 ```python
-import syft_perm as sp
+import syft_perms as sp
 
 # 1. Opening files and folders
 file = sp.open("data.csv")                    # Open a file

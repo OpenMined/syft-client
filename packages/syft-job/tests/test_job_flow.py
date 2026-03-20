@@ -5,7 +5,7 @@ from pathlib import Path
 from syft_job.client import JobClient
 from syft_job.config import SyftJobConfig
 from syft_job.job_runner import SyftJobRunner
-from syft_perm import SyftPermContext
+from syft_perms import SyftPermContext
 
 
 DO_EMAIL = "do@test.org"

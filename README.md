@@ -14,6 +14,7 @@ Syft client lets data scientists submit computations which are ran by data owner
 - [API Reference](docs/API.md) — All public client methods and properties
 - [Authentication & Setup](docs/auth.md) — Google Cloud OAuth setup for local/Jupyter usage
 - [Background Services](packages/syft-bg/README.md) — Email notifications, auto-approval, and TUI dashboard
+- [Permissions](packages/syft-permissions/docs/permission-user-docs.md) - Permissions for syft-client
 
 ## Features
 
@@ -43,7 +44,7 @@ ds = sc.login_ds(email="ds@org.com")
 ds.add_peer("do@org.com")
 do.approve_peer_request("ds@org.com")
 
-# Create dataset
+# Create & sync dataset
 do.create_dataset(
     name="census",
     mock_path="mock/",
@@ -52,7 +53,26 @@ do.create_dataset(
 )
 do.sync(); ds.sync()
 datasets = ds.datasets.get_all()
+```
 
+Write an `analysis.py` that reads the dataset and produces a result in our case this is just the length of the data. Inside a job, `resolve_dataset_file_path` automatically resolves to the **private** data:
+
+```python
+# analysis.py
+import json
+import syft_client as sc
+
+data_path = sc.resolve_dataset_file_path("census")
+with open(data_path, "r") as f:
+    data = f.read()
+
+with open("outputs/result.json", "w") as f:
+    json.dump({"length": len(data)}, f)
+```
+
+Submit the job and retrieve results:
+
+```python
 # Submit job
 ds.submit_python_job(
     user="do@org.com",
@@ -60,7 +80,7 @@ ds.submit_python_job(
 )
 ds.sync(); do.sync()
 
-# Approve & run job
+# Data owner Approves & runs job
 do.jobs[0].approve()
 do.process_approved_jobs()
 do.sync(); ds.sync()
@@ -74,7 +94,7 @@ result = open(ds.jobs[-1].output_paths[0]).read()
 | [`syft-datasets`](packages/syft-datasets)       | Dataset management and sharing                |
 | [`syft-job`](packages/syft-job)                 | Job submission and execution                  |
 | [`syft-permissions`](packages/syft-permissions) | Permission system for Syft datasites          |
-| [`syft-perm`](packages/syft-perm)               | User-facing permission API for Syft datasites |
+| [`syft-perms`](packages/syft-perms)             | User-facing permission API for Syft datasites |
 | [`syft-bg`](packages/syft-bg)                   | Background services TUI dashboard for SyftBox |
 | [`syft-notebook-ui`](packages/syft-notebook-ui) | Jupyter notebook display utilities            |
 

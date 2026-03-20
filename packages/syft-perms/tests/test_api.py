@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-import syft_perm
-from syft_perm import SyftFile, SyftFolder, SyftPermContext
-from syft_perm.api import _default_context
-from syft_perm.datasite_utils import (
+import syft_perms
+from syft_perms import SyftFile, SyftFolder, SyftPermContext
+from syft_perms.api import _default_context
+from syft_perms.datasite_utils import (
     _candidate_syftbox_folders,
     _find_datasite,
 )
@@ -74,36 +74,36 @@ def test_find_nonexistent_folder_raises():
 
 
 def test_open_file(syftbox):
-    f = syft_perm.open("data.csv")
+    f = syft_perms.open("data.csv")
     assert isinstance(f, SyftFile)
 
 
 def test_open_folder(syftbox):
     (syftbox / OWNER / "project").mkdir()
-    f = syft_perm.open("project/")
+    f = syft_perms.open("project/")
     assert isinstance(f, SyftFolder)
 
 
 def test_files_returns_browser(syftbox):
     (syftbox / OWNER / "a.txt").touch()
-    items = syft_perm.files().all()
+    items = syft_perms.files().all()
     assert len(items) == 1
 
 
 def test_folders_returns_browser(syftbox):
     (syftbox / OWNER / "subdir").mkdir()
-    items = syft_perm.folders().all()
+    items = syft_perms.folders().all()
     assert len(items) == 1
 
 
 def test_files_and_folders_returns_browser(syftbox):
     (syftbox / OWNER / "a.txt").touch()
     (syftbox / OWNER / "subdir").mkdir()
-    items = syft_perm.files_and_folders().all()
+    items = syft_perms.files_and_folders().all()
     assert len(items) == 2
 
 
-def test_default_context_returns_syft_perm_context(syftbox):
+def test_default_context_returns_syft_perms_context(syftbox):
     ctx = _default_context()
     assert isinstance(ctx, SyftPermContext)
     assert ctx.owner == OWNER

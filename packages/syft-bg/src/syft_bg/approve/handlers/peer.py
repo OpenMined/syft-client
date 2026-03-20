@@ -37,7 +37,7 @@ class PeerApprovalHandler:
     def _get_pending_peers(self) -> list[str]:
         """Get list of pending peer emails."""
         self.client.load_peers()
-        return [p.email for p in self.client.version_manager.requested_by_peer_peers]
+        return [p.email for p in self.client.peer_manager.requested_by_peer_peers]
 
     def _get_domain(self, email: str) -> str:
         """Extract domain from email address."""

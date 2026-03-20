@@ -13,7 +13,7 @@ from syft_permissions.engine.compiled_rule import (
 from syft_permissions.engine.tree import _relative_path
 
 if TYPE_CHECKING:
-    from syft_perm.syftperm_context import SyftPermContext
+    from syft_perms.syftperm_context import SyftPermContext
 
 
 class PermissionModifier:

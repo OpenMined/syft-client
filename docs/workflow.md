@@ -1,43 +1,46 @@
 # Privacy-Preserving Data Analysis Workflow
 
-The following diagram demonstrates the complete workflow for privacy-preserving data analysis using Beach Notebooks, involving both the Data Owner (DO) and Data Scientist (DS).
-
 ```mermaid
 sequenceDiagram
-    participant DO as Data Owner
-    participant DON as DO Notebook
-    participant DSN as DS Notebook
     participant DS as Data Scientist
+    participant INB as DO Inbox
+    participant OUT as DO Outbox
+    participant SB as DO Syftbox
+    participant DO as Data Owner
 
-    Note over DO,DON: 1. Dataset Publication
-    DON->>DO: Create & publish dataset
-    DO-->>DS: Dataset available
+    Note over DS,DO: 1. Peer Request
+    DS->>INB: add_peer("do@org.com")
+    DO->>INB: approve_peer_request("ds@org.com")
 
-    Note over DS,DSN: 2. Mock Data Testing
-    DSN->>DS: Download mock data
-    DS->>DSN: Test analysis code
+    Note over DO,SB: 2. Dataset Publication
+    DO->>SB: create_dataset(mock, private)
+    DO->>OUT: Mock data + metadata
+    DS->>OUT: sync() — pull mock data
 
-    Note over DS,DSN: 3. Job Submission
-    DSN->>DO: Submit analysis job
+    Note over DS: 3. Explore & Develop
+    DS->>DS: Test analysis on mock data
 
-    Note over DO,DON: 4. Job Review
-    DON->>DO: View pending jobs
-    DO->>DON: Review code
-    DON->>DO: Approve job
+    Note over DS,INB: 4. Job Submission
+    DS->>INB: submit_python_job(code)
 
-    Note over DO,DON: 5. Job Processing
-    DON->>DO: Process approved jobs
-    DO->>DS: Results available
+    Note over DO: 5. Review & Execute
+    DO->>INB: sync() — receive job
+    DO->>DO: Approve (or reject) & run job
 
-    Note over DS,DSN: 6. View Results
-    DSN->>DS: Retrieve results
+    Note over DO,OUT: 6. Publish Results
+    DO->>OUT: Write results to outbox
+
+    Note over DS,OUT: 7. Retrieve Results
+    DS->>OUT: sync() — pull results
+    DS->>DS: Read results
 ```
 
 ## Workflow Steps
 
-1.  **Dataset Publication**: The Data Owner publishes a dataset with both mock (public) and private components.
-2.  **Mock Data Testing**: The Data Scientist downloads the mock data to explore the structure and test their analysis code locally.
-3.  **Job Submission**: Once satisfied with the code on mock data, the Data Scientist submits the analysis job to the Data Owner.
-4.  **Job Review**: The Data Owner views pending jobs, reviews the code for safety and privacy, and approves it.
-5.  **Job Processing**: The Data Owner processes the approved jobs, executing the code on the private data in a controlled environment.
-6.  **View Results**: The Data Scientist retrieves the results of the analysis.
+1. **Peer Request**: The Data Scientist requests access to the Data Owner's datasite. The Data Owner reviews and approves the request.
+2. **Dataset Publication**: The Data Owner publishes a dataset with both mock (public) and private components. Mock data is placed in the outbox for Data Scientists to pull.
+3. **Explore & Develop**: The Data Scientist downloads the mock data to explore the structure and test their analysis code locally.
+4. **Job Submission**: The Data Scientist submits analysis code via the Data Owner's inbox.
+5. **Review & Execute**: The Data Owner syncs to receive the job, reviews the code, and approves (or rejects) and runs it on private data.
+6. **Publish Results**: The Data Owner writes job outputs to the outbox for the Data Scientist to pull.
+7. **Retrieve Results**: The Data Scientist syncs to pull the results.
