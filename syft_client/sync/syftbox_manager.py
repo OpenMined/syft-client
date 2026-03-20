@@ -6,7 +6,7 @@ from syft_client.utils import resolve_path
 from concurrent.futures import ThreadPoolExecutor
 import time
 from pydantic import ConfigDict
-from syft_job.client import JobClient
+from syft_job.client import BaseJobClient, JobClient
 from syft_job.job import JobsList
 from syft_job.job_runner import SyftJobRunner
 from syft_job import SyftJobConfig
@@ -368,7 +368,7 @@ class SyftboxManager(BaseModel):
     datasite_owner_syncer: DatasiteOwnerSyncer | None = None
     job_file_change_handler: JobFileChangeHandler | None = None
     dataset_manager: SyftDatasetManager | None = None
-    job_client: JobClient | None = None
+    job_client: BaseJobClient | None = None
     job_runner: SyftJobRunner | None = None
     peer_manager: PeerManager | None = None
     has_do_role: bool = False
@@ -750,6 +750,8 @@ class SyftboxManager(BaseModel):
     def add_peer(self, peer_email: str, force: bool = False, verbose: bool = True):
         """Add a peer. Delegates to PeerManager."""
         self.peer_manager.add_peer(peer_email, force=force, verbose=verbose)
+        if self.has_do_role:
+            self._post_approve_peer_do(peer_email)
 
     def submit_bash_job(
         self, user: str, *args, sync=True, force_submission: bool = False, **kwargs
@@ -826,9 +828,9 @@ class SyftboxManager(BaseModel):
         self.peer_manager.approve_peer_request(
             email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
         )
-        self._post_approve_peer(email_or_peer)
+        self._post_approve_peer_do(email_or_peer)
 
-    def _post_approve_peer(self, email_or_peer: str | Peer):
+    def _post_approve_peer_do(self, email_or_peer: str | Peer):
         """Shared post-approval logic: job folder setup and dataset sharing."""
         peer_email = (
             email_or_peer if isinstance(email_or_peer, str) else email_or_peer.email
@@ -836,8 +838,7 @@ class SyftboxManager(BaseModel):
 
         if self.has_do_role:
             self.job_client.setup_ds_job_folder_as_do(peer_email)
-
-        self._share_any_datasets_with_peer(peer_email)
+            self._share_any_datasets_with_peer(peer_email)
 
     def _share_any_datasets_with_peer(self, peer_email: str):
         """Share all datasets that have 'any' permission with a specific peer.

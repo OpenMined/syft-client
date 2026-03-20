@@ -24,6 +24,7 @@ class JobSubmissionMetadata(BaseModel):
     is_folder_submission: bool = False
     code_path: Optional[str] = None  # original source path (informational)
     job_type: Literal["local", "enclave"] = "local"
+    datasets: Optional[dict[str, list[str]]] = None  # do_email -> [dataset_name]
 
     def save(self, path: Path) -> None:
         """Write config to a YAML file."""

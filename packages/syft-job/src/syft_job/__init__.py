@@ -1,6 +1,6 @@
 __version__ = "0.1.25"
 
-from .client import JobClient, get_client
+from .client import BaseJobClient, JobClient, get_client
 from .config import SyftJobConfig
 from .job import JobInfo, JobsList
 from .job_runner import SyftJobRunner, create_runner
@@ -9,6 +9,7 @@ from .models.state import JobState, JobStatus, PartyApprovalStatus
 
 __all__ = [
     # SyftBox job system
+    "BaseJobClient",
     "JobClient",
     "get_client",
     "SyftJobConfig",
