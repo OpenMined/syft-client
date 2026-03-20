@@ -9,7 +9,10 @@ from syft_enclaves import SyftEnclaveClient
 
 
 def create_tmp_dataset_files(prefix=""):
-    tmp_dir = Path(tempfile.mkdtemp()) / f"syft-job-test-{prefix}-{random.randint(1, 1000000)}"
+    tmp_dir = (
+        Path(tempfile.mkdtemp())
+        / f"syft-job-test-{prefix}-{random.randint(1, 1000000)}"
+    )
     tmp_dir.mkdir(parents=True, exist_ok=True)
     mock_path = tmp_dir / "mock.txt"
     private_path = tmp_dir / "private.txt"
