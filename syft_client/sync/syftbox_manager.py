@@ -120,7 +120,7 @@ class SyftboxManagerConfig(BaseModel):
         )
         job_client_config = SyftJobConfig(
             syftbox_folder=syftbox_folder,
-            email=email,
+            current_user_email=email,
         )
         dataset_manager_config = SyftBoxConfig(
             syftbox_folder=syftbox_folder,
@@ -193,7 +193,7 @@ class SyftboxManagerConfig(BaseModel):
         )
         job_client_config = SyftJobConfig(
             syftbox_folder=syftbox_folder,
-            email=email,
+            current_user_email=email,
         )
         peer_manager_config = PeerManagerConfig(
             connection_configs=connection_configs,
@@ -257,7 +257,7 @@ class SyftboxManagerConfig(BaseModel):
         )
         job_client_config = SyftJobConfig(
             syftbox_folder=Path(syftbox_folder),
-            email=email,
+            current_user_email=email,
         )
         peer_manager_config = PeerManagerConfig(
             connection_configs=[],  # Empty for in-memory, connections added later
@@ -331,7 +331,7 @@ class SyftboxManagerConfig(BaseModel):
         )
         job_client_config = SyftJobConfig(
             syftbox_folder=syftbox_folder,
-            email=email,
+            current_user_email=email,
         )
         peer_manager_config = PeerManagerConfig(
             connection_configs=connection_configs,

@@ -6,6 +6,7 @@ import pytest
 from syft_client.sync.peers.peer import Peer
 from syft_client.sync.peers.peer_store import PeerStore
 from syft_client.sync.syftbox_manager import SyftboxManager
+from tests.unit.test_sync_manager import path_for_job
 
 
 # =========================================================================
@@ -170,7 +171,7 @@ def test_encrypted_message_flow():
     assert ds_ps.has_peer_bundle(do_manager.email)
 
     # DS sends a file change (encrypted)
-    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    file_path = path_for_job(do_manager.email, ds_manager.email, "my.job")
     ds_manager._send_file_change(file_path, "encrypted content")
 
     # DO syncs and should receive the decrypted content
@@ -194,7 +195,7 @@ def test_encrypted_sync_down_ds():
     ds_manager.load_peers()
 
     # DS sends a file
-    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/test.job"
+    file_path = path_for_job(do_manager.email, ds_manager.email)
     ds_manager._send_file_change(file_path, "test data")
 
     # DO syncs (receives and processes)
@@ -219,7 +220,7 @@ def test_no_encryption_backward_compat():
     assert ds_manager._peer_store is None
     assert do_manager._peer_store is None
 
-    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    file_path = path_for_job(do_manager.email, ds_manager.email, "my.job")
     ds_manager._send_file_change(file_path, "hello unencrypted")
     do_manager.sync()
 
@@ -319,7 +320,7 @@ def test_encrypted_events_at_rest():
     ds_manager.load_peers()
 
     # DS sends a file change
-    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    file_path = path_for_job(do_manager.email, ds_manager.email, "my.job")
     ds_manager._send_file_change(file_path, "at-rest encrypted")
     do_manager.sync()
 
@@ -339,7 +340,7 @@ def test_encrypted_checkpoint_roundtrip():
     ds_manager.load_peers()
 
     # Create some data and a checkpoint
-    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    file_path = path_for_job(do_manager.email, ds_manager.email, "my.job")
     ds_manager._send_file_change(file_path, "checkpoint data")
     do_manager.sync()
 
@@ -395,7 +396,7 @@ def test_at_rest_no_encryption_backward_compat():
         encryption=False,
     )
 
-    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    file_path = path_for_job(do_manager.email, ds_manager.email, "my.job")
     ds_manager._send_file_change(file_path, "unencrypted data")
     do_manager.sync()
 
@@ -494,7 +495,7 @@ def test_verified_encrypted_message_flow():
     ds_manager.load_peers()
 
     # DS sends a file change (encrypted + signed)
-    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    file_path = path_for_job(do_manager.email, ds_manager.email, "my.job")
     ds_manager._send_file_change(file_path, "verified content")
 
     # DO syncs — decrypt_and_verify_if_needed runs internally
@@ -515,7 +516,7 @@ def test_tampered_inbox_message_raises():
     ds_manager.load_peers()
 
     # DS sends a file change
-    file_path = f"{do_manager.email}/app_data/job/{ds_manager.email}/my.job"
+    file_path = path_for_job(do_manager.email, ds_manager.email, "my.job")
     ds_manager._send_file_change(file_path, "will be tampered")
 
     # Tamper with raw bytes in the mock backing store

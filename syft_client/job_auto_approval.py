@@ -36,12 +36,13 @@ def _file_content_matches(file_path: Path, expected_content: str) -> bool:
         return False
 
 
-JOB_METADATA_FILES = {"config.yaml", "run.sh"}
+JOB_METADATA_FILES = {"config.yaml", "run.sh", "state.yaml"}
+PERMISSION_FILE_NAME = "syft.pub.yaml"
 
 
 def _get_user_files(job: JobInfo) -> list[Path]:
     """
-    Get user-submitted files in job folder, excluding job metadata files.
+    Get user-submitted files in the code/ directory, excluding metadata and permission files.
 
     Args:
         job: JobInfo object
@@ -50,13 +51,11 @@ def _get_user_files(job: JobInfo) -> list[Path]:
         List of user file paths
     """
     user_files = []
-    for f in job.files:
-        if f.is_file() and f.name not in JOB_METADATA_FILES:
-            user_files.append(f)
-        elif f.is_dir():
-            for subf in f.rglob("*"):
-                if subf.is_file():
-                    user_files.append(subf)
+    code_dir = job.code_dir
+    if code_dir.exists():
+        for f in code_dir.rglob("*"):
+            if f.is_file() and f.name != PERMISSION_FILE_NAME:
+                user_files.append(f)
     return user_files
 
 
@@ -114,8 +113,8 @@ def job_matches_criteria(
     Returns:
         True if job matches all criteria, False otherwise
     """
-    # Check status - only process inbox jobs
-    if job.status != "inbox":
+    # Check status - only process pending jobs
+    if job.status != "pending":
         return False
 
     # Check allowed users filter

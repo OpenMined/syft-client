@@ -55,7 +55,7 @@ with open("outputs/result.json", "w") as f:
 
     # Verify job is in inbox
     assert len(do_manager.jobs) == 1
-    assert do_manager.jobs[0].status == "inbox"
+    assert do_manager.jobs[0].status == "pending"
 
     # Call auto_approve_and_run_jobs - must specify ALL files including the .py file
     approved = auto_approve_and_run_jobs(

@@ -28,7 +28,7 @@ from tests.unit.utils import (
 
 def path_for_job(do_email: str, ds_email: str, filename: str = "test.job") -> str:
     """Return the correct path for DS to submit a job file to DO."""
-    return f"{do_email}/app_data/job/{ds_email}/{filename}"
+    return f"{do_email}/app_data/job/inbox/{ds_email}/{filename}"
 
 
 def test_sync_to_syftbox_eventlog():
@@ -164,8 +164,12 @@ def test_sync_existing_datasite_state_do():
 
     n_outbox = connection_ds.watcher_get_outbox_file_metadatas(do_manager.email, None)
     assert n_messages_in_cache >= 1  # At least 1 message with the 2 file changes
-    assert n_files_in_cache == 3  # 2 data files + syft.pub.yaml permission file
-    assert hashes_in_cache == 3  # 2 data files + syft.pub.yaml permission file
+    assert (
+        n_files_in_cache == 4
+    )  # 2 data files + 2 syft.pub.yaml permission files (inbox + review)
+    assert (
+        hashes_in_cache == 4
+    )  # 2 data files + 2 syft.pub.yaml permission files (inbox + review)
     assert len(n_outbox) >= 1
 
 
@@ -200,8 +204,12 @@ def test_sync_existing_inbox_state_do():
     n_files_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_connection)
     hashes_in_cache = len(do_manager.datasite_owner_syncer.event_cache.file_hashes)
     assert n_events_message_in_cache >= 1  # At least 1 message with 2 file changes
-    assert n_files_in_cache == 4  # 2 data files + 2 syft.pub.yaml permission files
-    assert hashes_in_cache == 4  # 2 data files + 2 syft.pub.yaml permission files
+    assert (
+        n_files_in_cache == 5
+    )  # 2 data files + 3 syft.pub.yaml permission files (inbox + review + root)
+    assert (
+        hashes_in_cache == 5
+    )  # 2 data files + 3 syft.pub.yaml permission files (inbox + review + root)
 
 
 def test_sync_existing_datasite_state_ds():
@@ -643,10 +651,10 @@ with open("outputs/result.json", "w") as f:
 
 
 def test_single_file_job_submission_without_pyproject():
-    """Test that code files are copied directly to job_dir (not job_dir/code/).
+    """Test that code files are placed in job_dir/code/ subdirectory.
 
-    Verifies backwards compatibility fix - code should be at:
-        job_dir/main.py  (not job_dir/code/main.py)
+    Verifies code is at:
+        job_dir/code/main.py
     """
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
@@ -668,11 +676,11 @@ def test_single_file_job_submission_without_pyproject():
 
     assert len(do_manager.job_client.jobs) == 1
     job = do_manager.job_client.jobs[0]
-    job_dir = job.location
+    job_dir = job.job_submission_path
 
-    # Verify code is directly in job_dir, not in job_dir/code/
-    assert (job_dir / "test_direct_copy.py").exists(), (
-        "Code should be directly in job_dir"
+    # Verify code is in job_dir/code/
+    assert (job_dir / "code" / "test_direct_copy.py").exists(), (
+        "Code should be in job_dir/code/"
     )
     assert (job_dir / "run.sh").exists(), "run.sh should exist"
     assert (job_dir / "config.yaml").exists(), "config.yaml should exist"
@@ -694,7 +702,7 @@ def test_folder_job_submission_without_pyproject():
 
     # Create a folder without pyproject.toml
     project_dir = tempfile.mkdtemp(prefix="test_no_pyproject_")
-    folder_name = Path(project_dir).name
+    Path(project_dir).name
 
     try:
         # Create main.py
@@ -722,17 +730,13 @@ with open("outputs/result.txt", "w") as f:
 
         assert len(do_manager.job_client.jobs) == 1
         job = do_manager.job_client.jobs[0]
-        job_dir = job.location
+        job_dir = job.job_submission_path
 
-        # Verify folder structure - folder preserved with its name
-        assert (job_dir / folder_name).exists(), (
-            f"Folder {folder_name} should exist in job_dir"
-        )
-        assert (job_dir / folder_name / "main.py").exists(), (
-            "main.py should be inside folder"
-        )
-        assert (job_dir / folder_name / "helper.py").exists(), (
-            "helper.py should be inside folder"
+        # Verify folder structure - code is in code/ subdirectory
+        assert (job_dir / "code").exists(), "code/ should exist in job_dir"
+        assert (job_dir / "code" / "main.py").exists(), "main.py should be inside code/"
+        assert (job_dir / "code" / "helper.py").exists(), (
+            "helper.py should be inside code/"
         )
         assert (job_dir / "run.sh").exists(), "run.sh should be at job_dir root"
         assert (job_dir / "config.yaml").exists(), (
@@ -747,9 +751,7 @@ with open("outputs/result.txt", "w") as f:
         assert "uv sync" not in run_script, (
             "Should NOT use 'uv sync' without pyproject.toml"
         )
-        assert f"python {folder_name}/main.py" in run_script, (
-            "Should run folder_name/main.py"
-        )
+        assert "python code/main.py" in run_script, "Should run code/main.py"
 
     finally:
         shutil.rmtree(project_dir, ignore_errors=True)
@@ -771,7 +773,7 @@ def test_folder_job_submission_with_pyproject():
 
     # Create a folder with pyproject.toml
     project_dir = tempfile.mkdtemp(prefix="test_with_pyproject_")
-    folder_name = Path(project_dir).name
+    Path(project_dir).name
 
     try:
         # Create pyproject.toml
@@ -801,32 +803,26 @@ dependencies = []
 
         assert len(do_manager.job_client.jobs) == 1
         job = do_manager.job_client.jobs[0]
-        job_dir = job.location
+        job_dir = job.job_submission_path
 
-        # Verify folder structure - folder preserved with its name
-        assert (job_dir / folder_name).exists(), (
-            f"Folder {folder_name} should exist in job_dir"
-        )
-        assert (job_dir / folder_name / "main.py").exists(), (
-            "main.py should be inside folder"
-        )
-        assert (job_dir / folder_name / "pyproject.toml").exists(), (
-            "pyproject.toml should be inside folder"
+        # Verify folder structure - code is in code/ subdirectory
+        assert (job_dir / "code").exists(), "code/ should exist in job_dir"
+        assert (job_dir / "code" / "main.py").exists(), "main.py should be inside code/"
+        assert (job_dir / "code" / "pyproject.toml").exists(), (
+            "pyproject.toml should be inside code/"
         )
         assert (job_dir / "run.sh").exists(), "run.sh should be at job_dir root"
         assert (job_dir / "config.yaml").exists(), (
             "config.yaml should be at job_dir root"
         )
 
-        # Verify run.sh uses uv sync inside folder and correct entrypoint path
+        # Verify run.sh uses uv sync inside code folder and correct entrypoint path
         run_script = (job_dir / "run.sh").read_text()
         assert "uv sync" in run_script, (
             "Should use 'uv sync' for folders with pyproject.toml"
         )
-        assert f"cd {folder_name}" in run_script, "Should cd into folder for uv sync"
-        assert f"python {folder_name}/main.py" in run_script, (
-            "Should run folder_name/main.py"
-        )
+        assert "cd code" in run_script, "Should cd into code folder for uv sync"
+        assert "python code/main.py" in run_script, "Should run code/main.py"
 
     finally:
         shutil.rmtree(project_dir, ignore_errors=True)
@@ -840,7 +836,7 @@ def test_folder_job_auto_detect_main_py():
     )
 
     project_dir = tempfile.mkdtemp(prefix="test_auto_main_")
-    folder_name = Path(project_dir).name
+    Path(project_dir).name
 
     try:
         # Create main.py and another file
@@ -857,11 +853,11 @@ def test_folder_job_auto_detect_main_py():
 
         do_manager.sync()
         job = do_manager.job_client.jobs[0]
-        job_dir = job.location
+        job_dir = job.job_submission_path
 
         # Verify main.py was auto-detected
         run_script = (job_dir / "run.sh").read_text()
-        assert f"python {folder_name}/main.py" in run_script, (
+        assert "python code/main.py" in run_script, (
             "Should auto-detect main.py as entrypoint"
         )
 
@@ -877,7 +873,7 @@ def test_folder_job_auto_detect_single_py():
     )
 
     project_dir = tempfile.mkdtemp(prefix="test_auto_single_")
-    folder_name = Path(project_dir).name
+    Path(project_dir).name
 
     try:
         # Create only one .py file (not named main.py)
@@ -893,11 +889,11 @@ def test_folder_job_auto_detect_single_py():
 
         do_manager.sync()
         job = do_manager.job_client.jobs[0]
-        job_dir = job.location
+        job_dir = job.job_submission_path
 
         # Verify script.py was auto-detected
         run_script = (job_dir / "run.sh").read_text()
-        assert f"python {folder_name}/script.py" in run_script, (
+        assert "python code/script.py" in run_script, (
             "Should auto-detect single .py file as entrypoint"
         )
 
@@ -1157,7 +1153,6 @@ def test_pyproject_folder_job_flow_with_dataset():
     project_dir = create_test_project_folder(
         with_pyproject=True, multiplier=3, prefix="test_pyproject_"
     )
-    folder_name = project_dir.name
 
     try:
         ds_manager.submit_python_job(
@@ -1170,18 +1165,14 @@ def test_pyproject_folder_job_flow_with_dataset():
         do_manager.sync()
         assert len(do_manager.job_client.jobs) == 1
         job = do_manager.job_client.jobs[0]
-        job_dir = job.location
+        job_dir = job.job_submission_path
 
-        # Verify folder structure before running
-        assert (job_dir / folder_name).exists(), (
-            f"Folder {folder_name} should exist in job_dir"
+        # Verify folder structure before running - code is in code/ subdirectory
+        assert (job_dir / "code").exists(), "code/ should exist in job_dir"
+        assert (job_dir / "code" / "pyproject.toml").exists(), (
+            "pyproject.toml should be inside code/"
         )
-        assert (job_dir / folder_name / "pyproject.toml").exists(), (
-            "pyproject.toml should be inside folder"
-        )
-        assert (job_dir / folder_name / "main.py").exists(), (
-            "main.py should be inside folder"
-        )
+        assert (job_dir / "code" / "main.py").exists(), "main.py should be inside code/"
         assert (job_dir / "run.sh").exists(), "run.sh should be at job_dir root"
 
         # Verify run.sh uses uv sync (pyproject.toml case)
@@ -1189,18 +1180,16 @@ def test_pyproject_folder_job_flow_with_dataset():
         assert "uv sync" in run_script, (
             "Should use 'uv sync' for folders with pyproject.toml"
         )
-        assert f"cd {folder_name}" in run_script, "Should cd into folder for uv sync"
-        assert f"python {folder_name}/main.py" in run_script, (
-            "Should run folder_name/main.py"
-        )
+        assert "cd code" in run_script, "Should cd into code folder for uv sync"
+        assert "python code/main.py" in run_script, "Should run code/main.py"
 
         # Run the job
         job.approve()
         do_manager.job_runner.process_approved_jobs()
 
         # Verify .venv was created inside the code folder (by uv sync)
-        assert (job_dir / folder_name / ".venv").exists(), (
-            ".venv should be created inside folder by uv sync"
+        assert (job_dir / "code" / ".venv").exists(), (
+            ".venv should be created inside code/ folder by uv sync"
         )
 
         # Before sharing: DS should not see outputs
@@ -1775,7 +1764,7 @@ def test_in_memory_connection_load_state():
 
     # Verify events in DO cache (inbox was processed)
     # 2 data events + 1 permission file event (syft.pub.yaml from approve_peer_request)
-    assert len(do_manager2.datasite_owner_syncer.event_cache.get_cached_events()) == 3
+    assert len(do_manager2.datasite_owner_syncer.event_cache.get_cached_events()) == 4
 
     # verify events in DS cache
     loaded_events_ds = (
@@ -1942,11 +1931,11 @@ def test_incoming_syft_pub_yaml_write_requires_admin():
     from syft_perms import SyftPermContext
 
     ctx = SyftPermContext(datasite=datasite_dir_do)
-    job_folder = ctx.open(f"app_data/job/{ds_email}/")
+    job_folder = ctx.open(f"app_data/job/inbox/{ds_email}/")
     assert job_folder.has_write_access(ds_email), "DS should have write access"
 
     # DS proposes a syft.pub.yaml change (trying to escalate permissions)
-    perm_path = f"app_data/job/{ds_email}/syft.pub.yaml"
+    perm_path = f"app_data/job/inbox/{ds_email}/syft.pub.yaml"
     message = ProposedFileChangesMessage(
         sender_email=ds_email,
         proposed_file_changes=[
@@ -1970,7 +1959,7 @@ def test_incoming_syft_pub_yaml_write_requires_admin():
     ]
     # Only the existing perm file from approve_peer_request should exist
     assert not any(
-        f"app_data/job/{ds_email}/syft.pub.yaml" == str(e.path_in_datasite)
+        f"app_data/job/inbox/{ds_email}/syft.pub.yaml" == str(e.path_in_datasite)
         for e in perm_events
     ), "DS should NOT be able to write syft.pub.yaml without admin access"
 

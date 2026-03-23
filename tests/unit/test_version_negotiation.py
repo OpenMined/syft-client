@@ -307,6 +307,7 @@ class TestForceSubmission:
             / do_manager.email
             / "app_data"
             / "job"
+            / "inbox"
             / ds_manager.email
             / "test.force.job"
         )

@@ -57,10 +57,10 @@ class StderrViewer:
 
     def __str__(self) -> str:
         """Return the stderr content with ANSI codes stripped."""
-        if self.job_info.status != "done":
+        if self.job_info.status not in ("done", "failed"):
             return "No stderr available - job not completed yet"
 
-        stderr_file = self.job_info.location / "stderr.txt"
+        stderr_file = self.job_info.job_review_path / "stderr.txt"
 
         if not stderr_file.exists():
             return "No stderr file found"
@@ -86,10 +86,10 @@ class StderrViewer:
 
     def _repr_html_(self) -> str:
         """HTML representation for Jupyter notebooks with scrollable view."""
-        if self.job_info.status != "done":
+        if self.job_info.status not in ("done", "failed"):
             error_msg = "No stderr available - job not completed yet"
         else:
-            stderr_file = self.job_info.location / "stderr.txt"
+            stderr_file = self.job_info.job_review_path / "stderr.txt"
 
             if not stderr_file.exists():
                 error_msg = "No stderr file found"
@@ -353,7 +353,7 @@ def job_info_repr_html(job: "JobInfo") -> str:
     submitted_time = "Unknown"
     job_type = "bash"
     try:
-        config_file = job.location / "config.yaml"
+        config_file = job.job_submission_path / "config.yaml"
         if config_file.exists():
             from datetime import datetime
 
@@ -380,8 +380,8 @@ def job_info_repr_html(job: "JobInfo") -> str:
             import os
             from datetime import datetime
 
-            if job.location.exists():
-                mtime = os.path.getmtime(job.location)
+            if job.job_submission_path.exists():
+                mtime = os.path.getmtime(job.job_submission_path)
                 dt = datetime.fromtimestamp(mtime)
                 submitted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
@@ -389,7 +389,7 @@ def job_info_repr_html(job: "JobInfo") -> str:
 
     script_content = "No script available"
     try:
-        script_file = job.location / "run.sh"
+        script_file = job.job_submission_path / "run.sh"
         if script_file.exists():
             with open(script_file, "r") as f:
                 script_content = f.read().strip()
@@ -409,7 +409,7 @@ def job_info_repr_html(job: "JobInfo") -> str:
     if job_type == "python":
         try:
             python_files = [
-                f for f in job.location.iterdir() if f.suffix == ".py" and f.is_file()
+                f for f in job.code_dir.iterdir() if f.suffix == ".py" and f.is_file()
             ]
             if python_files:
                 py_file = python_files[0]
@@ -427,8 +427,19 @@ def job_info_repr_html(job: "JobInfo") -> str:
         except Exception:
             pass
 
+    status_emoji_map = {
+        "received": "📨",
+        "pending": "📥",
+        "approved": "✅",
+        "rejected": "❌",
+        "running": "🔄",
+        "done": "🎉",
+        "failed": "💥",
+    }
+    status_emoji = status_emoji_map.get(job.status, "❓")
+
     outputs_section = ""
-    if job.status == "done":
+    if job.status in ("done", "failed"):
         output_files = job.output_paths
         if output_files:
             outputs_items = "\n".join(
@@ -475,7 +486,18 @@ def job_info_repr_html(job: "JobInfo") -> str:
                 margin: 0;
             }}
 
-            .syftjob-single-status-inbox {{
+            .syftjob-single-status-received {{
+                background: #D1D5DB;
+                color: #374151;
+                padding: 4px 8px;
+                border: 2px solid #9CA3AF;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: 700;
+                display: inline-block;
+            }}
+
+            .syftjob-single-status-pending {{
                 background: #FBBF24;
                 color: #451A03;
                 padding: 4px 8px;
@@ -497,11 +519,44 @@ def job_info_repr_html(job: "JobInfo") -> str:
                 display: inline-block;
             }}
 
+            .syftjob-single-status-rejected {{
+                background: #F87171;
+                color: #7F1D1D;
+                padding: 4px 8px;
+                border: 2px solid #DC2626;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: 700;
+                display: inline-block;
+            }}
+
+            .syftjob-single-status-running {{
+                background: #FB923C;
+                color: #7C2D12;
+                padding: 4px 8px;
+                border: 2px solid #EA580C;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: 700;
+                display: inline-block;
+            }}
+
             .syftjob-single-status-done {{
                 background: #34D399;
                 color: #064E3B;
                 padding: 4px 8px;
                 border: 2px solid #047857;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: 700;
+                display: inline-block;
+            }}
+
+            .syftjob-single-status-failed {{
+                background: #F87171;
+                color: #7F1D1D;
+                padding: 4px 8px;
+                border: 2px solid #DC2626;
                 border-radius: 3px;
                 font-size: 11px;
                 font-weight: 700;
@@ -637,7 +692,7 @@ def job_info_repr_html(job: "JobInfo") -> str:
             <div class="syftjob-single-header">
                 <h3 class="syftjob-single-title">📋 {job.name}</h3>
                 <span class="syftjob-single-status-{job.status}">
-                    {"📥" if job.status == "inbox" else "✅" if job.status == "approved" else "🎉"} {job.status.upper()}
+                    {status_emoji} {job.status.upper()}
                 </span>
             </div>
             <div class="syftjob-single-content">
@@ -652,7 +707,7 @@ def job_info_repr_html(job: "JobInfo") -> str:
                     </div>
                     <div class="syftjob-single-detail">
                         <div class="syftjob-single-detail-label">Location:</div>
-                        <div class="syftjob-single-detail-value">{job.location}</div>
+                        <div class="syftjob-single-detail-value">{job.job_submission_path}</div>
                     </div>
                     <div class="syftjob-single-detail">
                         <div class="syftjob-single-detail-label">Submitted:</div>
@@ -679,7 +734,15 @@ def jobs_list_str(jobs: List["JobInfo"], root_email: str) -> str:
             jobs_by_user[job.datasite_owner_email] = []
         jobs_by_user[job.datasite_owner_email].append(job)
 
-    status_emojis = {"inbox": "📥", "approved": "✅", "done": "🎉"}
+    status_emojis = {
+        "received": "📨",
+        "pending": "📥",
+        "approved": "✅",
+        "rejected": "❌",
+        "running": "🔄",
+        "done": "🎉",
+        "failed": "💥",
+    }
 
     lines = []
     lines.append("📊 Jobs Overview")
@@ -847,7 +910,12 @@ def jobs_list_repr_html(jobs: List["JobInfo"], root_email: str) -> str:
         jobs_by_user[job.datasite_owner_email].append(job)
 
     status_styles = {
-        "inbox": {
+        "received": {
+            "emoji": "📨",
+            "light": {"color": "#888888", "bg": "#f0f0f0"},
+            "dark": {"color": "#aaaaaa", "bg": "#444444"},
+        },
+        "pending": {
             "emoji": "📥",
             "light": {"color": "#6976ae", "bg": "#e8f2ff"},
             "dark": {"color": "#96d195", "bg": "#52a8c5"},
@@ -857,10 +925,25 @@ def jobs_list_repr_html(jobs: List["JobInfo"], root_email: str) -> str:
             "light": {"color": "#53bea9", "bg": "#e6f9f4"},
             "dark": {"color": "#53bea9", "bg": "#2a5d52"},
         },
+        "rejected": {
+            "emoji": "❌",
+            "light": {"color": "#cc3333", "bg": "#ffe8e8"},
+            "dark": {"color": "#ff6666", "bg": "#5a2222"},
+        },
+        "running": {
+            "emoji": "🔄",
+            "light": {"color": "#cc8800", "bg": "#fff3e0"},
+            "dark": {"color": "#ffcc66", "bg": "#5a4422"},
+        },
         "done": {
             "emoji": "🎉",
             "light": {"color": "#937098", "bg": "#f3e5f5"},
             "dark": {"color": "#f2d98c", "bg": "#cc677b"},
+        },
+        "failed": {
+            "emoji": "💥",
+            "light": {"color": "#cc3333", "bg": "#ffe8e8"},
+            "dark": {"color": "#ff6666", "bg": "#5a2222"},
         },
     }
 
@@ -984,7 +1067,18 @@ def jobs_list_repr_html(jobs: List["JobInfo"], root_email: str) -> str:
                 color: #111827;
             }}
 
-            .syftjob-status-inbox {{
+            .syftjob-status-received {{
+                background: #D1D5DB;
+                color: #374151;
+                padding: 3px 8px;
+                border: 2px solid #9CA3AF;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: 700;
+                display: inline-block;
+            }}
+
+            .syftjob-status-pending {{
                 background: #FBBF24;
                 color: #451A03;
                 padding: 3px 8px;
@@ -1006,11 +1100,44 @@ def jobs_list_repr_html(jobs: List["JobInfo"], root_email: str) -> str:
                 display: inline-block;
             }}
 
+            .syftjob-status-rejected {{
+                background: #F87171;
+                color: #7F1D1D;
+                padding: 3px 8px;
+                border: 2px solid #DC2626;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: 700;
+                display: inline-block;
+            }}
+
+            .syftjob-status-running {{
+                background: #FB923C;
+                color: #7C2D12;
+                padding: 3px 8px;
+                border: 2px solid #EA580C;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: 700;
+                display: inline-block;
+            }}
+
             .syftjob-status-done {{
                 background: #34D399;
                 color: #064E3B;
                 padding: 3px 8px;
                 border: 2px solid #047857;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: 700;
+                display: inline-block;
+            }}
+
+            .syftjob-status-failed {{
+                background: #F87171;
+                color: #7F1D1D;
+                padding: 3px 8px;
+                border: 2px solid #DC2626;
                 border-radius: 3px;
                 font-size: 11px;
                 font-weight: 700;

@@ -59,7 +59,7 @@ def test_peer_request_blocks_sync_until_approved():
     assert len(do_cache.file_hashes) > 0, "Cache should have content after approval"
 
     # Verify: File is tracked in cache with correct path (stored as PosixPath)
-    expected_cache_path = Path(f"app_data/job/{ds_manager.email}/test.job")
+    expected_cache_path = Path(f"app_data/job/inbox/{ds_manager.email}/test.job")
     assert expected_cache_path in do_cache.file_hashes, (
         f"File {expected_cache_path} should be in cache"
     )
