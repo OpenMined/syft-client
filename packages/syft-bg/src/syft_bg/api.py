@@ -472,3 +472,125 @@ def ensure_running() -> dict[str, tuple[bool, str]]:
         else:
             results[name] = manager.start_service(name)
     return results
+
+
+# ---------------------------------------------------------------------------
+# Status
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class StatusResult:
+    """Status of syft-bg services and configuration."""
+
+    email: str | None = None
+    syftbox_root: str | None = None
+    services: dict[str, str] = field(default_factory=dict)
+    email_configured: bool = False
+    approved_peers: dict[str, list[str]] = field(default_factory=dict)
+    approved_domains: list[str] = field(default_factory=list)
+    is_colab: bool = False
+
+    def __repr__(self) -> str:
+        lines = ["syft-bg status"]
+        lines.append("=" * 40)
+
+        # User / environment
+        lines.append(f"  email:       {self.email or 'not configured'}")
+        lines.append(f"  syftbox:     {self.syftbox_root or 'not configured'}")
+        lines.append(f"  environment: {'Colab' if self.is_colab else 'local'}")
+        lines.append(
+            f"  gmail:       {'ready' if self.email_configured else 'not set up'}"
+        )
+
+        # Services
+        lines.append("")
+        lines.append("services")
+        lines.append("-" * 40)
+        for name, svc_status in self.services.items():
+            lines.append(f"  {name:<12} {svc_status}")
+
+        # Approved peers & scripts
+        if self.approved_peers:
+            lines.append("")
+            lines.append("approved peers")
+            lines.append("-" * 40)
+            for peer, scripts in self.approved_peers.items():
+                lines.append(f"  {peer}")
+                for script in scripts:
+                    lines.append(f"    - {script}")
+
+        # Approved domains
+        if self.approved_domains:
+            lines.append("")
+            lines.append("auto-approved domains")
+            lines.append("-" * 40)
+            for domain in self.approved_domains:
+                lines.append(f"  {domain}")
+
+        return "\n".join(lines)
+
+
+def status() -> StatusResult:
+    """Get the current status of syft-bg services and configuration.
+
+    Returns:
+        StatusResult with service states, user info, and approval config.
+
+    Example:
+        >>> import syft_bg
+        >>> syft_bg.status
+        syft-bg status
+        ========================================
+          email:       user@example.com
+          syftbox:     ~/SyftBox
+          environment: local
+          gmail:       ready
+        ...
+    """
+    from syft_bg.common.config import get_default_paths, load_yaml
+    from syft_bg.services import ServiceManager
+    from syft_bg.services.base import ServiceStatus
+
+    creds_dir = get_creds_dir()
+    paths = get_default_paths()
+    colab = is_colab()
+
+    # Load config
+    config = load_yaml(paths.config)
+
+    # Service status
+    manager = ServiceManager()
+    services = {}
+    for name, info in manager.get_all_status().items():
+        if info.status == ServiceStatus.RUNNING:
+            services[name] = f"running (PID {info.pid})"
+        else:
+            services[name] = "stopped"
+
+    # Gmail token
+    gmail_token_path = creds_dir / "gmail_token.json"
+    email_configured = gmail_token_path.exists()
+
+    # Approval config
+    approved_peers: dict[str, list[str]] = {}
+    approved_domains: list[str] = []
+    approve_section = config.get("approve", {})
+    jobs_section = approve_section.get("jobs", {})
+    peers_section = approve_section.get("peers", {})
+
+    for peer_email, entry in jobs_section.get("peers", {}).items():
+        scripts = entry.get("scripts", [])
+        approved_peers[peer_email] = [s.get("name", "?") for s in scripts]
+
+    approved_domains = peers_section.get("approved_domains", [])
+
+    return StatusResult(
+        email=config.get("do_email"),
+        syftbox_root=config.get("syftbox_root"),
+        services=services,
+        email_configured=email_configured,
+        approved_peers=approved_peers,
+        approved_domains=approved_domains,
+        is_colab=colab,
+    )
