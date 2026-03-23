@@ -604,3 +604,166 @@ def status() -> StatusResult:
         approved_domains=approved_domains,
         is_colab=colab,
     )
+
+
+# ---------------------------------------------------------------------------
+# Auto-approve
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AutoApproveResult:
+    """Result of auto_approve() call."""
+
+    success: bool
+    name: str = ""
+    scripts: list[str] = field(default_factory=list)
+    file_names: list[str] = field(default_factory=list)
+    peers: list[str] = field(default_factory=list)
+    error: str | None = None
+
+    def __repr__(self) -> str:
+        lines = []
+        if self.success:
+            lines.append(f"AutoApproveResult: OK [{self.name}]")
+            if self.scripts:
+                lines.append("  scripts:")
+                for s in self.scripts:
+                    lines.append(f"    - {s}")
+            if self.file_names:
+                lines.append(f"  file_names: {', '.join(self.file_names)}")
+            if self.peers:
+                lines.append(f"  peers: {', '.join(self.peers)}")
+            else:
+                lines.append("  peers: (any)")
+        else:
+            lines.append("AutoApproveResult: FAILED")
+            if self.error:
+                lines.append(f"  error: {self.error}")
+        return "\n".join(lines)
+
+
+def auto_approve(
+    contents: list[str | Path],
+    file_names: list[str] | None = None,
+    peers: list[str] | None = None,
+    name: str | None = None,
+) -> AutoApproveResult:
+    """Create an auto-approval object.
+
+    Copies .py scripts to a managed directory, computes hashes, and saves
+    the approval configuration. The approve service will use this to
+    automatically approve matching jobs.
+
+    Args:
+        contents: List of .py file paths to approve. Directories are expanded
+                  to all .py files within them.
+        file_names: Non-.py filenames to allow (e.g. ["params.json"]).
+        peers: Peer emails to restrict to. If None or empty, any peer matches.
+        name: Name for the auto-approval object. Auto-generated if not provided.
+
+    Returns:
+        AutoApproveResult with the created object details.
+
+    Example:
+        >>> import syft_bg
+        >>> syft_bg.auto_approve(
+        ...     contents=["main.py"],
+        ...     file_names=["params.json"],
+        ...     peers=["charlie@org.com"],
+        ... )
+        AutoApproveResult: OK [main]
+          scripts:
+            - main.py
+          file_names: params.json
+          peers: charlie@org.com
+    """
+    import hashlib
+    import shutil
+
+    from syft_bg.approve.config import ApproveConfig, AutoApprovalObj, ScriptEntry
+    from syft_bg.common.config import get_default_paths
+
+    if file_names is None:
+        file_names = []
+    if peers is None:
+        peers = []
+
+    # Resolve all .py files
+    py_files: list[Path] = []
+    for item in contents:
+        p = Path(item).expanduser()
+        if p.is_dir():
+            found = sorted(p.rglob("*.py"))
+            if not found:
+                return AutoApproveResult(
+                    success=False, error=f"No .py files found in {p}"
+                )
+            py_files.extend(found)
+        elif not p.exists():
+            return AutoApproveResult(success=False, error=f"File not found: {p}")
+        elif p.suffix != ".py":
+            return AutoApproveResult(success=False, error=f"{p.name} is not a .py file")
+        else:
+            py_files.append(p)
+
+    if not py_files:
+        return AutoApproveResult(success=False, error="No .py files to process")
+
+    # Auto-generate name
+    if name is None:
+        name = py_files[0].stem if len(py_files) == 1 else "auto_approval"
+
+    # Load config and ensure unique name
+    config = ApproveConfig.load()
+    if name in config.auto_approvals.objects:
+        base_name = name
+        counter = 1
+        while f"{base_name}_{counter}" in config.auto_approvals.objects:
+            counter += 1
+        name = f"{base_name}_{counter}"
+
+    # Copy scripts to managed directory and hash
+    paths = get_default_paths()
+    obj_dir = paths.auto_approvals_dir / name
+    obj_dir.mkdir(parents=True, exist_ok=True)
+
+    script_entries: list[ScriptEntry] = []
+    for file_path in py_files:
+        dest = obj_dir / file_path.name
+        shutil.copy2(file_path, dest)
+        content = dest.read_text(encoding="utf-8")
+        file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+        script_entries.append(
+            ScriptEntry(name=file_path.name, path=str(dest), hash=file_hash)
+        )
+
+    obj = AutoApprovalObj(
+        scripts=script_entries,
+        file_names=file_names,
+        peers=peers,
+    )
+    config.auto_approvals.objects[name] = obj
+    config.save()
+
+    # Restart approve service if running
+    try:
+        from syft_bg.services import ServiceManager
+        from syft_bg.services.base import ServiceStatus
+
+        manager = ServiceManager()
+        approve_svc = manager.get_service("approve")
+        if approve_svc:
+            svc_status = approve_svc.get_status()
+            if svc_status and svc_status.status == ServiceStatus.RUNNING:
+                manager.restart_service("approve")
+    except Exception:
+        pass
+
+    return AutoApproveResult(
+        success=True,
+        name=name,
+        scripts=[e.name for e in script_entries],
+        file_names=file_names,
+        peers=peers,
+    )

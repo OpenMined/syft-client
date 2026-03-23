@@ -7,7 +7,6 @@ from syft_bg.approve.config import (
     PeerApprovalConfig,
     ScriptEntry,
 )
-from syft_bg.approve.orchestrator import ApprovalOrchestrator
 
 __all__ = [
     "ApproveConfig",
@@ -17,3 +16,11 @@ __all__ = [
     "PeerApprovalConfig",
     "ApprovalOrchestrator",
 ]
+
+
+def __getattr__(name: str):
+    if name == "ApprovalOrchestrator":
+        from syft_bg.approve.orchestrator import ApprovalOrchestrator
+
+        return ApprovalOrchestrator
+    raise AttributeError(f"module 'syft_bg.approve' has no attribute {name!r}")

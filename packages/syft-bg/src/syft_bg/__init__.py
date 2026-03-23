@@ -2,9 +2,11 @@ __version__ = "0.1.0"
 
 from syft_bg.api import (
     AuthResult,
+    AutoApproveResult,
     InitResult,
     StatusResult,
     authenticate,
+    auto_approve,
     ensure_running,
     init,
     logs,
@@ -20,6 +22,8 @@ __all__ = [
     "InitResult",
     "authenticate",
     "AuthResult",
+    "auto_approve",
+    "AutoApproveResult",
     "status",
     "StatusResult",
     "start",
