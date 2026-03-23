@@ -5,7 +5,7 @@ from .config import SyftJobConfig
 from .job import JobInfo, JobsList
 from .job_runner import SyftJobRunner, create_runner
 from .models.config import JobSubmissionMetadata
-from .models.state import JobState, JobStatus, PartyApprovalStatus
+from .models.state import JobState, JobStatus
 
 __all__ = [
     # SyftBox job system
@@ -22,5 +22,4 @@ __all__ = [
     "JobSubmissionMetadata",
     "JobState",
     "JobStatus",
-    "PartyApprovalStatus",
 ]

@@ -6,10 +6,15 @@ from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.peers.peer import Peer
 from syft_client.sync.peers.peer_list import PeerList
 from syft_datasets.dataset_manager import SyftDatasetManager
-from syft_job.job import JobsList
+from syft_job.job import JobInfo, JobsList
 from syft_job.models.config import JobSubmissionMetadata
-from syft_job.job import JobInfo
-from syft_job.models.state import JobState, JobStatus, PartyApprovalStatus
+from syft_job.models.state import JobState, JobStatus
+
+from syft_enclaves.enclave_job_info import (
+    EnclaveJobInfo,
+    PartyApprovalStatus,
+    enclave_approval_file_name,
+)
 from syft_perms.syftperm_context import SyftPermContext
 
 from syft_enclaves.enclave_job_client import EnclaveJobClient
@@ -69,7 +74,14 @@ class SyftEnclaveClient:
 
     @property
     def jobs(self) -> JobsList:
-        return self._manager.job_client.jobs
+        jobs_list = self._manager.job_client.jobs
+        wrapped = [
+            EnclaveJobInfo.from_job_info(j)
+            if j.job_headers.get("job_type") == "enclave"
+            else j
+            for j in jobs_list
+        ]
+        return JobsList(wrapped, jobs_list._root_email)
 
     def submit_python_job(
         self,
@@ -88,7 +100,7 @@ class SyftEnclaveClient:
     def approve_job(self, job: JobInfo) -> None:
         """Approve an enclave job and push the approval state file to the enclave."""
         job.approve()
-        file_name = JobState.enclave_approval_file_name(self.email)
+        file_name = enclave_approval_file_name(self.email)
         approval_file = job.job_review_path / file_name
         relative_path = approval_file.relative_to(self._manager.syftbox_folder)
         self._manager.datasite_watcher_syncer.on_file_change(
@@ -162,7 +174,7 @@ class SyftEnclaveClient:
         """Forward each DO's approval state file to them individually."""
         datasite_dir = self._manager.syftbox_folder / self._manager.email
         for do_email in do_emails:
-            file_name = JobState.enclave_approval_file_name(do_email)
+            file_name = enclave_approval_file_name(do_email)
             approval_file = review_dir / file_name
             path_in_datasite = approval_file.relative_to(datasite_dir)
             files = {path_in_datasite: approval_file.read_bytes()}
@@ -194,28 +206,20 @@ class SyftEnclaveClient:
         do_emails: list[str],
         datasets: dict[str, list[str]],
     ):
-        """Create and save JobState with PartyApprovalStatus entries per DO.
-
-        Also creates individual <do_email>_approval_state.json files.
-        """
-        approval_states = [
-            PartyApprovalStatus(
-                party=do_email,
-                dataset=",".join(datasets.get(do_email, [])),
-            )
-            for do_email in do_emails
-        ]
+        """Create JobState and individual <do_email>_approval_state.json files."""
         state = JobState(
             status=JobStatus.PENDING,
             received_at=datetime.now(timezone.utc),
-            approval_states=approval_states,
         )
         review_dir.mkdir(parents=True, exist_ok=True)
         state.save(review_dir / "state.yaml")
 
-        for approval in approval_states:
-            file_name = JobState.enclave_approval_file_name(approval.party)
-            approval.save_json(review_dir / file_name)
+        for do_email in do_emails:
+            approval = PartyApprovalStatus(
+                party=do_email,
+                dataset=",".join(datasets.get(do_email, [])),
+            )
+            approval.save_json(review_dir / enclave_approval_file_name(do_email))
 
     def _set_job_permissions(self, job_dir: Path, do_emails: list[str]):
         """Grant DOs read access to inbox and read+write on their approval file."""
@@ -232,7 +236,7 @@ class SyftEnclaveClient:
 
         for do_email in do_emails:
             ctx.open(inbox_rel).grant_read_access(do_email)
-            approval_rel = review_rel / JobState.enclave_approval_file_name(do_email)
+            approval_rel = review_rel / enclave_approval_file_name(do_email)
             ctx.open(approval_rel).grant_write_access(do_email)
 
     @classmethod
