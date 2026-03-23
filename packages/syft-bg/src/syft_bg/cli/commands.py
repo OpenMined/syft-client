@@ -532,35 +532,52 @@ def hash(file: str, length: int):
 @click.option(
     "--peers",
     "-p",
-    required=True,
     multiple=True,
-    help="Peer email(s) to assign scripts to. Can be specified multiple times.",
+    help="Peer email(s) to restrict to. Can be specified multiple times.",
+)
+@click.option(
+    "--name",
+    "-n",
+    default=None,
+    help="Name for the auto-approval object. Auto-generated if not provided.",
+)
+@click.option(
+    "--file-names",
+    "-f",
+    multiple=True,
+    help="Non-.py filenames to allow (e.g. params.json).",
 )
 @click.option(
     "--replace",
     is_flag=True,
-    help="Replace all existing scripts for these peers instead of adding.",
+    help="Replace existing object with this name instead of updating.",
 )
-def set_script(scripts: tuple[str, ...], peers: tuple[str, ...], replace: bool):
-    """Set approved scripts for one or more peers.
+def set_script(
+    scripts: tuple[str, ...],
+    peers: tuple[str, ...],
+    name: str | None,
+    file_names: tuple[str, ...],
+    replace: bool,
+):
+    """Create or update an auto-approval object.
 
     Accepts multiple .py files or directories. Directories are expanded
-    to all .py files within them. By default, scripts are added to the
-    existing list (updating the hash if the name already exists).
+    to all .py files within them. Scripts are copied to the managed
+    auto-approvals directory and hashed.
 
     Examples:
 
       syft-bg set-script main.py -p alice@uni.edu -p bob@co.com
 
-      syft-bg set-script main.py utils.py -p charlie@org.com
+      syft-bg set-script main.py utils.py -n my_analysis
 
-      syft-bg set-script ./src/ -p alice@uni.edu
-
-      syft-bg set-script main.py -p alice@uni.edu --replace
+      syft-bg set-script ./src/ -p alice@uni.edu -f params.json
     """
+    import shutil
     from pathlib import Path
 
-    from syft_bg.approve.config import ApproveConfig, PeerApprovalEntry, ScriptRule
+    from syft_bg.approve.config import ApproveConfig, AutoApprovalObj, ScriptEntry
+    from syft_bg.common.config import get_default_paths
 
     # Resolve all .py files from arguments (files and directories)
     py_files: list[Path] = []
@@ -581,37 +598,63 @@ def set_script(scripts: tuple[str, ...], peers: tuple[str, ...], replace: bool):
         click.echo("Error: no .py files to process", err=True)
         raise SystemExit(1)
 
-    # Hash each file
-    new_rules: list[ScriptRule] = []
+    # Auto-generate name if not provided
+    if name is None:
+        name = py_files[0].stem if len(py_files) == 1 else "auto_approval"
+        # Ensure unique name
+        config = ApproveConfig.load()
+        base_name = name
+        counter = 1
+        while name in config.auto_approvals.objects and not replace:
+            name = f"{base_name}_{counter}"
+            counter += 1
+    else:
+        config = ApproveConfig.load()
+
+    # Copy scripts to managed directory and hash
+    paths = get_default_paths()
+    obj_dir = paths.auto_approvals_dir / name
+    obj_dir.mkdir(parents=True, exist_ok=True)
+
+    script_entries: list[ScriptEntry] = []
     for file_path in py_files:
-        try:
-            content = file_path.read_text(encoding="utf-8")
-            file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
-        except Exception as e:
-            click.echo(f"Error reading {file_path}: {e}", err=True)
-            raise SystemExit(1)
-        new_rules.append(ScriptRule(name=file_path.name, hash=file_hash))
+        dest = obj_dir / file_path.name
+        shutil.copy2(file_path, dest)
+        content = dest.read_text(encoding="utf-8")
+        file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+        script_entries.append(
+            ScriptEntry(name=file_path.name, path=str(dest), hash=file_hash)
+        )
 
-    config = ApproveConfig.load()
+    obj = AutoApprovalObj(
+        scripts=script_entries,
+        file_names=list(file_names),
+        peers=list(peers),
+    )
 
-    for peer_email in peers:
-        if replace or peer_email not in config.jobs.peers:
-            config.jobs.peers[peer_email] = PeerApprovalEntry(
-                mode="strict", scripts=list(new_rules)
-            )
-        else:
-            # Additive: update hash if name exists, append if new
-            existing = config.jobs.peers[peer_email]
-            existing_by_name = {r.name: r for r in existing.scripts}
-            for rule in new_rules:
-                existing_by_name[rule.name] = rule
-            existing.scripts = list(existing_by_name.values())
+    if not replace and name in config.auto_approvals.objects:
+        # Additive: merge scripts, peers, file_names
+        existing = config.auto_approvals.objects[name]
+        existing_by_name = {s.name: s for s in existing.scripts}
+        for entry in script_entries:
+            existing_by_name[entry.name] = entry
+        existing.scripts = list(existing_by_name.values())
+        existing.peers = list(set(existing.peers + list(peers)))
+        existing.file_names = list(set(existing.file_names + list(file_names)))
+    else:
+        config.auto_approvals.objects[name] = obj
 
     config.save()
 
-    for rule in new_rules:
-        click.echo(f"  {rule.name}  {rule.hash}")
-    click.echo(f"Peers: {', '.join(peers)}")
+    click.echo(f"Auto-approval object: {name}")
+    for entry in script_entries:
+        click.echo(f"  {entry.name}  {entry.hash}")
+    if peers:
+        click.echo(f"Peers: {', '.join(peers)}")
+    else:
+        click.echo("Peers: (any)")
+    if file_names:
+        click.echo(f"Allowed files: {', '.join(file_names)}")
     click.echo()
     click.echo("Config updated.")
 
@@ -632,102 +675,127 @@ def set_script(scripts: tuple[str, ...], peers: tuple[str, ...], replace: bool):
 @main.command("remove-script")
 @click.argument("files", nargs=-1, required=True)
 @click.option(
-    "--peers",
-    "-p",
+    "--name",
+    "-n",
     required=True,
-    multiple=True,
-    help="Peer email(s) to remove scripts from.",
+    help="Name of the auto-approval object to remove scripts from.",
 )
-def remove_script(files: tuple[str, ...], peers: tuple[str, ...]):
-    """Remove approved scripts by filename for one or more peers.
+def remove_script(files: tuple[str, ...], name: str):
+    """Remove scripts from an auto-approval object.
 
     Examples:
 
-      syft-bg remove-script utils.py -p alice@uni.edu
+      syft-bg remove-script utils.py -n my_analysis
 
-      syft-bg remove-script main.py utils.py -p bob@co.com
+      syft-bg remove-script main.py utils.py -n my_analysis
     """
     from syft_bg.approve.config import ApproveConfig
 
     config = ApproveConfig.load()
-    removed = 0
 
-    for peer_email in peers:
-        if peer_email not in config.jobs.peers:
-            click.echo(f"Warning: peer {peer_email} not found in config", err=True)
-            continue
-        entry = config.jobs.peers[peer_email]
-        before = len(entry.scripts)
-        entry.scripts = [r for r in entry.scripts if r.name not in files]
-        removed += before - len(entry.scripts)
+    if name not in config.auto_approvals.objects:
+        click.echo(f"Auto-approval object '{name}' not found in config.", err=True)
+        raise SystemExit(1)
+
+    obj = config.auto_approvals.objects[name]
+    before = len(obj.scripts)
+    obj.scripts = [s for s in obj.scripts if s.name not in files]
+    removed = before - len(obj.scripts)
 
     config.save()
-    click.echo(f"Removed {removed} script(s) from {len(peers)} peer(s).")
+    click.echo(f"Removed {removed} script(s) from '{name}'.")
 
 
 @main.command("remove-peer")
 @click.argument("peer")
-def remove_peer(peer: str):
-    """Remove a peer and all their approved scripts from config.
+@click.option(
+    "--name",
+    "-n",
+    default=None,
+    help="Remove peer from a specific object only. If not given, removes from all.",
+)
+def remove_peer(peer: str, name: str | None):
+    """Remove a peer from auto-approval objects.
 
     Examples:
 
       syft-bg remove-peer alice@uni.edu
+
+      syft-bg remove-peer alice@uni.edu -n my_analysis
     """
     from syft_bg.approve.config import ApproveConfig
 
     config = ApproveConfig.load()
+    removed_from = 0
 
-    if peer not in config.jobs.peers:
-        click.echo(f"Peer {peer} not found in config.", err=True)
+    if name:
+        if name not in config.auto_approvals.objects:
+            click.echo(f"Auto-approval object '{name}' not found.", err=True)
+            raise SystemExit(1)
+        obj = config.auto_approvals.objects[name]
+        if peer in obj.peers:
+            obj.peers.remove(peer)
+            removed_from = 1
+    else:
+        for obj in config.auto_approvals.objects.values():
+            if peer in obj.peers:
+                obj.peers.remove(peer)
+                removed_from += 1
+
+    if removed_from == 0:
+        click.echo(f"Peer {peer} not found in any auto-approval object.", err=True)
         raise SystemExit(1)
 
-    del config.jobs.peers[peer]
     config.save()
-    click.echo(f"Removed peer: {peer}")
+    click.echo(f"Removed peer {peer} from {removed_from} object(s).")
 
 
 @main.command("list-scripts")
 @click.option(
-    "--peer",
-    "-p",
+    "--name",
+    "-n",
     default=None,
-    help="Show scripts for a specific peer only.",
+    help="Show a specific auto-approval object only.",
 )
-def list_scripts(peer: str | None):
-    """List approved scripts for all peers (or a specific peer).
+def list_scripts(name: str | None):
+    """List auto-approval objects and their scripts.
 
     Examples:
 
       syft-bg list-scripts
 
-      syft-bg list-scripts -p alice@uni.edu
+      syft-bg list-scripts -n my_analysis
     """
     from syft_bg.approve.config import ApproveConfig
 
     config = ApproveConfig.load()
 
-    if not config.jobs.peers:
-        click.echo("No peers configured.")
+    if not config.auto_approvals.objects:
+        click.echo("No auto-approval objects configured.")
         return
 
-    peers_to_show = (
-        {peer: config.jobs.peers[peer]}
-        if peer and peer in config.jobs.peers
-        else config.jobs.peers
-    )
+    if name:
+        if name not in config.auto_approvals.objects:
+            click.echo(f"Auto-approval object '{name}' not found.", err=True)
+            raise SystemExit(1)
+        objects_to_show = {name: config.auto_approvals.objects[name]}
+    else:
+        objects_to_show = config.auto_approvals.objects
 
-    if peer and peer not in config.jobs.peers:
-        click.echo(f"Peer {peer} not found in config.", err=True)
-        raise SystemExit(1)
-
-    for email, entry in peers_to_show.items():
-        click.echo(f"\n{email} (mode: {entry.mode})")
-        if entry.scripts:
-            for rule in entry.scripts:
-                click.echo(f"  {rule.name:<30} {rule.hash}")
+    for obj_name, obj in objects_to_show.items():
+        click.echo(f"\n[{obj_name}]")
+        if obj.scripts:
+            click.echo("  Scripts:")
+            for entry in obj.scripts:
+                click.echo(f"    {entry.name:<30} {entry.hash}")
         else:
-            click.echo("  (no scripts)")
+            click.echo("  Scripts: (none)")
+        if obj.file_names:
+            click.echo(f"  Allowed files: {', '.join(obj.file_names)}")
+        if obj.peers:
+            click.echo(f"  Peers: {', '.join(obj.peers)}")
+        else:
+            click.echo("  Peers: (any)")
     click.echo()
 
 

@@ -487,7 +487,7 @@ class StatusResult:
     syftbox_root: str | None = None
     services: dict[str, str] = field(default_factory=dict)
     email_configured: bool = False
-    approved_peers: dict[str, list[str]] = field(default_factory=dict)
+    auto_approvals: dict[str, dict] = field(default_factory=dict)
     approved_domains: list[str] = field(default_factory=list)
     is_colab: bool = False
 
@@ -510,15 +510,22 @@ class StatusResult:
         for name, svc_status in self.services.items():
             lines.append(f"  {name:<12} {svc_status}")
 
-        # Approved peers & scripts
-        if self.approved_peers:
+        # Auto-approval objects
+        if self.auto_approvals:
             lines.append("")
-            lines.append("approved peers")
+            lines.append("auto-approval objects")
             lines.append("-" * 40)
-            for peer, scripts in self.approved_peers.items():
-                lines.append(f"  {peer}")
-                for script in scripts:
-                    lines.append(f"    - {script}")
+            for obj_name, obj_data in self.auto_approvals.items():
+                lines.append(f"  [{obj_name}]")
+                for script in obj_data.get("scripts", []):
+                    lines.append(f"    script: {script}")
+                for fname in obj_data.get("file_names", []):
+                    lines.append(f"    file:   {fname}")
+                peers = obj_data.get("peers", [])
+                if peers:
+                    lines.append(f"    peers:  {', '.join(peers)}")
+                else:
+                    lines.append("    peers:  (any)")
 
         # Approved domains
         if self.approved_domains:
@@ -573,15 +580,18 @@ def status() -> StatusResult:
     email_configured = gmail_token_path.exists()
 
     # Approval config
-    approved_peers: dict[str, list[str]] = {}
+    auto_approvals: dict[str, dict] = {}
     approved_domains: list[str] = []
     approve_section = config.get("approve", {})
-    jobs_section = approve_section.get("jobs", {})
+    aa_section = approve_section.get("auto_approvals", {})
     peers_section = approve_section.get("peers", {})
 
-    for peer_email, entry in jobs_section.get("peers", {}).items():
-        scripts = entry.get("scripts", [])
-        approved_peers[peer_email] = [s.get("name", "?") for s in scripts]
+    for obj_name, obj_data in aa_section.get("objects", {}).items():
+        auto_approvals[obj_name] = {
+            "scripts": [s.get("name", "?") for s in obj_data.get("scripts", [])],
+            "file_names": obj_data.get("file_names", []),
+            "peers": obj_data.get("peers", []),
+        }
 
     approved_domains = peers_section.get("approved_domains", [])
 
@@ -590,7 +600,7 @@ def status() -> StatusResult:
         syftbox_root=config.get("syftbox_root"),
         services=services,
         email_configured=email_configured,
-        approved_peers=approved_peers,
+        auto_approvals=auto_approvals,
         approved_domains=approved_domains,
         is_colab=colab,
     )
