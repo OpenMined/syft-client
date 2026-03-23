@@ -145,9 +145,18 @@ class SyftEnclaveClient:
 
         self._manager.sync()
 
-    def _forward_results_to_recipients(self, job: JobInfo, do_emails: list[str]):
-        """Forward job review dir (state.yaml + outputs) to DOs via event outbox."""
-        files = self._collect_job_files(job.job_review_path)
+    def _forward_results_to_recipients(self, job: JobInfo, recipients: list[str]):
+        """Forward job output files and state to recipients via event outbox."""
+        outputs_dir = job.job_review_path / "outputs"
+        if not outputs_dir.exists():
+            return
+        files = self._get_files_in_dir(outputs_dir)
+        # Include state.yaml so recipients can see the job is done
+        state_file = job.job_review_path / "state.yaml"
+        if state_file.exists():
+            datasite_dir = self._manager.syftbox_folder / self._manager.email
+            state_rel = state_file.relative_to(datasite_dir)
+            files[state_rel] = state_file.read_bytes()
         if not files:
             return
         events_message = (
@@ -156,7 +165,7 @@ class SyftEnclaveClient:
             )
         )
         self._manager.datasite_owner_syncer.queue_event_for_syftbox(
-            recipients=do_emails,
+            recipients=recipients,
             file_change_events_message=events_message,
         )
         self._manager.datasite_owner_syncer.process_syftbox_events_queue()
@@ -222,7 +231,7 @@ class SyftEnclaveClient:
 
     def _forward_job_to_dos(self, job_dir: Path, do_emails: list[str]):
         """Forward job files to DOs via the event-based outbox mechanism."""
-        files = self._collect_job_files(job_dir)
+        files = self._get_files_in_dir(job_dir)
         events_message = (
             self._manager.datasite_owner_syncer.event_cache.create_events_for_files(
                 files
@@ -253,7 +262,7 @@ class SyftEnclaveClient:
             )
             self._manager.datasite_owner_syncer.process_syftbox_events_queue()
 
-    def _collect_job_files(self, job_dir: Path) -> dict[Path, bytes]:
+    def _get_files_in_dir(self, job_dir: Path) -> dict[Path, bytes]:
         """Read all files under job_dir, return {path_in_datasite: bytes}."""
         datasite_dir = self._manager.syftbox_folder / self._manager.email
         files = {}
