@@ -35,7 +35,9 @@ class InitResult:
         if self.issues:
             lines.append("  issues:")
             for issue in self.issues:
-                lines.append(f"    - {issue}")
+                # Indent continuation lines of multi-line issues
+                indented = issue.replace("\n", "\n      ")
+                lines.append(f"    - {indented}")
         return "\n".join(lines)
 
 
@@ -51,15 +53,17 @@ def _check_prerequisites(
     creds_dir = get_creds_dir()
     issues = []
 
+    auth_docs = "https://github.com/OpenMined/syft-client/blob/main/docs/auth.md"
+
     # Check credentials.json
     creds_path = (
         Path(credentials_path) if credentials_path else creds_dir / "credentials.json"
     )
     if not creds_path.exists():
         issues.append(
-            f"credentials.json not found at {creds_path}. "
-            "Get it from Google Cloud Console → APIs & Services → Credentials → "
-            "Create OAuth 2.0 Client ID (Desktop app) → Download as credentials.json"
+            f"credentials.json not found at {creds_path}\n"
+            f"  Follow the setup guide: {auth_docs}\n"
+            f"  Then place credentials.json at: {creds_path}"
         )
 
     # Check Gmail token
@@ -68,9 +72,9 @@ def _check_prerequisites(
     )
     if not gmail_path.exists():
         issues.append(
-            f"Gmail token not found at {gmail_path}. "
-            "Run 'syft-bg init' interactively to complete Gmail authentication, "
-            "or provide an existing token with gmail_token_path=..."
+            f"Gmail token not found at {gmail_path}\n"
+            f"  Generate it: python scripts/create_token.py --credentials {creds_path} --output {gmail_path}\n"
+            f"  Or pass an existing token: syft_bg.init(..., gmail_token_path='path/to/token.json')"
         )
 
     # Check Drive token (not needed on Colab)
@@ -80,9 +84,9 @@ def _check_prerequisites(
         )
         if not drive_path.exists():
             issues.append(
-                f"Drive token not found at {drive_path}. "
-                "Run 'syft-bg init' interactively to complete Drive authentication, "
-                "or provide an existing token with drive_token_path=..."
+                f"Drive token not found at {drive_path}\n"
+                f"  Generate it: python scripts/create_token.py --credentials {creds_path} --output {drive_path}\n"
+                f"  Or pass an existing token: syft_bg.init(..., drive_token_path='path/to/token.json')"
             )
 
     return issues
