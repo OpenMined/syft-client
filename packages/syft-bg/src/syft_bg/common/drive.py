@@ -7,7 +7,15 @@ DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
 def is_colab() -> bool:
-    """Check if running in Google Colab."""
+    """Check if running in Google Colab.
+
+    Returns False in daemon subprocesses even on Colab, since daemons
+    cannot use interactive Colab auth (no IPython kernel).
+    """
+    import os
+
+    if os.environ.get("SYFT_BG_DAEMON"):
+        return False
     try:
         import google.colab  # noqa: F401
 
