@@ -21,15 +21,6 @@ class JobStatus(str, Enum):
     FAILED = "failed"  # execution failed
 
 
-class PartyApprovalStatus(BaseModel):
-    """Tracks approval from a single party in a multi-party (enclave) job."""
-
-    party: str
-    dataset: Optional[str] = None
-    status: JobStatus = JobStatus.PENDING
-    approved_at: Optional[datetime] = None
-
-
 class JobState(BaseModel):
     """Represents the state of a job, stored as state.yaml in the review/ directory."""
 
@@ -48,21 +39,6 @@ class JobState(BaseModel):
     # Completion
     completed_at: Optional[datetime] = None
     return_code: Optional[int] = None
-
-    # Multi-party approval (enclave jobs) — empty for local jobs
-    approval_states: list[PartyApprovalStatus] = []
-
-    @property
-    def is_enclave_job(self) -> bool:
-        """Check if the job is an enclave job."""
-        return len(self.approval_states) > 0
-
-    @property
-    def all_parties_approved(self) -> bool:
-        """Check if all parties have approved (for enclave jobs)."""
-        if not self.is_enclave_job:
-            return self.status == JobStatus.APPROVED
-        return all(a.status == JobStatus.APPROVED for a in self.approval_states)
 
     def save(self, path: Path) -> None:
         """Write state to a YAML file."""

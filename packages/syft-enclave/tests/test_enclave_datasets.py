@@ -43,6 +43,13 @@ def test_share_private_dataset_with_enclave():
     assert len(ds_datasets) == 1
     assert ds_datasets[0].name == "testdataset"
     assert len(ds_datasets[0].mock_files) == 1
+
+    # DS can read mock file content
+    ds_dataset = ds.datasets.get("testdataset", datasite=do1.email)
+    assert ds_dataset is not None
+    mock_content = ds_dataset.mock_files[0].read_text()
+    assert mock_content == "Hello, world!"
+
     non_existing_ds_private_dir = (
         ds._manager.syftbox_folder
         / do1.email

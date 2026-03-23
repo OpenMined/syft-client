@@ -37,6 +37,7 @@ class JobInfo:
         self.datasite_owner_email = datasite_owner_email
         self.current_user_email = current_user_email
         self._client = client
+        self.job_headers = dict(job_metadata.headers)
 
     @property
     def job_submission_path(self) -> Path:

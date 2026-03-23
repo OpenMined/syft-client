@@ -1,5 +1,6 @@
 import os
 import shutil
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -20,7 +21,36 @@ RUN_SCRIPT_PYTHON_VERSION = "3.12"
 VALID_SUBMISSION_ENTRIES = {"code", "run.sh", "config.yaml"}
 
 
-class JobClient:
+class BaseJobClient(ABC):
+    """Interface for job clients."""
+
+    config: SyftJobConfig
+    current_user_email: str
+
+    @abstractmethod
+    def submit_python_job(
+        self,
+        user: str,
+        code_path: str,
+        job_name: Optional[str] = "",
+        **kwargs,
+    ) -> Path: ...
+
+    @abstractmethod
+    def submit_bash_job(self, user: str, script: str, job_name: str = "") -> Path: ...
+
+    @abstractmethod
+    def setup_ds_job_folder_as_do(self, ds_email: str) -> Path: ...
+
+    @abstractmethod
+    def scan_inbox(self) -> None: ...
+
+    @property
+    @abstractmethod
+    def jobs(self) -> JobsList: ...
+
+
+class JobClient(BaseJobClient):
     """Client for submitting jobs to SyftBox."""
 
     def __init__(
