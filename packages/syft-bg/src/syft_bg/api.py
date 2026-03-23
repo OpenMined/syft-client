@@ -216,3 +216,102 @@ def init(
 
     except Exception as e:
         return InitResult(success=False, error=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Service control
+# ---------------------------------------------------------------------------
+
+
+def start(service: str | None = None) -> dict[str, tuple[bool, str]]:
+    """Start background services.
+
+    Args:
+        service: Name of a specific service to start (e.g. "notify", "approve").
+                 If None, starts all services.
+
+    Returns:
+        Dict mapping service name to (success, message).
+    """
+    from syft_bg.services import ServiceManager
+
+    manager = ServiceManager()
+    if service:
+        return {service: manager.start_service(service)}
+    return manager.start_all()
+
+
+def stop(service: str | None = None) -> dict[str, tuple[bool, str]]:
+    """Stop background services.
+
+    Args:
+        service: Name of a specific service to stop.
+                 If None, stops all services.
+
+    Returns:
+        Dict mapping service name to (success, message).
+    """
+    from syft_bg.services import ServiceManager
+
+    manager = ServiceManager()
+    if service:
+        return {service: manager.stop_service(service)}
+    return manager.stop_all()
+
+
+def restart(service: str | None = None) -> dict[str, tuple[bool, str]]:
+    """Restart background services.
+
+    Args:
+        service: Name of a specific service to restart.
+                 If None, restarts all services.
+
+    Returns:
+        Dict mapping service name to (success, message).
+    """
+    from syft_bg.services import ServiceManager
+
+    manager = ServiceManager()
+    if service:
+        return {service: manager.restart_service(service)}
+    results = {}
+    for name in manager.list_services():
+        results[name] = manager.restart_service(name)
+    return results
+
+
+def logs(service: str, n: int = 50) -> list[str]:
+    """Get recent log lines for a service.
+
+    Args:
+        service: Service name ("notify" or "approve").
+        n: Number of lines to return.
+
+    Returns:
+        List of log lines.
+    """
+    from syft_bg.services import ServiceManager
+
+    manager = ServiceManager()
+    return manager.get_logs(service, n)
+
+
+def ensure_running() -> dict[str, tuple[bool, str]]:
+    """Ensure all services are running. Start any that have stopped.
+
+    Useful in Colab/Jupyter notebook cells to recover from daemon crashes.
+
+    Returns:
+        Dict mapping service name to (success, message).
+    """
+    from syft_bg.services import ServiceManager
+
+    manager = ServiceManager()
+    results = {}
+    for name in manager.list_services():
+        svc = manager.get_service(name)
+        if svc and svc.is_running():
+            results[name] = (True, f"already running (PID {svc.get_pid()})")
+        else:
+            results[name] = manager.start_service(name)
+    return results
