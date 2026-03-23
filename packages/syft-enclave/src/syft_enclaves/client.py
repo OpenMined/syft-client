@@ -145,23 +145,27 @@ class SyftEnclaveClient:
 
         self._manager.sync()
 
+    def _read_state_file(self, job: JobInfo) -> dict[Path, bytes]:
+        """Read the job state.yaml as a {path_in_datasite: bytes} dict."""
+        state_file = job.job_review_path / "state.yaml"
+        if not state_file.exists():
+            return {}
+        datasite_dir = self._manager.syftbox_folder / self._manager.email
+        state_rel = state_file.relative_to(datasite_dir)
+        return {state_rel: state_file.read_bytes()}
+
     def _forward_results_to_recipients(self, job: JobInfo, recipients: list[str]):
         """Forward job output files and state to recipients via event outbox."""
         outputs_dir = job.job_review_path / "outputs"
         if not outputs_dir.exists():
             return
-        files = self._get_files_in_dir(outputs_dir)
-        # Include state.yaml so recipients can see the job is done
-        state_file = job.job_review_path / "state.yaml"
-        if state_file.exists():
-            datasite_dir = self._manager.syftbox_folder / self._manager.email
-            state_rel = state_file.relative_to(datasite_dir)
-            files[state_rel] = state_file.read_bytes()
-        if not files:
+        files_by_datasite_path = self._get_files_in_dir(outputs_dir)
+        files_by_datasite_path.update(self._read_state_file(job))
+        if not files_by_datasite_path:
             return
         events_message = (
             self._manager.datasite_owner_syncer.event_cache.create_events_for_files(
-                files
+                files_by_datasite_path
             )
         )
         self._manager.datasite_owner_syncer.queue_event_for_syftbox(
@@ -231,10 +235,10 @@ class SyftEnclaveClient:
 
     def _forward_job_to_dos(self, job_dir: Path, do_emails: list[str]):
         """Forward job files to DOs via the event-based outbox mechanism."""
-        files = self._get_files_in_dir(job_dir)
+        files_by_datasite_path = self._get_files_in_dir(job_dir)
         events_message = (
             self._manager.datasite_owner_syncer.event_cache.create_events_for_files(
-                files
+                files_by_datasite_path
             )
         )
         self._manager.datasite_owner_syncer.queue_event_for_syftbox(
@@ -250,10 +254,10 @@ class SyftEnclaveClient:
             file_name = enclave_approval_file_name(do_email)
             approval_file = review_dir / file_name
             path_in_datasite = approval_file.relative_to(datasite_dir)
-            files = {path_in_datasite: approval_file.read_bytes()}
+            files_by_datasite_path = {path_in_datasite: approval_file.read_bytes()}
             events_message = (
                 self._manager.datasite_owner_syncer.event_cache.create_events_for_files(
-                    files
+                    files_by_datasite_path
                 )
             )
             self._manager.datasite_owner_syncer.queue_event_for_syftbox(
@@ -262,16 +266,16 @@ class SyftEnclaveClient:
             )
             self._manager.datasite_owner_syncer.process_syftbox_events_queue()
 
-    def _get_files_in_dir(self, job_dir: Path) -> dict[Path, bytes]:
-        """Read all files under job_dir, return {path_in_datasite: bytes}."""
+    def _get_files_in_dir(self, directory: Path) -> dict[Path, bytes]:
+        """Read all files under directory, keyed by path relative to the datasite root."""
         datasite_dir = self._manager.syftbox_folder / self._manager.email
-        files = {}
-        for f in job_dir.rglob("*"):
+        files_by_datasite_path = {}
+        for f in directory.rglob("*"):
             if not f.is_file():
                 continue
             path_in_datasite = f.relative_to(datasite_dir)
-            files[Path(path_in_datasite)] = f.read_bytes()
-        return files
+            files_by_datasite_path[Path(path_in_datasite)] = f.read_bytes()
+        return files_by_datasite_path
 
     def _save_enclave_job_state(
         self,
