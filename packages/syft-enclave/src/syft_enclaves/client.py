@@ -89,13 +89,90 @@ class SyftEnclaveClient:
         code_path: str,
         job_name: Optional[str] = "",
         datasets: Optional[dict[str, list[str]]] = None,
+        share_results_with_do: bool = False,
         **kwargs,
     ):
         """Submit a Python job to an enclave, then push files via sync."""
         job_dir = self._manager.job_client.submit_python_job(
-            enclave_email, code_path, job_name, datasets=datasets, **kwargs
+            enclave_email,
+            code_path,
+            job_name,
+            datasets=datasets,
+            share_results_with_do=share_results_with_do,
+            **kwargs,
         )
         self._manager.push_job_files(job_dir)
+
+    def run_jobs(self) -> None:
+        """Run approved enclave jobs."""
+        for job in self.jobs:
+            if (
+                job.status == "approved"
+                and job.job_headers.get("job_type") == "enclave"
+            ):
+                state = JobState.load(job.job_review_path / "state.yaml")
+                if state.status != JobStatus.APPROVED:
+                    state.status = JobStatus.APPROVED
+                    state.save(job.job_review_path / "state.yaml")
+
+        self._manager.process_approved_jobs(
+            force_execution=True,
+            share_outputs_with_submitter=True,
+            share_logs_with_submitter=True,
+        )
+
+    def distribute_results(self) -> None:
+        """Distribute job results to DS (always) and optionally to DOs."""
+        for job in self.jobs:
+            if job.status != "done":
+                continue
+            results_shared_marker = job.job_review_path / "results_shared"
+            if results_shared_marker.exists():
+                continue
+
+            # Always share results with the DS (submitter)
+            self._forward_results_to_recipients(job, [job.submitted_by])
+
+            # Optionally share with DOs
+            if job.job_headers.get("share_results_with_do"):
+                datasets = job.job_metadata.datasets
+                if datasets:
+                    do_emails = list(datasets.keys())
+                    job.share_outputs(do_emails)
+                    self._forward_results_to_recipients(job, do_emails)
+
+            results_shared_marker.write_text("shared")
+
+        self._manager.sync()
+
+    def _read_state_file(self, job: JobInfo) -> dict[Path, bytes]:
+        """Read the job state.yaml as a {path_in_datasite: bytes} dict."""
+        state_file = job.job_review_path / "state.yaml"
+        if not state_file.exists():
+            return {}
+        datasite_dir = self._manager.syftbox_folder / self._manager.email
+        state_rel = state_file.relative_to(datasite_dir)
+        return {state_rel: state_file.read_bytes()}
+
+    def _forward_results_to_recipients(self, job: JobInfo, recipients: list[str]):
+        """Forward job output files and state to recipients via event outbox."""
+        outputs_dir = job.job_review_path / "outputs"
+        if not outputs_dir.exists():
+            return
+        files_by_datasite_path = self._get_files_in_dir(outputs_dir)
+        files_by_datasite_path.update(self._read_state_file(job))
+        if not files_by_datasite_path:
+            return
+        events_message = (
+            self._manager.datasite_owner_syncer.event_cache.create_events_for_files(
+                files_by_datasite_path
+            )
+        )
+        self._manager.datasite_owner_syncer.queue_event_for_syftbox(
+            recipients=recipients,
+            file_change_events_message=events_message,
+        )
+        self._manager.datasite_owner_syncer.process_syftbox_events_queue()
 
     def approve_job(self, job: JobInfo) -> None:
         """Approve an enclave job and push the approval state file to the enclave."""
@@ -158,10 +235,10 @@ class SyftEnclaveClient:
 
     def _forward_job_to_dos(self, job_dir: Path, do_emails: list[str]):
         """Forward job files to DOs via the event-based outbox mechanism."""
-        files = self._collect_job_files(job_dir)
+        files_by_datasite_path = self._get_files_in_dir(job_dir)
         events_message = (
             self._manager.datasite_owner_syncer.event_cache.create_events_for_files(
-                files
+                files_by_datasite_path
             )
         )
         self._manager.datasite_owner_syncer.queue_event_for_syftbox(
@@ -177,10 +254,10 @@ class SyftEnclaveClient:
             file_name = enclave_approval_file_name(do_email)
             approval_file = review_dir / file_name
             path_in_datasite = approval_file.relative_to(datasite_dir)
-            files = {path_in_datasite: approval_file.read_bytes()}
+            files_by_datasite_path = {path_in_datasite: approval_file.read_bytes()}
             events_message = (
                 self._manager.datasite_owner_syncer.event_cache.create_events_for_files(
-                    files
+                    files_by_datasite_path
                 )
             )
             self._manager.datasite_owner_syncer.queue_event_for_syftbox(
@@ -189,16 +266,16 @@ class SyftEnclaveClient:
             )
             self._manager.datasite_owner_syncer.process_syftbox_events_queue()
 
-    def _collect_job_files(self, job_dir: Path) -> dict[Path, bytes]:
-        """Read all files under job_dir, return {path_in_datasite: bytes}."""
+    def _get_files_in_dir(self, directory: Path) -> dict[Path, bytes]:
+        """Read all files under directory, keyed by path relative to the datasite root."""
         datasite_dir = self._manager.syftbox_folder / self._manager.email
-        files = {}
-        for f in job_dir.rglob("*"):
+        files_by_datasite_path = {}
+        for f in directory.rglob("*"):
             if not f.is_file():
                 continue
             path_in_datasite = f.relative_to(datasite_dir)
-            files[Path(path_in_datasite)] = f.read_bytes()
-        return files
+            files_by_datasite_path[Path(path_in_datasite)] = f.read_bytes()
+        return files_by_datasite_path
 
     def _save_enclave_job_state(
         self,

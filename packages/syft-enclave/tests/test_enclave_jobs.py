@@ -1,3 +1,4 @@
+import json
 import os
 import random
 import tempfile
@@ -41,11 +42,23 @@ with open("outputs/result.json", "w") as f:
 """
 
 
-def create_tmp_code_file():
+SIMPLE_JOB_CODE = """\
+import json
+import os
+
+result = {"status": "ok", "cwd": os.getcwd()}
+
+os.makedirs("outputs", exist_ok=True)
+with open("outputs/result.json", "w") as f:
+    f.write(json.dumps(result))
+"""
+
+
+def create_tmp_code_file(code: str):
     tmp_dir = Path(tempfile.mkdtemp()) / f"syft-job-code-{random.randint(1, 1000000)}"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     code_path = tmp_dir / "main.py"
-    code_path.write_text(JOB_CODE)
+    code_path.write_text(code)
     return str(code_path)
 
 
@@ -91,7 +104,7 @@ def test_enclave_job_distribution():
     assert len(ds_datasets) == 2
 
     # DS submits job to enclave
-    code_path = create_tmp_code_file()
+    code_path = create_tmp_code_file(JOB_CODE)
     ds.submit_python_job(
         enclave.email,
         code_path,
@@ -155,7 +168,7 @@ def test_enclave_job_approval_flow():
     ds.sync()
 
     # DS submits job to enclave
-    code_path = create_tmp_code_file()
+    code_path = create_tmp_code_file(JOB_CODE)
     ds.submit_python_job(
         enclave.email,
         code_path,
@@ -198,3 +211,86 @@ def test_enclave_job_approval_flow():
     enclave.sync()
     enclave_job = enclave.jobs["test_job"]
     assert enclave_job.status == "approved"
+
+
+def test_enclave_full_job_flow():
+    """Test full flow: submit, distribute, approve, run, share results with DS and DOs."""
+    enclave, do1, do2, ds = SyftEnclaveClient.quad_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+    )
+
+    # DOs create datasets
+    mock1, private1 = create_tmp_dataset_files("do1")
+    do1.create_dataset(
+        name="dataset1",
+        mock_path=mock1,
+        private_path=private1,
+        summary="Dataset 1",
+        users=[ds.email],
+        upload_private=True,
+        sync=False,
+    )
+    mock2, private2 = create_tmp_dataset_files("do2")
+    do2.create_dataset(
+        name="dataset2",
+        mock_path=mock2,
+        private_path=private2,
+        summary="Dataset 2",
+        users=[ds.email],
+        upload_private=True,
+        sync=False,
+    )
+    do1.share_private_dataset("dataset1", enclave.email)
+    do2.share_private_dataset("dataset2", enclave.email)
+    do1.sync()
+    do2.sync()
+    ds.sync()
+
+    # DS submits job with share_results_with_do=True
+    code_path = create_tmp_code_file(SIMPLE_JOB_CODE)
+    ds.submit_python_job(
+        enclave.email,
+        code_path,
+        "test_job",
+        datasets={do1.email: ["dataset1"], do2.email: ["dataset2"]},
+        share_results_with_do=True,
+    )
+
+    # Enclave receives and distributes
+    enclave.sync()
+    enclave.receive_jobs()
+
+    # DOs sync and approve
+    do1.sync()
+    do2.sync()
+    do1.approve_job(do1.jobs["test_job"])
+    do2.approve_job(do2.jobs["test_job"])
+
+    # Enclave syncs → approved
+    enclave.sync()
+    assert enclave.jobs["test_job"].status == "approved"
+
+    # Enclave runs job and distributes results
+    enclave.run_jobs()
+    enclave.distribute_results()
+
+    # Verify enclave job is done
+    enclave_job = enclave.jobs["test_job"]
+    assert enclave_job.status == "done"
+
+    # DS syncs and checks result
+    ds.sync()
+    ds_job = ds.jobs["test_job"]
+    assert ds_job.status == "done"
+    assert len(ds_job.output_paths) > 0
+    with open(ds_job.output_paths[0], "r") as f:
+        result = json.loads(f.read())
+    assert result["status"] == "ok"
+
+    # DOs sync and check they received results
+    do1.sync()
+    do2.sync()
+    do1_job = do1.jobs["test_job"]
+    do2_job = do2.jobs["test_job"]
+    assert len(do1_job.output_paths) > 0
+    assert len(do2_job.output_paths) > 0
