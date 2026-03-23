@@ -37,14 +37,14 @@ Syft-client uses Google Drive as its file-based transport layer. All peer-to-pee
     └── encryption_bundle_{owner}_for_{peer}.json
 ```
 
-| Folder | Scope | Owner | Shared with | Access |
-|--------|-------|-------|-------------|--------|
-| `inbox` | per peer | DS | DO | writer |
-| `outbox` | per peer | DS | DO | writer |
-| `event log` / `checkpoints` / `rolling-state` | all peers | DO | nobody | — |
-| `datasetcollection` | per dataset | DO | DS users | reader |
-| `privatecollection` | per dataset | DO | nobody | — |
-| `encryption_bundles` | per user | user | peers | reader |
+| Folder                                        | Scope       | Owner | Shared with | Access |
+| --------------------------------------------- | ----------- | ----- | ----------- | ------ |
+| `inbox`                                       | per peer    | DS    | DO          | writer |
+| `outbox`                                      | per peer    | DS    | DO          | writer |
+| `event log` / `checkpoints` / `rolling-state` | all peers   | DO    | nobody      | —      |
+| `datasetcollection`                           | per dataset | DO    | DS users    | reader |
+| `privatecollection`                           | per dataset | DO    | nobody      | —      |
+| `encryption_bundles`                          | per user    | user  | peers       | reader |
 
 ---
 
@@ -177,11 +177,11 @@ sequenceDiagram
     Local->>GDrive: Delete old full checkpoint & incrementals
 ```
 
-| Tier | What it stores | Trigger | GDrive file | Retained |
-|------|---------------|---------|-------------|----------|
-| **Rolling state** | Recent events since last checkpoint | Every event | `rolling_state_{ts}.tar.gz` (updated in-place) | 1 |
-| **Incremental** | Batch of 50 events | Rolling state reaches 50 events | `incremental_checkpoint_{seq}_{ts}.tar.gz` | Up to 4 |
-| **Full** | Snapshot of all file states | 4 incrementals accumulated | `checkpoint_{ts}.tar.gz` | 1 (old deleted) |
+| Tier              | What it stores                      | Trigger                         | GDrive file                                    | Retained        |
+| ----------------- | ----------------------------------- | ------------------------------- | ---------------------------------------------- | --------------- |
+| **Rolling state** | Recent events since last checkpoint | Every event                     | `rolling_state_{ts}.tar.gz` (updated in-place) | 1               |
+| **Incremental**   | Batch of 50 events                  | Rolling state reaches 50 events | `incremental_checkpoint_{seq}_{ts}.tar.gz`     | Up to 4         |
+| **Full**          | Snapshot of all file states         | 4 incrementals accumulated      | `checkpoint_{ts}.tar.gz`                       | 1 (old deleted) |
 
 **File structures** (all stored as compressed `.tar.gz`):
 
