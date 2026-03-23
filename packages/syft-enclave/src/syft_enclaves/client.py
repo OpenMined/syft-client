@@ -89,13 +89,77 @@ class SyftEnclaveClient:
         code_path: str,
         job_name: Optional[str] = "",
         datasets: Optional[dict[str, list[str]]] = None,
+        share_results_with_do: bool = False,
         **kwargs,
     ):
         """Submit a Python job to an enclave, then push files via sync."""
         job_dir = self._manager.job_client.submit_python_job(
-            enclave_email, code_path, job_name, datasets=datasets, **kwargs
+            enclave_email,
+            code_path,
+            job_name,
+            datasets=datasets,
+            share_results_with_do=share_results_with_do,
+            **kwargs,
         )
         self._manager.push_job_files(job_dir)
+
+    def run_jobs(self) -> None:
+        """Run approved enclave jobs."""
+        for job in self.jobs:
+            if (
+                job.status == "approved"
+                and job.job_headers.get("job_type") == "enclave"
+            ):
+                state = JobState.load(job.job_review_path / "state.yaml")
+                if state.status != JobStatus.APPROVED:
+                    state.status = JobStatus.APPROVED
+                    state.save(job.job_review_path / "state.yaml")
+
+        self._manager.process_approved_jobs(
+            force_execution=True,
+            share_outputs_with_submitter=True,
+            share_logs_with_submitter=True,
+        )
+
+    def distribute_results(self) -> None:
+        """Distribute job results to DS (always) and optionally to DOs."""
+        for job in self.jobs:
+            if job.status != "done":
+                continue
+            results_shared_marker = job.job_review_path / "results_shared"
+            if results_shared_marker.exists():
+                continue
+
+            # Always share results with the DS (submitter)
+            self._forward_results_to_recipients(job, [job.submitted_by])
+
+            # Optionally share with DOs
+            if job.job_headers.get("share_results_with_do"):
+                datasets = job.job_metadata.datasets
+                if datasets:
+                    do_emails = list(datasets.keys())
+                    job.share_outputs(do_emails)
+                    self._forward_results_to_recipients(job, do_emails)
+
+            results_shared_marker.write_text("shared")
+
+        self._manager.sync()
+
+    def _forward_results_to_recipients(self, job: JobInfo, do_emails: list[str]):
+        """Forward job review dir (state.yaml + outputs) to DOs via event outbox."""
+        files = self._collect_job_files(job.job_review_path)
+        if not files:
+            return
+        events_message = (
+            self._manager.datasite_owner_syncer.event_cache.create_events_for_files(
+                files
+            )
+        )
+        self._manager.datasite_owner_syncer.queue_event_for_syftbox(
+            recipients=do_emails,
+            file_change_events_message=events_message,
+        )
+        self._manager.datasite_owner_syncer.process_syftbox_events_queue()
 
     def approve_job(self, job: JobInfo) -> None:
         """Approve an enclave job and push the approval state file to the enclave."""
