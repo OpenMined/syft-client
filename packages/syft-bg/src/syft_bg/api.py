@@ -41,6 +41,27 @@ class InitResult:
         return "\n".join(lines)
 
 
+def _credentials_setup_steps(creds_path: Path, colab: bool) -> str:
+    """Return step-by-step instructions for setting up credentials.json."""
+    console_url = "https://console.cloud.google.com/apis/credentials"
+    if colab:
+        save_step = (
+            f"  5. Upload the downloaded JSON file to Google Drive at: {creds_path}"
+        )
+    else:
+        save_step = f"  5. Save the downloaded JSON file to: {creds_path}"
+
+    return (
+        f"  1. Open Google Cloud Console: {console_url}\n"
+        "  2. Create a project (or select an existing one)\n"
+        "  3. Click 'Create Credentials' > 'OAuth client ID'\n"
+        "     - If prompted, configure the consent screen first\n"
+        "       (External type, add your email as a test user)\n"
+        "  4. Select 'Desktop app' as application type, then click 'Create'\n"
+        f"{save_step}"
+    )
+
+
 def _check_prerequisites(
     credentials_path: Path | None = None,
     gmail_token_path: Path | None = None,
@@ -59,20 +80,8 @@ def _check_prerequisites(
         Path(credentials_path) if credentials_path else creds_dir / "credentials.json"
     )
     if not creds_path.exists():
-        if colab:
-            issues.append(
-                f"credentials.json not found at {creds_path}\n"
-                "  1. Create OAuth credentials in Google Cloud Console\n"
-                "     (APIs & Services > Credentials > Create OAuth client ID > Desktop app)\n"
-                f"  2. Upload credentials.json to Google Drive at: {creds_path}"
-            )
-        else:
-            issues.append(
-                f"credentials.json not found at {creds_path}\n"
-                "  1. Create OAuth credentials in Google Cloud Console\n"
-                "     (APIs & Services > Credentials > Create OAuth client ID > Desktop app)\n"
-                f"  2. Save credentials.json to: {creds_path}"
-            )
+        steps = _credentials_setup_steps(creds_path, colab)
+        issues.append(f"credentials.json not found at {creds_path}\n{steps}")
 
     # Check Gmail token
     gmail_path = (
@@ -160,24 +169,11 @@ def authenticate(
     )
 
     if not creds_path.exists():
-        if colab:
-            msg = (
-                f"credentials.json not found at {creds_path}\n"
-                "  1. Go to Google Cloud Console > APIs & Services > Credentials\n"
-                "  2. Create OAuth 2.0 Client ID (Desktop app)\n"
-                "  3. Download the JSON file\n"
-                f"  4. Upload it to Google Drive at: {creds_path}\n"
-                "  5. Then run syft_bg.authenticate() again"
-            )
-        else:
-            msg = (
-                f"credentials.json not found at {creds_path}\n"
-                "  1. Go to Google Cloud Console > APIs & Services > Credentials\n"
-                "  2. Create OAuth 2.0 Client ID (Desktop app)\n"
-                "  3. Download the JSON file\n"
-                f"  4. Save it to: {creds_path}\n"
-                "  5. Then run syft_bg.authenticate() again"
-            )
+        steps = _credentials_setup_steps(creds_path, colab)
+        msg = (
+            f"credentials.json not found at {creds_path}\n{steps}\n"
+            "  Then run syft_bg.authenticate() again"
+        )
         return AuthResult(success=False, error=msg)
 
     gmail_token_path = creds_dir / "gmail_token.json"
