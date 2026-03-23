@@ -2,11 +2,16 @@
 
 Background services for SyftBox: email notifications and auto-approval for peers and jobs.
 
+
 ## Installation
 
 ```bash
 pip install syft-bg
 ```
+
+##
+
+**[Python API docs](docs/python-api.md)** — for python api docs, go here instead.
 
 ## Quick Start
 
@@ -31,21 +36,9 @@ syft-bg init \
   --skip-oauth
 ```
 
-### Pythonic API (Notebooks/Scripts)
+### Python API
 
-```python
-import syft_bg
-
-result = syft_bg.init(
-    email="user@example.com",
-    notify_jobs=True,
-    approve_jobs=True,
-    skip_oauth=True,
-)
-
-if result.success:
-    print(f"Config saved to {result.config_path}")
-```
+For notebooks and scripts, see the [Python API docs](docs/python-api.md).
 
 ## Commands
 
@@ -267,26 +260,7 @@ Log files stored at `~/.syft-creds/logs/`.
 
 ## Colab / Jupyter
 
-```python
-!pip install syft-bg
-
-import syft_bg
-
-# Initialize with Pythonic API
-result = syft_bg.init(
-    email="user@example.com",
-    notify_jobs=True,
-    approve_jobs=True,
-    verbose=True,  # Show progress
-)
-
-# Or use CLI
-!syft-bg init --email user@example.com --quiet
-!syft-bg start
-!syft-bg status
-```
-
-Drive credentials are handled natively in Colab.
+See the [Python API docs](docs/python-api.md) for programmatic usage. Drive credentials are handled natively in Colab.
 
 ## Development
 
