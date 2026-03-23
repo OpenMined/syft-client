@@ -119,3 +119,82 @@ def test_enclave_job_distribution():
     assert len(do2_jobs) >= 1
     do2_job_names = [j.name for j in do2_jobs]
     assert "test_job" in do2_job_names
+
+
+def test_enclave_job_approval_flow():
+    """Test: enclave receives job, distributes to DOs, both approve, enclave sees approved."""
+    enclave, do1, do2, ds = SyftEnclaveClient.quad_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+    )
+
+    # DOs create datasets
+    mock1, private1 = create_tmp_dataset_files("do1")
+    do1.create_dataset(
+        name="dataset1",
+        mock_path=mock1,
+        private_path=private1,
+        summary="Dataset 1",
+        users=[ds.email],
+        upload_private=True,
+        sync=False,
+    )
+    mock2, private2 = create_tmp_dataset_files("do2")
+    do2.create_dataset(
+        name="dataset2",
+        mock_path=mock2,
+        private_path=private2,
+        summary="Dataset 2",
+        users=[ds.email],
+        upload_private=True,
+        sync=False,
+    )
+    do1.share_private_dataset("dataset1", enclave.email)
+    do2.share_private_dataset("dataset2", enclave.email)
+    do1.sync()
+    do2.sync()
+    ds.sync()
+
+    # DS submits job to enclave
+    code_path = create_tmp_code_file()
+    ds.submit_python_job(
+        enclave.email,
+        code_path,
+        "test_job",
+        datasets={do1.email: ["dataset1"], do2.email: ["dataset2"]},
+    )
+
+    # Enclave receives and distributes
+    enclave.sync()
+    enclave.receive_jobs()
+
+    # Verify approval files were created on enclave
+    enclave_job = enclave.jobs["test_job"]
+    review_dir = enclave_job.job_review_path
+    assert (review_dir / f"{do1.email}_approval_state.json").exists()
+    assert (review_dir / f"{do2.email}_approval_state.json").exists()
+    assert enclave_job.status == "pending"
+    assert enclave_job.job_headers["job_type"] == "enclave"
+
+    # DOs sync to see the job
+    do1.sync()
+    do2.sync()
+
+    # DO1 approves
+    do1_job = do1.jobs["test_job"]
+    assert do1_job.job_headers["job_type"] == "enclave"
+    assert do1_job.status == "pending"
+    do1.approve_job(do1_job)
+
+    # After DO1 approves but before DO2, enclave still sees pending
+    enclave.sync()
+    enclave_job = enclave.jobs["test_job"]
+    assert enclave_job.status == "pending"
+
+    # DO2 approves
+    do2_job = do2.jobs["test_job"]
+    do2.approve_job(do2_job)
+
+    # Enclave syncs and sees both approved
+    enclave.sync()
+    enclave_job = enclave.jobs["test_job"]
+    assert enclave_job.status == "approved"

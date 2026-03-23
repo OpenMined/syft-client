@@ -8,6 +8,7 @@ from syft_client.sync.peers.peer_list import PeerList
 from syft_datasets.dataset_manager import SyftDatasetManager
 from syft_job.job import JobsList
 from syft_job.models.config import JobSubmissionMetadata
+from syft_job.job import JobInfo
 from syft_job.models.state import JobState, JobStatus, PartyApprovalStatus
 from syft_perms.syftperm_context import SyftPermContext
 
@@ -84,6 +85,16 @@ class SyftEnclaveClient:
         )
         self._manager.push_job_files(job_dir)
 
+    def approve_job(self, job: JobInfo) -> None:
+        """Approve an enclave job and push the approval state file to the enclave."""
+        job.approve()
+        file_name = JobState.enclave_approval_file_name(self.email)
+        approval_file = job.job_review_path / file_name
+        relative_path = approval_file.relative_to(self._manager.syftbox_folder)
+        self._manager.datasite_watcher_syncer.on_file_change(
+            relative_path, process_now=True
+        )
+
     def receive_jobs(self):
         """Receive and distribute enclave jobs to relevant DOs.
 
@@ -128,6 +139,7 @@ class SyftEnclaveClient:
         self._forward_job_to_dos(job_dir, do_emails)
         self._save_enclave_job_state(review_dir, do_emails, config.datasets)
         self._set_job_permissions(job_dir, do_emails)
+        self._forward_approval_files_to_dos(review_dir, do_emails)
 
         distributed_marker.parent.mkdir(parents=True, exist_ok=True)
         distributed_marker.write_text("distributed")
@@ -146,6 +158,25 @@ class SyftEnclaveClient:
         )
         self._manager.datasite_owner_syncer.process_syftbox_events_queue()
 
+    def _forward_approval_files_to_dos(self, review_dir: Path, do_emails: list[str]):
+        """Forward each DO's approval state file to them individually."""
+        datasite_dir = self._manager.syftbox_folder / self._manager.email
+        for do_email in do_emails:
+            file_name = JobState.enclave_approval_file_name(do_email)
+            approval_file = review_dir / file_name
+            path_in_datasite = approval_file.relative_to(datasite_dir)
+            files = {path_in_datasite: approval_file.read_bytes()}
+            events_message = (
+                self._manager.datasite_owner_syncer.event_cache.create_events_for_files(
+                    files
+                )
+            )
+            self._manager.datasite_owner_syncer.queue_event_for_syftbox(
+                recipients=[do_email],
+                file_change_events_message=events_message,
+            )
+            self._manager.datasite_owner_syncer.process_syftbox_events_queue()
+
     def _collect_job_files(self, job_dir: Path) -> dict[Path, bytes]:
         """Read all files under job_dir, return {path_in_datasite: bytes}."""
         datasite_dir = self._manager.syftbox_folder / self._manager.email
@@ -163,7 +194,10 @@ class SyftEnclaveClient:
         do_emails: list[str],
         datasets: dict[str, list[str]],
     ):
-        """Create and save JobState with PartyApprovalStatus entries per DO."""
+        """Create and save JobState with PartyApprovalStatus entries per DO.
+
+        Also creates individual <do_email>_approval_state.json files.
+        """
         approval_states = [
             PartyApprovalStatus(
                 party=do_email,
@@ -179,13 +213,27 @@ class SyftEnclaveClient:
         review_dir.mkdir(parents=True, exist_ok=True)
         state.save(review_dir / "state.yaml")
 
+        for approval in approval_states:
+            file_name = JobState.enclave_approval_file_name(approval.party)
+            approval.save_json(review_dir / file_name)
+
     def _set_job_permissions(self, job_dir: Path, do_emails: list[str]):
-        """Grant DOs read access to job submission and review dirs."""
+        """Grant DOs read access to inbox and read+write on their approval file."""
         datasite = self._manager.syftbox_folder / self._manager.email
         ctx = SyftPermContext(datasite=datasite)
         inbox_rel = job_dir.relative_to(datasite)
+
+        ds_email = job_dir.parent.name
+        job_name = job_dir.name
+        review_dir = self._manager.job_client.config.get_review_job_dir(
+            self._manager.email, ds_email, job_name
+        )
+        review_rel = review_dir.relative_to(datasite)
+
         for do_email in do_emails:
             ctx.open(inbox_rel).grant_read_access(do_email)
+            approval_rel = review_rel / JobState.enclave_approval_file_name(do_email)
+            ctx.open(approval_rel).grant_write_access(do_email)
 
     @classmethod
     def quad_with_mock_drive_service_connection(

@@ -57,6 +57,7 @@ class EnclaveJobClient(BaseJobClient):
         config = JobSubmissionMetadata.load(job_dir / "config.yaml")
         config.job_type = "enclave"
         config.datasets = datasets
+        config.headers = {"job_type": "enclave"}
         config.save(job_dir / "config.yaml")
 
         return job_dir

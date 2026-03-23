@@ -25,6 +25,7 @@ class JobSubmissionMetadata(BaseModel):
     code_path: Optional[str] = None  # original source path (informational)
     job_type: Literal["local", "enclave"] = "local"
     datasets: Optional[dict[str, list[str]]] = None  # do_email -> [dataset_name]
+    headers: dict = {}  # extensible metadata (e.g. job_type, datasets)
 
     def save(self, path: Path) -> None:
         """Write config to a YAML file."""

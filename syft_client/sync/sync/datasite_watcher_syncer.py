@@ -64,7 +64,8 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
     ) -> ProposedFileChange:
         if datasite_email is None:
             datasite_email = self.email
-        old_hash = self.datasite_watcher_cache.current_hash_for_file(relative_path)
+        cache_key = Path(datasite_email) / relative_path
+        old_hash = self.datasite_watcher_cache.current_hash_for_file(cache_key)
         return ProposedFileChange(
             datasite_email=datasite_email,
             path_in_datasite=relative_path,
@@ -104,6 +105,14 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
         self.connection_router.watcher_send_proposed_file_changes_message(
             recipient, message
         )
+
+        # Update local cache with new hashes
+        for fc in file_changes:
+            path_key = Path(fc.datasite_email) / fc.path_in_datasite
+            if fc.is_deleted:
+                self.datasite_watcher_cache.file_hashes.pop(path_key, None)
+            else:
+                self.datasite_watcher_cache.file_hashes[path_key] = fc.new_hash
 
     def on_file_change(
         self, relative_path: Path | str, content: str | None = None, process_now=True

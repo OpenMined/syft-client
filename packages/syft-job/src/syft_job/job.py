@@ -15,7 +15,7 @@ from .job_repr import (
 )
 from .job_stdout import StdoutViewer
 from .models.config import JobSubmissionMetadata
-from .models.state import JobState, JobStatus
+from .models.state import JobState, JobStatus, PartyApprovalStatus
 
 if TYPE_CHECKING:
     from .client import JobClient
@@ -37,6 +37,7 @@ class JobInfo:
         self.datasite_owner_email = datasite_owner_email
         self.current_user_email = current_user_email
         self._client = client
+        self.job_headers = dict(job_metadata.headers)
 
     @property
     def job_submission_path(self) -> Path:
@@ -100,7 +101,22 @@ class JobInfo:
 
     @property
     def status(self) -> str:
+        if self.job_headers.get("job_type") == "enclave":
+            return self._derived_enclave_status()
         return self._state.status.value
+
+    def _derived_enclave_status(self) -> str:
+        """Derive status from individual approval files for enclave jobs."""
+        if self._state.status in (JobStatus.DONE, JobStatus.FAILED, JobStatus.RUNNING):
+            return self._state.status.value
+        approvals = JobState.load_enclave_approval_files(self.job_review_path)
+        if not approvals:
+            return self._state.status.value
+        if any(a.status == JobStatus.REJECTED for a in approvals):
+            return JobStatus.REJECTED.value
+        if all(a.status == JobStatus.APPROVED for a in approvals):
+            return JobStatus.APPROVED.value
+        return JobStatus.PENDING.value
 
     @property
     def output_paths(self) -> List[Path]:
@@ -155,28 +171,48 @@ class JobInfo:
     def approve(self) -> None:
         """
         Approve a job by updating state.yaml in review/.
-        Only the datasite owner can approve jobs.
+        For enclave jobs, writes to the individual approval state file instead.
 
         Raises:
             ValueError: If job is not in pending status
             PermissionError: If the current user is not authorized to approve
         """
-        if self._state.status != JobStatus.PENDING:
-            raise ValueError(
-                f"Job '{self.name}' is not in pending status (current: {self.status})"
-            )
+        if self.job_headers.get("job_type") == "enclave":
+            self._approve_enclave_job()
+        else:
+            if self._state.status != JobStatus.PENDING:
+                raise ValueError(
+                    f"Job '{self.name}' is not in pending status (current: {self.status})"
+                )
 
-        if self.datasite_owner_email != self.current_user_email:
+            if self.datasite_owner_email != self.current_user_email:
+                raise PermissionError(
+                    f"Only the admin user ({self.datasite_owner_email}) can approve jobs in their folder. "
+                    f"Current job is in {self.datasite_owner_email}'s folder."
+                )
+
+            self._state.status = JobStatus.APPROVED
+            self._state.approved_by = self.current_user_email
+            self._state.approved_at = datetime.now(timezone.utc)
+            self._state.save(self.job_review_path / "state.yaml")
+            print(f"Job '{self.name}' approved successfully!")
+
+    def _approve_enclave_job(self) -> None:
+        """Write approval to the DO's individual approval state file."""
+        file_name = JobState.enclave_approval_file_name(self.current_user_email)
+        approval_file = self.job_review_path / file_name
+        if not approval_file.exists():
             raise PermissionError(
-                f"Only the admin user ({self.datasite_owner_email}) can approve jobs in their folder. "
-                f"Current job is in {self.datasite_owner_email}'s folder."
+                f"No approval file found for {self.current_user_email}. "
+                f"You may not be a designated party for this job."
             )
-
-        self._state.status = JobStatus.APPROVED
-        self._state.approved_by = self.current_user_email
-        self._state.approved_at = datetime.now(timezone.utc)
-        self._state.save(self.job_review_path / "state.yaml")
-        print(f"Job '{self.name}' approved successfully!")
+        approval = PartyApprovalStatus.load_json(approval_file)
+        if approval.status != JobStatus.PENDING:
+            raise ValueError(f"Already in status: {approval.status.value}")
+        approval.status = JobStatus.APPROVED
+        approval.approved_at = datetime.now(timezone.utc)
+        approval.save_json(approval_file)
+        print(f"Job '{self.name}' approved by {self.current_user_email}!")
 
     def reject(self, reason: str = "") -> None:
         """
