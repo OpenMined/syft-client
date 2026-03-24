@@ -113,8 +113,8 @@ def resolve_auto_approval(
         (True, "ok") if job passes any object's criteria
         (False, reason) if job fails all
     """
-    if job.status != "inbox":
-        return (False, f"status is {job.status}, not inbox")
+    if job.status != "pending":
+        return (False, f"status is {job.status}, not pending")
 
     # Find objects where this peer is allowed
     candidate_objects: list[tuple[str, AutoApprovalObj]] = []

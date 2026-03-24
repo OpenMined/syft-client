@@ -61,7 +61,7 @@ class JobApprovalHandler:
             )
 
             if not matches:
-                if job.status == "inbox":
+                if job.status == "pending":
                     if self.verbose:
                         print(f"Skipped: {job.name} ({reason})")
                     if self.on_reject:
