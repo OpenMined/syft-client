@@ -138,11 +138,11 @@ class ApprovalOrchestrator(BaseOrchestrator):
             return
 
         on_reject = None
-        if self.config.jobs.enabled:
+        if self.config.auto_approvals.enabled:
             on_reject = self._build_reject_callback()
             self._job_monitor = JobMonitor(
                 client=self.client,
-                config=self.config.jobs,
+                config=self.config.auto_approvals,
                 state=self._state,
                 on_reject=on_reject,
                 verbose=True,
@@ -164,6 +164,8 @@ class ApprovalOrchestrator(BaseOrchestrator):
         print(f"  DO: {self.config.do_email}")
         print(f"  SyftBox: {self.config.syftbox_root}")
         print(f"  Interval: {self.config.interval}s")
-        print(f"  Jobs: {'enabled' if self.config.jobs.enabled else 'disabled'}")
+        print(
+            f"  Auto-approvals: {'enabled' if self.config.auto_approvals.enabled else 'disabled'}"
+        )
         print(f"  Peers: {'enabled' if self.config.peers.enabled else 'disabled'}")
         print()

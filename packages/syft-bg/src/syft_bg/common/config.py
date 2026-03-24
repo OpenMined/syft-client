@@ -36,6 +36,7 @@ class DefaultPaths:
     approve_state: Path
     approve_pid: Path
     approve_log: Path
+    auto_approvals_dir: Path
 
 
 def get_default_paths() -> DefaultPaths:
@@ -55,6 +56,7 @@ def get_default_paths() -> DefaultPaths:
         approve_state=creds / "approve" / "state.json",
         approve_pid=creds / "approve" / "daemon.pid",
         approve_log=creds / "approve" / "daemon.log",
+        auto_approvals_dir=creds / "auto_approvals",
     )
 
 

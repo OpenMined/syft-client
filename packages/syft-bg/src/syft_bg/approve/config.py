@@ -9,29 +9,27 @@ from pydantic import BaseModel, Field
 from syft_bg.common.config import get_default_paths
 
 
-class ScriptRule(BaseModel):
-    """A single approved script with its expected hash."""
+class ScriptEntry(BaseModel):
+    """A script stored in the auto-approvals directory with its hash."""
 
-    name: str
-    hash: str
-
-
-class PeerApprovalEntry(BaseModel):
-    """Configuration for a single peer's job approval."""
-
-    mode: str = "strict"
-    scripts: list[ScriptRule] = Field(default_factory=list)
+    name: str  # e.g. "main.py"
+    path: str  # e.g. "~/.syft-creds/auto_approvals/my_analysis/main.py"
+    hash: str  # e.g. "sha256:abc123..."
 
 
-# Backwards-compatible alias
-PeerJobConfig = PeerApprovalEntry
+class AutoApprovalObj(BaseModel):
+    """An auto-approval object bundling scripts, allowed filenames, and peers."""
+
+    scripts: list[ScriptEntry] = Field(default_factory=list)
+    file_names: list[str] = Field(default_factory=list)  # non-.py files allowed by name
+    peers: list[str] = Field(default_factory=list)  # peer emails
 
 
-class JobApprovalConfig(BaseModel):
-    """Configuration for job auto-approval."""
+class AutoApprovalsConfig(BaseModel):
+    """Configuration for auto-approval objects."""
 
     enabled: bool = True
-    peers: dict[str, PeerApprovalEntry] = Field(default_factory=dict)
+    objects: dict[str, AutoApprovalObj] = Field(default_factory=dict)
 
 
 class PeerApprovalConfig(BaseModel):
@@ -49,7 +47,7 @@ class ApproveConfig(BaseModel):
     syftbox_root: Optional[Path] = None
     drive_token_path: Optional[Path] = None
     interval: int = 5
-    jobs: JobApprovalConfig = Field(default_factory=JobApprovalConfig)
+    auto_approvals: AutoApprovalsConfig = Field(default_factory=AutoApprovalsConfig)
     peers: PeerApprovalConfig = Field(default_factory=PeerApprovalConfig)
 
     @classmethod
@@ -69,7 +67,7 @@ class ApproveConfig(BaseModel):
         common = {k: v for k, v in data.items() if not isinstance(v, dict)}
         approve_section = data.get("approve", {})
 
-        jobs_data = approve_section.get("jobs", {})
+        auto_approvals_data = approve_section.get("auto_approvals", {})
         peers_data = approve_section.get("peers", {})
 
         return cls(
@@ -81,7 +79,9 @@ class ApproveConfig(BaseModel):
             if common.get("drive_token_path")
             else None,
             interval=approve_section.get("interval", 5),
-            jobs=JobApprovalConfig(**jobs_data) if jobs_data else JobApprovalConfig(),
+            auto_approvals=AutoApprovalsConfig(**auto_approvals_data)
+            if auto_approvals_data
+            else AutoApprovalsConfig(),
             peers=PeerApprovalConfig(**peers_data)
             if peers_data
             else PeerApprovalConfig(),
@@ -110,9 +110,31 @@ class ApproveConfig(BaseModel):
 
         data["approve"] = {
             "interval": self.interval,
-            "jobs": self.jobs.model_dump(),
+            "auto_approvals": self.auto_approvals.model_dump(),
             "peers": self.peers.model_dump(),
         }
 
         with open(config_path, "w") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+# --- Backwards-compatible aliases (deprecated, will be removed) ---
+
+ScriptRule = ScriptEntry
+
+
+class PeerApprovalEntry(BaseModel):
+    """Deprecated: use AutoApprovalObj instead."""
+
+    mode: str = "strict"
+    scripts: list[ScriptEntry] = Field(default_factory=list)
+
+
+PeerJobConfig = PeerApprovalEntry
+
+
+class JobApprovalConfig(BaseModel):
+    """Deprecated: use AutoApprovalsConfig instead."""
+
+    enabled: bool = True
+    peers: dict[str, PeerApprovalEntry] = Field(default_factory=dict)

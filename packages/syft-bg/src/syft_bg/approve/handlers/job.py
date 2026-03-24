@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Callable, Optional, Protocol
 
 from syft_job.job import JobInfo
 
-from syft_bg.approve.config import JobApprovalConfig
-from syft_bg.approve.criteria import resolve_peer_criteria
+from syft_bg.approve.config import AutoApprovalsConfig
+from syft_bg.approve.criteria import resolve_auto_approval
 
 if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
@@ -26,7 +26,7 @@ class JobApprovalHandler:
     def __init__(
         self,
         client: SyftboxManager,
-        config: JobApprovalConfig,
+        config: AutoApprovalsConfig,
         state: Optional[StateManager] = None,
         on_approve: Optional[Callable[[JobInfo], None]] = None,
         on_reject: Optional[Callable[[JobInfo, str], None]] = None,
@@ -55,13 +55,13 @@ class JobApprovalHandler:
             if self.state and self.state.was_approved(job.name):
                 continue
 
-            matches, reason = resolve_peer_criteria(
+            matches, reason = resolve_auto_approval(
                 job=job,
                 config=self.config,
             )
 
             if not matches:
-                if job.status == "inbox":
+                if job.status == "pending":
                     if self.verbose:
                         print(f"Skipped: {job.name} ({reason})")
                     if self.on_reject:

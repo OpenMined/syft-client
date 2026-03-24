@@ -8,12 +8,17 @@ from pathlib import Path
 
 
 def check_env() -> Environment:
+    import os
+
+    # Daemon subprocesses on Colab can import google.colab but cannot
+    # use interactive auth (no IPython kernel), so treat them as Jupyter.
+    if os.environ.get("SYFT_BG_DAEMON"):
+        return Environment.JUPYTER
     try:
         import google.colab  # noqa: F401
 
         return Environment.COLAB
     except Exception:
-        # this is bad, also do jupyter check
         return Environment.JUPYTER
 
 

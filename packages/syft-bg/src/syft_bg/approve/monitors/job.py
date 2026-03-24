@@ -10,7 +10,7 @@ from syft_bg.approve.handlers.job import JobApprovalHandler, StateManager
 from syft_bg.common.monitor import Monitor
 
 if TYPE_CHECKING:
-    from syft_bg.approve.config import JobApprovalConfig
+    from syft_bg.approve.config import AutoApprovalsConfig
     from syft_client.sync.syftbox_manager import SyftboxManager
 
 
@@ -20,7 +20,7 @@ class JobMonitor(Monitor):
     def __init__(
         self,
         client: SyftboxManager,
-        config: JobApprovalConfig,
+        config: AutoApprovalsConfig,
         state: Optional[StateManager] = None,
         on_approve: Optional[Callable[[JobInfo], None]] = None,
         on_reject: Optional[Callable[[JobInfo, str], None]] = None,

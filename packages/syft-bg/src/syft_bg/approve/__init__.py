@@ -1,11 +1,26 @@
 """Approval service for auto-approving jobs and peers."""
 
-from syft_bg.approve.config import ApproveConfig, JobApprovalConfig, PeerApprovalConfig
-from syft_bg.approve.orchestrator import ApprovalOrchestrator
+from syft_bg.approve.config import (
+    ApproveConfig,
+    AutoApprovalObj,
+    AutoApprovalsConfig,
+    PeerApprovalConfig,
+    ScriptEntry,
+)
 
 __all__ = [
     "ApproveConfig",
-    "JobApprovalConfig",
+    "AutoApprovalsConfig",
+    "AutoApprovalObj",
+    "ScriptEntry",
     "PeerApprovalConfig",
     "ApprovalOrchestrator",
 ]
+
+
+def __getattr__(name: str):
+    if name == "ApprovalOrchestrator":
+        from syft_bg.approve.orchestrator import ApprovalOrchestrator
+
+        return ApprovalOrchestrator
+    raise AttributeError(f"module 'syft_bg.approve' has no attribute {name!r}")
