@@ -15,9 +15,15 @@ def temp_dir():
 
 @pytest.fixture
 def sample_config(temp_dir):
-    """Create a sample config file."""
+    """Create a sample config file with the AutoApprovalObj model."""
     config_path = temp_dir / "config.yaml"
-    config_path.write_text("""
+    # Create a stored copy for content matching
+    approvals_dir = temp_dir / "auto_approvals" / "analysis"
+    approvals_dir.mkdir(parents=True)
+    stored_script = approvals_dir / "main.py"
+    stored_script.write_text('print("hello")\n')
+
+    config_path.write_text(f"""
 do_email: test@example.com
 syftbox_root: /tmp/syftbox
 
@@ -28,19 +34,18 @@ notify:
 
 approve:
   interval: 5
-  jobs:
+  auto_approvals:
     enabled: true
-    peers:
-      alice@uni.edu:
-        mode: strict
+    objects:
+      analysis:
         scripts:
           - name: main.py
+            path: "{stored_script}"
             hash: "sha256:abc123"
-      bob@co.com:
-        mode: strict
-        scripts:
-          - name: main.py
-            hash: "sha256:abc123"
+        file_names: []
+        peers:
+          - alice@uni.edu
+          - bob@co.com
   peers:
     enabled: false
     approved_domains: []

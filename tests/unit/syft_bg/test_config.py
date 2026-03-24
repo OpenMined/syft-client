@@ -4,70 +4,65 @@ from pathlib import Path
 
 from syft_bg.approve.config import (
     ApproveConfig,
-    JobApprovalConfig,
+    AutoApprovalObj,
+    AutoApprovalsConfig,
     PeerApprovalConfig,
-    PeerApprovalEntry,
-    ScriptRule,
+    ScriptEntry,
 )
 from syft_bg.notify.config import NotifyConfig
 
 
-class TestScriptRule:
-    """Tests for ScriptRule."""
+class TestScriptEntry:
+    """Tests for ScriptEntry."""
 
     def test_from_dict(self):
-        rule = ScriptRule.model_validate({"name": "train.py", "hash": "sha256:aaa"})
-        assert rule.name == "train.py"
-        assert rule.hash == "sha256:aaa"
+        entry = ScriptEntry.model_validate(
+            {"name": "train.py", "path": "/tmp/train.py", "hash": "sha256:aaa"}
+        )
+        assert entry.name == "train.py"
+        assert entry.path == "/tmp/train.py"
+        assert entry.hash == "sha256:aaa"
 
     def test_model_dump(self):
-        rule = ScriptRule(name="main.py", hash="sha256:bbb")
-        d = rule.model_dump()
-        assert d == {"name": "main.py", "hash": "sha256:bbb"}
+        entry = ScriptEntry(name="main.py", path="/tmp/main.py", hash="sha256:bbb")
+        d = entry.model_dump()
+        assert d == {"name": "main.py", "path": "/tmp/main.py", "hash": "sha256:bbb"}
 
 
-class TestPeerApprovalEntry:
-    """Tests for PeerApprovalEntry."""
+class TestAutoApprovalObj:
+    """Tests for AutoApprovalObj."""
 
     def test_from_dict(self):
-        config = PeerApprovalEntry.model_validate(
+        obj = AutoApprovalObj.model_validate(
             {
-                "mode": "strict",
-                "scripts": [{"name": "train.py", "hash": "sha256:aaa"}],
+                "scripts": [
+                    {"name": "train.py", "path": "/tmp/train.py", "hash": "sha256:aaa"}
+                ],
+                "file_names": ["params.json"],
+                "peers": ["alice@test.com"],
             }
         )
-        assert config.mode == "strict"
-        assert len(config.scripts) == 1
-        assert config.scripts[0].name == "train.py"
-        assert config.scripts[0].hash == "sha256:aaa"
+        assert len(obj.scripts) == 1
+        assert obj.scripts[0].name == "train.py"
+        assert obj.file_names == ["params.json"]
+        assert obj.peers == ["alice@test.com"]
 
     def test_defaults(self):
-        config = PeerApprovalEntry()
-        assert config.mode == "strict"
-        assert config.scripts == []
-
-    def test_model_dump(self):
-        config = PeerApprovalEntry(
-            mode="strict",
-            scripts=[ScriptRule(name="main.py", hash="sha256:bbb")],
-        )
-        d = config.model_dump()
-        assert d == {
-            "mode": "strict",
-            "scripts": [{"name": "main.py", "hash": "sha256:bbb"}],
-        }
+        obj = AutoApprovalObj()
+        assert obj.scripts == []
+        assert obj.file_names == []
+        assert obj.peers == []
 
     def test_multiple_scripts(self):
-        config = PeerApprovalEntry(
-            mode="strict",
+        obj = AutoApprovalObj(
             scripts=[
-                ScriptRule(name="main.py", hash="sha256:aaa"),
-                ScriptRule(name="utils.py", hash="sha256:bbb"),
+                ScriptEntry(name="main.py", path="/tmp/main.py", hash="sha256:aaa"),
+                ScriptEntry(name="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
             ],
         )
-        assert len(config.scripts) == 2
-        assert config.scripts[0].name == "main.py"
-        assert config.scripts[1].name == "utils.py"
+        assert len(obj.scripts) == 2
+        assert obj.scripts[0].name == "main.py"
+        assert obj.scripts[1].name == "utils.py"
 
 
 class TestApproveConfig:
@@ -78,8 +73,8 @@ class TestApproveConfig:
         assert config.do_email is None
         assert config.syftbox_root is None
         assert config.interval == 5
-        assert config.jobs.enabled is True
-        assert config.jobs.peers == {}
+        assert config.auto_approvals.enabled is True
+        assert config.auto_approvals.objects == {}
         assert config.peers.enabled is False
 
     def test_load_from_file(self, sample_config):
@@ -87,19 +82,19 @@ class TestApproveConfig:
         assert config.do_email == "test@example.com"
         assert config.syftbox_root == Path("/tmp/syftbox")
         assert config.interval == 5
-        assert config.jobs.enabled is True
-        assert "alice@uni.edu" in config.jobs.peers
-        assert "bob@co.com" in config.jobs.peers
-        alice = config.jobs.peers["alice@uni.edu"]
-        assert alice.mode == "strict"
-        assert len(alice.scripts) == 1
-        assert alice.scripts[0].name == "main.py"
-        assert alice.scripts[0].hash == "sha256:abc123"
+        assert config.auto_approvals.enabled is True
+        assert "analysis" in config.auto_approvals.objects
+        obj = config.auto_approvals.objects["analysis"]
+        assert len(obj.scripts) == 1
+        assert obj.scripts[0].name == "main.py"
+        assert obj.scripts[0].hash == "sha256:abc123"
+        assert "alice@uni.edu" in obj.peers
+        assert "bob@co.com" in obj.peers
 
     def test_load_nonexistent_returns_defaults(self, temp_dir):
         config = ApproveConfig.load(temp_dir / "nonexistent.yaml")
         assert config.do_email is None
-        assert config.jobs.enabled is True
+        assert config.auto_approvals.enabled is True
 
     def test_save_config(self, temp_dir):
         config_path = temp_dir / "config.yaml"
@@ -108,74 +103,85 @@ class TestApproveConfig:
             syftbox_root=Path("/tmp/saved"),
             interval=10,
         )
-        config.jobs.enabled = False
-        config.jobs.peers["alice@test.com"] = PeerApprovalEntry(
-            mode="strict",
-            scripts=[ScriptRule(name="main.py", hash="sha256:xyz")],
+        config.auto_approvals.enabled = False
+        config.auto_approvals.objects["test_obj"] = AutoApprovalObj(
+            scripts=[
+                ScriptEntry(name="main.py", path="/tmp/main.py", hash="sha256:xyz")
+            ],
+            peers=["alice@test.com"],
         )
         config.save(config_path)
 
         loaded = ApproveConfig.load(config_path)
         assert loaded.do_email == "save@example.com"
         assert loaded.interval == 10
-        assert loaded.jobs.enabled is False
-        assert "alice@test.com" in loaded.jobs.peers
-        assert loaded.jobs.peers["alice@test.com"].scripts[0].hash == "sha256:xyz"
+        assert loaded.auto_approvals.enabled is False
+        assert "test_obj" in loaded.auto_approvals.objects
+        obj = loaded.auto_approvals.objects["test_obj"]
+        assert obj.scripts[0].hash == "sha256:xyz"
+        assert obj.peers == ["alice@test.com"]
 
     def test_save_reload_multi_script_roundtrip(self, temp_dir):
         config_path = temp_dir / "config.yaml"
         config = ApproveConfig(do_email="rt@test.com")
-        config.jobs.peers["ds@test.com"] = PeerApprovalEntry(
-            mode="strict",
+        config.auto_approvals.objects["multi"] = AutoApprovalObj(
             scripts=[
-                ScriptRule(name="main.py", hash="sha256:aaa"),
-                ScriptRule(name="utils.py", hash="sha256:bbb"),
+                ScriptEntry(name="main.py", path="/tmp/main.py", hash="sha256:aaa"),
+                ScriptEntry(name="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
             ],
+            peers=["ds@test.com"],
         )
         config.save(config_path)
 
         loaded = ApproveConfig.load(config_path)
-        peer = loaded.jobs.peers["ds@test.com"]
-        assert len(peer.scripts) == 2
-        assert peer.scripts[0].name == "main.py"
-        assert peer.scripts[1].name == "utils.py"
+        obj = loaded.auto_approvals.objects["multi"]
+        assert len(obj.scripts) == 2
+        assert obj.scripts[0].name == "main.py"
+        assert obj.scripts[1].name == "utils.py"
 
-    def test_load_empty_peers(self, temp_dir):
+    def test_load_empty_objects(self, temp_dir):
         config_path = temp_dir / "config.yaml"
         config_path.write_text("""
 do_email: test@example.com
 approve:
-  jobs:
+  auto_approvals:
     enabled: true
-    peers: {}
+    objects: {}
 """)
         config = ApproveConfig.load(config_path)
-        assert config.jobs.peers == {}
+        assert config.auto_approvals.objects == {}
 
 
-class TestJobApprovalConfig:
-    """Tests for JobApprovalConfig."""
+class TestAutoApprovalsConfig:
+    """Tests for AutoApprovalsConfig."""
 
-    def test_from_dict_with_peers(self):
-        config = JobApprovalConfig.model_validate(
+    def test_from_dict_with_objects(self):
+        config = AutoApprovalsConfig.model_validate(
             {
                 "enabled": True,
-                "peers": {
-                    "alice@test.com": {
-                        "mode": "strict",
-                        "scripts": [{"name": "main.py", "hash": "sha256:abc"}],
+                "objects": {
+                    "my_analysis": {
+                        "scripts": [
+                            {
+                                "name": "main.py",
+                                "path": "/tmp/main.py",
+                                "hash": "sha256:abc",
+                            }
+                        ],
+                        "file_names": [],
+                        "peers": ["alice@test.com"],
                     },
                 },
             }
         )
         assert config.enabled is True
-        assert "alice@test.com" in config.peers
-        assert config.peers["alice@test.com"].scripts[0].name == "main.py"
+        assert "my_analysis" in config.objects
+        assert config.objects["my_analysis"].scripts[0].name == "main.py"
 
     def test_defaults(self):
-        config = JobApprovalConfig()
+        config = AutoApprovalsConfig()
         assert config.enabled is True
-        assert config.peers == {}
+        assert config.objects == {}
 
 
 class TestPeerApprovalConfig:
