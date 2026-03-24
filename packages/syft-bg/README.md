@@ -2,7 +2,6 @@
 
 Background services for SyftBox: email notifications and auto-approval for peers and jobs.
 
-
 ## Installation
 
 ```bash
