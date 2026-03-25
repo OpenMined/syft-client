@@ -63,7 +63,7 @@ Creates an auto-approval config from an existing job's files. Calls `auto_approv
 - `job` — `JobInfo` object to use as template
 - `contents` — filenames from the job to match by name AND content. Default (None): all files are content-matched
 - `file_names` — filenames from the job to match by name only. When set, all other files are content-matched
-- `peers` — restrict to these emails. Omit to allow any peer
+- `peers` — restrict to these emails. Defaults to the job's submitter
 - `name` — optional name for the approval object (defaults to job name)
 
 ## Authenticate

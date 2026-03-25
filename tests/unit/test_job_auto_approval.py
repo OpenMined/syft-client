@@ -123,6 +123,7 @@ def test_auto_approve_job_default_all_content_matched():
     assert "main.py" in result.file_contents
     assert "data.json" in result.file_contents
     assert result.file_names == []
+    assert result.peers == [ds_manager.email]
 
 
 def test_auto_approve_job_file_names_only():

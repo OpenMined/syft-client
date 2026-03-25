@@ -800,12 +800,15 @@ def auto_approve_job(
                   If None and file_names is None, all files are content-matched.
                   If None and file_names is set, all other files are content-matched.
         file_names: Filenames from the job to match by name only.
-        peers: Peer emails to restrict to. If None or empty, any peer matches.
+        peers: Peer emails to restrict to. If None, defaults to the job's submitter.
         name: Name for the auto-approval object. Defaults to job name.
 
     Returns:
         AutoApproveResult with the created object details.
     """
+    if peers is None:
+        peers = [job.submitted_by]
+
     user_files = _get_job_user_files(job)
 
     if not user_files:
