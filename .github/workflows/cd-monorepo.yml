@@ -124,6 +124,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.publish.outputs.version }}
 
     steps:
       - uses: actions/checkout@v6
@@ -145,15 +147,27 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Upload to PyPI
+        id: publish
         env:
           TWINE_USERNAME: ${{ secrets.PYPI_UNAME_SYFT_CLIENT }}
           TWINE_PASSWORD: ${{ secrets.PYPI_PASS_SYFT_CLIENT }}
         run: |
           git pull
           just bump-and-publish ${{ inputs.bump_type }}
+          VERSION=$(python3 -c "from syft_client.version import SYFT_CLIENT_VERSION; print(SYFT_CLIENT_VERSION)")
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       # bump and publish already does committing
       - name: Push changes to syft-client repo
         run: |
           git tag "syft-client/v${{ env.VERSION }}"
           git push origin --follow-tags
+
+  post-release-tests:
+    needs: [deploy-syft-client]
+    if: >-
+      !cancelled() && !failure()
+    uses: ./.github/workflows/post-release-tests.yml
+    with:
+      package_version: ${{ needs.deploy-syft-client.outputs.version }}
