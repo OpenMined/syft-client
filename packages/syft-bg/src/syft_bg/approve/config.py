@@ -4,13 +4,13 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from syft_bg.common.config import get_default_paths
 
 
-class ScriptEntry(BaseModel):
-    """A script stored in the auto-approvals directory with its hash."""
+class FileEntry(BaseModel):
+    """A file stored in the auto-approvals directory with its hash."""
 
     name: str  # e.g. "main.py"
     path: str  # e.g. "~/.syft-creds/auto_approvals/my_analysis/main.py"
@@ -18,10 +18,14 @@ class ScriptEntry(BaseModel):
 
 
 class AutoApprovalObj(BaseModel):
-    """An auto-approval object bundling scripts, allowed filenames, and peers."""
+    """An auto-approval object bundling content-matched files, name-only files, and peers."""
 
-    scripts: list[ScriptEntry] = Field(default_factory=list)
-    file_names: list[str] = Field(default_factory=list)  # non-.py files allowed by name
+    model_config = ConfigDict(populate_by_name=True)
+
+    file_contents: list[FileEntry] = Field(
+        default_factory=list, alias="scripts"
+    )  # files matched by content+hash
+    file_names: list[str] = Field(default_factory=list)  # files matched by name only
     peers: list[str] = Field(default_factory=list)  # peer emails
 
 
@@ -110,7 +114,7 @@ class ApproveConfig(BaseModel):
 
         data["approve"] = {
             "interval": self.interval,
-            "auto_approvals": self.auto_approvals.model_dump(),
+            "auto_approvals": self.auto_approvals.model_dump(by_alias=True),
             "peers": self.peers.model_dump(),
         }
 
@@ -120,14 +124,15 @@ class ApproveConfig(BaseModel):
 
 # --- Backwards-compatible aliases (deprecated, will be removed) ---
 
-ScriptRule = ScriptEntry
+ScriptEntry = FileEntry
+ScriptRule = FileEntry
 
 
 class PeerApprovalEntry(BaseModel):
     """Deprecated: use AutoApprovalObj instead."""
 
     mode: str = "strict"
-    scripts: list[ScriptEntry] = Field(default_factory=list)
+    scripts: list[FileEntry] = Field(default_factory=list)
 
 
 PeerJobConfig = PeerApprovalEntry

@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from syft_bg.approve.config import AutoApprovalObj, AutoApprovalsConfig, ScriptEntry
+from syft_bg.approve.config import AutoApprovalObj, AutoApprovalsConfig, FileEntry
 from syft_bg.approve.criteria import (
     _compute_file_hash,
     _content_matches,
@@ -15,13 +15,13 @@ from syft_bg.approve.criteria import (
 )
 
 
-def _make_script_entry(name, content, stored_path):
-    """Helper to create a ScriptEntry with correct hash and stored copy."""
+def _make_file_entry(name, content, stored_path):
+    """Helper to create a FileEntry with correct hash and stored copy."""
     script_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
     # Write stored copy
     Path(stored_path).parent.mkdir(parents=True, exist_ok=True)
     Path(stored_path).write_text(content)
-    return ScriptEntry(name=name, path=str(stored_path), hash=script_hash)
+    return FileEntry(name=name, path=str(stored_path), hash=script_hash)
 
 
 def create_mock_job(
@@ -140,25 +140,25 @@ class TestValidateAgainstObject:
         script = temp_dir / "main.py"
         script.write_text(content)
         stored = temp_dir / "stored" / "main.py"
-        entry = _make_script_entry("main.py", content, stored)
-        obj = AutoApprovalObj(scripts=[entry])
+        entry = _make_file_entry("main.py", content, stored)
+        obj = AutoApprovalObj(file_contents=[entry])
         job = create_mock_job(files=[script])
 
         ok, reason = _validate_against_object(job, obj)
         assert ok is True
         assert reason == "ok"
 
-    def test_no_py_files(self, temp_dir):
+    def test_no_matching_files(self, temp_dir):
         params = temp_dir / "params.json"
         params.write_text("{}")
         stored = temp_dir / "stored" / "main.py"
-        entry = _make_script_entry("main.py", "code", stored)
-        obj = AutoApprovalObj(scripts=[entry])
+        entry = _make_file_entry("main.py", "code", stored)
+        obj = AutoApprovalObj(file_contents=[entry])
         job = create_mock_job(files=[params])
 
         ok, reason = _validate_against_object(job, obj)
         assert ok is False
-        assert "no Python files" in reason
+        assert "unapproved file" in reason
 
     def test_multiple_files_all_match(self, temp_dir):
         content_a = 'print("a")\n'
@@ -169,9 +169,9 @@ class TestValidateAgainstObject:
         b.write_text(content_b)
         stored_a = temp_dir / "stored" / "main.py"
         stored_b = temp_dir / "stored" / "utils.py"
-        entry_a = _make_script_entry("main.py", content_a, stored_a)
-        entry_b = _make_script_entry("utils.py", content_b, stored_b)
-        obj = AutoApprovalObj(scripts=[entry_a, entry_b])
+        entry_a = _make_file_entry("main.py", content_a, stored_a)
+        entry_b = _make_file_entry("utils.py", content_b, stored_b)
+        obj = AutoApprovalObj(file_contents=[entry_a, entry_b])
         job = create_mock_job(files=[a, b])
 
         ok, reason = _validate_against_object(job, obj)
@@ -184,8 +184,8 @@ class TestValidateAgainstObject:
         a.write_text(content)
         b.write_text("extra")
         stored = temp_dir / "stored" / "main.py"
-        entry = _make_script_entry("main.py", content, stored)
-        obj = AutoApprovalObj(scripts=[entry])
+        entry = _make_file_entry("main.py", content, stored)
+        obj = AutoApprovalObj(file_contents=[entry])
         job = create_mock_job(files=[a, b])
 
         ok, reason = _validate_against_object(job, obj)
@@ -198,8 +198,8 @@ class TestValidateAgainstObject:
         stored = temp_dir / "stored" / "main.py"
         stored.parent.mkdir(parents=True)
         stored.write_text('print("modified")\n')
-        entry = ScriptEntry(name="main.py", path=str(stored), hash="sha256:wronghash")
-        obj = AutoApprovalObj(scripts=[entry])
+        entry = FileEntry(name="main.py", path=str(stored), hash="sha256:wronghash")
+        obj = AutoApprovalObj(file_contents=[entry])
         job = create_mock_job(files=[a])
 
         ok, reason = _validate_against_object(job, obj)
@@ -215,8 +215,8 @@ class TestValidateAgainstObject:
         stored.parent.mkdir(parents=True)
         stored.write_text('print("different")\n')
         script_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
-        entry = ScriptEntry(name="main.py", path=str(stored), hash=script_hash)
-        obj = AutoApprovalObj(scripts=[entry])
+        entry = FileEntry(name="main.py", path=str(stored), hash=script_hash)
+        obj = AutoApprovalObj(file_contents=[entry])
         job = create_mock_job(files=[a])
 
         ok, reason = _validate_against_object(job, obj)
@@ -238,7 +238,9 @@ class TestResolveAutoApproval:
         job = create_mock_job(submitted_by="unknown@test.com")
         config = AutoApprovalsConfig(
             objects={
-                "obj1": AutoApprovalObj(scripts=[], peers=["someone_else@test.com"]),
+                "obj1": AutoApprovalObj(
+                    file_contents=[], peers=["someone_else@test.com"]
+                ),
             }
         )
         ok, reason = resolve_auto_approval(job, config)
@@ -250,10 +252,12 @@ class TestResolveAutoApproval:
         script = temp_dir / "main.py"
         script.write_text(content)
         stored = temp_dir / "stored" / "main.py"
-        entry = _make_script_entry("main.py", content, stored)
+        entry = _make_file_entry("main.py", content, stored)
         config = AutoApprovalsConfig(
             objects={
-                "analysis": AutoApprovalObj(scripts=[entry], peers=["alice@test.com"]),
+                "analysis": AutoApprovalObj(
+                    file_contents=[entry], peers=["alice@test.com"]
+                ),
             }
         )
         job = create_mock_job(submitted_by="alice@test.com", files=[script])
@@ -265,10 +269,10 @@ class TestResolveAutoApproval:
         script = temp_dir / "main.py"
         script.write_text(content)
         stored = temp_dir / "stored" / "main.py"
-        entry = _make_script_entry("main.py", content, stored)
+        entry = _make_file_entry("main.py", content, stored)
         config = AutoApprovalsConfig(
             objects={
-                "open": AutoApprovalObj(scripts=[entry], peers=[]),
+                "open": AutoApprovalObj(file_contents=[entry], peers=[]),
             }
         )
         job = create_mock_job(submitted_by="anyone@test.com", files=[script])
@@ -279,10 +283,10 @@ class TestResolveAutoApproval:
         script = temp_dir / "train.py"
         script.write_text('print("hello")\n')
         stored = temp_dir / "stored" / "main.py"
-        entry = _make_script_entry("main.py", 'print("hello")\n', stored)
+        entry = _make_file_entry("main.py", 'print("hello")\n', stored)
         config = AutoApprovalsConfig(
             objects={
-                "obj": AutoApprovalObj(scripts=[entry], peers=["alice@test.com"]),
+                "obj": AutoApprovalObj(file_contents=[entry], peers=["alice@test.com"]),
             }
         )
         job = create_mock_job(submitted_by="alice@test.com", files=[script])

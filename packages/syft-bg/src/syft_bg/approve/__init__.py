@@ -5,6 +5,7 @@ from syft_bg.approve.config import (
     AutoApprovalObj,
     AutoApprovalsConfig,
     PeerApprovalConfig,
+    FileEntry,
     ScriptEntry,
 )
 
@@ -12,6 +13,7 @@ __all__ = [
     "ApproveConfig",
     "AutoApprovalsConfig",
     "AutoApprovalObj",
+    "FileEntry",
     "ScriptEntry",
     "PeerApprovalConfig",
     "ApprovalOrchestrator",

@@ -7,16 +7,16 @@ from syft_bg.approve.config import (
     AutoApprovalObj,
     AutoApprovalsConfig,
     PeerApprovalConfig,
-    ScriptEntry,
+    FileEntry,
 )
 from syft_bg.notify.config import NotifyConfig
 
 
-class TestScriptEntry:
-    """Tests for ScriptEntry."""
+class TestFileEntry:
+    """Tests for FileEntry (renamed from ScriptEntry)."""
 
     def test_from_dict(self):
-        entry = ScriptEntry.model_validate(
+        entry = FileEntry.model_validate(
             {"name": "train.py", "path": "/tmp/train.py", "hash": "sha256:aaa"}
         )
         assert entry.name == "train.py"
@@ -24,7 +24,7 @@ class TestScriptEntry:
         assert entry.hash == "sha256:aaa"
 
     def test_model_dump(self):
-        entry = ScriptEntry(name="main.py", path="/tmp/main.py", hash="sha256:bbb")
+        entry = FileEntry(name="main.py", path="/tmp/main.py", hash="sha256:bbb")
         d = entry.model_dump()
         assert d == {"name": "main.py", "path": "/tmp/main.py", "hash": "sha256:bbb"}
 
@@ -42,27 +42,27 @@ class TestAutoApprovalObj:
                 "peers": ["alice@test.com"],
             }
         )
-        assert len(obj.scripts) == 1
-        assert obj.scripts[0].name == "train.py"
+        assert len(obj.file_contents) == 1
+        assert obj.file_contents[0].name == "train.py"
         assert obj.file_names == ["params.json"]
         assert obj.peers == ["alice@test.com"]
 
     def test_defaults(self):
         obj = AutoApprovalObj()
-        assert obj.scripts == []
+        assert obj.file_contents == []
         assert obj.file_names == []
         assert obj.peers == []
 
     def test_multiple_scripts(self):
         obj = AutoApprovalObj(
-            scripts=[
-                ScriptEntry(name="main.py", path="/tmp/main.py", hash="sha256:aaa"),
-                ScriptEntry(name="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
+            file_contents=[
+                FileEntry(name="main.py", path="/tmp/main.py", hash="sha256:aaa"),
+                FileEntry(name="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
             ],
         )
-        assert len(obj.scripts) == 2
-        assert obj.scripts[0].name == "main.py"
-        assert obj.scripts[1].name == "utils.py"
+        assert len(obj.file_contents) == 2
+        assert obj.file_contents[0].name == "main.py"
+        assert obj.file_contents[1].name == "utils.py"
 
 
 class TestApproveConfig:
@@ -85,9 +85,9 @@ class TestApproveConfig:
         assert config.auto_approvals.enabled is True
         assert "analysis" in config.auto_approvals.objects
         obj = config.auto_approvals.objects["analysis"]
-        assert len(obj.scripts) == 1
-        assert obj.scripts[0].name == "main.py"
-        assert obj.scripts[0].hash == "sha256:abc123"
+        assert len(obj.file_contents) == 1
+        assert obj.file_contents[0].name == "main.py"
+        assert obj.file_contents[0].hash == "sha256:abc123"
         assert "alice@uni.edu" in obj.peers
         assert "bob@co.com" in obj.peers
 
@@ -105,8 +105,8 @@ class TestApproveConfig:
         )
         config.auto_approvals.enabled = False
         config.auto_approvals.objects["test_obj"] = AutoApprovalObj(
-            scripts=[
-                ScriptEntry(name="main.py", path="/tmp/main.py", hash="sha256:xyz")
+            file_contents=[
+                FileEntry(name="main.py", path="/tmp/main.py", hash="sha256:xyz")
             ],
             peers=["alice@test.com"],
         )
@@ -118,16 +118,16 @@ class TestApproveConfig:
         assert loaded.auto_approvals.enabled is False
         assert "test_obj" in loaded.auto_approvals.objects
         obj = loaded.auto_approvals.objects["test_obj"]
-        assert obj.scripts[0].hash == "sha256:xyz"
+        assert obj.file_contents[0].hash == "sha256:xyz"
         assert obj.peers == ["alice@test.com"]
 
     def test_save_reload_multi_script_roundtrip(self, temp_dir):
         config_path = temp_dir / "config.yaml"
         config = ApproveConfig(do_email="rt@test.com")
         config.auto_approvals.objects["multi"] = AutoApprovalObj(
-            scripts=[
-                ScriptEntry(name="main.py", path="/tmp/main.py", hash="sha256:aaa"),
-                ScriptEntry(name="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
+            file_contents=[
+                FileEntry(name="main.py", path="/tmp/main.py", hash="sha256:aaa"),
+                FileEntry(name="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
             ],
             peers=["ds@test.com"],
         )
@@ -135,9 +135,9 @@ class TestApproveConfig:
 
         loaded = ApproveConfig.load(config_path)
         obj = loaded.auto_approvals.objects["multi"]
-        assert len(obj.scripts) == 2
-        assert obj.scripts[0].name == "main.py"
-        assert obj.scripts[1].name == "utils.py"
+        assert len(obj.file_contents) == 2
+        assert obj.file_contents[0].name == "main.py"
+        assert obj.file_contents[1].name == "utils.py"
 
     def test_load_empty_objects(self, temp_dir):
         config_path = temp_dir / "config.yaml"
@@ -176,7 +176,7 @@ class TestAutoApprovalsConfig:
         )
         assert config.enabled is True
         assert "my_analysis" in config.objects
-        assert config.objects["my_analysis"].scripts[0].name == "main.py"
+        assert config.objects["my_analysis"].file_contents[0].name == "main.py"
 
     def test_defaults(self):
         config = AutoApprovalsConfig()

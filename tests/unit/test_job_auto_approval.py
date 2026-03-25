@@ -4,6 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 
+from syft_bg.api import auto_approve_job
 from syft_client.job_auto_approval import auto_approve_and_run_jobs
 from syft_client.sync.syftbox_manager import SyftboxManager
 
@@ -86,3 +87,112 @@ with open("outputs/result.json", "w") as f:
         result = json.loads(f.read())
 
     assert result["result"] == 42
+
+
+def _submit_job_and_sync(ds_manager, do_manager, project_dir, job_name="test.job"):
+    """Helper to submit a job and sync it to the DO."""
+    ds_manager.submit_python_job(
+        user=do_manager.email,
+        code_path=str(project_dir),
+        job_name=job_name,
+        entrypoint="main.py",
+    )
+    do_manager.sync()
+    return do_manager.jobs[-1]
+
+
+def _create_project_dir(script_content="print('hello')\n", data_content='{"k": "v"}'):
+    """Helper to create a project directory with a .py and .json file."""
+    project_dir = Path(tempfile.mkdtemp(prefix="test_auto_approve_job_"))
+    (project_dir / "main.py").write_text(script_content)
+    (project_dir / "data.json").write_text(data_content)
+    return project_dir
+
+
+def test_auto_approve_job_default_all_content_matched():
+    """Default behavior: all files are content-matched."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    project_dir = _create_project_dir()
+    job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
+
+    result = auto_approve_job(job)
+    assert result.success is True
+    assert "main.py" in result.file_contents
+    assert "data.json" in result.file_contents
+    assert result.file_names == []
+
+
+def test_auto_approve_job_file_names_only():
+    """file_names specified: those are name-only, rest are content-matched."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    project_dir = _create_project_dir()
+    job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
+
+    result = auto_approve_job(job, file_names=["data.json"])
+    assert result.success is True
+    assert result.file_contents == ["main.py"]
+    assert result.file_names == ["data.json"]
+
+
+def test_auto_approve_job_contents_only():
+    """contents specified: only those files are content-matched, rest ignored."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    project_dir = _create_project_dir()
+    job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
+
+    result = auto_approve_job(job, contents=["main.py"])
+    assert result.success is True
+    assert result.file_contents == ["main.py"]
+    assert result.file_names == []
+
+
+def test_auto_approve_job_both_contents_and_file_names():
+    """Both specified: contents are content-matched, file_names are name-only."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    project_dir = _create_project_dir()
+    job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
+
+    result = auto_approve_job(job, contents=["main.py"], file_names=["data.json"])
+    assert result.success is True
+    assert result.file_contents == ["main.py"]
+    assert result.file_names == ["data.json"]
+
+
+def test_auto_approve_job_overlap_error():
+    """Overlap between contents and file_names should fail."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    project_dir = _create_project_dir()
+    job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
+
+    result = auto_approve_job(job, contents=["main.py"], file_names=["main.py"])
+    assert result.success is False
+    assert "Overlap" in result.error
+
+
+def test_auto_approve_job_file_not_found_error():
+    """Referencing a non-existent file should fail."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    project_dir = _create_project_dir()
+    job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
+
+    result = auto_approve_job(job, contents=["nonexistent.py"])
+    assert result.success is False
+    assert "not found in job" in result.error

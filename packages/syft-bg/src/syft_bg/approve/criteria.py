@@ -23,6 +23,23 @@ def _get_python_files(job: JobInfo) -> list[Path]:
     return py_files
 
 
+def _get_content_matched_files(job: JobInfo, approved_names: set[str]) -> list[Path]:
+    """Get all job files whose names appear in the approved set (excluding metadata)."""
+    matched = []
+    for f in job.files:
+        if (
+            f.is_file()
+            and f.name not in JOB_METADATA_FILES
+            and f.name in approved_names
+        ):
+            matched.append(f)
+        elif f.is_dir():
+            for subf in f.rglob("*"):
+                if subf.is_file() and subf.name in approved_names:
+                    matched.append(subf)
+    return matched
+
+
 def _compute_file_hash(file_path: Path) -> str | None:
     """Compute SHA256 hash of a file's content."""
     try:
@@ -54,48 +71,66 @@ def _content_matches(job_file: Path, stored_path: str) -> bool:
         return False
 
 
+def _get_all_user_files(job: JobInfo) -> list[Path]:
+    """Get all user files from a job (excluding metadata)."""
+    files = []
+    for f in job.files:
+        if f.is_file() and f.name not in JOB_METADATA_FILES:
+            files.append(f)
+        elif f.is_dir():
+            for subf in f.rglob("*"):
+                if subf.is_file() and subf.name not in JOB_METADATA_FILES:
+                    files.append(subf)
+    return files
+
+
 def _validate_against_object(job: JobInfo, obj: AutoApprovalObj) -> tuple[bool, str]:
     """Validate a job against a single AutoApprovalObj.
 
-    Two-step validation for each .py file:
-    1. Hash must match a script entry in the object
+    Two-step validation for each content-matched file:
+    1. Hash must match a file entry in the object
     2. Content must match the stored copy
 
-    Non-.py files are checked against file_names allowlist.
+    All other files must be in the file_names allowlist.
 
     Returns:
         (True, "ok") if all files pass
         (False, reason) if any file fails
     """
-    py_files = _get_python_files(job)
+    # Build lookup: filename → FileEntry (content-matched files)
+    approved = {entry.name: entry for entry in obj.file_contents}
+    allowed_names = set(obj.file_names)
 
-    if len(py_files) == 0:
-        return (False, "no Python files found in submission")
+    all_files = _get_all_user_files(job)
 
-    # Build lookup: filename → ScriptEntry
-    approved = {entry.name: entry for entry in obj.scripts}
+    # Check that every file is either content-matched or in file_names
+    for f in all_files:
+        if f.name not in approved and f.name not in allowed_names:
+            return (False, f"unapproved file: {f.name}")
 
-    for py_file in py_files:
-        if py_file.name not in approved:
-            return (False, f"unapproved file: {py_file.name}")
+    content_files = [f for f in all_files if f.name in approved]
 
-        actual_hash = _compute_file_hash(py_file)
+    if len(content_files) == 0 and len(approved) > 0:
+        return (False, "no content-matched files found in submission")
+
+    for job_file in content_files:
+        actual_hash = _compute_file_hash(job_file)
         if actual_hash is None:
-            return (False, f"could not read file: {py_file.name}")
+            return (False, f"could not read file: {job_file.name}")
 
-        script_entry = approved[py_file.name]
+        file_entry = approved[job_file.name]
 
-        if not _hash_matches(actual_hash, script_entry.hash):
+        if not _hash_matches(actual_hash, file_entry.hash):
             return (
                 False,
-                f"script hash mismatch for {py_file.name}: "
-                f"expected {script_entry.hash}, got sha256:{actual_hash}",
+                f"file hash mismatch for {job_file.name}: "
+                f"expected {file_entry.hash}, got sha256:{actual_hash}",
             )
 
-        if not _content_matches(py_file, script_entry.path):
+        if not _content_matches(job_file, file_entry.path):
             return (
                 False,
-                f"script content mismatch for {py_file.name} against stored copy",
+                f"file content mismatch for {job_file.name} against stored copy",
             )
 
     return (True, "ok")

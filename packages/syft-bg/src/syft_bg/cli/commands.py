@@ -576,7 +576,7 @@ def set_script(
     import shutil
     from pathlib import Path
 
-    from syft_bg.approve.config import ApproveConfig, AutoApprovalObj, ScriptEntry
+    from syft_bg.approve.config import ApproveConfig, AutoApprovalObj, FileEntry
     from syft_bg.common.config import get_default_paths
 
     # Resolve all .py files from arguments (files and directories)
@@ -616,29 +616,29 @@ def set_script(
     obj_dir = paths.auto_approvals_dir / name
     obj_dir.mkdir(parents=True, exist_ok=True)
 
-    script_entries: list[ScriptEntry] = []
+    script_entries: list[FileEntry] = []
     for file_path in py_files:
         dest = obj_dir / file_path.name
         shutil.copy2(file_path, dest)
         content = dest.read_text(encoding="utf-8")
         file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
         script_entries.append(
-            ScriptEntry(name=file_path.name, path=str(dest), hash=file_hash)
+            FileEntry(name=file_path.name, path=str(dest), hash=file_hash)
         )
 
     obj = AutoApprovalObj(
-        scripts=script_entries,
+        file_contents=script_entries,
         file_names=list(file_names),
         peers=list(peers),
     )
 
     if not replace and name in config.auto_approvals.objects:
-        # Additive: merge scripts, peers, file_names
+        # Additive: merge file_contents, peers, file_names
         existing = config.auto_approvals.objects[name]
-        existing_by_name = {s.name: s for s in existing.scripts}
+        existing_by_name = {s.name: s for s in existing.file_contents}
         for entry in script_entries:
             existing_by_name[entry.name] = entry
-        existing.scripts = list(existing_by_name.values())
+        existing.file_contents = list(existing_by_name.values())
         existing.peers = list(set(existing.peers + list(peers)))
         existing.file_names = list(set(existing.file_names + list(file_names)))
     else:
@@ -698,9 +698,9 @@ def remove_script(files: tuple[str, ...], name: str):
         raise SystemExit(1)
 
     obj = config.auto_approvals.objects[name]
-    before = len(obj.scripts)
-    obj.scripts = [s for s in obj.scripts if s.name not in files]
-    removed = before - len(obj.scripts)
+    before = len(obj.file_contents)
+    obj.file_contents = [s for s in obj.file_contents if s.name not in files]
+    removed = before - len(obj.file_contents)
 
     config.save()
     click.echo(f"Removed {removed} script(s) from '{name}'.")
@@ -784,12 +784,12 @@ def list_scripts(name: str | None):
 
     for obj_name, obj in objects_to_show.items():
         click.echo(f"\n[{obj_name}]")
-        if obj.scripts:
-            click.echo("  Scripts:")
-            for entry in obj.scripts:
+        if obj.file_contents:
+            click.echo("  File contents:")
+            for entry in obj.file_contents:
                 click.echo(f"    {entry.name:<30} {entry.hash}")
         else:
-            click.echo("  Scripts: (none)")
+            click.echo("  File contents: (none)")
         if obj.file_names:
             click.echo(f"  Allowed files: {', '.join(obj.file_names)}")
         if obj.peers:
