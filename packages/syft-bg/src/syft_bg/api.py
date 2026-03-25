@@ -517,8 +517,8 @@ class StatusResult:
             lines.append("-" * 40)
             for obj_name, obj_data in self.auto_approvals.items():
                 lines.append(f"  [{obj_name}]")
-                for script in obj_data.get("scripts", []):
-                    lines.append(f"    script: {script}")
+                for entry in obj_data.get("file_contents", []):
+                    lines.append(f"    content: {entry}")
                 for fname in obj_data.get("file_names", []):
                     lines.append(f"    file:   {fname}")
                 peers = obj_data.get("peers", [])
@@ -588,7 +588,9 @@ def status() -> StatusResult:
 
     for obj_name, obj_data in aa_section.get("objects", {}).items():
         auto_approvals[obj_name] = {
-            "scripts": [s.get("name", "?") for s in obj_data.get("scripts", [])],
+            "file_contents": [
+                s.get("name", "?") for s in obj_data.get("file_contents", [])
+            ],
             "file_names": obj_data.get("file_names", []),
             "peers": obj_data.get("peers", []),
         }

@@ -35,7 +35,7 @@ class TestAutoApprovalObj:
     def test_from_dict(self):
         obj = AutoApprovalObj.model_validate(
             {
-                "scripts": [
+                "file_contents": [
                     {"name": "train.py", "path": "/tmp/train.py", "hash": "sha256:aaa"}
                 ],
                 "file_names": ["params.json"],
@@ -161,7 +161,7 @@ class TestAutoApprovalsConfig:
                 "enabled": True,
                 "objects": {
                     "my_analysis": {
-                        "scripts": [
+                        "file_contents": [
                             {
                                 "name": "main.py",
                                 "path": "/tmp/main.py",

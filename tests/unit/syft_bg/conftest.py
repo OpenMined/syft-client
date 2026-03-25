@@ -38,7 +38,7 @@ approve:
     enabled: true
     objects:
       analysis:
-        scripts:
+        file_contents:
           - name: main.py
             path: "{stored_script}"
             hash: "sha256:abc123"

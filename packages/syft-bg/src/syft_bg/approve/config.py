@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from syft_bg.common.config import get_default_paths
 
@@ -20,10 +20,8 @@ class FileEntry(BaseModel):
 class AutoApprovalObj(BaseModel):
     """An auto-approval object bundling content-matched files, name-only files, and peers."""
 
-    model_config = ConfigDict(populate_by_name=True)
-
     file_contents: list[FileEntry] = Field(
-        default_factory=list, alias="scripts"
+        default_factory=list
     )  # files matched by content+hash
     file_names: list[str] = Field(default_factory=list)  # files matched by name only
     peers: list[str] = Field(default_factory=list)  # peer emails
@@ -114,7 +112,7 @@ class ApproveConfig(BaseModel):
 
         data["approve"] = {
             "interval": self.interval,
-            "auto_approvals": self.auto_approvals.model_dump(by_alias=True),
+            "auto_approvals": self.auto_approvals.model_dump(),
             "peers": self.peers.model_dump(),
         }
 
