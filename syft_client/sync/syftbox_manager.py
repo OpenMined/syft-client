@@ -2,8 +2,6 @@ from pathlib import Path
 import logging
 import shutil
 import warnings
-
-logger = logging.getLogger(__name__)
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.utils import resolve_path
 from concurrent.futures import ThreadPoolExecutor
@@ -57,6 +55,8 @@ from syft_client.sync.version.peer_manager import (
     PeerManagerConfig,
 )
 import os
+
+logger = logging.getLogger(__name__)
 
 COLAB_DEFAULT_SYFTBOX_FOLDER = Path("/")
 JUPYTER_DEFAULT_SYFTBOX_FOLDER = Path.home() / "SyftBox"
@@ -1134,8 +1134,10 @@ class SyftboxManager(BaseModel):
         content_hash = PrivateDatasetCollectionFolder.compute_hash(files)
 
         # Create private collection folder (no sharing)
-        folder_id = self._connection_router.owner_create_private_dataset_collection_folder(
-            tag=collection_tag, content_hash=content_hash, owner_email=self.email
+        folder_id = (
+            self._connection_router.owner_create_private_dataset_collection_folder(
+                tag=collection_tag, content_hash=content_hash, owner_email=self.email
+            )
         )
 
         # Upload files
