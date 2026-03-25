@@ -1,6 +1,9 @@
 from pathlib import Path
+import logging
 import shutil
 import warnings
+
+logger = logging.getLogger(__name__)
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.utils import resolve_path
 from concurrent.futures import ThreadPoolExecutor
@@ -987,23 +990,76 @@ class SyftboxManager(BaseModel):
         if users is None:
             users = []
 
-        # Create dataset locally
-        dataset = self.dataset_manager.create(*args, users=users, **kwargs)
+        dataset_name = None
+        created_local = False
+        mock_folder_id = None
+        private_folder_id = None
 
-        # Upload mock data to collection folder
-        self._upload_dataset_to_collection(dataset, users)
+        try:
+            # Create dataset locally
+            dataset = self.dataset_manager.create(*args, users=users, **kwargs)
+            created_local = True
+            dataset_name = dataset.name
 
-        # Upload private data to a separate owner-only collection
-        if upload_private:
-            self._upload_private_dataset_to_collection(dataset)
+            # Upload mock data to collection folder
+            mock_folder_id = self._upload_dataset_to_collection(dataset, users)
 
-        if sync:
-            self.sync()
+            # Upload private data to a separate owner-only collection
+            if upload_private:
+                private_folder_id = self._upload_private_dataset_to_collection(dataset)
 
-        return dataset
+            if sync:
+                self.sync()
 
-    def _upload_dataset_to_collection(self, dataset, users: list[str] | str):
-        """Upload dataset files to collection folder."""
+            return dataset
+
+        except Exception:
+            logger.error(
+                "Failed to create dataset%s, cleaning up",
+                f" '{dataset_name}'" if dataset_name else "",
+            )
+            self._cleanup_failed_dataset_creation(
+                dataset_name, created_local, mock_folder_id, private_folder_id
+            )
+            raise
+
+    def _cleanup_failed_dataset_creation(
+        self,
+        dataset_name: str | None,
+        created_local: bool,
+        mock_folder_id: str | None,
+        private_folder_id: str | None,
+    ) -> None:
+        """Best-effort cleanup after a failed create_dataset, in reverse order."""
+        if private_folder_id is not None:
+            try:
+                self._connection_router.delete_file_by_id(private_folder_id)
+            except Exception:
+                logger.warning(
+                    "Cleanup: failed to delete private GDrive folder %s",
+                    private_folder_id,
+                )
+
+        if mock_folder_id is not None:
+            try:
+                self._connection_router.delete_file_by_id(mock_folder_id)
+            except Exception:
+                logger.warning(
+                    "Cleanup: failed to delete mock GDrive folder %s",
+                    mock_folder_id,
+                )
+
+        if created_local and dataset_name is not None:
+            try:
+                self.dataset_manager.delete(dataset_name, require_confirmation=False)
+            except Exception:
+                logger.warning(
+                    "Cleanup: failed to delete local dataset '%s'",
+                    dataset_name,
+                )
+
+    def _upload_dataset_to_collection(self, dataset, users: list[str] | str) -> str:
+        """Upload dataset files to collection folder. Returns the folder ID."""
         from syft_client.sync.connections.drive.gdrive_transport import (
             DatasetCollectionFolder,
         )
@@ -1027,7 +1083,7 @@ class SyftboxManager(BaseModel):
         content_hash = DatasetCollectionFolder.compute_hash(files)
 
         # Create collection folder with hash in name
-        self._connection_router.owner_create_dataset_collection_folder(
+        folder_id = self._connection_router.owner_create_dataset_collection_folder(
             tag=collection_tag, content_hash=content_hash, owner_email=self.email
         )
 
@@ -1055,8 +1111,11 @@ class SyftboxManager(BaseModel):
                 collection_tag, content_hash, users
             )
 
-    def _upload_private_dataset_to_collection(self, dataset):
-        """Upload private dataset files to a separate owner-only collection folder."""
+        return folder_id
+
+    def _upload_private_dataset_to_collection(self, dataset) -> str | None:
+        """Upload private dataset files to a separate owner-only collection folder.
+        Returns the folder ID, or None if no files to upload."""
         from syft_client.sync.connections.drive.gdrive_transport import (
             PrivateDatasetCollectionFolder,
         )
@@ -1070,12 +1129,12 @@ class SyftboxManager(BaseModel):
                 files[f.name] = f.read_bytes()
 
         if not files:
-            return
+            return None
 
         content_hash = PrivateDatasetCollectionFolder.compute_hash(files)
 
         # Create private collection folder (no sharing)
-        self._connection_router.owner_create_private_dataset_collection_folder(
+        folder_id = self._connection_router.owner_create_private_dataset_collection_folder(
             tag=collection_tag, content_hash=content_hash, owner_email=self.email
         )
 
@@ -1083,6 +1142,8 @@ class SyftboxManager(BaseModel):
         self._connection_router.owner_upload_private_dataset_files(
             collection_tag, content_hash, files
         )
+
+        return folder_id
 
     def delete_dataset(self, *args, sync=True, **kwargs):
         if self.dataset_manager is None:
