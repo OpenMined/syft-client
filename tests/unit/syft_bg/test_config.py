@@ -24,9 +24,15 @@ class TestFileEntry:
         assert entry.hash == "sha256:aaa"
 
     def test_model_dump(self):
-        entry = FileEntry(relative_path="main.py", path="/tmp/main.py", hash="sha256:bbb")
+        entry = FileEntry(
+            relative_path="main.py", path="/tmp/main.py", hash="sha256:bbb"
+        )
         d = entry.model_dump()
-        assert d == {"relative_path": "main.py", "path": "/tmp/main.py", "hash": "sha256:bbb"}
+        assert d == {
+            "relative_path": "main.py",
+            "path": "/tmp/main.py",
+            "hash": "sha256:bbb",
+        }
 
 
 class TestAutoApprovalObj:
@@ -36,28 +42,36 @@ class TestAutoApprovalObj:
         obj = AutoApprovalObj.model_validate(
             {
                 "file_contents": [
-                    {"relative_path": "train.py", "path": "/tmp/train.py", "hash": "sha256:aaa"}
+                    {
+                        "relative_path": "train.py",
+                        "path": "/tmp/train.py",
+                        "hash": "sha256:aaa",
+                    }
                 ],
-                "file_names": ["params.json"],
+                "file_paths": ["params.json"],
                 "peers": ["alice@test.com"],
             }
         )
         assert len(obj.file_contents) == 1
         assert obj.file_contents[0].relative_path == "train.py"
-        assert obj.file_names == ["params.json"]
+        assert obj.file_paths == ["params.json"]
         assert obj.peers == ["alice@test.com"]
 
     def test_defaults(self):
         obj = AutoApprovalObj()
         assert obj.file_contents == []
-        assert obj.file_names == []
+        assert obj.file_paths == []
         assert obj.peers == []
 
     def test_multiple_scripts(self):
         obj = AutoApprovalObj(
             file_contents=[
-                FileEntry(relative_path="main.py", path="/tmp/main.py", hash="sha256:aaa"),
-                FileEntry(relative_path="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
+                FileEntry(
+                    relative_path="main.py", path="/tmp/main.py", hash="sha256:aaa"
+                ),
+                FileEntry(
+                    relative_path="utils.py", path="/tmp/utils.py", hash="sha256:bbb"
+                ),
             ],
         )
         assert len(obj.file_contents) == 2
@@ -106,7 +120,9 @@ class TestAutoApproveConfig:
         config.auto_approvals.enabled = False
         config.auto_approvals.objects["test_obj"] = AutoApprovalObj(
             file_contents=[
-                FileEntry(relative_path="main.py", path="/tmp/main.py", hash="sha256:xyz")
+                FileEntry(
+                    relative_path="main.py", path="/tmp/main.py", hash="sha256:xyz"
+                )
             ],
             peers=["alice@test.com"],
         )
@@ -126,8 +142,12 @@ class TestAutoApproveConfig:
         config = AutoApproveConfig(do_email="rt@test.com")
         config.auto_approvals.objects["multi"] = AutoApprovalObj(
             file_contents=[
-                FileEntry(relative_path="main.py", path="/tmp/main.py", hash="sha256:aaa"),
-                FileEntry(relative_path="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
+                FileEntry(
+                    relative_path="main.py", path="/tmp/main.py", hash="sha256:aaa"
+                ),
+                FileEntry(
+                    relative_path="utils.py", path="/tmp/utils.py", hash="sha256:bbb"
+                ),
             ],
             peers=["ds@test.com"],
         )
@@ -168,7 +188,7 @@ class TestAutoApprovalsConfig:
                                 "hash": "sha256:abc",
                             }
                         ],
-                        "file_names": [],
+                        "file_paths": [],
                         "peers": ["alice@test.com"],
                     },
                 },

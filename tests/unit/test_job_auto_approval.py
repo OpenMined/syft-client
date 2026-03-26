@@ -84,8 +84,8 @@ with open("outputs/result.json", "w") as f:
     # Call auto_approve_and_run_jobs - must specify ALL files including the .py file
     approved = auto_approve_and_run_jobs(
         do_manager,
-        required_scripts={"main.py": expected_script},
-        required_filenames=["main.py", "data.json"],
+        required_file_contents={"main.py": expected_script},
+        required_file_paths=["main.py", "data.json"],
         verbose=False,
     )
 
@@ -150,12 +150,12 @@ def test_auto_approve_job_default_all_content_matched():
         content_names = {e.relative_path for e in obj.file_contents}
         assert content_names == {"main.py", "data.json"}
         assert all(e.hash.startswith("sha256:") for e in obj.file_contents)
-        assert obj.file_names == []
+        assert obj.file_paths == []
         assert obj.peers == [ds_manager.email]
 
 
-def test_auto_approve_job_file_names_only():
-    """file_names specified: those are name-only, rest are content-matched."""
+def test_auto_approve_job_file_paths_only():
+    """file_paths specified: those are name-only, rest are content-matched."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
@@ -164,13 +164,13 @@ def test_auto_approve_job_file_names_only():
     job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
 
     with _temp_config_paths():
-        result = auto_approve_job(job, file_names=["data.json"])
+        result = auto_approve_job(job, file_paths=["data.json"])
         assert result.success is True
 
         config = AutoApproveConfig.load()
         obj = config.auto_approvals.objects[job.name]
         assert [e.relative_path for e in obj.file_contents] == ["main.py"]
-        assert obj.file_names == ["data.json"]
+        assert obj.file_paths == ["data.json"]
 
 
 def test_auto_approve_job_contents_only():
@@ -189,11 +189,11 @@ def test_auto_approve_job_contents_only():
         config = AutoApproveConfig.load()
         obj = config.auto_approvals.objects[job.name]
         assert [e.relative_path for e in obj.file_contents] == ["main.py"]
-        assert obj.file_names == []
+        assert obj.file_paths == []
 
 
-def test_auto_approve_job_both_contents_and_file_names():
-    """Both specified: contents are content-matched, file_names are name-only."""
+def test_auto_approve_job_both_contents_and_file_paths():
+    """Both specified: contents are content-matched, file_paths are name-only."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
@@ -202,17 +202,17 @@ def test_auto_approve_job_both_contents_and_file_names():
     job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
 
     with _temp_config_paths():
-        result = auto_approve_job(job, contents=["main.py"], file_names=["data.json"])
+        result = auto_approve_job(job, contents=["main.py"], file_paths=["data.json"])
         assert result.success is True
 
         config = AutoApproveConfig.load()
         obj = config.auto_approvals.objects[job.name]
         assert [e.relative_path for e in obj.file_contents] == ["main.py"]
-        assert obj.file_names == ["data.json"]
+        assert obj.file_paths == ["data.json"]
 
 
 def test_auto_approve_job_overlap_error():
-    """Overlap between contents and file_names should fail."""
+    """Overlap between contents and file_paths should fail."""
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
@@ -220,7 +220,7 @@ def test_auto_approve_job_overlap_error():
     project_dir = _create_project_dir()
     job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
 
-    result = auto_approve_job(job, contents=["main.py"], file_names=["main.py"])
+    result = auto_approve_job(job, contents=["main.py"], file_paths=["main.py"])
     assert result.success is False
     assert "Overlap" in result.error
 

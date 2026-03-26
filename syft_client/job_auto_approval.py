@@ -93,8 +93,8 @@ def _script_matches(job: JobInfo, filename: str, expected_content: str) -> bool:
 
 def job_matches_criteria(
     job: JobInfo,
-    required_scripts: Dict[str, str],
-    required_filenames: List[str],
+    required_file_contents: Dict[str, str],
+    required_file_paths: List[str],
     allowed_users: Optional[List[str]] = None,
     peers_only: bool = False,
     approved_peers: Optional[List[str]] = None,
@@ -104,8 +104,8 @@ def job_matches_criteria(
 
     Args:
         job: JobInfo object to check
-        required_scripts: Dict mapping filename to expected content
-        required_filenames: List of filenames that must exist
+        required_file_contents: Dict mapping filename to expected content
+        required_file_paths: List of filenames that must exist
         allowed_users: Optional list of allowed user emails
         peers_only: If True, only approve jobs from approved peers
         approved_peers: List of approved peer emails (required when peers_only=True)
@@ -129,13 +129,13 @@ def job_matches_criteria(
             return False
 
     # Check for all required scripts with exact content match
-    for filename, expected_content in required_scripts.items():
+    for filename, expected_content in required_file_contents.items():
         if not _script_matches(job, filename, expected_content):
             return False
 
     # Check that job contains exactly the required files (no more, no less)
     job_filenames = {f.name for f in _get_user_files(job)}
-    required_set = set(required_filenames)
+    required_set = set(required_file_paths)
     if job_filenames != required_set:
         return False
 
@@ -145,8 +145,8 @@ def job_matches_criteria(
 def auto_approve_and_run_jobs(
     client: SyftboxManager,
     *,
-    required_scripts: Dict[str, str],
-    required_filenames: List[str],
+    required_file_contents: Dict[str, str],
+    required_file_paths: List[str],
     allowed_users: Optional[List[str]] = None,
     peers_only: bool = False,
     on_approve: Optional[Callable[[JobInfo], None]] = None,
@@ -165,10 +165,10 @@ def auto_approve_and_run_jobs(
 
     Args:
         client: SyftboxManager instance
-        required_scripts: Dict mapping filename to expected content.
+        required_file_contents: Dict mapping filename to expected content.
                          Content is compared after stripping trailing whitespace.
                          Example: {"main.py": "print('hello')"}
-        required_filenames: List of filenames that must exist in job folder.
+        required_file_paths: List of filenames that must exist in job folder.
                            Example: ["config.json", "data.csv"]
         allowed_users: Optional list of email addresses allowed to submit jobs.
                       If None, any user is allowed (subject to peers_only).
@@ -184,8 +184,8 @@ def auto_approve_and_run_jobs(
         >>> client = SyftboxManager.for_jupyter(email="me@example.com", ...)
         >>> approved = auto_approve_and_run_jobs(
         ...     client,
-        ...     required_scripts={"main.py": EXPECTED_SCRIPT},
-        ...     required_filenames=["params.json"],
+        ...     required_file_contents={"main.py": EXPECTED_SCRIPT},
+        ...     required_file_paths=["params.json"],
         ...     peers_only=True,
         ... )
     """
@@ -201,8 +201,8 @@ def auto_approve_and_run_jobs(
     for job in jobs:
         if job_matches_criteria(
             job,
-            required_scripts=required_scripts,
-            required_filenames=required_filenames,
+            required_file_contents=required_file_contents,
+            required_file_paths=required_file_paths,
             allowed_users=allowed_users,
             peers_only=peers_only,
             approved_peers=approved_peers,

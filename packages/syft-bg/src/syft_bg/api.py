@@ -522,7 +522,7 @@ class StatusResult:
                 lines.append(f"  [{obj_name}]")
                 for entry in obj_data.get("file_contents", []):
                     lines.append(f"    content: {entry}")
-                for fname in obj_data.get("file_names", []):
+                for fname in obj_data.get("file_paths", []):
                     lines.append(f"    file:   {fname}")
                 peers = obj_data.get("peers", [])
                 if peers:
@@ -594,7 +594,7 @@ def status() -> StatusResult:
             "file_contents": [
                 s.get("name", "?") for s in obj_data.get("file_contents", [])
             ],
-            "file_names": obj_data.get("file_names", []),
+            "file_paths": obj_data.get("file_paths", []),
             "peers": obj_data.get("peers", []),
         }
 
@@ -623,7 +623,7 @@ class AutoApproveResult:
     success: bool
     name: str = ""
     file_contents: list[str] = field(default_factory=list)
-    file_names: list[str] = field(default_factory=list)
+    file_paths: list[str] = field(default_factory=list)
     peers: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -635,8 +635,8 @@ class AutoApproveResult:
                 lines.append("  file_contents:")
                 for s in self.file_contents:
                     lines.append(f"    - {s}")
-            if self.file_names:
-                lines.append(f"  file_names: {', '.join(self.file_names)}")
+            if self.file_paths:
+                lines.append(f"  file_paths: {', '.join(self.file_paths)}")
             if self.peers:
                 lines.append(f"  peers: {', '.join(self.peers)}")
             else:
@@ -739,7 +739,7 @@ def _restart_approve_service() -> None:
 
 def auto_approve(
     contents: list[str | Path],
-    file_names: list[str] | None = None,
+    file_paths: list[str] | None = None,
     peers: list[str] | None = None,
     name: str | None = None,
     base_dir: Path | None = None,
@@ -754,7 +754,7 @@ def auto_approve(
         contents: List of file paths to approve by content. When base_dir is set,
                   these are relative paths resolved against it. Otherwise,
                   absolute paths or directories (expanded to all files within).
-        file_names: Relative paths to allow by name only (e.g. ["params.json"]).
+        file_paths: Relative paths to allow by name only (e.g. ["params.json"]).
         peers: Peer emails to restrict to. If None or empty, any peer matches.
         name: Name for the auto-approval object. Auto-generated if not provided.
         base_dir: Base directory to resolve relative paths in contents against.
@@ -763,8 +763,8 @@ def auto_approve(
     Returns:
         AutoApproveResult with the created object details.
     """
-    if file_names is None:
-        file_names = []
+    if file_paths is None:
+        file_paths = []
     if peers is None:
         peers = []
 
@@ -772,7 +772,7 @@ def auto_approve(
     if error:
         return AutoApproveResult(success=False, error=error)
 
-    if not content_files and not file_names:
+    if not content_files and not file_paths:
         return AutoApproveResult(success=False, error="No files to process")
 
     config = AutoApproveConfig.load()
@@ -782,7 +782,7 @@ def auto_approve(
 
     obj = AutoApprovalObj(
         file_contents=file_entries,
-        file_names=file_names,
+        file_paths=file_paths,
         peers=peers,
     )
     config.auto_approvals.objects[name] = obj
@@ -794,7 +794,7 @@ def auto_approve(
         success=True,
         name=name,
         file_contents=[e.relative_path for e in file_entries],
-        file_names=file_names,
+        file_paths=file_paths,
         peers=peers,
     )
 
@@ -805,28 +805,28 @@ PERMISSION_FILE_NAME = "syft.pub.yaml"
 def _resolve_auto_approve_file_args(
     user_files: dict[str, Path],
     contents: list[str] | None,
-    file_names: list[str] | None,
+    file_paths: list[str] | None,
 ) -> tuple[list[str], list[str]]:
     """Determine which job files are content-matched vs name-only.
 
     Returns (content_rel_paths, name_only).
     """
-    if contents is None and file_names is None:
+    if contents is None and file_paths is None:
         return list(user_files.keys()), []
-    elif contents is not None and file_names is None:
+    elif contents is not None and file_paths is None:
         return list(contents), []
-    elif contents is None and file_names is not None:
-        name_only = list(file_names)
-        content_rel_paths = [rel for rel in user_files if rel not in set(file_names)]
+    elif contents is None and file_paths is not None:
+        name_only = list(file_paths)
+        content_rel_paths = [rel for rel in user_files if rel not in set(file_paths)]
         return content_rel_paths, name_only
     else:
-        return list(contents), list(file_names)  # type: ignore[arg-type]
+        return list(contents), list(file_paths)  # type: ignore[arg-type]
 
 
 def _validate_auto_approve_job_inputs(
     user_files: dict[str, Path],
     contents: list[str] | None,
-    file_names: list[str] | None,
+    file_paths: list[str] | None,
 ) -> str | None:
     """Validate inputs for auto_approve_job. Returns error string or None."""
     if not user_files:
@@ -835,14 +835,14 @@ def _validate_auto_approve_job_inputs(
         for fname in contents:
             if fname not in user_files:
                 return f"File '{fname}' not found in job"
-    if file_names is not None:
-        for fname in file_names:
+    if file_paths is not None:
+        for fname in file_paths:
             if fname not in user_files:
                 return f"File '{fname}' not found in job"
-    if contents is not None and file_names is not None:
-        overlap = set(contents) & set(file_names)
+    if contents is not None and file_paths is not None:
+        overlap = set(contents) & set(file_paths)
         if overlap:
-            return f"Overlap between contents and file_names: {overlap}"
+            return f"Overlap between contents and file_paths: {overlap}"
     return None
 
 
@@ -860,21 +860,21 @@ def _get_job_user_files(job) -> dict[str, Path]:
 def auto_approve_job(
     job,
     contents: list[str] | None = None,
-    file_names: list[str] | None = None,
+    file_paths: list[str] | None = None,
     peers: list[str] | None = None,
     name: str | None = None,
 ) -> AutoApproveResult:
     """Create an auto-approval config from an existing job.
 
     Extracts files from the job and routes them to auto_approve() based on
-    the contents and file_names parameters.
+    the contents and file_paths parameters.
 
     Args:
         job: JobInfo object to use as template.
         contents: Filenames from the job to match by name AND content.
-                  If None and file_names is None, all files are content-matched.
-                  If None and file_names is set, all other files are content-matched.
-        file_names: Filenames from the job to match by name only.
+                  If None and file_paths is None, all files are content-matched.
+                  If None and file_paths is set, all other files are content-matched.
+        file_paths: Filenames from the job to match by name only.
         peers: Peer emails to restrict to. If None, defaults to the job's submitter.
         name: Name for the auto-approval object. Defaults to job name.
 
@@ -886,12 +886,12 @@ def auto_approve_job(
 
     user_files = _get_job_user_files(job)
 
-    error = _validate_auto_approve_job_inputs(user_files, contents, file_names)
+    error = _validate_auto_approve_job_inputs(user_files, contents, file_paths)
     if error:
         return AutoApproveResult(success=False, error=error)
 
     content_rel_paths, name_only = _resolve_auto_approve_file_args(
-        user_files, contents, file_names
+        user_files, contents, file_paths
     )
 
     if name is None:
@@ -899,7 +899,7 @@ def auto_approve_job(
 
     return auto_approve(
         contents=content_rel_paths,
-        file_names=name_only,
+        file_paths=name_only,
         peers=peers,
         name=name,
         base_dir=job.code_dir,

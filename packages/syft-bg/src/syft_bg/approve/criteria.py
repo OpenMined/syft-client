@@ -102,7 +102,7 @@ def _validate_job_against_object(
     1. Hash must match a file entry in the object
     2. Content must match the stored copy
 
-    All other files must be in the file_names allowlist.
+    All other files must be in the file_paths allowlist.
 
     Returns:
         (True, "ok") if all files pass
@@ -110,7 +110,7 @@ def _validate_job_against_object(
     """
     # Build lookup: relative_path → FileEntry (content-matched files)
     expected_contents = {entry.relative_path: entry for entry in obj.file_contents}
-    expected_names = set(obj.file_names)
+    expected_names = set(obj.file_paths)
     all_expected_paths = set(expected_contents.keys()) | expected_names
     job_code_files = _get_all_job_code_files(job)
 

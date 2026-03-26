@@ -33,7 +33,7 @@ class AutoApprovalObj(BaseModel):
     file_contents: list[FileEntry] = Field(
         default_factory=list
     )  # files matched by content+hash
-    file_names: list[str] = Field(default_factory=list)  # files matched by name only
+    file_paths: list[str] = Field(default_factory=list)  # files matched by path only
     peers: list[str] = Field(default_factory=list)  # peer emails
 
 

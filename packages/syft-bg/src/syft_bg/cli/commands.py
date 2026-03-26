@@ -542,7 +542,7 @@ def hash(file: str, length: int):
     help="Name for the auto-approval object. Auto-generated if not provided.",
 )
 @click.option(
-    "--file-names",
+    "--file-paths",
     "-f",
     multiple=True,
     help="Non-.py filenames to allow (e.g. params.json).",
@@ -556,7 +556,7 @@ def set_script(
     scripts: tuple[str, ...],
     peers: tuple[str, ...],
     name: str | None,
-    file_names: tuple[str, ...],
+    file_paths: tuple[str, ...],
     replace: bool,
 ):
     """Create or update an auto-approval object.
@@ -628,19 +628,19 @@ def set_script(
 
     obj = AutoApprovalObj(
         file_contents=script_entries,
-        file_names=list(file_names),
+        file_paths=list(file_paths),
         peers=list(peers),
     )
 
     if not replace and name in config.auto_approvals.objects:
-        # Additive: merge file_contents, peers, file_names
+        # Additive: merge file_contents, peers, file_paths
         existing = config.auto_approvals.objects[name]
         existing_by_name = {s.relative_path: s for s in existing.file_contents}
         for entry in script_entries:
             existing_by_name[entry.relative_path] = entry
         existing.file_contents = list(existing_by_name.values())
         existing.peers = list(set(existing.peers + list(peers)))
-        existing.file_names = list(set(existing.file_names + list(file_names)))
+        existing.file_paths = list(set(existing.file_paths + list(file_paths)))
     else:
         config.auto_approvals.objects[name] = obj
 
@@ -653,8 +653,8 @@ def set_script(
         click.echo(f"Peers: {', '.join(peers)}")
     else:
         click.echo("Peers: (any)")
-    if file_names:
-        click.echo(f"Allowed files: {', '.join(file_names)}")
+    if file_paths:
+        click.echo(f"Allowed files: {', '.join(file_paths)}")
     click.echo()
     click.echo("Config updated.")
 
@@ -790,8 +790,8 @@ def list_scripts(name: str | None):
                 click.echo(f"    {entry.relative_path:<30} {entry.hash}")
         else:
             click.echo("  File contents: (none)")
-        if obj.file_names:
-            click.echo(f"  Allowed files: {', '.join(obj.file_names)}")
+        if obj.file_paths:
+            click.echo(f"  Allowed files: {', '.join(obj.file_paths)}")
         if obj.peers:
             click.echo(f"  Peers: {', '.join(obj.peers)}")
         else:

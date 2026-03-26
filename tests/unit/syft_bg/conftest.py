@@ -42,7 +42,7 @@ approve:
           - relative_path: main.py
             path: "{stored_script}"
             hash: "sha256:abc123"
-        file_names: []
+        file_paths: []
         peers:
           - alice@uni.edu
           - bob@co.com
