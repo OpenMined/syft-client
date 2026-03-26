@@ -111,7 +111,7 @@ class TestSetScriptCommand:
     def test_set_script_basic(self, mock_load, mock_svc_mgr, temp_dir, sample_script):
         """Should accept a .py file and a single peer."""
         mock_config = MagicMock()
-        mock_config.jobs.peers = {}
+        mock_config.auto_approvals.objects = {}
         mock_load.return_value = mock_config
 
         mock_mgr_instance = MagicMock()
@@ -144,7 +144,7 @@ class TestSetScriptCommand:
     ):
         """Should accept multiple peers via -p flags."""
         mock_config = MagicMock()
-        mock_config.jobs.peers = {}
+        mock_config.auto_approvals.objects = {}
         mock_load.return_value = mock_config
 
         mock_mgr_instance = MagicMock()
@@ -158,9 +158,11 @@ class TestSetScriptCommand:
         )
 
         assert result.exit_code == 0
-        # Both peers should have been set in the config
-        assert "alice@test.com" in mock_config.jobs.peers
-        assert "bob@test.com" in mock_config.jobs.peers
+        # The auto-generated name should be the script stem ("main")
+        assert "main" in mock_config.auto_approvals.objects
+        obj = mock_config.auto_approvals.objects["main"]
+        assert "alice@test.com" in obj.peers
+        assert "bob@test.com" in obj.peers
         mock_config.save.assert_called_once()
 
     @patch("syft_bg.cli.commands.ServiceManager")
@@ -168,7 +170,7 @@ class TestSetScriptCommand:
     def test_set_script_multiple_files(self, mock_load, mock_svc_mgr, sample_scripts):
         """Should accept multiple .py files."""
         mock_config = MagicMock()
-        mock_config.jobs.peers = {}
+        mock_config.auto_approvals.objects = {}
         mock_load.return_value = mock_config
 
         mock_mgr_instance = MagicMock()
@@ -194,7 +196,7 @@ class TestSetScriptCommand:
         (subdir / "utils.py").write_text('print("b")\n')
 
         mock_config = MagicMock()
-        mock_config.jobs.peers = {}
+        mock_config.auto_approvals.objects = {}
         mock_load.return_value = mock_config
 
         mock_mgr_instance = MagicMock()
@@ -215,39 +217,47 @@ class TestRemoveScriptCommand:
 
     @patch("syft_bg.approve.config.ApproveConfig.load")
     def test_remove_script(self, mock_load):
-        """Should remove scripts by filename."""
-        from syft_bg.approve.config import PeerApprovalEntry, ScriptRule
+        """Should remove scripts by filename from an auto-approval object."""
+        from syft_bg.approve.config import AutoApprovalObj, ScriptEntry
 
-        entry = PeerApprovalEntry(
+        obj = AutoApprovalObj(
             scripts=[
-                ScriptRule(name="main.py", hash="sha256:aaa"),
-                ScriptRule(name="utils.py", hash="sha256:bbb"),
-            ]
+                ScriptEntry(
+                    name="main.py",
+                    path="/tmp/auto_approvals/my_analysis/main.py",
+                    hash="sha256:aaa",
+                ),
+                ScriptEntry(
+                    name="utils.py",
+                    path="/tmp/auto_approvals/my_analysis/utils.py",
+                    hash="sha256:bbb",
+                ),
+            ],
+            peers=["alice@test.com"],
         )
         mock_config = MagicMock()
-        mock_config.jobs.peers = {"alice@test.com": entry}
+        mock_config.auto_approvals.objects = {"my_analysis": obj}
         mock_load.return_value = mock_config
 
         runner = CliRunner()
-        result = runner.invoke(remove_script, ["utils.py", "-p", "alice@test.com"])
+        result = runner.invoke(remove_script, ["utils.py", "-n", "my_analysis"])
 
         assert result.exit_code == 0
         assert "Removed 1" in result.output
-        assert len(entry.scripts) == 1
-        assert entry.scripts[0].name == "main.py"
+        assert len(obj.scripts) == 1
+        assert obj.scripts[0].name == "main.py"
 
     @patch("syft_bg.approve.config.ApproveConfig.load")
-    def test_remove_script_unknown_peer(self, mock_load):
-        """Should warn about unknown peer."""
+    def test_remove_script_unknown_object(self, mock_load):
+        """Should error when object name not found."""
         mock_config = MagicMock()
-        mock_config.jobs.peers = {}
+        mock_config.auto_approvals.objects = {}
         mock_load.return_value = mock_config
 
         runner = CliRunner()
-        result = runner.invoke(remove_script, ["main.py", "-p", "unknown@test.com"])
+        result = runner.invoke(remove_script, ["main.py", "-n", "nonexistent"])
 
-        assert result.exit_code == 0
-        assert "not found" in result.output
+        assert result.exit_code == 1
 
 
 class TestRemovePeerCommand:
@@ -255,11 +265,13 @@ class TestRemovePeerCommand:
 
     @patch("syft_bg.approve.config.ApproveConfig.load")
     def test_remove_peer(self, mock_load):
-        """Should remove peer from config."""
-        from syft_bg.approve.config import PeerApprovalEntry
+        """Should remove peer from auto-approval objects."""
+        from syft_bg.approve.config import AutoApprovalObj
 
         mock_config = MagicMock()
-        mock_config.jobs.peers = {"alice@test.com": PeerApprovalEntry()}
+        mock_config.auto_approvals.objects = {
+            "my_analysis": AutoApprovalObj(peers=["alice@test.com"])
+        }
         mock_load.return_value = mock_config
 
         runner = CliRunner()
@@ -267,13 +279,16 @@ class TestRemovePeerCommand:
 
         assert result.exit_code == 0
         assert "Removed peer" in result.output
-        assert "alice@test.com" not in mock_config.jobs.peers
+        assert (
+            "alice@test.com"
+            not in mock_config.auto_approvals.objects["my_analysis"].peers
+        )
 
     @patch("syft_bg.approve.config.ApproveConfig.load")
     def test_remove_peer_not_found(self, mock_load):
         """Should error if peer not found."""
         mock_config = MagicMock()
-        mock_config.jobs.peers = {}
+        mock_config.auto_approvals.objects = {}
         mock_load.return_value = mock_config
 
         runner = CliRunner()
@@ -287,16 +302,30 @@ class TestListScriptsCommand:
 
     @patch("syft_bg.approve.config.ApproveConfig.load")
     def test_list_scripts(self, mock_load):
-        """Should list all peers and their scripts."""
-        from syft_bg.approve.config import PeerApprovalEntry, ScriptRule
+        """Should list all auto-approval objects and their scripts."""
+        from syft_bg.approve.config import AutoApprovalObj, ScriptEntry
 
         mock_config = MagicMock()
-        mock_config.jobs.peers = {
-            "alice@test.com": PeerApprovalEntry(
-                scripts=[ScriptRule(name="main.py", hash="sha256:aaa")]
+        mock_config.auto_approvals.objects = {
+            "analysis_a": AutoApprovalObj(
+                scripts=[
+                    ScriptEntry(
+                        name="main.py",
+                        path="/tmp/auto_approvals/analysis_a/main.py",
+                        hash="sha256:aaa",
+                    )
+                ],
+                peers=["alice@test.com"],
             ),
-            "bob@test.com": PeerApprovalEntry(
-                scripts=[ScriptRule(name="train.py", hash="sha256:bbb")]
+            "analysis_b": AutoApprovalObj(
+                scripts=[
+                    ScriptEntry(
+                        name="train.py",
+                        path="/tmp/auto_approvals/analysis_b/train.py",
+                        hash="sha256:bbb",
+                    )
+                ],
+                peers=["bob@test.com"],
             ),
         }
         mock_load.return_value = mock_config
@@ -311,37 +340,51 @@ class TestListScriptsCommand:
         assert "train.py" in result.output
 
     @patch("syft_bg.approve.config.ApproveConfig.load")
-    def test_list_scripts_single_peer(self, mock_load):
-        """Should filter to a specific peer."""
-        from syft_bg.approve.config import PeerApprovalEntry, ScriptRule
+    def test_list_scripts_single_object(self, mock_load):
+        """Should filter to a specific auto-approval object."""
+        from syft_bg.approve.config import AutoApprovalObj, ScriptEntry
 
         mock_config = MagicMock()
-        mock_config.jobs.peers = {
-            "alice@test.com": PeerApprovalEntry(
-                scripts=[ScriptRule(name="main.py", hash="sha256:aaa")]
+        mock_config.auto_approvals.objects = {
+            "analysis_a": AutoApprovalObj(
+                scripts=[
+                    ScriptEntry(
+                        name="main.py",
+                        path="/tmp/auto_approvals/analysis_a/main.py",
+                        hash="sha256:aaa",
+                    )
+                ],
+                peers=["alice@test.com"],
             ),
-            "bob@test.com": PeerApprovalEntry(
-                scripts=[ScriptRule(name="train.py", hash="sha256:bbb")]
+            "analysis_b": AutoApprovalObj(
+                scripts=[
+                    ScriptEntry(
+                        name="train.py",
+                        path="/tmp/auto_approvals/analysis_b/train.py",
+                        hash="sha256:bbb",
+                    )
+                ],
+                peers=["bob@test.com"],
             ),
         }
         mock_load.return_value = mock_config
 
         runner = CliRunner()
-        result = runner.invoke(list_scripts, ["-p", "alice@test.com"])
+        result = runner.invoke(list_scripts, ["-n", "analysis_a"])
 
         assert result.exit_code == 0
-        assert "alice@test.com" in result.output
-        assert "bob@test.com" not in result.output
+        assert "analysis_a" in result.output
+        assert "analysis_b" not in result.output
 
     @patch("syft_bg.approve.config.ApproveConfig.load")
     def test_list_scripts_empty(self, mock_load):
-        """Should show message when no peers configured."""
+        """Should show message when no auto-approval objects configured."""
         mock_config = MagicMock()
-        mock_config.jobs.peers = {}
+        mock_config.auto_approvals.objects = {}
         mock_load.return_value = mock_config
 
         runner = CliRunner()
         result = runner.invoke(list_scripts)
 
         assert result.exit_code == 0
-        assert "No peers configured" in result.output
+        assert "No auto-approval objects configured" in result.output
