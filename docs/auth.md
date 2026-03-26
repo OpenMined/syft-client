@@ -9,7 +9,7 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 ## Step 1: Create a Google Cloud Project
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Click **Select a project** in the top navigation bar
+2. Click **Click a project** in the top navigation bar
 3. Click **New Project** in the dialog that appears
 4. Enter a project name (e.g., "Syft Client")
 5. Click **Create**
