@@ -4,6 +4,8 @@ Pytest fixtures for integration tests.
 Fixtures defined here are automatically available to all tests in this directory.
 """
 
+import os
+
 import pytest
 
 from tests.integration.utils import (
@@ -16,6 +18,10 @@ from tests.integration.utils import (
 @pytest.fixture()
 def setup_delete_syftboxes():
     """Clean up syftboxes from drive before running integration tests."""
+    if os.environ.get("INTEGRATION_TEST_MOCK_MODE", "").lower() == "true":
+        yield
+        return
+
     tokens_exist = token_path_do.exists() and token_path_ds.exists()
     if not tokens_exist:
         raise ValueError(
