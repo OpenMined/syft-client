@@ -9,7 +9,7 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 ## Step 1: Create a Google Cloud Project
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Click **Select a project** in the top navigation bar
+2. Click **Click a project** in the top navigation bar
 3. Click **New Project** in the dialog that appears
 4. Enter a project name (e.g., "Syft Client")
 5. Click **Create**
@@ -25,28 +25,28 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 ## Step 3: Configure OAuth Consent Screen
 
 1. Go to **APIs & Services** > **OAuth consent screen**
-2. Select **External** user type (unless you have a Google Workspace organization)
-3. Click **Create**
-4. Fill in the required fields:
+2. press **Get started**
+3. Fill in the required fields:
    - **App name**: "Syft Client" (or your preferred name)
    - **User support email**: Your email address
-   - **Developer contact information**: Your email address
-5. Click **Save and Continue**
-6. On the **Scopes** page:
+   - click **next**
+4. Select **External** user type (unless you have a Google Workspace organization), click next
+5. Fill in your email, click **next**
+6. Mark the policy checkbox, click **Continue** and **Create**
+7. On the **data access** section for the Oauth Consent screen
    - Click **Add or Remove Scopes**
    - Search for and select `https://www.googleapis.com/auth/drive`
-   - Click **Update**
-   - Click **Save and Continue**
-7. On the **Test users** page:
+   - Scroll down and click **Update**
+   - Scroll down and click **Save**
+8. On the **Audience** section for the oauth consent screen under **Test users**:
    - Click **Add Users**
-   - Add the email addresses of users who will test the app
+   - Add you email adress
    - Click **Save and Continue**
-8. Review the summary and click **Back to Dashboard**
 
 ## Step 4: Create OAuth Client Credentials
 
-1. Go to **APIs & Services** > **Credentials**
-2. Click **Create Credentials** > **OAuth client ID**
+1. In the main navigation menu, go to **APIs & Services** > **Credentials**
+2. In the top bar, click **Create Credentials** > **OAuth client ID**
 3. Select **Desktop app** as the application type
 4. Enter a name (e.g., "Syft Client Desktop")
 5. Click **Create**
@@ -55,28 +55,20 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 
 ## Step 5: Publish the App
 
-For testing, your app can remain in "Testing" mode with up to 100 test users. To allow any Google user to authenticate:
+If your app is not published (i.e., remains in "Testing" mode), OAuth tokens expire every 7 days and users will need to re-authenticate. Publishing the app removes this limitation.
 
 1. Go to **APIs & Services** > **OAuth consent screen**
-2. Click **Publish App**
-3. Confirm the publishing
-
-**Important:** If your app is not published (i.e., remains in "Testing" mode), OAuth tokens expire every 7 days and users will need to re-authenticate. Publishing the app removes this limitation.
+2. navigate to the **Audience** section
+3. Under **Testing** header, Click **Publish App**
+4. Click **confirm**
 
 > **Note:** Publishing may require verification for apps requesting sensitive scopes like Google Drive access.
 
 ## Generating a Token
 
-Once you've completed the Google Cloud Console setup, generate a token:
+Once you've completed the Google Cloud Console setup, generate a token and log in:
 
 ```bash
-python scripts/create_token.py --credentials path/to/credentials.json --output token.json
+token_path = sc.credentials_to_token(credentials_path)
+do_client = login_do(email="your@email.com", token_path=token_path) # or login_ds
 ```
-
-Then pass the token path when logging in:
-
-```python
-do_client = login_do(email="your@email.com", token_path="path/to/token.json")
-```
-
-If your app is not published, tokens expire every 7 days and you'll need to regenerate them.
