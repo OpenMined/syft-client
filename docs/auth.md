@@ -66,16 +66,9 @@ If your app is not published (i.e., remains in "Testing" mode), OAuth tokens exp
 
 ## Generating a Token
 
-Once you've completed the Google Cloud Console setup, generate a token:
+Once you've completed the Google Cloud Console setup, generate a token and log in:
 
 ```bash
-python scripts/create_token.py --credentials path/to/credentials.json --output token.json
+token_path = sc.credentials_to_token(credentials_path)
+do_client = login_do(email="your@email.com", token_path=token_path) # or login_ds
 ```
-
-Then pass the token path when logging in:
-
-```python
-do_client = login_do(email="your@email.com", token_path="path/to/token.json")
-```
-
-If your app is not published, tokens expire every 7 days and you'll need to regenerate them.
