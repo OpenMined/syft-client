@@ -1,10 +1,13 @@
 """Pythonic API for syft-bg initialization and configuration."""
 
+import hashlib
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from syft_bg.approve.config import AutoApproveConfig, AutoApprovalObj, FileEntry
 from syft_bg.cli.init import InitConfig, run_init_flow
-from syft_bg.common.config import get_creds_dir
+from syft_bg.common.config import get_creds_dir, get_default_paths
 from syft_bg.common.drive import is_colab
 
 
@@ -645,6 +648,95 @@ class AutoApproveResult:
         return "\n".join(lines)
 
 
+def _generate_unique_name(
+    name: str | None,
+    content_files: list[tuple[str, Path]],
+    config: AutoApproveConfig,
+) -> str:
+    """Generate a unique name for an auto-approval object."""
+    if name is None:
+        if content_files:
+            first_rel = content_files[0][0]
+            name = Path(first_rel).stem if len(content_files) == 1 else "auto_approval"
+        else:
+            name = "auto_approval"
+
+    if name in config.auto_approvals.objects:
+        base_name = name
+        counter = 1
+        while f"{base_name}_{counter}" in config.auto_approvals.objects:
+            counter += 1
+        name = f"{base_name}_{counter}"
+
+    return name
+
+
+def _resolve_content_files(
+    contents: list[str | Path], base_dir: Path | None
+) -> tuple[list[tuple[str, Path]], str | None]:
+    """Resolve content paths to (relative_path, absolute_path) pairs.
+
+    Returns (content_files, error). error is None on success.
+    """
+    content_files: list[tuple[str, Path]] = []
+    for item in contents:
+        if base_dir is not None:
+            rel = str(item)
+            abs_path = base_dir / rel
+            if not abs_path.exists():
+                return [], f"File not found: {abs_path}"
+            content_files.append((rel, abs_path))
+        else:
+            p = Path(item).expanduser()
+            if p.is_dir():
+                found = sorted(f for f in p.rglob("*") if f.is_file())
+                if not found:
+                    return [], f"No files found in {p}"
+                for f in found:
+                    content_files.append((str(f.relative_to(p)), f))
+            elif not p.exists():
+                return [], f"File not found: {p}"
+            else:
+                content_files.append((p.name, p))
+    return content_files, None
+
+
+def _copy_and_hash_files(
+    content_files: list[tuple[str, Path]], name: str
+) -> list[FileEntry]:
+    """Copy files to the managed auto-approvals directory and compute hashes."""
+    obj_dir = get_default_paths().auto_approvals_dir / name
+    obj_dir.mkdir(parents=True, exist_ok=True)
+
+    entries: list[FileEntry] = []
+    for rel_path, abs_path in content_files:
+        dest = obj_dir / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(abs_path, dest)
+        content = dest.read_text(encoding="utf-8")
+        file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+        entries.append(
+            FileEntry(relative_path=rel_path, path=str(dest), hash=file_hash)
+        )
+    return entries
+
+
+def _restart_approve_service() -> None:
+    """Restart the approve service if it is currently running."""
+    try:
+        from syft_bg.services import ServiceManager
+        from syft_bg.services.base import ServiceStatus
+
+        manager = ServiceManager()
+        approve_svc = manager.get_service("approve")
+        if approve_svc:
+            svc_status = approve_svc.get_status()
+            if svc_status and svc_status.status == ServiceStatus.RUNNING:
+                manager.restart_service("approve")
+    except Exception:
+        pass
+
+
 def auto_approve(
     contents: list[str | Path],
     file_names: list[str] | None = None,
@@ -671,83 +763,22 @@ def auto_approve(
     Returns:
         AutoApproveResult with the created object details.
     """
-    import hashlib
-    import shutil
-
-    from syft_bg.approve.config import AutoApproveConfig, AutoApprovalObj, FileEntry
-    from syft_bg.common.config import get_default_paths
-
     if file_names is None:
         file_names = []
     if peers is None:
         peers = []
 
-    # Resolve all content-matched files as (relative_path, absolute_path) pairs
-    content_files: list[tuple[str, Path]] = []
-    for item in contents:
-        if base_dir is not None:
-            # Relative path mode: resolve against base_dir
-            rel = str(item)
-            abs_path = base_dir / rel
-            if not abs_path.exists():
-                return AutoApproveResult(
-                    success=False, error=f"File not found: {abs_path}"
-                )
-            content_files.append((rel, abs_path))
-        else:
-            p = Path(item).expanduser()
-            if p.is_dir():
-                found = sorted(f for f in p.rglob("*") if f.is_file())
-                if not found:
-                    return AutoApproveResult(
-                        success=False, error=f"No files found in {p}"
-                    )
-                for f in found:
-                    content_files.append((str(f.relative_to(p)), f))
-            elif not p.exists():
-                return AutoApproveResult(success=False, error=f"File not found: {p}")
-            else:
-                content_files.append((p.name, p))
+    content_files, error = _resolve_content_files(contents, base_dir)
+    if error:
+        return AutoApproveResult(success=False, error=error)
 
     if not content_files and not file_names:
         return AutoApproveResult(success=False, error="No files to process")
 
-    # Auto-generate name
-    if name is None:
-        if content_files:
-            first_rel = content_files[0][0]
-            name = (
-                Path(first_rel).stem
-                if len(content_files) == 1
-                else "auto_approval"
-            )
-        else:
-            name = "auto_approval"
-
-    # Load config and ensure unique name
     config = AutoApproveConfig.load()
-    if name in config.auto_approvals.objects:
-        base_name = name
-        counter = 1
-        while f"{base_name}_{counter}" in config.auto_approvals.objects:
-            counter += 1
-        name = f"{base_name}_{counter}"
+    name = _generate_unique_name(name, content_files, config)
 
-    # Copy files to managed directory and hash
-    paths = get_default_paths()
-    obj_dir = paths.auto_approvals_dir / name
-    obj_dir.mkdir(parents=True, exist_ok=True)
-
-    file_entries: list[FileEntry] = []
-    for rel_path, abs_path in content_files:
-        dest = obj_dir / rel_path
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(abs_path, dest)
-        content = dest.read_text(encoding="utf-8")
-        file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
-        file_entries.append(
-            FileEntry(relative_path=rel_path, path=str(dest), hash=file_hash)
-        )
+    file_entries = _copy_and_hash_files(content_files, name)
 
     obj = AutoApprovalObj(
         file_contents=file_entries,
@@ -757,19 +788,7 @@ def auto_approve(
     config.auto_approvals.objects[name] = obj
     config.save()
 
-    # Restart approve service if running
-    try:
-        from syft_bg.services import ServiceManager
-        from syft_bg.services.base import ServiceStatus
-
-        manager = ServiceManager()
-        approve_svc = manager.get_service("approve")
-        if approve_svc:
-            svc_status = approve_svc.get_status()
-            if svc_status and svc_status.status == ServiceStatus.RUNNING:
-                manager.restart_service("approve")
-    except Exception:
-        pass
+    _restart_approve_service()
 
     return AutoApproveResult(
         success=True,
@@ -781,6 +800,50 @@ def auto_approve(
 
 
 PERMISSION_FILE_NAME = "syft.pub.yaml"
+
+
+def _resolve_auto_approve_file_args(
+    user_files: dict[str, Path],
+    contents: list[str] | None,
+    file_names: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """Determine which job files are content-matched vs name-only.
+
+    Returns (content_rel_paths, name_only).
+    """
+    if contents is None and file_names is None:
+        return list(user_files.keys()), []
+    elif contents is not None and file_names is None:
+        return list(contents), []
+    elif contents is None and file_names is not None:
+        name_only = list(file_names)
+        content_rel_paths = [rel for rel in user_files if rel not in set(file_names)]
+        return content_rel_paths, name_only
+    else:
+        return list(contents), list(file_names)  # type: ignore[arg-type]
+
+
+def _validate_auto_approve_job_inputs(
+    user_files: dict[str, Path],
+    contents: list[str] | None,
+    file_names: list[str] | None,
+) -> str | None:
+    """Validate inputs for auto_approve_job. Returns error string or None."""
+    if not user_files:
+        return "No user files found in job"
+    if contents is not None:
+        for fname in contents:
+            if fname not in user_files:
+                return f"File '{fname}' not found in job"
+    if file_names is not None:
+        for fname in file_names:
+            if fname not in user_files:
+                return f"File '{fname}' not found in job"
+    if contents is not None and file_names is not None:
+        overlap = set(contents) & set(file_names)
+        if overlap:
+            return f"Overlap between contents and file_names: {overlap}"
+    return None
 
 
 def _get_job_user_files(job) -> dict[str, Path]:
@@ -823,49 +886,13 @@ def auto_approve_job(
 
     user_files = _get_job_user_files(job)
 
-    if not user_files:
-        return AutoApproveResult(success=False, error="No user files found in job")
+    error = _validate_auto_approve_job_inputs(user_files, contents, file_names)
+    if error:
+        return AutoApproveResult(success=False, error=error)
 
-    # Validate inputs
-    if contents is not None:
-        for fname in contents:
-            if fname not in user_files:
-                return AutoApproveResult(
-                    success=False, error=f"File '{fname}' not found in job"
-                )
-    if file_names is not None:
-        for fname in file_names:
-            if fname not in user_files:
-                return AutoApproveResult(
-                    success=False, error=f"File '{fname}' not found in job"
-                )
-    if contents is not None and file_names is not None:
-        overlap = set(contents) & set(file_names)
-        if overlap:
-            return AutoApproveResult(
-                success=False,
-                error=f"Overlap between contents and file_names: {overlap}",
-            )
-
-    # Determine routing — use relative path keys, not absolute paths
-    if contents is None and file_names is None:
-        # Default: all files content-matched
-        content_rel_paths = list(user_files.keys())
-        name_only: list[str] = []
-    elif contents is not None and file_names is None:
-        # Only contents specified: just those files
-        content_rel_paths = list(contents)
-        name_only = []
-    elif contents is None and file_names is not None:
-        # Only file_names specified: those name-only, rest content-matched
-        name_only = list(file_names)
-        content_rel_paths = [
-            rel for rel in user_files if rel not in set(file_names)
-        ]
-    else:
-        # Both specified
-        content_rel_paths = list(contents)  # type: ignore[arg-type]
-        name_only = list(file_names)  # type: ignore[arg-type]
+    content_rel_paths, name_only = _resolve_auto_approve_file_args(
+        user_files, contents, file_names
+    )
 
     if name is None:
         name = job.name

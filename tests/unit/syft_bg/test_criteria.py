@@ -159,7 +159,9 @@ class TestValidateAgainstObject:
 
     def test_no_matching_files(self, temp_dir):
         code_dir = _write_files(temp_dir / "code", {"params.json": "{}"})
-        auto_approval_stored_dir = _write_files(temp_dir / "approved", {"main.py": "code"})
+        auto_approval_stored_dir = _write_files(
+            temp_dir / "approved", {"main.py": "code"}
+        )
         obj = _auto_approval_obj_from_dir(auto_approval_stored_dir)
         job = create_mock_job(code_dir=code_dir)
 
@@ -190,9 +192,7 @@ class TestValidateAgainstObject:
         assert "extra files" in reason
 
     def test_hash_mismatch(self, temp_dir):
-        code_dir = _write_files(
-            temp_dir / "code", {"main.py": 'print("modified")\n'}
-        )
+        code_dir = _write_files(temp_dir / "code", {"main.py": 'print("modified")\n'})
         entry = FileEntry(
             relative_path="main.py",
             path=str(code_dir / "main.py"),
@@ -269,7 +269,9 @@ class TestResolveAutoApproval:
 
     def test_filename_mismatch(self, temp_dir):
         code_dir = _write_files(temp_dir / "code", {"train.py": 'print("hello")\n'})
-        auto_approval_stored_dir = _write_files(temp_dir / "approved", {"main.py": 'print("hello")\n'})
+        auto_approval_stored_dir = _write_files(
+            temp_dir / "approved", {"main.py": 'print("hello")\n'}
+        )
         obj = _auto_approval_obj_from_dir(auto_approval_stored_dir)
         obj.peers = ["alice@test.com"]
         config = AutoApprovalsConfig(objects={"obj": obj})

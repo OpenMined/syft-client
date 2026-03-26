@@ -109,9 +109,7 @@ def _validate_job_against_object(
         (False, reason) if any file fails
     """
     # Build lookup: relative_path → FileEntry (content-matched files)
-    expected_contents = {
-        entry.relative_path: entry for entry in obj.file_contents
-    }
+    expected_contents = {entry.relative_path: entry for entry in obj.file_contents}
     expected_names = set(obj.file_names)
     all_expected_paths = set(expected_contents.keys()) | expected_names
     job_code_files = _get_all_job_code_files(job)

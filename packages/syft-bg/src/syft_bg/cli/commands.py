@@ -623,9 +623,7 @@ def set_script(
         content = dest.read_text(encoding="utf-8")
         file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
         script_entries.append(
-            FileEntry(
-                relative_path=file_path.name, path=str(dest), hash=file_hash
-            )
+            FileEntry(relative_path=file_path.name, path=str(dest), hash=file_hash)
         )
 
     obj = AutoApprovalObj(
