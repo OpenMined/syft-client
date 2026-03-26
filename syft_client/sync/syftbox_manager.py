@@ -757,21 +757,39 @@ class SyftboxManager(BaseModel):
             self._post_approve_peer_do(peer_email)
 
     def submit_bash_job(
-        self, user: str, *args, sync=True, force_submission: bool = False, **kwargs
+        self,
+        user: str,
+        script: str,
+        job_name: str = "",
+        sync=True,
+        force_submission: bool = False,
     ):
         # Check version compatibility before submission (uses cached versions)
         if not force_submission:
             self.peer_manager.check_version_for_submission(user, force=False)
-        job_dir = self.job_client.submit_bash_job(user, *args, **kwargs)
+        job_dir = self.job_client.submit_bash_job(user, script, job_name=job_name)
         self.push_job_files(job_dir)
 
     def submit_python_job(
-        self, user: str, *args, sync=True, force_submission: bool = False, **kwargs
+        self,
+        user: str,
+        code_path: str,
+        job_name: str | None = "",
+        dependencies: list[str] | None = None,
+        entrypoint: str | None = None,
+        sync=True,
+        force_submission: bool = False,
     ):
         # Check version compatibility before submission (uses cached versions)
         if not force_submission:
             self.peer_manager.check_version_for_submission(user, force=False)
-        job_dir = self.job_client.submit_python_job(user, *args, **kwargs)
+        job_dir = self.job_client.submit_python_job(
+            user,
+            code_path,
+            job_name=job_name,
+            dependencies=dependencies,
+            entrypoint=entrypoint,
+        )
         self.push_job_files(job_dir)
         print(f"Submitted python job, job files are in {job_dir}")
 
@@ -973,11 +991,16 @@ class SyftboxManager(BaseModel):
 
     def create_dataset(
         self,
-        *args,
+        name: str,
+        mock_path: str | Path,
+        private_path: str | Path,
+        summary: str | None = None,
+        readme_path: Path | None = None,
+        location: str | None = None,
+        tags: list[str] | None = None,
         users: list[str] | str | None = None,
         upload_private: bool = False,
         sync=True,
-        **kwargs,
     ):
         if self.dataset_manager is None:
             raise ValueError("Dataset manager is not set")
@@ -997,7 +1020,16 @@ class SyftboxManager(BaseModel):
 
         try:
             # Create dataset locally
-            dataset = self.dataset_manager.create(*args, users=users, **kwargs)
+            dataset = self.dataset_manager.create(
+                name=name,
+                mock_path=mock_path,
+                private_path=private_path,
+                summary=summary,
+                readme_path=readme_path,
+                location=location,
+                tags=tags,
+                users=users,
+            )
             created_local = True
             dataset_name = dataset.name
 
@@ -1147,10 +1179,20 @@ class SyftboxManager(BaseModel):
 
         return folder_id
 
-    def delete_dataset(self, *args, sync=True, **kwargs):
+    def delete_dataset(
+        self,
+        name: str,
+        datasite: str | None = None,
+        require_confirmation: bool = True,
+        sync=True,
+    ):
         if self.dataset_manager is None:
             raise ValueError("Dataset manager is not set")
-        self.dataset_manager.delete(*args, **kwargs)
+        self.dataset_manager.delete(
+            name=name,
+            datasite=datasite,
+            require_confirmation=require_confirmation,
+        )
         if sync:
             self.sync()
 
