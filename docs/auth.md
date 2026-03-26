@@ -25,13 +25,13 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 ## Step 3: Configure OAuth Consent Screen
 
 1. Go to **APIs & Services** > **OAuth consent screen**
-2. press Get started   
+2. press **Get started**   
 3. Fill in the required fields:
    - **App name**: "Syft Client" (or your preferred name)
    - **User support email**: Your email address
    - click next
 3. Select **External** user type (unless you have a Google Workspace organization), click next
-4. Contact Information, fill in your email, click next
+4. Fill in your email, click **next**
 5. Mark the policy checkbox, click **Continue** and **Create**
 7. On the **data access** section for the Oauth Consent screen
    - Click **Add or Remove Scopes**
@@ -60,7 +60,7 @@ If your app is not published (i.e., remains in "Testing" mode), OAuth tokens exp
 1. Go to **APIs & Services** > **OAuth consent screen**
 2. navigate to the **Audience** section
 3. Under **Testing** header, Click **Publish App**
-4. Click confirm
+4. Click **confirm**
 
 > **Note:** Publishing may require verification for apps requesting sensitive scopes like Google Drive access.
 
