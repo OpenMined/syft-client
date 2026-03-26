@@ -2,11 +2,34 @@
 
 import json
 import tempfile
+from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from syft_bg.api import auto_approve_job
+from syft_bg.approve.config import AutoApproveConfig
+from syft_bg.common.config import get_default_paths
 from syft_client.job_auto_approval import auto_approve_and_run_jobs
 from syft_client.sync.syftbox_manager import SyftboxManager
+
+
+@contextmanager
+def _temp_config_paths():
+    """Redirect config and auto_approvals_dir to a temp directory."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        original = get_default_paths()
+        patched = replace(
+            original,
+            config=tmp_path / "config.yaml",
+            auto_approvals_dir=tmp_path / "auto_approvals",
+        )
+        with (
+            patch("syft_bg.common.config.get_default_paths", return_value=patched),
+            patch("syft_bg.approve.config.get_default_paths", return_value=patched),
+        ):
+            yield patched
 
 
 def test_auto_approve_and_run_jobs():
@@ -118,12 +141,17 @@ def test_auto_approve_job_default_all_content_matched():
     project_dir = _create_project_dir()
     job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
 
-    result = auto_approve_job(job)
-    assert result.success is True
-    assert "main.py" in result.file_contents
-    assert "data.json" in result.file_contents
-    assert result.file_names == []
-    assert result.peers == [ds_manager.email]
+    with _temp_config_paths():
+        result = auto_approve_job(job)
+        assert result.success is True
+
+        config = AutoApproveConfig.load()
+        obj = config.auto_approvals.objects[job.name]
+        content_names = {e.name for e in obj.file_contents}
+        assert content_names == {"main.py", "data.json"}
+        assert all(e.hash.startswith("sha256:") for e in obj.file_contents)
+        assert obj.file_names == []
+        assert obj.peers == [ds_manager.email]
 
 
 def test_auto_approve_job_file_names_only():
@@ -135,10 +163,14 @@ def test_auto_approve_job_file_names_only():
     project_dir = _create_project_dir()
     job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
 
-    result = auto_approve_job(job, file_names=["data.json"])
-    assert result.success is True
-    assert result.file_contents == ["main.py"]
-    assert result.file_names == ["data.json"]
+    with _temp_config_paths():
+        result = auto_approve_job(job, file_names=["data.json"])
+        assert result.success is True
+
+        config = AutoApproveConfig.load()
+        obj = config.auto_approvals.objects[job.name]
+        assert [e.name for e in obj.file_contents] == ["main.py"]
+        assert obj.file_names == ["data.json"]
 
 
 def test_auto_approve_job_contents_only():
@@ -150,10 +182,14 @@ def test_auto_approve_job_contents_only():
     project_dir = _create_project_dir()
     job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
 
-    result = auto_approve_job(job, contents=["main.py"])
-    assert result.success is True
-    assert result.file_contents == ["main.py"]
-    assert result.file_names == []
+    with _temp_config_paths():
+        result = auto_approve_job(job, contents=["main.py"])
+        assert result.success is True
+
+        config = AutoApproveConfig.load()
+        obj = config.auto_approvals.objects[job.name]
+        assert [e.name for e in obj.file_contents] == ["main.py"]
+        assert obj.file_names == []
 
 
 def test_auto_approve_job_both_contents_and_file_names():
@@ -165,10 +201,14 @@ def test_auto_approve_job_both_contents_and_file_names():
     project_dir = _create_project_dir()
     job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
 
-    result = auto_approve_job(job, contents=["main.py"], file_names=["data.json"])
-    assert result.success is True
-    assert result.file_contents == ["main.py"]
-    assert result.file_names == ["data.json"]
+    with _temp_config_paths():
+        result = auto_approve_job(job, contents=["main.py"], file_names=["data.json"])
+        assert result.success is True
+
+        config = AutoApproveConfig.load()
+        obj = config.auto_approvals.objects[job.name]
+        assert [e.name for e in obj.file_contents] == ["main.py"]
+        assert obj.file_names == ["data.json"]
 
 
 def test_auto_approve_job_overlap_error():
