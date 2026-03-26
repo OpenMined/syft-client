@@ -29,7 +29,7 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 3. Fill in the required fields:
    - **App name**: "Syft Client" (or your preferred name)
    - **User support email**: Your email address
-   - click next
+   - click **next**
 3. Select **External** user type (unless you have a Google Workspace organization), click next
 4. Fill in your email, click **next**
 5. Mark the policy checkbox, click **Continue** and **Create**
