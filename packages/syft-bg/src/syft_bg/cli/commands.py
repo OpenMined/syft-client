@@ -576,7 +576,7 @@ def set_script(
     import shutil
     from pathlib import Path
 
-    from syft_bg.approve.config import ApproveConfig, AutoApprovalObj, FileEntry
+    from syft_bg.approve.config import AutoApproveConfig, AutoApprovalObj, FileEntry
     from syft_bg.common.config import get_default_paths
 
     # Resolve all .py files from arguments (files and directories)
@@ -602,14 +602,14 @@ def set_script(
     if name is None:
         name = py_files[0].stem if len(py_files) == 1 else "auto_approval"
         # Ensure unique name
-        config = ApproveConfig.load()
+        config = AutoApproveConfig.load()
         base_name = name
         counter = 1
         while name in config.auto_approvals.objects and not replace:
             name = f"{base_name}_{counter}"
             counter += 1
     else:
-        config = ApproveConfig.load()
+        config = AutoApproveConfig.load()
 
     # Copy scripts to managed directory and hash
     paths = get_default_paths()
@@ -689,9 +689,9 @@ def remove_script(files: tuple[str, ...], name: str):
 
       syft-bg remove-script main.py utils.py -n my_analysis
     """
-    from syft_bg.approve.config import ApproveConfig
+    from syft_bg.approve.config import AutoApproveConfig
 
-    config = ApproveConfig.load()
+    config = AutoApproveConfig.load()
 
     if name not in config.auto_approvals.objects:
         click.echo(f"Auto-approval object '{name}' not found in config.", err=True)
@@ -723,9 +723,9 @@ def remove_peer(peer: str, name: str | None):
 
       syft-bg remove-peer alice@uni.edu -n my_analysis
     """
-    from syft_bg.approve.config import ApproveConfig
+    from syft_bg.approve.config import AutoApproveConfig
 
-    config = ApproveConfig.load()
+    config = AutoApproveConfig.load()
     removed_from = 0
 
     if name:
@@ -766,9 +766,9 @@ def list_scripts(name: str | None):
 
       syft-bg list-scripts -n my_analysis
     """
-    from syft_bg.approve.config import ApproveConfig
+    from syft_bg.approve.config import AutoApproveConfig
 
-    config = ApproveConfig.load()
+    config = AutoApproveConfig.load()
 
     if not config.auto_approvals.objects:
         click.echo("No auto-approval objects configured.")

@@ -683,7 +683,7 @@ def auto_approve(
     import hashlib
     import shutil
 
-    from syft_bg.approve.config import ApproveConfig, AutoApprovalObj, FileEntry
+    from syft_bg.approve.config import AutoApproveConfig, AutoApprovalObj, FileEntry
     from syft_bg.common.config import get_default_paths
 
     if file_names is None:
@@ -716,7 +716,7 @@ def auto_approve(
             name = "auto_approval"
 
     # Load config and ensure unique name
-    config = ApproveConfig.load()
+    config = AutoApproveConfig.load()
     if name in config.auto_approvals.objects:
         base_name = name
         counter = 1

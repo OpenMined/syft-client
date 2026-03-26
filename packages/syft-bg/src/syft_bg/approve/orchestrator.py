@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from syft_bg.approve.config import ApproveConfig
+from syft_bg.approve.config import AutoApproveConfig
 from syft_bg.approve.monitors.job import JobMonitor
 from syft_bg.approve.monitors.peer import PeerMonitor
 from syft_bg.common.config import get_default_paths
@@ -22,7 +22,7 @@ class ApprovalOrchestrator(BaseOrchestrator):
     def __init__(
         self,
         client: SyftboxManager,
-        config: ApproveConfig,
+        config: AutoApproveConfig,
     ):
         super().__init__()
         self.client = client
@@ -45,7 +45,7 @@ class ApprovalOrchestrator(BaseOrchestrator):
                 "ApprovalOrchestrator should only run on Data Owner (DO) side."
             )
 
-        config = ApproveConfig.load()
+        config = AutoApproveConfig.load()
         config.do_email = client.email
         config.syftbox_root = client.syftbox_folder
         config.interval = interval
@@ -59,7 +59,7 @@ class ApprovalOrchestrator(BaseOrchestrator):
         interval: Optional[int] = None,
     ) -> ApprovalOrchestrator:
         """Create orchestrator from config file."""
-        config = ApproveConfig.load(Path(config_path) if config_path else None)
+        config = AutoApproveConfig.load(Path(config_path) if config_path else None)
 
         if not config.do_email:
             raise ValueError("Config missing 'do_email' field")

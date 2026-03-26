@@ -42,7 +42,7 @@ class PeerApprovalConfig(BaseModel):
     auto_share_datasets: list[str] = Field(default_factory=list)
 
 
-class ApproveConfig(BaseModel):
+class AutoApproveConfig(BaseModel):
     """Main configuration for the approval service."""
 
     do_email: Optional[str] = None
@@ -53,7 +53,7 @@ class ApproveConfig(BaseModel):
     peers: PeerApprovalConfig = Field(default_factory=PeerApprovalConfig)
 
     @classmethod
-    def load(cls, config_path: Optional[Path] = None) -> "ApproveConfig":
+    def load(cls, config_path: Optional[Path] = None) -> "AutoApproveConfig":
         """Load configuration from YAML file."""
         if config_path is None:
             config_path = get_default_paths().config

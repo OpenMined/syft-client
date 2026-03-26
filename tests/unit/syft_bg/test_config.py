@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from syft_bg.approve.config import (
-    ApproveConfig,
+    AutoApproveConfig,
     AutoApprovalObj,
     AutoApprovalsConfig,
     PeerApprovalConfig,
@@ -65,11 +65,11 @@ class TestAutoApprovalObj:
         assert obj.file_contents[1].name == "utils.py"
 
 
-class TestApproveConfig:
-    """Tests for ApproveConfig."""
+class TestAutoApproveConfig:
+    """Tests for AutoApproveConfig."""
 
     def test_default_config(self):
-        config = ApproveConfig()
+        config = AutoApproveConfig()
         assert config.do_email is None
         assert config.syftbox_root is None
         assert config.interval == 5
@@ -78,7 +78,7 @@ class TestApproveConfig:
         assert config.peers.enabled is False
 
     def test_load_from_file(self, sample_config):
-        config = ApproveConfig.load(sample_config)
+        config = AutoApproveConfig.load(sample_config)
         assert config.do_email == "test@example.com"
         assert config.syftbox_root == Path("/tmp/syftbox")
         assert config.interval == 5
@@ -92,13 +92,13 @@ class TestApproveConfig:
         assert "bob@co.com" in obj.peers
 
     def test_load_nonexistent_returns_defaults(self, temp_dir):
-        config = ApproveConfig.load(temp_dir / "nonexistent.yaml")
+        config = AutoApproveConfig.load(temp_dir / "nonexistent.yaml")
         assert config.do_email is None
         assert config.auto_approvals.enabled is True
 
     def test_save_config(self, temp_dir):
         config_path = temp_dir / "config.yaml"
-        config = ApproveConfig(
+        config = AutoApproveConfig(
             do_email="save@example.com",
             syftbox_root=Path("/tmp/saved"),
             interval=10,
@@ -112,7 +112,7 @@ class TestApproveConfig:
         )
         config.save(config_path)
 
-        loaded = ApproveConfig.load(config_path)
+        loaded = AutoApproveConfig.load(config_path)
         assert loaded.do_email == "save@example.com"
         assert loaded.interval == 10
         assert loaded.auto_approvals.enabled is False
@@ -123,7 +123,7 @@ class TestApproveConfig:
 
     def test_save_reload_multi_script_roundtrip(self, temp_dir):
         config_path = temp_dir / "config.yaml"
-        config = ApproveConfig(do_email="rt@test.com")
+        config = AutoApproveConfig(do_email="rt@test.com")
         config.auto_approvals.objects["multi"] = AutoApprovalObj(
             file_contents=[
                 FileEntry(name="main.py", path="/tmp/main.py", hash="sha256:aaa"),
@@ -133,7 +133,7 @@ class TestApproveConfig:
         )
         config.save(config_path)
 
-        loaded = ApproveConfig.load(config_path)
+        loaded = AutoApproveConfig.load(config_path)
         obj = loaded.auto_approvals.objects["multi"]
         assert len(obj.file_contents) == 2
         assert obj.file_contents[0].name == "main.py"
@@ -148,7 +148,7 @@ approve:
     enabled: true
     objects: {}
 """)
-        config = ApproveConfig.load(config_path)
+        config = AutoApproveConfig.load(config_path)
         assert config.auto_approvals.objects == {}
 
 
