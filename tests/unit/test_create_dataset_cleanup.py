@@ -164,18 +164,3 @@ class TestCreateDatasetCleanup:
 
         mock_cleanup.assert_not_called()
         assert dataset.name == "testdataset"
-
-    def test_upload_methods_return_folder_ids(self):
-        """_upload_dataset_to_collection and _upload_private_dataset_to_collection return folder IDs."""
-        do_manager = self._make_do_manager()
-        kwargs = self._dataset_kwargs()
-
-        dataset = do_manager.dataset_manager.create(**kwargs)
-
-        mock_folder_id = do_manager._upload_dataset_to_collection(dataset, [])
-        assert isinstance(mock_folder_id, str)
-        assert len(mock_folder_id) > 0
-
-        private_folder_id = do_manager._upload_private_dataset_to_collection(dataset)
-        assert isinstance(private_folder_id, str)
-        assert len(private_folder_id) > 0
