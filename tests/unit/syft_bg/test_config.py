@@ -17,16 +17,16 @@ class TestFileEntry:
 
     def test_from_dict(self):
         entry = FileEntry.model_validate(
-            {"name": "train.py", "path": "/tmp/train.py", "hash": "sha256:aaa"}
+            {"relative_path": "train.py", "path": "/tmp/train.py", "hash": "sha256:aaa"}
         )
-        assert entry.name == "train.py"
+        assert entry.relative_path == "train.py"
         assert entry.path == "/tmp/train.py"
         assert entry.hash == "sha256:aaa"
 
     def test_model_dump(self):
-        entry = FileEntry(name="main.py", path="/tmp/main.py", hash="sha256:bbb")
+        entry = FileEntry(relative_path="main.py", path="/tmp/main.py", hash="sha256:bbb")
         d = entry.model_dump()
-        assert d == {"name": "main.py", "path": "/tmp/main.py", "hash": "sha256:bbb"}
+        assert d == {"relative_path": "main.py", "path": "/tmp/main.py", "hash": "sha256:bbb"}
 
 
 class TestAutoApprovalObj:
@@ -36,14 +36,14 @@ class TestAutoApprovalObj:
         obj = AutoApprovalObj.model_validate(
             {
                 "file_contents": [
-                    {"name": "train.py", "path": "/tmp/train.py", "hash": "sha256:aaa"}
+                    {"relative_path": "train.py", "path": "/tmp/train.py", "hash": "sha256:aaa"}
                 ],
                 "file_names": ["params.json"],
                 "peers": ["alice@test.com"],
             }
         )
         assert len(obj.file_contents) == 1
-        assert obj.file_contents[0].name == "train.py"
+        assert obj.file_contents[0].relative_path == "train.py"
         assert obj.file_names == ["params.json"]
         assert obj.peers == ["alice@test.com"]
 
@@ -56,13 +56,13 @@ class TestAutoApprovalObj:
     def test_multiple_scripts(self):
         obj = AutoApprovalObj(
             file_contents=[
-                FileEntry(name="main.py", path="/tmp/main.py", hash="sha256:aaa"),
-                FileEntry(name="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
+                FileEntry(relative_path="main.py", path="/tmp/main.py", hash="sha256:aaa"),
+                FileEntry(relative_path="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
             ],
         )
         assert len(obj.file_contents) == 2
-        assert obj.file_contents[0].name == "main.py"
-        assert obj.file_contents[1].name == "utils.py"
+        assert obj.file_contents[0].relative_path == "main.py"
+        assert obj.file_contents[1].relative_path == "utils.py"
 
 
 class TestAutoApproveConfig:
@@ -86,7 +86,7 @@ class TestAutoApproveConfig:
         assert "analysis" in config.auto_approvals.objects
         obj = config.auto_approvals.objects["analysis"]
         assert len(obj.file_contents) == 1
-        assert obj.file_contents[0].name == "main.py"
+        assert obj.file_contents[0].relative_path == "main.py"
         assert obj.file_contents[0].hash == "sha256:abc123"
         assert "alice@uni.edu" in obj.peers
         assert "bob@co.com" in obj.peers
@@ -106,7 +106,7 @@ class TestAutoApproveConfig:
         config.auto_approvals.enabled = False
         config.auto_approvals.objects["test_obj"] = AutoApprovalObj(
             file_contents=[
-                FileEntry(name="main.py", path="/tmp/main.py", hash="sha256:xyz")
+                FileEntry(relative_path="main.py", path="/tmp/main.py", hash="sha256:xyz")
             ],
             peers=["alice@test.com"],
         )
@@ -126,8 +126,8 @@ class TestAutoApproveConfig:
         config = AutoApproveConfig(do_email="rt@test.com")
         config.auto_approvals.objects["multi"] = AutoApprovalObj(
             file_contents=[
-                FileEntry(name="main.py", path="/tmp/main.py", hash="sha256:aaa"),
-                FileEntry(name="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
+                FileEntry(relative_path="main.py", path="/tmp/main.py", hash="sha256:aaa"),
+                FileEntry(relative_path="utils.py", path="/tmp/utils.py", hash="sha256:bbb"),
             ],
             peers=["ds@test.com"],
         )
@@ -136,8 +136,8 @@ class TestAutoApproveConfig:
         loaded = AutoApproveConfig.load(config_path)
         obj = loaded.auto_approvals.objects["multi"]
         assert len(obj.file_contents) == 2
-        assert obj.file_contents[0].name == "main.py"
-        assert obj.file_contents[1].name == "utils.py"
+        assert obj.file_contents[0].relative_path == "main.py"
+        assert obj.file_contents[1].relative_path == "utils.py"
 
     def test_load_empty_objects(self, temp_dir):
         config_path = temp_dir / "config.yaml"
@@ -163,7 +163,7 @@ class TestAutoApprovalsConfig:
                     "my_analysis": {
                         "file_contents": [
                             {
-                                "name": "main.py",
+                                "relative_path": "main.py",
                                 "path": "/tmp/main.py",
                                 "hash": "sha256:abc",
                             }
@@ -176,7 +176,7 @@ class TestAutoApprovalsConfig:
         )
         assert config.enabled is True
         assert "my_analysis" in config.objects
-        assert config.objects["my_analysis"].file_contents[0].name == "main.py"
+        assert config.objects["my_analysis"].file_contents[0].relative_path == "main.py"
 
     def test_defaults(self):
         config = AutoApprovalsConfig()

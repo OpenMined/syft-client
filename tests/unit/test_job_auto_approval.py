@@ -147,7 +147,7 @@ def test_auto_approve_job_default_all_content_matched():
 
         config = AutoApproveConfig.load()
         obj = config.auto_approvals.objects[job.name]
-        content_names = {e.name for e in obj.file_contents}
+        content_names = {e.relative_path for e in obj.file_contents}
         assert content_names == {"main.py", "data.json"}
         assert all(e.hash.startswith("sha256:") for e in obj.file_contents)
         assert obj.file_names == []
@@ -169,7 +169,7 @@ def test_auto_approve_job_file_names_only():
 
         config = AutoApproveConfig.load()
         obj = config.auto_approvals.objects[job.name]
-        assert [e.name for e in obj.file_contents] == ["main.py"]
+        assert [e.relative_path for e in obj.file_contents] == ["main.py"]
         assert obj.file_names == ["data.json"]
 
 
@@ -188,7 +188,7 @@ def test_auto_approve_job_contents_only():
 
         config = AutoApproveConfig.load()
         obj = config.auto_approvals.objects[job.name]
-        assert [e.name for e in obj.file_contents] == ["main.py"]
+        assert [e.relative_path for e in obj.file_contents] == ["main.py"]
         assert obj.file_names == []
 
 
@@ -207,7 +207,7 @@ def test_auto_approve_job_both_contents_and_file_names():
 
         config = AutoApproveConfig.load()
         obj = config.auto_approvals.objects[job.name]
-        assert [e.name for e in obj.file_contents] == ["main.py"]
+        assert [e.relative_path for e in obj.file_contents] == ["main.py"]
         assert obj.file_names == ["data.json"]
 
 
@@ -237,3 +237,34 @@ def test_auto_approve_job_file_not_found_error():
     result = auto_approve_job(job, contents=["nonexistent.py"])
     assert result.success is False
     assert "not found in job" in result.error
+
+
+def test_auto_approve_job_nested_directory():
+    """Files in subdirectories are stored with relative paths."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    project_dir = Path(tempfile.mkdtemp(prefix="test_auto_approve_nested_"))
+    (project_dir / "main.py").write_text("print('hello')\n")
+    subdir = project_dir / "subdir"
+    subdir.mkdir()
+    (subdir / "helper.py").write_text("def helper(): pass\n")
+    (project_dir / "data.json").write_text('{"k": "v"}')
+
+    job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
+
+    with _temp_config_paths():
+        result = auto_approve_job(job)
+        assert result.success is True
+
+        config = AutoApproveConfig.load()
+        obj = config.auto_approvals.objects[job.name]
+        entries = {e.relative_path: e for e in obj.file_contents}
+        assert set(entries.keys()) == {"main.py", "subdir/helper.py", "data.json"}
+
+        # Verify stored copies match original content
+        for entry in entries.values():
+            stored_content = Path(entry.path).read_text(encoding="utf-8")
+            original = job.code_dir / entry.relative_path
+            assert stored_content == original.read_text(encoding="utf-8")

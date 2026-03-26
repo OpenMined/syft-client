@@ -39,7 +39,7 @@ approve:
     objects:
       analysis:
         file_contents:
-          - name: main.py
+          - relative_path: main.py
             path: "{stored_script}"
             hash: "sha256:abc123"
         file_names: []

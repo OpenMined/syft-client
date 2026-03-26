@@ -623,7 +623,9 @@ def set_script(
         content = dest.read_text(encoding="utf-8")
         file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
         script_entries.append(
-            FileEntry(name=file_path.name, path=str(dest), hash=file_hash)
+            FileEntry(
+                relative_path=file_path.name, path=str(dest), hash=file_hash
+            )
         )
 
     obj = AutoApprovalObj(
@@ -635,9 +637,9 @@ def set_script(
     if not replace and name in config.auto_approvals.objects:
         # Additive: merge file_contents, peers, file_names
         existing = config.auto_approvals.objects[name]
-        existing_by_name = {s.name: s for s in existing.file_contents}
+        existing_by_name = {s.relative_path: s for s in existing.file_contents}
         for entry in script_entries:
-            existing_by_name[entry.name] = entry
+            existing_by_name[entry.relative_path] = entry
         existing.file_contents = list(existing_by_name.values())
         existing.peers = list(set(existing.peers + list(peers)))
         existing.file_names = list(set(existing.file_names + list(file_names)))
@@ -648,7 +650,7 @@ def set_script(
 
     click.echo(f"Auto-approval object: {name}")
     for entry in script_entries:
-        click.echo(f"  {entry.name}  {entry.hash}")
+        click.echo(f"  {entry.relative_path}  {entry.hash}")
     if peers:
         click.echo(f"Peers: {', '.join(peers)}")
     else:
@@ -699,7 +701,7 @@ def remove_script(files: tuple[str, ...], name: str):
 
     obj = config.auto_approvals.objects[name]
     before = len(obj.file_contents)
-    obj.file_contents = [s for s in obj.file_contents if s.name not in files]
+    obj.file_contents = [s for s in obj.file_contents if s.relative_path not in files]
     removed = before - len(obj.file_contents)
 
     config.save()
@@ -787,7 +789,7 @@ def list_scripts(name: str | None):
         if obj.file_contents:
             click.echo("  File contents:")
             for entry in obj.file_contents:
-                click.echo(f"    {entry.name:<30} {entry.hash}")
+                click.echo(f"    {entry.relative_path:<30} {entry.hash}")
         else:
             click.echo("  File contents: (none)")
         if obj.file_names:

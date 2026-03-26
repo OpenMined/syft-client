@@ -10,24 +10,36 @@ from syft_bg.approve.criteria import (
     _content_matches,
     _get_python_files,
     _hash_matches,
-    _validate_against_object,
+    _validate_job_against_object,
     resolve_auto_approval,
 )
 
 
-def _make_file_entry(name, content, stored_path):
-    """Helper to create a FileEntry with correct hash and stored copy."""
-    script_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
-    # Write stored copy
-    Path(stored_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(stored_path).write_text(content)
-    return FileEntry(name=name, path=str(stored_path), hash=script_hash)
+def _write_files(base_dir: Path, files: dict[str, str]) -> Path:
+    """Write files to a directory, creating parents as needed. Returns base_dir."""
+    base_dir.mkdir(parents=True, exist_ok=True)
+    for rel_path, content in files.items():
+        f = base_dir / rel_path
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(content)
+    return base_dir
+
+
+def _auto_approval_obj_from_dir(code_dir: Path) -> AutoApprovalObj:
+    """Create an AutoApprovalObj from all files in a code_dir."""
+    entries = [
+        FileEntry.from_file(str(f.relative_to(code_dir)), f)
+        for f in sorted(code_dir.rglob("*"))
+        if f.is_file()
+    ]
+    return AutoApprovalObj(file_contents=entries)
 
 
 def create_mock_job(
     name: str = "test-job",
     status: str = "pending",
     submitted_by: str = "alice@test.com",
+    code_dir: Path | None = None,
     files: list[Path] | None = None,
 ):
     """Create a mock JobInfo object."""
@@ -35,6 +47,7 @@ def create_mock_job(
     job.name = name
     job.status = status
     job.submitted_by = submitted_by
+    job.code_dir = code_dir or Path("/nonexistent")
     job.files = files or []
     return job
 
@@ -133,93 +146,81 @@ class TestContentMatches:
 
 
 class TestValidateAgainstObject:
-    """Tests for _validate_against_object."""
+    """Tests for _validate_job_against_object."""
 
     def test_single_file_pass(self, temp_dir):
-        content = 'print("hello")\n'
-        script = temp_dir / "main.py"
-        script.write_text(content)
-        stored = temp_dir / "stored" / "main.py"
-        entry = _make_file_entry("main.py", content, stored)
-        obj = AutoApprovalObj(file_contents=[entry])
-        job = create_mock_job(files=[script])
+        code_dir = _write_files(temp_dir / "code", {"main.py": 'print("hello")\n'})
+        obj = _auto_approval_obj_from_dir(code_dir)
+        job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_against_object(job, obj)
+        ok, reason = _validate_job_against_object(job, obj)
         assert ok is True
         assert reason == "ok"
 
     def test_no_matching_files(self, temp_dir):
-        params = temp_dir / "params.json"
-        params.write_text("{}")
-        stored = temp_dir / "stored" / "main.py"
-        entry = _make_file_entry("main.py", "code", stored)
-        obj = AutoApprovalObj(file_contents=[entry])
-        job = create_mock_job(files=[params])
+        code_dir = _write_files(temp_dir / "code", {"params.json": "{}"})
+        auto_approval_stored_dir = _write_files(temp_dir / "approved", {"main.py": "code"})
+        obj = _auto_approval_obj_from_dir(auto_approval_stored_dir)
+        job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_against_object(job, obj)
+        ok, reason = _validate_job_against_object(job, obj)
         assert ok is False
-        assert "unapproved file" in reason
+        assert "extra files" in reason
 
     def test_multiple_files_all_match(self, temp_dir):
-        content_a = 'print("a")\n'
-        content_b = 'print("b")\n'
-        a = temp_dir / "main.py"
-        b = temp_dir / "utils.py"
-        a.write_text(content_a)
-        b.write_text(content_b)
-        stored_a = temp_dir / "stored" / "main.py"
-        stored_b = temp_dir / "stored" / "utils.py"
-        entry_a = _make_file_entry("main.py", content_a, stored_a)
-        entry_b = _make_file_entry("utils.py", content_b, stored_b)
-        obj = AutoApprovalObj(file_contents=[entry_a, entry_b])
-        job = create_mock_job(files=[a, b])
+        code_dir = _write_files(
+            temp_dir / "code",
+            {"main.py": 'print("a")\n', "utils.py": 'print("b")\n'},
+        )
+        obj = _auto_approval_obj_from_dir(code_dir)
+        job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_against_object(job, obj)
+        ok, reason = _validate_job_against_object(job, obj)
         assert ok is True
 
     def test_unapproved_file(self, temp_dir):
-        content = 'print("a")\n'
-        a = temp_dir / "main.py"
-        b = temp_dir / "extra.py"
-        a.write_text(content)
-        b.write_text("extra")
-        stored = temp_dir / "stored" / "main.py"
-        entry = _make_file_entry("main.py", content, stored)
-        obj = AutoApprovalObj(file_contents=[entry])
-        job = create_mock_job(files=[a, b])
+        files = {"main.py": 'print("a")\n'}
+        code_dir = _write_files(temp_dir / "code", {**files, "extra.py": "extra"})
+        auto_approval_stored_dir = _write_files(temp_dir / "approved", files)
+        obj = _auto_approval_obj_from_dir(auto_approval_stored_dir)
+        job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_against_object(job, obj)
+        ok, reason = _validate_job_against_object(job, obj)
         assert ok is False
-        assert "unapproved file" in reason
+        assert "extra files" in reason
 
     def test_hash_mismatch(self, temp_dir):
-        a = temp_dir / "main.py"
-        a.write_text('print("modified")\n')
-        stored = temp_dir / "stored" / "main.py"
-        stored.parent.mkdir(parents=True)
-        stored.write_text('print("modified")\n')
-        entry = FileEntry(name="main.py", path=str(stored), hash="sha256:wronghash")
+        code_dir = _write_files(
+            temp_dir / "code", {"main.py": 'print("modified")\n'}
+        )
+        entry = FileEntry(
+            relative_path="main.py",
+            path=str(code_dir / "main.py"),
+            hash="sha256:wronghash",
+        )
         obj = AutoApprovalObj(file_contents=[entry])
-        job = create_mock_job(files=[a])
+        job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_against_object(job, obj)
+        ok, reason = _validate_job_against_object(job, obj)
         assert ok is False
         assert "hash mismatch" in reason
 
     def test_content_mismatch(self, temp_dir):
         content = 'print("hello")\n'
-        a = temp_dir / "main.py"
-        a.write_text(content)
-        # Stored copy has different content but we give the correct hash
-        stored = temp_dir / "stored" / "main.py"
-        stored.parent.mkdir(parents=True)
-        stored.write_text('print("different")\n')
-        script_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
-        entry = FileEntry(name="main.py", path=str(stored), hash=script_hash)
+        code_dir = _write_files(temp_dir / "code", {"main.py": content})
+        stored_dir = _write_files(
+            temp_dir / "stored", {"main.py": 'print("different")\n'}
+        )
+        file_hash = "sha256:" + hashlib.sha256(content.encode()).hexdigest()
+        entry = FileEntry(
+            relative_path="main.py",
+            path=str(stored_dir / "main.py"),
+            hash=file_hash,
+        )
         obj = AutoApprovalObj(file_contents=[entry])
-        job = create_mock_job(files=[a])
+        job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_against_object(job, obj)
+        ok, reason = _validate_job_against_object(job, obj)
         assert ok is False
         assert "content mismatch" in reason
 
@@ -248,48 +249,31 @@ class TestResolveAutoApproval:
         assert "no auto-approval objects match peer" in reason
 
     def test_peer_in_object_passes(self, temp_dir):
-        content = 'print("hello")\n'
-        script = temp_dir / "main.py"
-        script.write_text(content)
-        stored = temp_dir / "stored" / "main.py"
-        entry = _make_file_entry("main.py", content, stored)
-        config = AutoApprovalsConfig(
-            objects={
-                "analysis": AutoApprovalObj(
-                    file_contents=[entry], peers=["alice@test.com"]
-                ),
-            }
-        )
-        job = create_mock_job(submitted_by="alice@test.com", files=[script])
+        code_dir = _write_files(temp_dir / "code", {"main.py": 'print("hello")\n'})
+        obj = _auto_approval_obj_from_dir(code_dir)
+        obj.peers = ["alice@test.com"]
+        config = AutoApprovalsConfig(objects={"analysis": obj})
+        job = create_mock_job(submitted_by="alice@test.com", code_dir=code_dir)
+
         ok, reason = resolve_auto_approval(job, config)
         assert ok is True
 
     def test_empty_peers_matches_any(self, temp_dir):
-        content = 'print("hello")\n'
-        script = temp_dir / "main.py"
-        script.write_text(content)
-        stored = temp_dir / "stored" / "main.py"
-        entry = _make_file_entry("main.py", content, stored)
-        config = AutoApprovalsConfig(
-            objects={
-                "open": AutoApprovalObj(file_contents=[entry], peers=[]),
-            }
-        )
-        job = create_mock_job(submitted_by="anyone@test.com", files=[script])
+        code_dir = _write_files(temp_dir / "code", {"main.py": 'print("hello")\n'})
+        obj = _auto_approval_obj_from_dir(code_dir)
+        config = AutoApprovalsConfig(objects={"open": obj})
+        job = create_mock_job(submitted_by="anyone@test.com", code_dir=code_dir)
+
         ok, reason = resolve_auto_approval(job, config)
         assert ok is True
 
     def test_filename_mismatch(self, temp_dir):
-        script = temp_dir / "train.py"
-        script.write_text('print("hello")\n')
-        stored = temp_dir / "stored" / "main.py"
-        entry = _make_file_entry("main.py", 'print("hello")\n', stored)
-        config = AutoApprovalsConfig(
-            objects={
-                "obj": AutoApprovalObj(file_contents=[entry], peers=["alice@test.com"]),
-            }
-        )
-        job = create_mock_job(submitted_by="alice@test.com", files=[script])
+        code_dir = _write_files(temp_dir / "code", {"train.py": 'print("hello")\n'})
+        auto_approval_stored_dir = _write_files(temp_dir / "approved", {"main.py": 'print("hello")\n'})
+        obj = _auto_approval_obj_from_dir(auto_approval_stored_dir)
+        obj.peers = ["alice@test.com"]
+        config = AutoApprovalsConfig(objects={"obj": obj})
+        job = create_mock_job(submitted_by="alice@test.com", code_dir=code_dir)
+
         ok, reason = resolve_auto_approval(job, config)
         assert ok is False
-        assert "unapproved file" in reason

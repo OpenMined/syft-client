@@ -650,6 +650,7 @@ def auto_approve(
     file_names: list[str] | None = None,
     peers: list[str] | None = None,
     name: str | None = None,
+    base_dir: Path | None = None,
 ) -> AutoApproveResult:
     """Create an auto-approval object.
 
@@ -658,27 +659,17 @@ def auto_approve(
     automatically approve matching jobs.
 
     Args:
-        contents: List of file paths to approve by content. Directories are
-                  expanded to all files within them.
-        file_names: Filenames to allow by name only (e.g. ["params.json"]).
+        contents: List of file paths to approve by content. When base_dir is set,
+                  these are relative paths resolved against it. Otherwise,
+                  absolute paths or directories (expanded to all files within).
+        file_names: Relative paths to allow by name only (e.g. ["params.json"]).
         peers: Peer emails to restrict to. If None or empty, any peer matches.
         name: Name for the auto-approval object. Auto-generated if not provided.
+        base_dir: Base directory to resolve relative paths in contents against.
+                  When set, FileEntry.relative_path stores the relative path.
 
     Returns:
         AutoApproveResult with the created object details.
-
-    Example:
-        >>> import syft_bg
-        >>> syft_bg.auto_approve(
-        ...     contents=["main.py"],
-        ...     file_names=["params.json"],
-        ...     peers=["charlie@org.com"],
-        ... )
-        AutoApproveResult: OK [main]
-          scripts:
-            - main.py
-          file_names: params.json
-          peers: charlie@org.com
     """
     import hashlib
     import shutil
@@ -691,19 +682,32 @@ def auto_approve(
     if peers is None:
         peers = []
 
-    # Resolve all content-matched files
-    content_files: list[Path] = []
+    # Resolve all content-matched files as (relative_path, absolute_path) pairs
+    content_files: list[tuple[str, Path]] = []
     for item in contents:
-        p = Path(item).expanduser()
-        if p.is_dir():
-            found = sorted(f for f in p.rglob("*") if f.is_file())
-            if not found:
-                return AutoApproveResult(success=False, error=f"No files found in {p}")
-            content_files.extend(found)
-        elif not p.exists():
-            return AutoApproveResult(success=False, error=f"File not found: {p}")
+        if base_dir is not None:
+            # Relative path mode: resolve against base_dir
+            rel = str(item)
+            abs_path = base_dir / rel
+            if not abs_path.exists():
+                return AutoApproveResult(
+                    success=False, error=f"File not found: {abs_path}"
+                )
+            content_files.append((rel, abs_path))
         else:
-            content_files.append(p)
+            p = Path(item).expanduser()
+            if p.is_dir():
+                found = sorted(f for f in p.rglob("*") if f.is_file())
+                if not found:
+                    return AutoApproveResult(
+                        success=False, error=f"No files found in {p}"
+                    )
+                for f in found:
+                    content_files.append((str(f.relative_to(p)), f))
+            elif not p.exists():
+                return AutoApproveResult(success=False, error=f"File not found: {p}")
+            else:
+                content_files.append((p.name, p))
 
     if not content_files and not file_names:
         return AutoApproveResult(success=False, error="No files to process")
@@ -711,7 +715,12 @@ def auto_approve(
     # Auto-generate name
     if name is None:
         if content_files:
-            name = content_files[0].stem if len(content_files) == 1 else "auto_approval"
+            first_rel = content_files[0][0]
+            name = (
+                Path(first_rel).stem
+                if len(content_files) == 1
+                else "auto_approval"
+            )
         else:
             name = "auto_approval"
 
@@ -730,13 +739,14 @@ def auto_approve(
     obj_dir.mkdir(parents=True, exist_ok=True)
 
     file_entries: list[FileEntry] = []
-    for file_path in content_files:
-        dest = obj_dir / file_path.name
-        shutil.copy2(file_path, dest)
+    for rel_path, abs_path in content_files:
+        dest = obj_dir / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(abs_path, dest)
         content = dest.read_text(encoding="utf-8")
         file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
         file_entries.append(
-            FileEntry(name=file_path.name, path=str(dest), hash=file_hash)
+            FileEntry(relative_path=rel_path, path=str(dest), hash=file_hash)
         )
 
     obj = AutoApprovalObj(
@@ -764,7 +774,7 @@ def auto_approve(
     return AutoApproveResult(
         success=True,
         name=name,
-        file_contents=[e.name for e in file_entries],
+        file_contents=[e.relative_path for e in file_entries],
         file_names=file_names,
         peers=peers,
     )
@@ -774,13 +784,13 @@ PERMISSION_FILE_NAME = "syft.pub.yaml"
 
 
 def _get_job_user_files(job) -> dict[str, Path]:
-    """Get user files from a job's code directory as {filename: path} mapping."""
+    """Get user files from a job's code directory as {relative_path: abs_path} mapping."""
     user_files: dict[str, Path] = {}
     code_dir = job.code_dir
     if code_dir.exists():
         for f in code_dir.rglob("*"):
             if f.is_file() and f.name != PERMISSION_FILE_NAME:
-                user_files[f.name] = f
+                user_files[str(f.relative_to(code_dir))] = f
     return user_files
 
 
@@ -837,32 +847,33 @@ def auto_approve_job(
                 error=f"Overlap between contents and file_names: {overlap}",
             )
 
-    # Determine routing
+    # Determine routing — use relative path keys, not absolute paths
     if contents is None and file_names is None:
         # Default: all files content-matched
-        content_paths = list(user_files.values())
+        content_rel_paths = list(user_files.keys())
         name_only: list[str] = []
     elif contents is not None and file_names is None:
         # Only contents specified: just those files
-        content_paths = [user_files[f] for f in contents]
+        content_rel_paths = list(contents)
         name_only = []
     elif contents is None and file_names is not None:
         # Only file_names specified: those name-only, rest content-matched
         name_only = list(file_names)
-        content_paths = [
-            path for fname, path in user_files.items() if fname not in set(file_names)
+        content_rel_paths = [
+            rel for rel in user_files if rel not in set(file_names)
         ]
     else:
         # Both specified
-        content_paths = [user_files[f] for f in contents]  # type: ignore[union-attr]
+        content_rel_paths = list(contents)  # type: ignore[arg-type]
         name_only = list(file_names)  # type: ignore[arg-type]
 
     if name is None:
         name = job.name
 
     return auto_approve(
-        contents=content_paths,
+        contents=content_rel_paths,
         file_names=name_only,
         peers=peers,
         name=name,
+        base_dir=job.code_dir,
     )

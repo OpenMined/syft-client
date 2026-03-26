@@ -12,9 +12,19 @@ from syft_bg.common.config import get_default_paths
 class FileEntry(BaseModel):
     """A file stored in the auto-approvals directory with its hash."""
 
-    name: str  # e.g. "main.py"
+    relative_path: str  # e.g. "subdir/main.py"
     path: str  # e.g. "~/.syft-creds/auto_approvals/my_analysis/main.py"
     hash: str  # e.g. "sha256:abc123..."
+
+    @classmethod
+    def from_file(cls, relative_path: str, path: str | Path) -> "FileEntry":
+        """Create a FileEntry from an existing file, computing its hash."""
+        import hashlib
+
+        p = Path(path)
+        content = p.read_text(encoding="utf-8")
+        file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+        return cls(relative_path=relative_path, path=str(p), hash=file_hash)
 
 
 class AutoApprovalObj(BaseModel):

@@ -23,20 +23,20 @@ def _get_python_files(job: JobInfo) -> list[Path]:
     return py_files
 
 
-def _get_content_matched_files(job: JobInfo, approved_names: set[str]) -> list[Path]:
-    """Get all job files whose names appear in the approved set (excluding metadata)."""
+def _get_content_matched_files(
+    job: JobInfo, approved_rel_paths: set[str]
+) -> list[Path]:
+    """Get job files whose relative paths appear in the approved set."""
+    code_dir = job.code_dir
     matched = []
-    for f in job.files:
-        if (
-            f.is_file()
-            and f.name not in JOB_METADATA_FILES
-            and f.name in approved_names
-        ):
-            matched.append(f)
-        elif f.is_dir():
-            for subf in f.rglob("*"):
-                if subf.is_file() and subf.name in approved_names:
-                    matched.append(subf)
+    if code_dir.exists():
+        for f in code_dir.rglob("*"):
+            if (
+                f.is_file()
+                and f.name not in JOB_METADATA_FILES
+                and str(f.relative_to(code_dir)) in approved_rel_paths
+            ):
+                matched.append(f)
     return matched
 
 
@@ -71,16 +71,14 @@ def _content_matches(job_file: Path, stored_path: str) -> bool:
         return False
 
 
-def _get_all_job_code_files(job: JobInfo) -> list[Path]:
-    """Get all user files from a job (excluding metadata)."""
-    files = []
-    for f in job.files:
-        if f.is_file() and f.name not in JOB_METADATA_FILES:
-            files.append(f)
-        elif f.is_dir():
-            for subf in f.rglob("*"):
-                if subf.is_file() and subf.name not in JOB_METADATA_FILES:
-                    files.append(subf)
+def _get_all_job_code_files(job: JobInfo) -> dict[str, Path]:
+    """Get all user files from a job as {relative_path: abs_path} (excluding metadata)."""
+    code_dir = job.code_dir
+    files: dict[str, Path] = {}
+    if code_dir.exists():
+        for f in code_dir.rglob("*"):
+            if f.is_file() and f.name not in JOB_METADATA_FILES:
+                files[str(f.relative_to(code_dir))] = f
     return files
 
 
@@ -110,36 +108,38 @@ def _validate_job_against_object(
         (True, "ok") if all files pass
         (False, reason) if any file fails
     """
-    # Build lookup: filename → FileEntry (content-matched files)
-    expected_contents = {entry.name: entry for entry in obj.file_contents}
+    # Build lookup: relative_path → FileEntry (content-matched files)
+    expected_contents = {
+        entry.relative_path: entry for entry in obj.file_contents
+    }
     expected_names = set(obj.file_names)
-    all_expected_filenames = set(expected_contents.keys()) | expected_names
-    all_job_code_files = _get_all_job_code_files(job)
+    all_expected_paths = set(expected_contents.keys()) | expected_names
+    job_code_files = _get_all_job_code_files(job)
 
-    if all_expected_filenames != set(all_job_code_files):
+    if all_expected_paths != set(job_code_files.keys()):
         error_msg = _get_error_message_for_file_mismatch(
-            all_expected_filenames, set(all_job_code_files)
+            all_expected_paths, set(job_code_files.keys())
         )
         return (False, error_msg)
 
-    for filename, file_entry in expected_contents.items():
+    for rel_path, file_entry in expected_contents.items():
         expected_hash = file_entry.hash
         expected_path = file_entry.path
-        job_file = next((f for f in all_job_code_files if f.name == filename), None)
+        job_file = job_code_files.get(rel_path)
         if job_file is None:
-            return (False, f"unapproved file: {filename}")
+            return (False, f"unapproved file: {rel_path}")
         submitted_hash = _compute_file_hash(job_file)
         if submitted_hash is None:
-            return (False, f"could not read file: {job_file.name}")
+            return (False, f"could not read file: {rel_path}")
         if not _hash_matches(submitted_hash, expected_hash):
             return (
                 False,
-                f"file hash mismatch for {job_file.name}: expected {expected_hash}, got sha256:{submitted_hash}",
+                f"file hash mismatch for {rel_path}: expected {expected_hash}, got sha256:{submitted_hash}",
             )
         if not _content_matches(job_file, expected_path):
             return (
                 False,
-                f"file content mismatch for {job_file.name} against stored copy",
+                f"file content mismatch for {rel_path} against stored copy",
             )
 
     return (True, "ok")
