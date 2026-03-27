@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from google.oauth2.credentials import Credentials as GoogleCredentials
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 
@@ -27,6 +28,34 @@ from syft_client.sync.config.config import settings
 # - At least 10 chars long
 # - No dots (rules out filenames with extensions)
 _COULD_BE_ID = re.compile(r"^[a-zA-Z0-9_-]{10,}$")
+
+
+def credentials_to_token(
+    credentials_path: str | Path,
+    output_path: str | Path | None = None,
+) -> Path:
+    """Convert a Google OAuth credentials.json to an authorized token file.
+
+    Args:
+        credentials_path: Path to the OAuth client credentials JSON file.
+        output_path: Where to write the token JSON. Defaults to
+            ``token.json`` in the same directory as credentials_path.
+
+    Returns:
+        Path to the written token file.
+    """
+    credentials_path = Path(credentials_path)
+    if output_path is None:
+        output_path = credentials_path.parent / "token.json"
+    else:
+        output_path = Path(output_path)
+
+    flow = InstalledAppFlow.from_client_secrets_file(
+        str(credentials_path.absolute()), SCOPES
+    )
+    creds = flow.run_local_server(port=0)
+    output_path.write_text(creds.to_json())
+    return output_path
 
 
 def download_from_gdrive(

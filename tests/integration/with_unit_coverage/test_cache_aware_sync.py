@@ -11,21 +11,23 @@ from time import sleep
 import pytest
 
 from syft_client.sync.syftbox_manager import SyftboxManager, SyftboxManagerConfig
+from tests.integration.with_unit_coverage.utils import is_mock_mode
 
 
 SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent.parent
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
 
 FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
-EMAIL_DO = os.environ.get("BEACH_EMAIL_DO", "")
+EMAIL_DO = os.environ.get("BEACH_EMAIL_DO", "do@test.com")
 
 FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
-EMAIL_DS = os.environ.get("BEACH_EMAIL_DS", "")
+EMAIL_DS = os.environ.get("BEACH_EMAIL_DS", "ds@test.com")
 
 token_path_do = CREDENTIALS_DIR / FILE_DO
 token_path_ds = CREDENTIALS_DIR / FILE_DS
 
 
+@pytest.mark.skipif(is_mock_mode(), reason="Cache restart tests require real GDrive")
 @pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_do_cache_aware_sync_gdrive():
@@ -49,13 +51,13 @@ def test_do_cache_aware_sync_gdrive():
     # DS sends 3 files to DO
     sleep(1)
     ds_manager1._send_file_change(
-        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file1.job", "Content 1"
+        f"{EMAIL_DO}/app_data/job/inbox/{EMAIL_DS}/file1.job", "Content 1"
     )
     ds_manager1._send_file_change(
-        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file2.job", "Content 2"
+        f"{EMAIL_DO}/app_data/job/inbox/{EMAIL_DS}/file2.job", "Content 2"
     )
     ds_manager1._send_file_change(
-        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file3.job", "Content 3"
+        f"{EMAIL_DO}/app_data/job/inbox/{EMAIL_DS}/file3.job", "Content 3"
     )
     sleep(1)
 
@@ -76,10 +78,10 @@ def test_do_cache_aware_sync_gdrive():
     # DS sends 2 more files
     sleep(1)
     ds_manager1._send_file_change(
-        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file4.job", "Content 4"
+        f"{EMAIL_DO}/app_data/job/inbox/{EMAIL_DS}/file4.job", "Content 4"
     )
     ds_manager1._send_file_change(
-        f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/file5.job", "Content 5"
+        f"{EMAIL_DO}/app_data/job/inbox/{EMAIL_DS}/file5.job", "Content 5"
     )
     sleep(1)
 
@@ -119,6 +121,7 @@ def test_do_cache_aware_sync_gdrive():
     )
 
 
+@pytest.mark.skipif(is_mock_mode(), reason="Cache restart tests require real GDrive")
 @pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_ds_cache_aware_sync_gdrive():

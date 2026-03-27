@@ -26,17 +26,45 @@ Shows email, services, auto-approval objects, and environment info. No parenthes
 ```python
 syft_bg.auto_approve(
     contents=["main.py"],
-    file_names=["params.json"],
+    file_paths=["params.json"],
     peers=["charlie@org.com"],
 )
 ```
 
 Registers scripts for auto-approval. Jobs matching these scripts from listed peers get approved automatically.
 
-- `contents` — `.py` files (or directories) to approve
-- `file_names` — non-`.py` files to allow (e.g. data files)
+- `contents` — files (or directories) to approve by content
+- `file_paths` — files to allow by name only (e.g. data files)
 - `peers` — restrict to these emails. Omit to allow any peer
 - `name` — optional name for the approval object
+
+## Auto-approve from job
+
+```python
+from syft_bg import auto_approve_job
+
+job = do_manager.jobs[0]
+
+# Default: all files matched by name + content
+auto_approve_job(job)
+
+# Only match data.json by name, everything else by content
+auto_approve_job(job, file_paths=["data.json"])
+
+# Only content-match main.py, ignore other files
+auto_approve_job(job, contents=["main.py"])
+
+# Explicit: main.py by content, data.json by name only
+auto_approve_job(job, contents=["main.py"], file_paths=["data.json"])
+```
+
+Creates an auto-approval config from an existing job's files. Calls `auto_approve()` internally.
+
+- `job` — `JobInfo` object to use as template
+- `contents` — filenames from the job to match by name AND content. Default (None): all files are content-matched
+- `file_paths` — filenames from the job to match by name only. When set, all other files are content-matched
+- `peers` — restrict to these emails. Defaults to the job's submitter
+- `name` — optional name for the approval object (defaults to job name)
 
 ## Authenticate
 
@@ -71,7 +99,7 @@ syft_bg.authenticate()
 # Register scripts for auto-approval
 syft_bg.auto_approve(
     contents=["main.py", "utils.py"],
-    file_names=["params.json"],
+    file_paths=["params.json"],
     peers=["alice@uni.edu"],
 )
 

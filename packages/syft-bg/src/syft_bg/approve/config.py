@@ -9,19 +9,31 @@ from pydantic import BaseModel, Field
 from syft_bg.common.config import get_default_paths
 
 
-class ScriptEntry(BaseModel):
-    """A script stored in the auto-approvals directory with its hash."""
+class FileEntry(BaseModel):
+    """A file stored in the auto-approvals directory with its hash."""
 
-    name: str  # e.g. "main.py"
+    relative_path: str  # e.g. "subdir/main.py"
     path: str  # e.g. "~/.syft-creds/auto_approvals/my_analysis/main.py"
     hash: str  # e.g. "sha256:abc123..."
 
+    @classmethod
+    def from_file(cls, relative_path: str, path: str | Path) -> "FileEntry":
+        """Create a FileEntry from an existing file, computing its hash."""
+        import hashlib
+
+        p = Path(path)
+        content = p.read_text(encoding="utf-8")
+        file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+        return cls(relative_path=relative_path, path=str(p), hash=file_hash)
+
 
 class AutoApprovalObj(BaseModel):
-    """An auto-approval object bundling scripts, allowed filenames, and peers."""
+    """An auto-approval object bundling content-matched files, name-only files, and peers."""
 
-    scripts: list[ScriptEntry] = Field(default_factory=list)
-    file_names: list[str] = Field(default_factory=list)  # non-.py files allowed by name
+    file_contents: list[FileEntry] = Field(
+        default_factory=list
+    )  # files matched by content+hash
+    file_paths: list[str] = Field(default_factory=list)  # files matched by path only
     peers: list[str] = Field(default_factory=list)  # peer emails
 
 
@@ -40,7 +52,7 @@ class PeerApprovalConfig(BaseModel):
     auto_share_datasets: list[str] = Field(default_factory=list)
 
 
-class ApproveConfig(BaseModel):
+class AutoApproveConfig(BaseModel):
     """Main configuration for the approval service."""
 
     do_email: Optional[str] = None
@@ -51,7 +63,7 @@ class ApproveConfig(BaseModel):
     peers: PeerApprovalConfig = Field(default_factory=PeerApprovalConfig)
 
     @classmethod
-    def load(cls, config_path: Optional[Path] = None) -> "ApproveConfig":
+    def load(cls, config_path: Optional[Path] = None) -> "AutoApproveConfig":
         """Load configuration from YAML file."""
         if config_path is None:
             config_path = get_default_paths().config
@@ -120,14 +132,15 @@ class ApproveConfig(BaseModel):
 
 # --- Backwards-compatible aliases (deprecated, will be removed) ---
 
-ScriptRule = ScriptEntry
+ScriptEntry = FileEntry
+ScriptRule = FileEntry
 
 
 class PeerApprovalEntry(BaseModel):
     """Deprecated: use AutoApprovalObj instead."""
 
     mode: str = "strict"
-    scripts: list[ScriptEntry] = Field(default_factory=list)
+    scripts: list[FileEntry] = Field(default_factory=list)
 
 
 PeerJobConfig = PeerApprovalEntry

@@ -9,8 +9,10 @@ from tests.integration.utils import (
     token_path_ds,
 )
 from syft_client.sync.syftbox_manager import SyftboxManager
+from tests.integration.with_unit_coverage.utils import is_mock_mode
 
 
+@pytest.mark.skipif(is_mock_mode(), reason="Pagination test requires real GDrive")
 @pytest.mark.flaky(reruns=3, reruns_delay=2)
 @pytest.mark.usefixtures("setup_delete_syftboxes")
 def test_pagination_and_early_termination():
@@ -27,7 +29,7 @@ def test_pagination_and_early_termination():
     # Send 2 initial file changes
     for i in range(2):
         manager_ds._send_file_change(
-            f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/job_{i}.job", f"Job {i}"
+            f"{EMAIL_DO}/app_data/job/inbox/{EMAIL_DS}/job_{i}.job", f"Job {i}"
         )
         sleep(0.3)
 
@@ -57,7 +59,7 @@ def test_pagination_and_early_termination():
     # Send 2 more file changes
     for i in range(2, 4):
         manager_ds._send_file_change(
-            f"{EMAIL_DO}/app_data/job/{EMAIL_DS}/job_{i}.job", f"Job {i}"
+            f"{EMAIL_DO}/app_data/job/inbox/{EMAIL_DS}/job_{i}.job", f"Job {i}"
         )
         sleep(0.5)
 
