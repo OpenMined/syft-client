@@ -1,10 +1,13 @@
 """Pythonic API for syft-bg initialization and configuration."""
 
+import hashlib
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from syft_bg.approve.config import AutoApproveConfig, AutoApprovalObj, FileEntry
 from syft_bg.cli.init import InitConfig, run_init_flow
-from syft_bg.common.config import get_creds_dir
+from syft_bg.common.config import get_creds_dir, get_default_paths
 from syft_bg.common.drive import is_colab
 
 
@@ -517,9 +520,9 @@ class StatusResult:
             lines.append("-" * 40)
             for obj_name, obj_data in self.auto_approvals.items():
                 lines.append(f"  [{obj_name}]")
-                for script in obj_data.get("scripts", []):
-                    lines.append(f"    script: {script}")
-                for fname in obj_data.get("file_names", []):
+                for entry in obj_data.get("file_contents", []):
+                    lines.append(f"    content: {entry}")
+                for fname in obj_data.get("file_paths", []):
                     lines.append(f"    file:   {fname}")
                 peers = obj_data.get("peers", [])
                 if peers:
@@ -588,8 +591,10 @@ def status() -> StatusResult:
 
     for obj_name, obj_data in aa_section.get("objects", {}).items():
         auto_approvals[obj_name] = {
-            "scripts": [s.get("name", "?") for s in obj_data.get("scripts", [])],
-            "file_names": obj_data.get("file_names", []),
+            "file_contents": [
+                s.get("name", "?") for s in obj_data.get("file_contents", [])
+            ],
+            "file_paths": obj_data.get("file_paths", []),
             "peers": obj_data.get("peers", []),
         }
 
@@ -617,8 +622,8 @@ class AutoApproveResult:
 
     success: bool
     name: str = ""
-    scripts: list[str] = field(default_factory=list)
-    file_names: list[str] = field(default_factory=list)
+    file_contents: list[str] = field(default_factory=list)
+    file_paths: list[str] = field(default_factory=list)
     peers: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -626,12 +631,12 @@ class AutoApproveResult:
         lines = []
         if self.success:
             lines.append(f"AutoApproveResult: OK [{self.name}]")
-            if self.scripts:
-                lines.append("  scripts:")
-                for s in self.scripts:
+            if self.file_contents:
+                lines.append("  file_contents:")
+                for s in self.file_contents:
                     lines.append(f"    - {s}")
-            if self.file_names:
-                lines.append(f"  file_names: {', '.join(self.file_names)}")
+            if self.file_paths:
+                lines.append(f"  file_paths: {', '.join(self.file_paths)}")
             if self.peers:
                 lines.append(f"  peers: {', '.join(self.peers)}")
             else:
@@ -643,79 +648,19 @@ class AutoApproveResult:
         return "\n".join(lines)
 
 
-def auto_approve(
-    contents: list[str | Path],
-    file_names: list[str] | None = None,
-    peers: list[str] | None = None,
-    name: str | None = None,
-) -> AutoApproveResult:
-    """Create an auto-approval object.
-
-    Copies .py scripts to a managed directory, computes hashes, and saves
-    the approval configuration. The approve service will use this to
-    automatically approve matching jobs.
-
-    Args:
-        contents: List of .py file paths to approve. Directories are expanded
-                  to all .py files within them.
-        file_names: Non-.py filenames to allow (e.g. ["params.json"]).
-        peers: Peer emails to restrict to. If None or empty, any peer matches.
-        name: Name for the auto-approval object. Auto-generated if not provided.
-
-    Returns:
-        AutoApproveResult with the created object details.
-
-    Example:
-        >>> import syft_bg
-        >>> syft_bg.auto_approve(
-        ...     contents=["main.py"],
-        ...     file_names=["params.json"],
-        ...     peers=["charlie@org.com"],
-        ... )
-        AutoApproveResult: OK [main]
-          scripts:
-            - main.py
-          file_names: params.json
-          peers: charlie@org.com
-    """
-    import hashlib
-    import shutil
-
-    from syft_bg.approve.config import ApproveConfig, AutoApprovalObj, ScriptEntry
-    from syft_bg.common.config import get_default_paths
-
-    if file_names is None:
-        file_names = []
-    if peers is None:
-        peers = []
-
-    # Resolve all .py files
-    py_files: list[Path] = []
-    for item in contents:
-        p = Path(item).expanduser()
-        if p.is_dir():
-            found = sorted(p.rglob("*.py"))
-            if not found:
-                return AutoApproveResult(
-                    success=False, error=f"No .py files found in {p}"
-                )
-            py_files.extend(found)
-        elif not p.exists():
-            return AutoApproveResult(success=False, error=f"File not found: {p}")
-        elif p.suffix != ".py":
-            return AutoApproveResult(success=False, error=f"{p.name} is not a .py file")
-        else:
-            py_files.append(p)
-
-    if not py_files:
-        return AutoApproveResult(success=False, error="No .py files to process")
-
-    # Auto-generate name
+def _generate_unique_name(
+    name: str | None,
+    content_files: list[tuple[str, Path]],
+    config: AutoApproveConfig,
+) -> str:
+    """Generate a unique name for an auto-approval object."""
     if name is None:
-        name = py_files[0].stem if len(py_files) == 1 else "auto_approval"
+        if content_files:
+            first_rel = content_files[0][0]
+            name = Path(first_rel).stem if len(content_files) == 1 else "auto_approval"
+        else:
+            name = "auto_approval"
 
-    # Load config and ensure unique name
-    config = ApproveConfig.load()
     if name in config.auto_approvals.objects:
         base_name = name
         counter = 1
@@ -723,30 +668,61 @@ def auto_approve(
             counter += 1
         name = f"{base_name}_{counter}"
 
-    # Copy scripts to managed directory and hash
-    paths = get_default_paths()
-    obj_dir = paths.auto_approvals_dir / name
+    return name
+
+
+def _resolve_content_files(
+    contents: list[str | Path], base_dir: Path | None
+) -> tuple[list[tuple[str, Path]], str | None]:
+    """Resolve content paths to (relative_path, absolute_path) pairs.
+
+    Returns (content_files, error). error is None on success.
+    """
+    content_files: list[tuple[str, Path]] = []
+    for item in contents:
+        if base_dir is not None:
+            rel = str(item)
+            abs_path = base_dir / rel
+            if not abs_path.exists():
+                return [], f"File not found: {abs_path}"
+            content_files.append((rel, abs_path))
+        else:
+            p = Path(item).expanduser()
+            if p.is_dir():
+                found = sorted(f for f in p.rglob("*") if f.is_file())
+                if not found:
+                    return [], f"No files found in {p}"
+                for f in found:
+                    content_files.append((str(f.relative_to(p)), f))
+            elif not p.exists():
+                return [], f"File not found: {p}"
+            else:
+                content_files.append((p.name, p))
+    return content_files, None
+
+
+def _copy_and_hash_files(
+    content_files: list[tuple[str, Path]], name: str
+) -> list[FileEntry]:
+    """Copy files to the managed auto-approvals directory and compute hashes."""
+    obj_dir = get_default_paths().auto_approvals_dir / name
     obj_dir.mkdir(parents=True, exist_ok=True)
 
-    script_entries: list[ScriptEntry] = []
-    for file_path in py_files:
-        dest = obj_dir / file_path.name
-        shutil.copy2(file_path, dest)
+    entries: list[FileEntry] = []
+    for rel_path, abs_path in content_files:
+        dest = obj_dir / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(abs_path, dest)
         content = dest.read_text(encoding="utf-8")
         file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
-        script_entries.append(
-            ScriptEntry(name=file_path.name, path=str(dest), hash=file_hash)
+        entries.append(
+            FileEntry(relative_path=rel_path, path=str(dest), hash=file_hash)
         )
+    return entries
 
-    obj = AutoApprovalObj(
-        scripts=script_entries,
-        file_names=file_names,
-        peers=peers,
-    )
-    config.auto_approvals.objects[name] = obj
-    config.save()
 
-    # Restart approve service if running
+def _restart_approve_service() -> None:
+    """Restart the approve service if it is currently running."""
     try:
         from syft_bg.services import ServiceManager
         from syft_bg.services.base import ServiceStatus
@@ -760,10 +736,171 @@ def auto_approve(
     except Exception:
         pass
 
+
+def auto_approve(
+    contents: list[str | Path],
+    file_paths: list[str] | None = None,
+    peers: list[str] | None = None,
+    name: str | None = None,
+    base_dir: Path | None = None,
+) -> AutoApproveResult:
+    """Create an auto-approval object.
+
+    Copies files to a managed directory, computes hashes, and saves
+    the approval configuration. The approve service will use this to
+    automatically approve matching jobs.
+
+    Args:
+        contents: List of file paths to approve by content. When base_dir is set,
+                  these are relative paths resolved against it. Otherwise,
+                  absolute paths or directories (expanded to all files within).
+        file_paths: Relative paths to allow by name only (e.g. ["params.json"]).
+        peers: Peer emails to restrict to. If None or empty, any peer matches.
+        name: Name for the auto-approval object. Auto-generated if not provided.
+        base_dir: Base directory to resolve relative paths in contents against.
+                  When set, FileEntry.relative_path stores the relative path.
+
+    Returns:
+        AutoApproveResult with the created object details.
+    """
+    if file_paths is None:
+        file_paths = []
+    if peers is None:
+        peers = []
+
+    content_files, error = _resolve_content_files(contents, base_dir)
+    if error:
+        return AutoApproveResult(success=False, error=error)
+
+    if not content_files and not file_paths:
+        return AutoApproveResult(success=False, error="No files to process")
+
+    config = AutoApproveConfig.load()
+    name = _generate_unique_name(name, content_files, config)
+
+    file_entries = _copy_and_hash_files(content_files, name)
+
+    obj = AutoApprovalObj(
+        file_contents=file_entries,
+        file_paths=file_paths,
+        peers=peers,
+    )
+    config.auto_approvals.objects[name] = obj
+    config.save()
+
+    _restart_approve_service()
+
     return AutoApproveResult(
         success=True,
         name=name,
-        scripts=[e.name for e in script_entries],
-        file_names=file_names,
+        file_contents=[e.relative_path for e in file_entries],
+        file_paths=file_paths,
         peers=peers,
+    )
+
+
+PERMISSION_FILE_NAME = "syft.pub.yaml"
+
+
+def _resolve_auto_approve_file_args(
+    user_files: dict[str, Path],
+    contents: list[str] | None,
+    file_paths: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """Determine which job files are content-matched vs name-only.
+
+    Returns (content_rel_paths, name_only).
+    """
+    if contents is None and file_paths is None:
+        return list(user_files.keys()), []
+    elif contents is not None and file_paths is None:
+        return list(contents), []
+    elif contents is None and file_paths is not None:
+        name_only = list(file_paths)
+        content_rel_paths = [rel for rel in user_files if rel not in set(file_paths)]
+        return content_rel_paths, name_only
+    else:
+        return list(contents), list(file_paths)  # type: ignore[arg-type]
+
+
+def _validate_auto_approve_job_inputs(
+    user_files: dict[str, Path],
+    contents: list[str] | None,
+    file_paths: list[str] | None,
+) -> str | None:
+    """Validate inputs for auto_approve_job. Returns error string or None."""
+    if not user_files:
+        return "No user files found in job"
+    if contents is not None:
+        for fname in contents:
+            if fname not in user_files:
+                return f"File '{fname}' not found in job"
+    if file_paths is not None:
+        for fname in file_paths:
+            if fname not in user_files:
+                return f"File '{fname}' not found in job"
+    if contents is not None and file_paths is not None:
+        overlap = set(contents) & set(file_paths)
+        if overlap:
+            return f"Overlap between contents and file_paths: {overlap}"
+    return None
+
+
+def _get_job_user_files(job) -> dict[str, Path]:
+    """Get user files from a job's code directory as {relative_path: abs_path} mapping."""
+    user_files: dict[str, Path] = {}
+    code_dir = job.code_dir
+    if code_dir.exists():
+        for f in code_dir.rglob("*"):
+            if f.is_file() and f.name != PERMISSION_FILE_NAME:
+                user_files[str(f.relative_to(code_dir))] = f
+    return user_files
+
+
+def auto_approve_job(
+    job,
+    contents: list[str] | None = None,
+    file_paths: list[str] | None = None,
+    peers: list[str] | None = None,
+    name: str | None = None,
+) -> AutoApproveResult:
+    """Create an auto-approval config from an existing job.
+
+    Extracts files from the job and routes them to auto_approve() based on
+    the contents and file_paths parameters.
+
+    Args:
+        job: JobInfo object to use as template.
+        contents: Filenames from the job to match by name AND content.
+                  If None and file_paths is None, all files are content-matched.
+                  If None and file_paths is set, all other files are content-matched.
+        file_paths: Filenames from the job to match by name only.
+        peers: Peer emails to restrict to. If None, defaults to the job's submitter.
+        name: Name for the auto-approval object. Defaults to job name.
+
+    Returns:
+        AutoApproveResult with the created object details.
+    """
+    if peers is None:
+        peers = [job.submitted_by]
+
+    user_files = _get_job_user_files(job)
+
+    error = _validate_auto_approve_job_inputs(user_files, contents, file_paths)
+    if error:
+        return AutoApproveResult(success=False, error=error)
+
+    content_rel_paths, name_only = _resolve_auto_approve_file_args(
+        user_files, contents, file_paths
+    )
+
+    if name is None:
+        name = job.name
+
+    return auto_approve(
+        contents=content_rel_paths,
+        file_paths=name_only,
+        peers=peers,
+        name=name,
+        base_dir=job.code_dir,
     )

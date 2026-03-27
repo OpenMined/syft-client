@@ -107,7 +107,7 @@ class TestSetScriptCommand:
     """Tests for the set-script command."""
 
     @patch("syft_bg.cli.commands.ServiceManager")
-    @patch("syft_bg.approve.config.ApproveConfig.load")
+    @patch("syft_bg.approve.config.AutoApproveConfig.load")
     def test_set_script_basic(self, mock_load, mock_svc_mgr, temp_dir, sample_script):
         """Should accept a .py file and a single peer."""
         mock_config = MagicMock()
@@ -138,7 +138,7 @@ class TestSetScriptCommand:
         assert result.exit_code != 0
 
     @patch("syft_bg.cli.commands.ServiceManager")
-    @patch("syft_bg.approve.config.ApproveConfig.load")
+    @patch("syft_bg.approve.config.AutoApproveConfig.load")
     def test_set_script_multiple_peers(
         self, mock_load, mock_svc_mgr, temp_dir, sample_script
     ):
@@ -166,7 +166,7 @@ class TestSetScriptCommand:
         mock_config.save.assert_called_once()
 
     @patch("syft_bg.cli.commands.ServiceManager")
-    @patch("syft_bg.approve.config.ApproveConfig.load")
+    @patch("syft_bg.approve.config.AutoApproveConfig.load")
     def test_set_script_multiple_files(self, mock_load, mock_svc_mgr, sample_scripts):
         """Should accept multiple .py files."""
         mock_config = MagicMock()
@@ -187,7 +187,7 @@ class TestSetScriptCommand:
         mock_config.save.assert_called_once()
 
     @patch("syft_bg.cli.commands.ServiceManager")
-    @patch("syft_bg.approve.config.ApproveConfig.load")
+    @patch("syft_bg.approve.config.AutoApproveConfig.load")
     def test_set_script_directory(self, mock_load, mock_svc_mgr, temp_dir):
         """Should expand directory to all .py files."""
         subdir = temp_dir / "src"
@@ -215,20 +215,20 @@ class TestSetScriptCommand:
 class TestRemoveScriptCommand:
     """Tests for the remove-script command."""
 
-    @patch("syft_bg.approve.config.ApproveConfig.load")
+    @patch("syft_bg.approve.config.AutoApproveConfig.load")
     def test_remove_script(self, mock_load):
         """Should remove scripts by filename from an auto-approval object."""
-        from syft_bg.approve.config import AutoApprovalObj, ScriptEntry
+        from syft_bg.approve.config import AutoApprovalObj, FileEntry
 
         obj = AutoApprovalObj(
-            scripts=[
-                ScriptEntry(
-                    name="main.py",
+            file_contents=[
+                FileEntry(
+                    relative_path="main.py",
                     path="/tmp/auto_approvals/my_analysis/main.py",
                     hash="sha256:aaa",
                 ),
-                ScriptEntry(
-                    name="utils.py",
+                FileEntry(
+                    relative_path="utils.py",
                     path="/tmp/auto_approvals/my_analysis/utils.py",
                     hash="sha256:bbb",
                 ),
@@ -244,10 +244,10 @@ class TestRemoveScriptCommand:
 
         assert result.exit_code == 0
         assert "Removed 1" in result.output
-        assert len(obj.scripts) == 1
-        assert obj.scripts[0].name == "main.py"
+        assert len(obj.file_contents) == 1
+        assert obj.file_contents[0].relative_path == "main.py"
 
-    @patch("syft_bg.approve.config.ApproveConfig.load")
+    @patch("syft_bg.approve.config.AutoApproveConfig.load")
     def test_remove_script_unknown_object(self, mock_load):
         """Should error when object name not found."""
         mock_config = MagicMock()
@@ -263,7 +263,7 @@ class TestRemoveScriptCommand:
 class TestRemovePeerCommand:
     """Tests for the remove-peer command."""
 
-    @patch("syft_bg.approve.config.ApproveConfig.load")
+    @patch("syft_bg.approve.config.AutoApproveConfig.load")
     def test_remove_peer(self, mock_load):
         """Should remove peer from auto-approval objects."""
         from syft_bg.approve.config import AutoApprovalObj
@@ -284,7 +284,7 @@ class TestRemovePeerCommand:
             not in mock_config.auto_approvals.objects["my_analysis"].peers
         )
 
-    @patch("syft_bg.approve.config.ApproveConfig.load")
+    @patch("syft_bg.approve.config.AutoApproveConfig.load")
     def test_remove_peer_not_found(self, mock_load):
         """Should error if peer not found."""
         mock_config = MagicMock()
@@ -300,17 +300,17 @@ class TestRemovePeerCommand:
 class TestListScriptsCommand:
     """Tests for the list-scripts command."""
 
-    @patch("syft_bg.approve.config.ApproveConfig.load")
+    @patch("syft_bg.approve.config.AutoApproveConfig.load")
     def test_list_scripts(self, mock_load):
         """Should list all auto-approval objects and their scripts."""
-        from syft_bg.approve.config import AutoApprovalObj, ScriptEntry
+        from syft_bg.approve.config import AutoApprovalObj, FileEntry
 
         mock_config = MagicMock()
         mock_config.auto_approvals.objects = {
             "analysis_a": AutoApprovalObj(
-                scripts=[
-                    ScriptEntry(
-                        name="main.py",
+                file_contents=[
+                    FileEntry(
+                        relative_path="main.py",
                         path="/tmp/auto_approvals/analysis_a/main.py",
                         hash="sha256:aaa",
                     )
@@ -318,9 +318,9 @@ class TestListScriptsCommand:
                 peers=["alice@test.com"],
             ),
             "analysis_b": AutoApprovalObj(
-                scripts=[
-                    ScriptEntry(
-                        name="train.py",
+                file_contents=[
+                    FileEntry(
+                        relative_path="train.py",
                         path="/tmp/auto_approvals/analysis_b/train.py",
                         hash="sha256:bbb",
                     )
@@ -339,17 +339,17 @@ class TestListScriptsCommand:
         assert "bob@test.com" in result.output
         assert "train.py" in result.output
 
-    @patch("syft_bg.approve.config.ApproveConfig.load")
+    @patch("syft_bg.approve.config.AutoApproveConfig.load")
     def test_list_scripts_single_object(self, mock_load):
         """Should filter to a specific auto-approval object."""
-        from syft_bg.approve.config import AutoApprovalObj, ScriptEntry
+        from syft_bg.approve.config import AutoApprovalObj, FileEntry
 
         mock_config = MagicMock()
         mock_config.auto_approvals.objects = {
             "analysis_a": AutoApprovalObj(
-                scripts=[
-                    ScriptEntry(
-                        name="main.py",
+                file_contents=[
+                    FileEntry(
+                        relative_path="main.py",
                         path="/tmp/auto_approvals/analysis_a/main.py",
                         hash="sha256:aaa",
                     )
@@ -357,9 +357,9 @@ class TestListScriptsCommand:
                 peers=["alice@test.com"],
             ),
             "analysis_b": AutoApprovalObj(
-                scripts=[
-                    ScriptEntry(
-                        name="train.py",
+                file_contents=[
+                    FileEntry(
+                        relative_path="train.py",
                         path="/tmp/auto_approvals/analysis_b/train.py",
                         hash="sha256:bbb",
                     )
@@ -376,7 +376,7 @@ class TestListScriptsCommand:
         assert "analysis_a" in result.output
         assert "analysis_b" not in result.output
 
-    @patch("syft_bg.approve.config.ApproveConfig.load")
+    @patch("syft_bg.approve.config.AutoApproveConfig.load")
     def test_list_scripts_empty(self, mock_load):
         """Should show message when no auto-approval objects configured."""
         mock_config = MagicMock()

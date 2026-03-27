@@ -47,8 +47,8 @@ def main():
         try:
             auto_approve_and_run_jobs(
                 client,
-                required_scripts={SCRIPT_FILENAME: EXPECTED_SCRIPT},
-                required_filenames=REQUIRED_FILENAMES,
+                required_file_contents={SCRIPT_FILENAME: EXPECTED_SCRIPT},
+                required_file_paths=REQUIRED_FILENAMES,
                 allowed_users=ALLOWED_USERS,
                 peers_only=PEERS_ONLY,
                 verbose=False,

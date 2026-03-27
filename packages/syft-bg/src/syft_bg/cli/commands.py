@@ -542,7 +542,7 @@ def hash(file: str, length: int):
     help="Name for the auto-approval object. Auto-generated if not provided.",
 )
 @click.option(
-    "--file-names",
+    "--file-paths",
     "-f",
     multiple=True,
     help="Non-.py filenames to allow (e.g. params.json).",
@@ -556,7 +556,7 @@ def set_script(
     scripts: tuple[str, ...],
     peers: tuple[str, ...],
     name: str | None,
-    file_names: tuple[str, ...],
+    file_paths: tuple[str, ...],
     replace: bool,
 ):
     """Create or update an auto-approval object.
@@ -576,7 +576,7 @@ def set_script(
     import shutil
     from pathlib import Path
 
-    from syft_bg.approve.config import ApproveConfig, AutoApprovalObj, ScriptEntry
+    from syft_bg.approve.config import AutoApproveConfig, AutoApprovalObj, FileEntry
     from syft_bg.common.config import get_default_paths
 
     # Resolve all .py files from arguments (files and directories)
@@ -602,45 +602,45 @@ def set_script(
     if name is None:
         name = py_files[0].stem if len(py_files) == 1 else "auto_approval"
         # Ensure unique name
-        config = ApproveConfig.load()
+        config = AutoApproveConfig.load()
         base_name = name
         counter = 1
         while name in config.auto_approvals.objects and not replace:
             name = f"{base_name}_{counter}"
             counter += 1
     else:
-        config = ApproveConfig.load()
+        config = AutoApproveConfig.load()
 
     # Copy scripts to managed directory and hash
     paths = get_default_paths()
     obj_dir = paths.auto_approvals_dir / name
     obj_dir.mkdir(parents=True, exist_ok=True)
 
-    script_entries: list[ScriptEntry] = []
+    script_entries: list[FileEntry] = []
     for file_path in py_files:
         dest = obj_dir / file_path.name
         shutil.copy2(file_path, dest)
         content = dest.read_text(encoding="utf-8")
         file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
         script_entries.append(
-            ScriptEntry(name=file_path.name, path=str(dest), hash=file_hash)
+            FileEntry(relative_path=file_path.name, path=str(dest), hash=file_hash)
         )
 
     obj = AutoApprovalObj(
-        scripts=script_entries,
-        file_names=list(file_names),
+        file_contents=script_entries,
+        file_paths=list(file_paths),
         peers=list(peers),
     )
 
     if not replace and name in config.auto_approvals.objects:
-        # Additive: merge scripts, peers, file_names
+        # Additive: merge file_contents, peers, file_paths
         existing = config.auto_approvals.objects[name]
-        existing_by_name = {s.name: s for s in existing.scripts}
+        existing_by_name = {s.relative_path: s for s in existing.file_contents}
         for entry in script_entries:
-            existing_by_name[entry.name] = entry
-        existing.scripts = list(existing_by_name.values())
+            existing_by_name[entry.relative_path] = entry
+        existing.file_contents = list(existing_by_name.values())
         existing.peers = list(set(existing.peers + list(peers)))
-        existing.file_names = list(set(existing.file_names + list(file_names)))
+        existing.file_paths = list(set(existing.file_paths + list(file_paths)))
     else:
         config.auto_approvals.objects[name] = obj
 
@@ -648,13 +648,13 @@ def set_script(
 
     click.echo(f"Auto-approval object: {name}")
     for entry in script_entries:
-        click.echo(f"  {entry.name}  {entry.hash}")
+        click.echo(f"  {entry.relative_path}  {entry.hash}")
     if peers:
         click.echo(f"Peers: {', '.join(peers)}")
     else:
         click.echo("Peers: (any)")
-    if file_names:
-        click.echo(f"Allowed files: {', '.join(file_names)}")
+    if file_paths:
+        click.echo(f"Allowed files: {', '.join(file_paths)}")
     click.echo()
     click.echo("Config updated.")
 
@@ -689,18 +689,18 @@ def remove_script(files: tuple[str, ...], name: str):
 
       syft-bg remove-script main.py utils.py -n my_analysis
     """
-    from syft_bg.approve.config import ApproveConfig
+    from syft_bg.approve.config import AutoApproveConfig
 
-    config = ApproveConfig.load()
+    config = AutoApproveConfig.load()
 
     if name not in config.auto_approvals.objects:
         click.echo(f"Auto-approval object '{name}' not found in config.", err=True)
         raise SystemExit(1)
 
     obj = config.auto_approvals.objects[name]
-    before = len(obj.scripts)
-    obj.scripts = [s for s in obj.scripts if s.name not in files]
-    removed = before - len(obj.scripts)
+    before = len(obj.file_contents)
+    obj.file_contents = [s for s in obj.file_contents if s.relative_path not in files]
+    removed = before - len(obj.file_contents)
 
     config.save()
     click.echo(f"Removed {removed} script(s) from '{name}'.")
@@ -723,9 +723,9 @@ def remove_peer(peer: str, name: str | None):
 
       syft-bg remove-peer alice@uni.edu -n my_analysis
     """
-    from syft_bg.approve.config import ApproveConfig
+    from syft_bg.approve.config import AutoApproveConfig
 
-    config = ApproveConfig.load()
+    config = AutoApproveConfig.load()
     removed_from = 0
 
     if name:
@@ -766,9 +766,9 @@ def list_scripts(name: str | None):
 
       syft-bg list-scripts -n my_analysis
     """
-    from syft_bg.approve.config import ApproveConfig
+    from syft_bg.approve.config import AutoApproveConfig
 
-    config = ApproveConfig.load()
+    config = AutoApproveConfig.load()
 
     if not config.auto_approvals.objects:
         click.echo("No auto-approval objects configured.")
@@ -784,14 +784,14 @@ def list_scripts(name: str | None):
 
     for obj_name, obj in objects_to_show.items():
         click.echo(f"\n[{obj_name}]")
-        if obj.scripts:
-            click.echo("  Scripts:")
-            for entry in obj.scripts:
-                click.echo(f"    {entry.name:<30} {entry.hash}")
+        if obj.file_contents:
+            click.echo("  File contents:")
+            for entry in obj.file_contents:
+                click.echo(f"    {entry.relative_path:<30} {entry.hash}")
         else:
-            click.echo("  Scripts: (none)")
-        if obj.file_names:
-            click.echo(f"  Allowed files: {', '.join(obj.file_names)}")
+            click.echo("  File contents: (none)")
+        if obj.file_paths:
+            click.echo(f"  Allowed files: {', '.join(obj.file_paths)}")
         if obj.peers:
             click.echo(f"  Peers: {', '.join(obj.peers)}")
         else:
