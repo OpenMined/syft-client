@@ -84,6 +84,8 @@ class GmailSender:
         submitter: str,
         timestamp: Optional[datetime] = None,
         job_url: Optional[str] = None,
+        job_code: Optional[str] = None,
+        job_files: Optional[list[str]] = None,
     ) -> SendResult:
         """Notify DO about a new job."""
         subject = f"Job: {job_name}"
@@ -91,8 +93,17 @@ class GmailSender:
 
 Job: {job_name}
 From: {submitter}
+"""
+        if job_files:
+            body_text += f"\nFiles: {', '.join(job_files)}\n"
 
-Log in to SyftBox to review and approve this job.
+        if job_code:
+            body_text += f"\n--- Code ---\n{job_code}\n--- End Code ---\n"
+
+        body_text += """
+To approve or deny this job, reply to this email with:
+  approve
+  deny <reason>
 """
         body_html = None
         if self.use_html and self.renderer:

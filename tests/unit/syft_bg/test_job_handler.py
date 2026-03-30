@@ -41,7 +41,12 @@ class TestJobHandler:
 
         assert result is True
         sender.notify_new_job.assert_called_once_with(
-            "do@test.com", "job1", "ds@test.com", job_url=None
+            "do@test.com",
+            "job1",
+            "ds@test.com",
+            job_url=None,
+            job_code=None,
+            job_files=None,
         )
         state.mark_notified.assert_called_once_with("job1", "new")
         state.store_thread_id.assert_called_once_with("job1", "thread-123")

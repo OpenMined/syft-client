@@ -445,7 +445,7 @@ def setup():
 @click.option(
     "--service",
     "-s",
-    type=click.Choice(["notify", "approve"]),
+    type=click.Choice(["notify", "approve", "email_approve"]),
     required=True,
     help="Service to run",
 )
@@ -481,6 +481,20 @@ def run(service: str, once: bool):
 
         try:
             orchestrator = ApprovalOrchestrator.from_config()
+            if once:
+                orchestrator.check()
+            else:
+                orchestrator.run()
+        except FileNotFoundError as e:
+            click.echo(f"Error: {e}", err=True)
+            click.echo("Run 'syft-bg init' first to configure the service.", err=True)
+            raise SystemExit(1)
+
+    elif service == "email_approve":
+        from syft_bg.email_approve import EmailApproveOrchestrator
+
+        try:
+            orchestrator = EmailApproveOrchestrator.from_config()
             if once:
                 orchestrator.check()
             else:

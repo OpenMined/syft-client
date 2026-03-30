@@ -1,9 +1,36 @@
 """Job event handler for notifications."""
 
+from pathlib import Path
 from typing import Optional
 
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.gmail.sender import GmailSender
+
+
+def _read_job_code(
+    syftbox_root: Path, do_email: str, job_name: str
+) -> tuple[Optional[str], Optional[list[str]]]:
+    """Read job code contents and file list from the job directory."""
+    job_dir = syftbox_root / do_email / "app_data" / "job" / job_name / "inbox" / "code"
+    if not job_dir.exists():
+        return None, None
+
+    files = []
+    code_parts = []
+    for f in sorted(job_dir.rglob("*")):
+        if not f.is_file():
+            continue
+        rel = str(f.relative_to(job_dir))
+        files.append(rel)
+        if f.suffix in (".py", ".sh", ".txt", ".yaml", ".yml", ".toml", ".cfg", ".ini"):
+            try:
+                content = f.read_text(errors="replace")
+                code_parts.append(f"# {rel}\n{content}")
+            except Exception:
+                pass
+
+    code = "\n\n".join(code_parts) if code_parts else None
+    return code, files if files else None
 
 
 def _friendly_reason(reason: str, job_name: str) -> str:
@@ -42,6 +69,7 @@ class JobHandler:
         sender: GmailSender,
         state: JsonStateManager,
         do_email: str = "",
+        syftbox_root: Optional[Path] = None,
         notify_on_new: bool = True,
         notify_on_approved: bool = True,
         notify_on_executed: bool = True,
@@ -49,6 +77,7 @@ class JobHandler:
         self.sender = sender
         self.state = state
         self.do_email = do_email
+        self.syftbox_root = syftbox_root
         self.notify_on_new = notify_on_new
         self.notify_on_approved = notify_on_approved
         self.notify_on_executed = notify_on_executed
@@ -68,8 +97,20 @@ class JobHandler:
             print(f"[JobHandler] Skip {job_name}/new: already notified")
             return False
 
+        job_code = None
+        job_files = None
+        if self.syftbox_root and self.do_email:
+            job_code, job_files = _read_job_code(
+                self.syftbox_root, self.do_email, job_name
+            )
+
         result = self.sender.notify_new_job(
-            do_email, job_name, submitter, job_url=job_url
+            do_email,
+            job_name,
+            submitter,
+            job_url=job_url,
+            job_code=job_code,
+            job_files=job_files,
         )
 
         if result.success:

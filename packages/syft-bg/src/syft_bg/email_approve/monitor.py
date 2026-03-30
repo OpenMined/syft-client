@@ -1,0 +1,199 @@
+"""Pub/Sub-based monitor for Gmail reply notifications."""
+
+import json
+import threading
+from typing import Optional
+
+from google.cloud import pubsub_v1
+from googleapiclient.errors import HttpError
+
+from syft_bg.common.state import JsonStateManager
+from syft_bg.email_approve.gmail_watch import (
+    GmailWatcher,
+    extract_reply_text,
+    get_header,
+    get_thread_id,
+)
+from syft_bg.email_approve.handler import EmailApproveHandler
+
+# Check watch renewal every 15 minutes
+WATCH_CHECK_INTERVAL = 15 * 60
+
+# Backoff limits for subscriber reconnection
+MIN_BACKOFF = 1
+MAX_BACKOFF = 60
+
+FLOW_CONTROL = pubsub_v1.types.FlowControl(
+    max_messages=20,
+    max_bytes=10 * 1024 * 1024,
+)
+
+
+class EmailApproveMonitor:
+    """Monitors Gmail for reply-based job approvals via Pub/Sub."""
+
+    def __init__(
+        self,
+        watcher: GmailWatcher,
+        handler: EmailApproveHandler,
+        state: JsonStateManager,
+        subscription_path: str,
+        topic_name: str,
+        do_email: str,
+    ):
+        self.watcher = watcher
+        self.handler = handler
+        self.state = state
+        self.subscription_path = subscription_path
+        self.topic_name = topic_name
+        self.do_email = do_email
+        self._stop_event = threading.Event()
+        self._last_history_id: Optional[str] = None
+
+    def start(self) -> threading.Thread:
+        """Start the monitor in a background thread."""
+        self._stop_event.clear()
+        self._init_watch()
+
+        thread = threading.Thread(target=self._run, daemon=True)
+        thread.start()
+        return thread
+
+    def stop(self):
+        """Stop the monitor."""
+        self._stop_event.set()
+
+    def _init_watch(self):
+        """Start Gmail watch and seed history ID."""
+        stored = self.state.get_data("email_approve_last_history_id")
+        history_id, _ = self.watcher.start_watch(self.topic_name)
+        self._last_history_id = stored or history_id
+
+    def _run(self):
+        """Main run loop: subscribe to Pub/Sub with reconnect."""
+        renew_thread = threading.Thread(target=self._watch_renew_loop, daemon=True)
+        renew_thread.start()
+
+        backoff = MIN_BACKOFF
+        subscriber = pubsub_v1.SubscriberClient()
+
+        while not self._stop_event.is_set():
+            try:
+                print(
+                    f"[EmailApproveMonitor] Starting Pub/Sub pull on "
+                    f"{self.subscription_path}"
+                )
+                future = subscriber.subscribe(
+                    self.subscription_path,
+                    callback=self._on_pubsub_message,
+                    flow_control=FLOW_CONTROL,
+                )
+                future.result()
+            except Exception as e:
+                if self._stop_event.is_set():
+                    break
+                print(
+                    f"[EmailApproveMonitor] Subscriber error: {e}. "
+                    f"Reconnecting in {backoff}s"
+                )
+                self._stop_event.wait(backoff)
+                backoff = min(backoff * 2, MAX_BACKOFF)
+            else:
+                backoff = MIN_BACKOFF
+
+        try:
+            subscriber.close()
+        except Exception:
+            pass
+
+        print("[EmailApproveMonitor] Stopped")
+
+    def _on_pubsub_message(self, message):
+        """Handle a Pub/Sub notification from Gmail."""
+        try:
+            payload = json.loads(message.data.decode("utf-8"))
+            history_id = str(payload.get("historyId", ""))
+        except Exception:
+            print("[EmailApproveMonitor] Bad Pub/Sub payload, acking.")
+            message.ack()
+            return
+
+        if not history_id:
+            message.ack()
+            return
+
+        try:
+            self._process_history(history_id)
+            message.ack()
+        except Exception as e:
+            print(f"[EmailApproveMonitor] Error processing notification: {e}")
+            message.nack()
+
+    def _process_history(self, new_history_id: str):
+        """Fetch and process new messages since last history ID."""
+        if not self._last_history_id:
+            self._last_history_id = new_history_id
+            self.state.set_data("email_approve_last_history_id", new_history_id)
+            return
+
+        if new_history_id == self._last_history_id:
+            return
+
+        try:
+            msg_ids, newest = self.watcher.list_history_message_ids(
+                self._last_history_id
+            )
+        except HttpError as e:
+            status = getattr(e.resp, "status", None)
+            if status == 404:
+                print(
+                    f"[EmailApproveMonitor] Stale historyId, reseeding to "
+                    f"{new_history_id}"
+                )
+                self._last_history_id = new_history_id
+                self.state.set_data("email_approve_last_history_id", new_history_id)
+                return
+            raise
+
+        for msg_id in msg_ids:
+            if self._stop_event.is_set():
+                break
+            self._process_message(msg_id)
+
+        final = newest if int(newest) > int(new_history_id) else new_history_id
+        self._last_history_id = final
+        self.state.set_data("email_approve_last_history_id", final)
+
+    def _process_message(self, msg_id: str):
+        """Check if a message is a reply to a job email and handle it."""
+        try:
+            msg = self.watcher.get_message(msg_id)
+        except Exception as e:
+            print(f"[EmailApproveMonitor] Failed to fetch message {msg_id}: {e}")
+            return
+
+        # Only process emails sent by the DO (replies from self)
+        from_header = get_header(msg, "From") or ""
+        if self.do_email not in from_header:
+            return
+
+        thread_id = get_thread_id(msg)
+        if not thread_id:
+            return
+
+        reply_text = extract_reply_text(msg)
+        if not reply_text:
+            return
+
+        self.handler.handle_reply(thread_id, reply_text)
+
+    def _watch_renew_loop(self):
+        """Periodically renew the Gmail watch."""
+        while not self._stop_event.is_set():
+            self._stop_event.wait(WATCH_CHECK_INTERVAL)
+            if self._stop_event.is_set():
+                break
+            try:
+                self.watcher.renew_if_needed(self.topic_name)
+            except Exception as e:
+                print(f"[EmailApproveMonitor] Watch renewal failed: {e}")

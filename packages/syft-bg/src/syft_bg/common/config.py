@@ -38,6 +38,11 @@ class DefaultPaths:
     approve_log: Path
     auto_approvals_dir: Path
 
+    # Email approve service paths
+    email_approve_state: Path
+    email_approve_pid: Path
+    email_approve_log: Path
+
 
 def get_default_paths() -> DefaultPaths:
     """Get default paths for all services."""
@@ -57,6 +62,10 @@ def get_default_paths() -> DefaultPaths:
         approve_pid=creds / "approve" / "daemon.pid",
         approve_log=creds / "approve" / "daemon.log",
         auto_approvals_dir=creds / "auto_approvals",
+        # Email approve
+        email_approve_state=creds / "email_approve" / "state.json",
+        email_approve_pid=creds / "email_approve" / "daemon.pid",
+        email_approve_log=creds / "email_approve" / "daemon.log",
     )
 
 
