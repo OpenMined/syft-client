@@ -9,28 +9,23 @@ from syft_bg.notify.gmail.sender import GmailSender
 
 def _read_job_code(
     syftbox_root: Path, do_email: str, job_name: str
-) -> tuple[Optional[str], Optional[list[str]]]:
-    """Read job code contents and file list from the job directory."""
+) -> Optional[dict[str, str]]:
+    """Read job code contents as a dict of filename -> file contents."""
     job_dir = syftbox_root / do_email / "app_data" / "job" / job_name / "inbox" / "code"
     if not job_dir.exists():
-        return None, None
+        return None
 
-    files = []
-    code_parts = []
+    code_files: dict[str, str] = {}
     for f in sorted(job_dir.rglob("*")):
         if not f.is_file():
             continue
         rel = str(f.relative_to(job_dir))
-        files.append(rel)
-        if f.suffix in (".py", ".sh", ".txt", ".yaml", ".yml", ".toml", ".cfg", ".ini"):
-            try:
-                content = f.read_text(errors="replace")
-                code_parts.append(f"# {rel}\n{content}")
-            except Exception:
-                pass
+        try:
+            code_files[rel] = f.read_text(errors="replace")
+        except Exception as e:
+            code_files[rel] = f"[unable to read file: {e}]"
 
-    code = "\n\n".join(code_parts) if code_parts else None
-    return code, files if files else None
+    return code_files if code_files else None
 
 
 def _friendly_reason(reason: str, job_name: str) -> str:
@@ -98,11 +93,8 @@ class JobHandler:
             return False
 
         job_code = None
-        job_files = None
         if self.syftbox_root and self.do_email:
-            job_code, job_files = _read_job_code(
-                self.syftbox_root, self.do_email, job_name
-            )
+            job_code = _read_job_code(self.syftbox_root, self.do_email, job_name)
 
         result = self.sender.notify_new_job(
             do_email,
@@ -110,7 +102,6 @@ class JobHandler:
             submitter,
             job_url=job_url,
             job_code=job_code,
-            job_files=job_files,
         )
 
         if result.success:

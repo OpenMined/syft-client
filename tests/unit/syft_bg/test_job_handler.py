@@ -46,7 +46,6 @@ class TestJobHandler:
             "ds@test.com",
             job_url=None,
             job_code=None,
-            job_files=None,
         )
         state.mark_notified.assert_called_once_with("job1", "new")
         state.store_thread_id.assert_called_once_with("job1", "thread-123")

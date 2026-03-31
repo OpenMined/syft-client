@@ -84,8 +84,7 @@ class GmailSender:
         submitter: str,
         timestamp: Optional[datetime] = None,
         job_url: Optional[str] = None,
-        job_code: Optional[str] = None,
-        job_files: Optional[list[str]] = None,
+        job_code: Optional[dict[str, str]] = None,
     ) -> SendResult:
         """Notify DO about a new job."""
         subject = f"Job: {job_name}"
@@ -94,11 +93,12 @@ class GmailSender:
 Job: {job_name}
 From: {submitter}
 """
-        if job_files:
-            body_text += f"\nFiles: {', '.join(job_files)}\n"
-
         if job_code:
-            body_text += f"\n--- Code ---\n{job_code}\n--- End Code ---\n"
+            body_text += "\nFiles: " + ", ".join(job_code.keys()) + "\n"
+            body_text += "\n--- Code ---\n"
+            for filename, contents in job_code.items():
+                body_text += f"#{filename}\n{contents}\n\n"
+            body_text += "--- End Code ---\n"
 
         body_text += """
 To approve or deny this job, reply to this email with:

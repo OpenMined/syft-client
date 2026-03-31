@@ -34,20 +34,17 @@ class EmailApproveConfig:
         section = data.get("email_approve", {})
         merged = {**common, **section}
 
+        syftbox_root = merged.get("syftbox_root")
+        gmail_token_path = merged.get("gmail_token_path")
+        drive_token_path = merged.get("drive_token_path")
+        credentials_path = merged.get("credentials_path")
+
         return cls(
             do_email=merged.get("do_email"),
-            syftbox_root=Path(merged["syftbox_root"])
-            if merged.get("syftbox_root")
-            else None,
-            gmail_token_path=Path(merged["gmail_token_path"])
-            if merged.get("gmail_token_path")
-            else None,
-            drive_token_path=Path(merged["drive_token_path"])
-            if merged.get("drive_token_path")
-            else None,
-            credentials_path=Path(merged["credentials_path"])
-            if merged.get("credentials_path")
-            else None,
+            syftbox_root=Path(syftbox_root) if syftbox_root else None,
+            gmail_token_path=Path(gmail_token_path) if gmail_token_path else None,
+            drive_token_path=Path(drive_token_path) if drive_token_path else None,
+            credentials_path=Path(credentials_path) if credentials_path else None,
             gcp_project_id=merged.get("gcp_project_id"),
             pubsub_topic=merged.get("pubsub_topic"),
             pubsub_subscription=merged.get("pubsub_subscription"),
