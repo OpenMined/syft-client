@@ -154,7 +154,8 @@ jobs:
         run: |
           git pull
           just bump-and-publish ${{ inputs.bump_type }}
-          VERSION=$(grep -oP 'SYFT_CLIENT_VERSION\s*=\s*"\K[^"]+' syft_client/version.py)
+          pip install .
+          VERSION=$(python3 -c "from syft_client.version import SYFT_CLIENT_VERSION; print(SYFT_CLIENT_VERSION)")
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
