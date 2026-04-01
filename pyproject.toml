@@ -37,20 +37,20 @@ dependencies = [
     "jinja2>=3.1.0",
     "click>=8.0.0",
     "python-daemon>=3.0.0",
-    "syft-bg==0.3.4",
-    "syft-job==0.1.32", # TODO: move to optional-dependencies after adding lazy imports
-    "syft-dataset==0.1.13", # TODO: move to optional-dependencies after adding lazy imports
-    "syft-permissions==0.1.7",
-    "syft-perms==0.1.7",
+    "syft-bg==0.3.5",
+    "syft-job==0.1.33", # TODO: move to optional-dependencies after adding lazy imports
+    "syft-dataset==0.1.14", # TODO: move to optional-dependencies after adding lazy imports
+    "syft-permissions==0.1.8",
+    "syft-perms==0.1.8",
     "syft-crypto-python>=0.1.2b2",
 ]
 
 [project.optional-dependencies]
 datasets = [
-    "syft-dataset==0.1.13",
+    "syft-dataset==0.1.14",
 ]
 job = [
-    "syft-job==0.1.32",
+    "syft-job==0.1.33",
 ]
 all = [
     "syft-client[datasets,job]",
