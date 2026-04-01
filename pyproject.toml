@@ -40,7 +40,7 @@ dependencies = [
     "syft-bg==0.3.4",
     "syft-job==0.1.32", # TODO: move to optional-dependencies after adding lazy imports
     "syft-dataset==0.1.13", # TODO: move to optional-dependencies after adding lazy imports
-    "syft-permissions==0.1.7",
+    "syft-permissions==0.1.8",
     "syft-perms==0.1.7",
     "syft-crypto-python>=0.1.2b2",
 ]
