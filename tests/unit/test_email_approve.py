@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 
 from syft_bg.common.state import JsonStateManager
-from syft_bg.email_approve.gmail_watch import (
+from syft_bg.email_approve.gmail_message import (
     _strip_quoted_reply,
 )
 from syft_bg.email_approve.handler import EmailApproveHandler, parse_reply
