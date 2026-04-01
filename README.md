@@ -78,6 +78,7 @@ Submit the job and retrieve results:
 ds.submit_python_job(
     user="do@org.com",
     code_path="analysis.py",
+    share_outputs_with_submitter=True,
 )
 ds.sync(); do.sync()
 
