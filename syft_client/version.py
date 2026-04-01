@@ -19,3 +19,6 @@ MIN_SUPPORTED_PROTOCOL_VERSION = "1.0.0"
 
 # Name of the version file stored in SyftBox folder
 VERSION_FILE_NAME = "SYFT_version.json"
+
+if __name__ == "__main__":
+    print(SYFT_CLIENT_VERSION)
