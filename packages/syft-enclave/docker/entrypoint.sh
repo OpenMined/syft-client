@@ -17,4 +17,21 @@ fi
 PORT="${PORT:-8080}"
 echo "Starting attestation server on port $PORT..."
 
-exec uvicorn attestation_server:app --host 0.0.0.0 --port "$PORT"
+# Attestation server in background
+uvicorn attestation_server:app --host 0.0.0.0 --port "$PORT" &
+
+# Enclave runner as foreground process
+POLL_INTERVAL="${POLL_INTERVAL:-10}"
+ENCLAVE_EMAIL="${ENCLAVE_EMAIL:?ENCLAVE_EMAIL must be set}"
+
+echo "Starting enclave runner for $ENCLAVE_EMAIL (poll=${POLL_INTERVAL}s)..."
+
+RUNNER_ARGS="--email $ENCLAVE_EMAIL --poll-interval $POLL_INTERVAL"
+if [ -n "$SYFTBOX_FOLDER" ]; then
+    RUNNER_ARGS="$RUNNER_ARGS --syftbox-folder $SYFTBOX_FOLDER"
+fi
+if [ "${REQUIRE_TEE:-false}" = "true" ]; then
+    RUNNER_ARGS="$RUNNER_ARGS --require-tee"
+fi
+
+exec python -m syft_enclaves $RUNNER_ARGS
