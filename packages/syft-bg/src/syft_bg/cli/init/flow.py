@@ -4,16 +4,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import click
-import yaml
 
 from syft_bg.cli.init.drive_setup import setup_drive
 from syft_bg.cli.init.gmail_setup import setup_gmail
 from syft_bg.common.config import get_creds_dir
 from syft_bg.common.drive import is_colab
+from syft_bg.common.syft_bg_config import SyftBgConfig
+
+
+class InitFlowError(Exception):
+    """Raised when the init flow cannot proceed."""
 
 
 @dataclass
-class InitConfig:
+class UserPassedConfig:
     """Configuration parameters for syft-bg init flow.
 
     All parameters are optional. When None, the init flow will either
@@ -71,72 +75,54 @@ def _print_section(title: str, quiet: bool = False) -> None:
     click.echo()
 
 
-def _load_existing_config(config: InitConfig, config_path: Path) -> dict | None:
-    """Load existing config and confirm overwrite.
-
-    Returns the existing config dict, or None if the user cancelled.
-    An empty dict is returned when no config file exists.
-    """
+def _load_existing_config(config: UserPassedConfig, config_path: Path) -> SyftBgConfig:
+    """Load existing config and confirm overwrite."""
     if not config_path.exists():
-        return {}
-
-    with open(config_path) as f:
-        existing = yaml.safe_load(f) or {}
+        return SyftBgConfig()
 
     if not config.quiet:
         click.echo(f"Found existing config at {config_path}")
 
-    if not (config.yes or config.quiet):
-        if not click.confirm("Update existing configuration?", default=True):
-            click.echo("Setup cancelled.")
-            return None
-
-    return existing
+    return SyftBgConfig.load(config_path)
 
 
-def _resolve_common_settings(
-    config: InitConfig, existing: dict
-) -> tuple[str, str] | None:
-    """Resolve email and syftbox_root.
-
-    Returns (email, syftbox_root) or None if required values are missing.
-    """
-    default_email = existing.get("do_email", "")
+def _resolve_common_settings(config: UserPassedConfig, result: SyftBgConfig) -> None:
+    """Resolve email and syftbox_root, mutating result."""
+    default_email = result.do_email or ""
 
     if config.email is not None:
-        do_email = config.email
+        result.do_email = config.email
         if not config.quiet:
-            click.echo(f"Data Owner email address: {do_email}")
+            click.echo(f"Data Owner email address: {result.do_email}")
     elif config.quiet:
         if not default_email:
-            click.echo("Error: --email is required in quiet mode")
-            click.echo()
-            click.echo("Usage:")
-            click.echo("  syft-bg init --email user@example.com --quiet")
-            return None
-        do_email = default_email
+            raise InitFlowError(
+                "--email is required in quiet mode\n"
+                "Usage: syft-bg init --email user@example.com --quiet"
+            )
+        result.do_email = default_email
     else:
-        do_email = click.prompt(
+        result.do_email = click.prompt(
             "Data Owner email address", default=default_email or None
         )
 
-    default_syftbox = existing.get(
-        "syftbox_root", str(Path.home() / f"SyftBox_{do_email}")
+    default_syftbox = result.syftbox_root or str(
+        Path.home() / f"SyftBox_{result.do_email}"
     )
     if config.syftbox_root is not None:
-        syftbox_root = config.syftbox_root
+        result.syftbox_root = config.syftbox_root
         if not config.quiet:
-            click.echo(f"SyftBox root directory: {syftbox_root}")
+            click.echo(f"SyftBox root directory: {result.syftbox_root}")
     elif config.quiet:
-        syftbox_root = default_syftbox
+        result.syftbox_root = default_syftbox
     else:
-        syftbox_root = click.prompt("SyftBox root directory", default=default_syftbox)
+        result.syftbox_root = click.prompt(
+            "SyftBox root directory", default=default_syftbox
+        )
 
-    return do_email, syftbox_root
 
-
-def _setup_auth(config: InitConfig, creds_dir: Path) -> bool:
-    """Run Gmail and Drive OAuth setup. Returns False on failure."""
+def _setup_auth(config: UserPassedConfig, creds_dir: Path) -> None:
+    """Run Gmail and Drive OAuth setup."""
     gmail_token_path = creds_dir / "gmail_token.json"
     credentials_path = creds_dir / "credentials.json"
 
@@ -148,7 +134,7 @@ def _setup_auth(config: InitConfig, creds_dir: Path) -> bool:
     if not setup_gmail(
         credentials_path, gmail_token_path, skip=config.skip_oauth, quiet=config.quiet
     ):
-        return False
+        raise InitFlowError("Gmail authentication setup failed")
 
     _print_section("GOOGLE DRIVE AUTHENTICATION", quiet=config.quiet)
 
@@ -166,67 +152,52 @@ def _setup_auth(config: InitConfig, creds_dir: Path) -> bool:
             skip=config.skip_oauth,
             quiet=config.quiet,
         ):
-            return False
-
-    return True
+            raise InitFlowError("Google Drive authentication setup failed")
 
 
-def _resolve_notify_settings(config: InitConfig, existing_notify: dict) -> dict:
-    """Resolve notification service settings."""
+def _resolve_notify_settings(config: UserPassedConfig, result: SyftBgConfig) -> None:
+    """Resolve notification service settings, mutating result.notify."""
+    notify = result.notify
+
     if config.notify_jobs is not None:
-        notify_jobs = config.notify_jobs
-    elif config.quiet:
-        notify_jobs = existing_notify.get("monitor_jobs", True)
-    else:
-        notify_jobs = click.confirm(
+        notify.monitor_jobs = config.notify_jobs
+    elif not config.quiet:
+        notify.monitor_jobs = click.confirm(
             "Enable email notifications for new jobs?",
-            default=existing_notify.get("monitor_jobs", True),
+            default=notify.monitor_jobs,
         )
 
     if config.notify_peers is not None:
-        notify_peers = config.notify_peers
-    elif config.quiet:
-        notify_peers = existing_notify.get("monitor_peers", True)
-    else:
-        notify_peers = click.confirm(
+        notify.monitor_peers = config.notify_peers
+    elif not config.quiet:
+        notify.monitor_peers = click.confirm(
             "Enable email notifications for peer requests?",
-            default=existing_notify.get("monitor_peers", True),
+            default=notify.monitor_peers,
         )
 
     if config.notify_interval is not None:
-        notify_interval = config.notify_interval
-    elif config.quiet:
-        notify_interval = existing_notify.get("interval", 30)
-    else:
-        notify_interval = click.prompt(
+        notify.interval = config.notify_interval
+    elif not config.quiet:
+        notify.interval = click.prompt(
             "Check interval (seconds)",
             type=int,
-            default=existing_notify.get("interval", 30),
+            default=notify.interval,
         )
 
-    return {
-        "interval": notify_interval,
-        "monitor_jobs": notify_jobs,
-        "monitor_peers": notify_peers,
-    }
 
-
-def _resolve_approve_settings(config: InitConfig, existing_approve: dict) -> dict:
-    """Resolve auto-approval service settings."""
-    existing_jobs = existing_approve.get("jobs", {})
-    existing_peers = existing_approve.get("peers", {})
+def _resolve_approve_settings(config: UserPassedConfig, result: SyftBgConfig) -> None:
+    """Resolve auto-approval service settings, mutating result.approve."""
+    approve = result.approve
 
     if not config.quiet:
         click.echo("Job Auto-Approval:")
 
     if config.approve_jobs is not None:
-        approve_jobs = config.approve_jobs
-    elif config.quiet:
-        approve_jobs = existing_jobs.get("enabled", True)
-    else:
-        approve_jobs = click.confirm(
+        approve.auto_approvals.enabled = config.approve_jobs
+    elif not config.quiet:
+        approve.auto_approvals.enabled = click.confirm(
             "  Enable automatic job approval?",
-            default=existing_jobs.get("enabled", True),
+            default=approve.auto_approvals.enabled,
         )
 
     if not config.quiet:
@@ -234,71 +205,35 @@ def _resolve_approve_settings(config: InitConfig, existing_approve: dict) -> dic
         click.echo("Peer Auto-Approval:")
 
     if config.approve_peers is not None:
-        approve_peers = config.approve_peers
-    elif config.quiet:
-        approve_peers = existing_peers.get("enabled", False)
-    else:
-        approve_peers = click.confirm(
+        approve.peers.enabled = config.approve_peers
+    elif not config.quiet:
+        approve.peers.enabled = click.confirm(
             "  Enable automatic peer approval?",
-            default=existing_peers.get("enabled", False),
+            default=approve.peers.enabled,
         )
 
-    approved_domains: list[str] = []
-    if approve_peers:
+    if approve.peers.enabled:
         if config.approved_domains is not None:
-            approved_domains = config.approved_domains
-        elif config.quiet:
-            approved_domains = existing_peers.get("approved_domains", ["openmined.org"])
-        else:
+            approve.peers.approved_domains = config.approved_domains
+        elif not config.quiet:
             default_domains = ",".join(
-                existing_peers.get("approved_domains", ["openmined.org"])
+                approve.peers.approved_domains or ["openmined.org"]
             )
             domains_input = click.prompt(
                 "  Approved domains (comma-separated)", default=default_domains
             )
-            approved_domains = [
+            approve.peers.approved_domains = [
                 d.strip() for d in domains_input.split(",") if d.strip()
             ]
 
     if config.approve_interval is not None:
-        approve_interval = config.approve_interval
-    elif config.quiet:
-        approve_interval = existing_approve.get("interval", 5)
-    else:
-        approve_interval = click.prompt(
+        approve.interval = config.approve_interval
+    elif not config.quiet:
+        approve.interval = click.prompt(
             "Check interval (seconds)",
             type=int,
-            default=existing_approve.get("interval", 5),
+            default=approve.interval,
         )
-
-    return {
-        "interval": approve_interval,
-        "jobs": {
-            "enabled": approve_jobs,
-            "peers": existing_jobs.get("peers", {}),
-        },
-        "peers": {
-            "enabled": approve_peers,
-            "approved_domains": approved_domains,
-            "auto_share_datasets": existing_peers.get("auto_share_datasets", []),
-        },
-    }
-
-
-def _save_config(
-    config_path: Path, do_email: str, syftbox_root: str, notify: dict, approve: dict
-) -> None:
-    """Build final config dict and write to YAML."""
-    final_config = {
-        "do_email": do_email,
-        "syftbox_root": syftbox_root,
-        "notify": notify,
-        "approve": approve,
-    }
-
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w") as f:
-        yaml.dump(final_config, f, default_flow_style=False, sort_keys=False)
 
 
 def _print_summary(config_path: Path) -> None:
@@ -320,54 +255,42 @@ def _print_summary(config_path: Path) -> None:
 
 
 def run_init_flow(
-    config: InitConfig | None = None,
-) -> bool:
+    user_passed_config: UserPassedConfig | None = None,
+) -> None:
     """Run unified setup for all background services.
 
     Args:
-        config: InitConfig object with all settings
+        user_passed_config: Configuration object with all settings.
 
-    Returns:
-        True if setup completed successfully, False if cancelled
+    Raises:
+        InitFlowError: If the flow cannot proceed.
     """
-    if config is None:
-        config = InitConfig()
+    if user_passed_config is None:
+        user_passed_config = UserPassedConfig()
 
-    if config.quiet:
-        config.skip_oauth = True
+    if user_passed_config.quiet:
+        user_passed_config.skip_oauth = True
 
-    _print_banner(quiet=config.quiet)
+    _print_banner(quiet=user_passed_config.quiet)
 
     creds_dir = get_creds_dir()
     config_path = creds_dir / "config.yaml"
 
-    existing = _load_existing_config(config, config_path)
-    if existing is None:
-        return False
+    result = _load_existing_config(user_passed_config, config_path)
 
-    _print_section("COMMON SETTINGS", quiet=config.quiet)
+    _print_section("COMMON SETTINGS", quiet=user_passed_config.quiet)
+    _resolve_common_settings(user_passed_config, result)
 
-    common = _resolve_common_settings(config, existing)
-    if common is None:
-        return False
-    do_email, syftbox_root = common
+    _print_section("GMAIL AUTHENTICATION", quiet=user_passed_config.quiet)
+    _setup_auth(user_passed_config, creds_dir)
 
-    _print_section("GMAIL AUTHENTICATION", quiet=config.quiet)
+    _print_section("NOTIFICATION SERVICE", quiet=user_passed_config.quiet)
+    _resolve_notify_settings(user_passed_config, result)
 
-    if not _setup_auth(config, creds_dir):
-        return False
+    _print_section("AUTO-APPROVAL SERVICE", quiet=user_passed_config.quiet)
+    _resolve_approve_settings(user_passed_config, result)
 
-    _print_section("NOTIFICATION SERVICE", quiet=config.quiet)
+    result.save(config_path)
 
-    notify = _resolve_notify_settings(config, existing.get("notify", {}))
-
-    _print_section("AUTO-APPROVAL SERVICE", quiet=config.quiet)
-
-    approve = _resolve_approve_settings(config, existing.get("approve", {}))
-
-    _save_config(config_path, do_email, syftbox_root, notify, approve)
-
-    if not config.quiet:
+    if not user_passed_config.quiet:
         _print_summary(config_path)
-
-    return True

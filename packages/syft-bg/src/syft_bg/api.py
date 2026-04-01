@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from syft_bg.approve.config import AutoApproveConfig, AutoApprovalObj, FileEntry
-from syft_bg.cli.init import InitConfig, run_init_flow
+from syft_bg.cli.init import InitFlowError, UserPassedConfig, run_init_flow
 from syft_bg.common.config import get_creds_dir, get_default_paths
 from syft_bg.common.drive import is_colab
 
@@ -332,7 +332,7 @@ def init(
                     issues=issues,
                 )
 
-        config = InitConfig(
+        config = UserPassedConfig(
             email=email,
             syftbox_root=syftbox_root,
             yes=True,  # API always overwrites
@@ -350,10 +350,7 @@ def init(
             drive_token_path=str(drive_token_path) if drive_token_path else None,
         )
 
-        success = run_init_flow(config=config)
-
-        if not success:
-            return InitResult(success=False, error="Init flow failed")
+        run_init_flow(user_passed_config=config)
 
         result = InitResult(success=True, config_path=config_path)
 
@@ -374,6 +371,8 @@ def init(
 
         return result
 
+    except InitFlowError as e:
+        return InitResult(success=False, error=str(e))
     except Exception as e:
         return InitResult(success=False, error=str(e))
 

@@ -292,7 +292,7 @@ def init(
 
       syft-bg init --notify-jobs --no-notify-peers --approve-jobs
     """
-    from syft_bg.cli.init import InitConfig, run_init_flow
+    from syft_bg.cli.init import InitFlowError, UserPassedConfig, run_init_flow
 
     parsed_approved_domains = None
     if approved_domains:
@@ -300,7 +300,7 @@ def init(
             d.strip() for d in approved_domains.split(",") if d.strip()
         ]
 
-    config = InitConfig(
+    config = UserPassedConfig(
         email=email,
         syftbox_root=syftbox_root,
         yes=yes,
@@ -318,7 +318,11 @@ def init(
         drive_token_path=drive_token,
     )
 
-    run_init_flow(config=config)
+    try:
+        run_init_flow(user_passed_config=config)
+    except InitFlowError as e:
+        click.echo(f"Error: {e}")
+        raise SystemExit(1)
 
 
 @main.command()
@@ -331,9 +335,12 @@ def tui():
 
     # Handle special exit codes
     if result == 2:
-        from syft_bg.cli.init import run_init_flow
+        from syft_bg.cli.init import InitFlowError, run_init_flow
 
-        run_init_flow()
+        try:
+            run_init_flow()
+        except InitFlowError as e:
+            click.echo(f"Error: {e}")
 
 
 @main.command("setup-status")
