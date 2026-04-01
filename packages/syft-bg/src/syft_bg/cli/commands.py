@@ -5,6 +5,10 @@ from typing import Optional
 
 import click
 
+from syft_bg.approve import ApprovalOrchestrator
+from syft_bg.common.syft_bg_config import SyftBgConfig
+from syft_bg.email_approve import EmailApproveOrchestrator
+from syft_bg.notify import NotificationOrchestrator
 from syft_bg.services import ServiceManager, ServiceStatus
 
 
@@ -395,7 +399,7 @@ def setup_status():
         )
 
     if not is_colab():
-        drive_token_path = creds_dir / "token_do.json"
+        drive_token_path = creds_dir / "drive_token.json"
         if drive_token_path.exists():
             click.echo(f"  ✓ Drive token: {drive_token_path}")
         else:
@@ -469,47 +473,29 @@ def run(service: str, once: bool):
 
       syft-bg run --service approve --once
     """
-    if service == "notify":
-        from syft_bg.notify import NotificationOrchestrator
+    try:
+        config = SyftBgConfig.from_path()
+    except FileNotFoundError:
+        click.echo("Error: config not found.", err=True)
+        click.echo("Run 'syft-bg init' first to configure the service.", err=True)
+        raise SystemExit(1)
 
-        try:
-            orchestrator = NotificationOrchestrator.from_config()
-            if once:
-                orchestrator.check()
-            else:
-                orchestrator.run()
-        except FileNotFoundError as e:
-            click.echo(f"Error: {e}", err=True)
-            click.echo("Run 'syft-bg init' first to configure the service.", err=True)
-            raise SystemExit(1)
+    try:
+        if service == "notify":
+            orchestrator = NotificationOrchestrator.from_config(config.notify)
+        elif service == "approve":
+            orchestrator = ApprovalOrchestrator.from_config(config.approve)
+        elif service == "email_approve":
+            orchestrator = EmailApproveOrchestrator.from_config(config.email_approve)
 
-    elif service == "approve":
-        from syft_bg.approve import ApprovalOrchestrator
-
-        try:
-            orchestrator = ApprovalOrchestrator.from_config()
-            if once:
-                orchestrator.check()
-            else:
-                orchestrator.run()
-        except FileNotFoundError as e:
-            click.echo(f"Error: {e}", err=True)
-            click.echo("Run 'syft-bg init' first to configure the service.", err=True)
-            raise SystemExit(1)
-
-    elif service == "email_approve":
-        from syft_bg.email_approve import EmailApproveOrchestrator
-
-        try:
-            orchestrator = EmailApproveOrchestrator.from_config()
-            if once:
-                orchestrator.check()
-            else:
-                orchestrator.run()
-        except FileNotFoundError as e:
-            click.echo(f"Error: {e}", err=True)
-            click.echo("Run 'syft-bg init' first to configure the service.", err=True)
-            raise SystemExit(1)
+        if once:
+            orchestrator.check()
+        else:
+            orchestrator.run()
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        click.echo("Run 'syft-bg init' first to configure the service.", err=True)
+        raise SystemExit(1)
 
 
 @main.command()

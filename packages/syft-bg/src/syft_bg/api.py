@@ -105,7 +105,9 @@ def _check_prerequisites(
     # Check Drive token (not needed on Colab — uses native auth)
     if not colab:
         drive_path = (
-            Path(drive_token_path) if drive_token_path else creds_dir / "token_do.json"
+            Path(drive_token_path)
+            if drive_token_path
+            else creds_dir / "drive_token.json"
         )
         if not drive_path.exists():
             if creds_path.exists():
@@ -180,7 +182,7 @@ def authenticate(
         return AuthResult(success=False, error=msg)
 
     gmail_token_path = creds_dir / "gmail_token.json"
-    drive_token_path = creds_dir / "token_do.json"
+    drive_token_path = creds_dir / "drive_token.json"
     gmail_ok = gmail_token_path.exists()
     drive_ok = drive_token_path.exists() or colab
 

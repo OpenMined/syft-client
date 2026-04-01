@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from syft_bg.common.config import get_default_paths
@@ -37,11 +36,9 @@ class EmailApproveOrchestrator:
     @classmethod
     def from_config(
         cls,
-        config_path: Optional[str] = None,
+        config: EmailApproveConfig,
     ) -> EmailApproveOrchestrator:
-        """Create orchestrator from config file."""
-        config = EmailApproveConfig.load(Path(config_path) if config_path else None)
-
+        """Create orchestrator from an EmailApproveConfig."""
         if not config.do_email:
             raise ValueError("Config missing 'do_email' field")
         if not config.syftbox_root:

@@ -6,14 +6,11 @@ from pathlib import Path
 import click
 
 from syft_bg.cli.init.drive_setup import setup_drive
+from syft_bg.cli.init.exceptions import InitFlowError
 from syft_bg.cli.init.gmail_setup import setup_gmail
 from syft_bg.common.config import get_creds_dir
 from syft_bg.common.drive import is_colab
 from syft_bg.common.syft_bg_config import SyftBgConfig
-
-
-class InitFlowError(Exception):
-    """Raised when the init flow cannot proceed."""
 
 
 @dataclass
@@ -83,7 +80,7 @@ def _load_existing_config(config: UserPassedConfig, config_path: Path) -> SyftBg
     if not config.quiet:
         click.echo(f"Found existing config at {config_path}")
 
-    return SyftBgConfig.load(config_path)
+    return SyftBgConfig.from_path(config_path)
 
 
 def _resolve_common_settings(config: UserPassedConfig, result: SyftBgConfig) -> None:
@@ -121,36 +118,41 @@ def _resolve_common_settings(config: UserPassedConfig, result: SyftBgConfig) -> 
         )
 
 
-def _setup_auth(config: UserPassedConfig, creds_dir: Path) -> None:
-    """Run Gmail and Drive OAuth setup."""
-    gmail_token_path = creds_dir / "gmail_token.json"
-    credentials_path = creds_dir / "credentials.json"
+def _setup_auth(
+    user_passed_config: UserPassedConfig,
+    result_config: SyftBgConfig,
+    creds_dir: Path,
+) -> None:
+    """Run Gmail and Drive OAuth setup, storing paths on result_config."""
+    result_config.credentials_path = (
+        user_passed_config.credentials_path | result_config.credentials_path
+    )
 
-    if config.gmail_token_path:
-        gmail_token_path = Path(config.gmail_token_path).expanduser()
-    if config.credentials_path:
-        credentials_path = Path(config.credentials_path).expanduser()
+    result_config.gmail_token_path = (
+        user_passed_config.gmail_token_path | result_config.gmail_token_path
+    )
+    result_config.drive_token_path = (
+        user_passed_config.drive_token_path | result_config.drive_token_path
+    )
 
-    if not setup_gmail(
-        credentials_path, gmail_token_path, skip=config.skip_oauth, quiet=config.quiet
-    ):
-        raise InitFlowError("Gmail authentication setup failed")
+    setup_gmail(
+        result_config.credentials_path,
+        result_config.gmail_token_path,
+        skip=user_passed_config.skip_oauth,
+        quiet=user_passed_config.quiet,
+    )
 
-    _print_section("GOOGLE DRIVE AUTHENTICATION", quiet=config.quiet)
+    _print_section("GOOGLE DRIVE AUTHENTICATION", quiet=user_passed_config.quiet)
 
     if is_colab():
-        if not config.quiet:
+        if not user_passed_config.quiet:
             click.echo("Colab detected - Drive authentication handled natively")
     else:
-        drive_token_path = creds_dir / "token_do.json"
-        if config.drive_token_path:
-            drive_token_path = Path(config.drive_token_path).expanduser()
-
         if not setup_drive(
-            credentials_path,
-            drive_token_path,
-            skip=config.skip_oauth,
-            quiet=config.quiet,
+            result_config.credentials_path,
+            result_config.drive_token_path,
+            skip=user_passed_config.skip_oauth,
+            quiet=user_passed_config.quiet,
         ):
             raise InitFlowError("Google Drive authentication setup failed")
 
@@ -276,21 +278,21 @@ def run_init_flow(
     creds_dir = get_creds_dir()
     config_path = creds_dir / "config.yaml"
 
-    result = _load_existing_config(user_passed_config, config_path)
+    result_config = _load_existing_config(user_passed_config, config_path)
 
     _print_section("COMMON SETTINGS", quiet=user_passed_config.quiet)
-    _resolve_common_settings(user_passed_config, result)
+    _resolve_common_settings(user_passed_config, result_config)
 
     _print_section("GMAIL AUTHENTICATION", quiet=user_passed_config.quiet)
-    _setup_auth(user_passed_config, creds_dir)
+    _setup_auth(user_passed_config, result_config, creds_dir)
 
     _print_section("NOTIFICATION SERVICE", quiet=user_passed_config.quiet)
-    _resolve_notify_settings(user_passed_config, result)
+    _resolve_notify_settings(user_passed_config, result_config)
 
     _print_section("AUTO-APPROVAL SERVICE", quiet=user_passed_config.quiet)
-    _resolve_approve_settings(user_passed_config, result)
+    _resolve_approve_settings(user_passed_config, result_config)
 
-    result.save(config_path)
+    result_config.save(config_path)
 
     if not user_passed_config.quiet:
         _print_summary(config_path)

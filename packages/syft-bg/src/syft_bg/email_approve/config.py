@@ -1,14 +1,14 @@
 """Configuration for email-based approval service."""
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from pydantic import BaseModel
 
 from syft_bg.common.config import get_default_paths, load_yaml, save_yaml
 
 
-@dataclass
-class EmailApproveConfig:
+class EmailApproveConfig(BaseModel):
     """Configuration for the email approval service."""
 
     do_email: Optional[str] = None

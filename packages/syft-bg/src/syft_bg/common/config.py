@@ -52,7 +52,7 @@ def get_default_paths() -> DefaultPaths:
         config=creds / "config.yaml",
         credentials=creds / "credentials.json",
         gmail_token=creds / "gmail_token.json",
-        drive_token=creds / "token_do.json",
+        drive_token=creds / "drive_token.json",
         # Notify
         notify_state=creds / "notify" / "state.json",
         notify_pid=creds / "notify" / "daemon.pid",
