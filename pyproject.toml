@@ -38,7 +38,7 @@ dependencies = [
     "click>=8.0.0",
     "python-daemon>=3.0.0",
     "syft-bg==0.3.2",
-    "syft-job==0.1.30", # TODO: move to optional-dependencies after adding lazy imports
+    "syft-job==0.1.31", # TODO: move to optional-dependencies after adding lazy imports
     "syft-dataset==0.1.12", # TODO: move to optional-dependencies after adding lazy imports
     "syft-permissions==0.1.6",
     "syft-perms==0.1.6",
@@ -50,7 +50,7 @@ datasets = [
     "syft-dataset==0.1.12",
 ]
 job = [
-    "syft-job==0.1.30",
+    "syft-job==0.1.31",
 ]
 all = [
     "syft-client[datasets,job]",
