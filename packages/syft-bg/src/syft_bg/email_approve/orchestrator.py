@@ -47,11 +47,6 @@ class EmailApproveOrchestrator:
         if not config.syftbox_root:
             raise ValueError("Config missing 'syftbox_root' field")
 
-        paths = get_default_paths()
-        config.gmail_token_path = config.gmail_token_path or paths.gmail_token
-        config.credentials_path = config.credentials_path or paths.credentials
-        config.drive_token_path = config.drive_token_path or paths.drive_token
-
         client = _create_client(config)
         return cls(client=client, config=config)
 
@@ -64,23 +59,22 @@ class EmailApproveOrchestrator:
         config = self.config
 
         # Load Gmail credentials
-        if not config.gmail_token_path or not config.gmail_token_path.exists():
+        gmail_token_path = paths.gmail_token
+        if not gmail_token_path.exists():
             raise FileNotFoundError(
-                f"Gmail token not found: {config.gmail_token_path}\n"
-                "Run 'syft-bg init' first."
+                f"Gmail token not found: {gmail_token_path}\nRun 'syft-bg init' first."
             )
 
         auth = GmailAuth()
-        credentials = auth.load_credentials(config.gmail_token_path)
+        credentials = auth.load_credentials(gmail_token_path)
 
         # Auto-detect project ID if needed
         if not config.gcp_project_id:
-            creds_path = config.credentials_path or paths.credentials
-            config.gcp_project_id = get_project_id_from_credentials(creds_path)
+            config.gcp_project_id = get_project_id_from_credentials(paths.credentials)
 
         # Auto-create Pub/Sub resources if needed
         if not config.pubsub_topic or not config.pubsub_subscription:
-            topic_path, sub_path = setup_pubsub(config.gcp_project_id)
+            topic_path, sub_path = setup_pubsub(credentials, config.gcp_project_id)
             config.pubsub_topic = topic_path
             config.pubsub_subscription = sub_path
             config.save_pubsub_config()
@@ -101,6 +95,7 @@ class EmailApproveOrchestrator:
             watcher=watcher,
             handler=handler,
             state=state,
+            credentials=credentials,
             subscription_path=config.pubsub_subscription,
             topic_name=config.pubsub_topic,
             do_email=config.do_email,
@@ -146,6 +141,7 @@ def _create_client(config: EmailApproveConfig) -> SyftboxManager:
     from syft_client.sync.syftbox_manager import SyftboxManager
     from syft_client.sync.utils.syftbox_utils import check_env
 
+    paths = get_default_paths()
     env = check_env()
     if env == Environment.COLAB:
         return SyftboxManager.for_colab(
@@ -156,5 +152,5 @@ def _create_client(config: EmailApproveConfig) -> SyftboxManager:
         return SyftboxManager.for_jupyter(
             email=config.do_email,
             has_do_role=True,
-            token_path=config.drive_token_path,
+            token_path=paths.drive_token,
         )

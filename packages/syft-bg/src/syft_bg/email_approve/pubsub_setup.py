@@ -6,6 +6,7 @@ from pathlib import Path
 from google.api_core.exceptions import AlreadyExists, NotFound
 from google.cloud import pubsub_v1
 from google.iam.v1 import iam_policy_pb2
+from google.oauth2.credentials import Credentials
 
 GMAIL_PUBLISH_SA = "gmail-api-push@system.gserviceaccount.com"
 
@@ -22,9 +23,9 @@ def get_project_id_from_credentials(credentials_path: Path) -> str:
     )
 
 
-def ensure_topic(project_id: str, topic_id: str) -> str:
+def ensure_topic(credentials: Credentials, project_id: str, topic_id: str) -> str:
     """Create Pub/Sub topic if it doesn't exist. Returns full topic path."""
-    publisher = pubsub_v1.PublisherClient()
+    publisher = pubsub_v1.PublisherClient(credentials=credentials)
     topic_path = publisher.topic_path(project_id, topic_id)
 
     try:
@@ -36,10 +37,12 @@ def ensure_topic(project_id: str, topic_id: str) -> str:
     return topic_path
 
 
-def ensure_subscription(project_id: str, topic_id: str, subscription_id: str) -> str:
+def ensure_subscription(
+    credentials: Credentials, project_id: str, topic_id: str, subscription_id: str
+) -> str:
     """Create Pub/Sub subscription if it doesn't exist. Returns full path."""
-    subscriber = pubsub_v1.SubscriberClient()
-    publisher = pubsub_v1.PublisherClient()
+    subscriber = pubsub_v1.SubscriberClient(credentials=credentials)
+    publisher = pubsub_v1.PublisherClient(credentials=credentials)
     topic_path = publisher.topic_path(project_id, topic_id)
     sub_path = subscriber.subscription_path(project_id, subscription_id)
 
@@ -52,9 +55,11 @@ def ensure_subscription(project_id: str, topic_id: str, subscription_id: str) ->
     return sub_path
 
 
-def grant_gmail_publish_access(project_id: str, topic_id: str) -> None:
+def grant_gmail_publish_access(
+    credentials: Credentials, project_id: str, topic_id: str
+) -> None:
     """Grant Gmail's service account publish access to the topic."""
-    publisher = pubsub_v1.PublisherClient()
+    publisher = pubsub_v1.PublisherClient(credentials=credentials)
     topic_path = publisher.topic_path(project_id, topic_id)
 
     try:
@@ -81,12 +86,13 @@ def grant_gmail_publish_access(project_id: str, topic_id: str) -> None:
 
 
 def setup_pubsub(
+    credentials: Credentials,
     project_id: str,
     topic_id: str = "syft-gmail-notifications",
     subscription_id: str = "syft-gmail-sub",
 ) -> tuple[str, str]:
     """Set up all Pub/Sub resources. Returns (topic_path, subscription_path)."""
-    topic_path = ensure_topic(project_id, topic_id)
-    grant_gmail_publish_access(project_id, topic_id)
-    sub_path = ensure_subscription(project_id, topic_id, subscription_id)
+    topic_path = ensure_topic(credentials, project_id, topic_id)
+    grant_gmail_publish_access(credentials, project_id, topic_id)
+    sub_path = ensure_subscription(credentials, project_id, topic_id, subscription_id)
     return topic_path, sub_path

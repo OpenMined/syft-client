@@ -5,15 +5,11 @@ import threading
 from typing import Optional
 
 from google.cloud import pubsub_v1
+from google.oauth2.credentials import Credentials
 from googleapiclient.errors import HttpError
 
 from syft_bg.common.state import JsonStateManager
-from syft_bg.email_approve.gmail_watch import (
-    GmailWatcher,
-    extract_reply_text,
-    get_header,
-    get_thread_id,
-)
+from syft_bg.email_approve.gmail_watch import GmailWatcher
 from syft_bg.email_approve.handler import EmailApproveHandler
 
 # Check watch renewal every 15 minutes
@@ -37,6 +33,7 @@ class EmailApproveMonitor:
         watcher: GmailWatcher,
         handler: EmailApproveHandler,
         state: JsonStateManager,
+        credentials: Credentials,
         subscription_path: str,
         topic_name: str,
         do_email: str,
@@ -44,6 +41,7 @@ class EmailApproveMonitor:
         self.watcher = watcher
         self.handler = handler
         self.state = state
+        self.credentials = credentials
         self.subscription_path = subscription_path
         self.topic_name = topic_name
         self.do_email = do_email
@@ -75,7 +73,7 @@ class EmailApproveMonitor:
         renew_thread.start()
 
         backoff = MIN_BACKOFF
-        subscriber = pubsub_v1.SubscriberClient()
+        subscriber = pubsub_v1.SubscriberClient(credentials=self.credentials)
 
         while not self._stop_event.is_set():
             try:
@@ -173,19 +171,17 @@ class EmailApproveMonitor:
             return
 
         # Only process emails sent by the DO (replies from self)
-        from_header = get_header(msg, "From") or ""
+        from_header = msg.get_header("From") or ""
         if self.do_email not in from_header:
             return
 
-        thread_id = get_thread_id(msg)
-        if not thread_id:
+        if not msg.thread_id:
             return
 
-        reply_text = extract_reply_text(msg)
-        if not reply_text:
+        if not msg.reply_text:
             return
 
-        self.handler.handle_reply(thread_id, reply_text)
+        self.handler.handle_reply(msg.thread_id, msg.reply_text)
 
     def _watch_renew_loop(self):
         """Periodically renew the Gmail watch."""

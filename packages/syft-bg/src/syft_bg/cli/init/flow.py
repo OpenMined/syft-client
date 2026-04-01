@@ -48,8 +48,22 @@ class InitConfig:
     drive_token_path: str | None = None
 
 
-def _print_section(title: str) -> None:
+def _print_banner(quiet: bool = False) -> None:
+    """Print the setup banner."""
+    if quiet:
+        return
+    click.echo()
+    click.echo("SYFTBOX BACKGROUND SERVICES SETUP")
+    click.echo("=" * 50)
+    click.echo()
+    click.echo("This will configure both notification and auto-approval services.")
+    click.echo()
+
+
+def _print_section(title: str, quiet: bool = False) -> None:
     """Print a section header."""
+    if quiet:
+        return
     click.echo()
     click.echo("-" * 50)
     click.echo(title)
@@ -136,8 +150,7 @@ def _setup_auth(config: InitConfig, creds_dir: Path) -> bool:
     ):
         return False
 
-    if not config.quiet:
-        _print_section("GOOGLE DRIVE AUTHENTICATION")
+    _print_section("GOOGLE DRIVE AUTHENTICATION", quiet=config.quiet)
 
     if is_colab():
         if not config.quiet:
@@ -323,13 +336,7 @@ def run_init_flow(
     if config.quiet:
         config.skip_oauth = True
 
-    if not config.quiet:
-        click.echo()
-        click.echo("SYFTBOX BACKGROUND SERVICES SETUP")
-        click.echo("=" * 50)
-        click.echo()
-        click.echo("This will configure both notification and auto-approval services.")
-        click.echo()
+    _print_banner(quiet=config.quiet)
 
     creds_dir = get_creds_dir()
     config_path = creds_dir / "config.yaml"
@@ -338,27 +345,23 @@ def run_init_flow(
     if existing is None:
         return False
 
-    if not config.quiet:
-        _print_section("COMMON SETTINGS")
+    _print_section("COMMON SETTINGS", quiet=config.quiet)
 
     common = _resolve_common_settings(config, existing)
     if common is None:
         return False
     do_email, syftbox_root = common
 
-    if not config.quiet:
-        _print_section("GMAIL AUTHENTICATION")
+    _print_section("GMAIL AUTHENTICATION", quiet=config.quiet)
 
     if not _setup_auth(config, creds_dir):
         return False
 
-    if not config.quiet:
-        _print_section("NOTIFICATION SERVICE")
+    _print_section("NOTIFICATION SERVICE", quiet=config.quiet)
 
     notify = _resolve_notify_settings(config, existing.get("notify", {}))
 
-    if not config.quiet:
-        _print_section("AUTO-APPROVAL SERVICE")
+    _print_section("AUTO-APPROVAL SERVICE", quiet=config.quiet)
 
     approve = _resolve_approve_settings(config, existing.get("approve", {}))
 

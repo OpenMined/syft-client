@@ -336,15 +336,15 @@ def tui():
         run_init_flow()
 
 
-@main.command()
-def setup():
+@main.command("setup-status")
+def setup_status():
     """Check environment and show setup status.
 
     Verifies that all required credentials and tokens are in place.
 
     Examples:
 
-      syft-bg setup
+      syft-bg setup-status
     """
     from syft_bg.common.config import get_creds_dir
     from syft_bg.common.drive import is_colab

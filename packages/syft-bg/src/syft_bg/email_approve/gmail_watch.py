@@ -1,18 +1,25 @@
 """Gmail watch management and history fetching."""
 
-import base64
 import time
 from typing import Optional
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
+from syft_bg.email_approve.gmail_message import GmailMessage
+
 # Renew watch 1 day before expiry
 WATCH_RENEW_MARGIN_MS = 24 * 60 * 60 * 1000
 
 
 class GmailWatcher:
-    """Manages Gmail push notification watch and history fetching."""
+    """Manages Gmail push notifications via Pub/Sub and history fetching.
+
+    start_watch() tells Gmail to push to a Pub/Sub topic on new INBOX messages.
+    This only handles the registration of the push notification,
+    the subscription to the Pub/Sub topic is handled by the EmailApproveMonitor.
+    The watch expires after max 7 days and must be renewed.
+    """
 
     def __init__(self, credentials: Credentials):
         self._credentials = credentials
@@ -31,6 +38,8 @@ class GmailWatcher:
             "labelIds": ["INBOX"],
             "labelFilterBehavior": "INCLUDE",
         }
+        # Register a Gmail push notification: new INBOX messages -> Pub/Sub topic
+        # This does not handle subscription to the Pub/Sub topic, which is handled by the EmailApproveMonitor.
         resp = self._service.users().watch(userId="me", body=body).execute()
         history_id = str(resp["historyId"])
         expiration_ms = int(resp["expiration"])
@@ -42,7 +51,6 @@ class GmailWatcher:
         return history_id, expiration_ms
 
     def renew_if_needed(self, topic_name: str) -> Optional[tuple[str, int]]:
-        """Renew watch if close to expiry. Returns new (history_id, expiration) or None."""
         if self._watch_expiration_ms is None:
             return self.start_watch(topic_name)
 
@@ -92,75 +100,12 @@ class GmailWatcher:
 
         return message_ids, newest_history_id
 
-    def get_message(self, msg_id: str) -> dict:
+    def get_message(self, msg_id: str) -> GmailMessage:
         """Fetch a full message by ID."""
-        return (
+        data = (
             self._service.users()
             .messages()
             .get(userId="me", id=msg_id, format="full")
             .execute()
         )
-
-
-def extract_reply_text(msg: dict) -> Optional[str]:
-    """Extract the reply text from a Gmail message, stripping quoted content."""
-    payload = msg.get("payload", {})
-    text = _extract_text_plain(payload)
-    if not text:
-        return None
-    return _strip_quoted_reply(text)
-
-
-def get_thread_id(msg: dict) -> Optional[str]:
-    """Get the thread ID from a message."""
-    return msg.get("threadId")
-
-
-def get_header(msg: dict, name: str) -> Optional[str]:
-    """Get a header value from a message."""
-    headers = msg.get("payload", {}).get("headers", [])
-    for h in headers:
-        if h.get("name", "").lower() == name.lower():
-            return h.get("value")
-    return None
-
-
-def _extract_text_plain(payload: dict) -> Optional[str]:
-    """Recursively extract text/plain content from message payload."""
-    mime_type = payload.get("mimeType", "")
-    body = payload.get("body", {})
-    data = body.get("data")
-
-    if mime_type == "text/plain" and data:
-        return _decode_base64url(data)
-
-    for part in payload.get("parts", []):
-        result = _extract_text_plain(part)
-        if result:
-            return result
-
-    return None
-
-
-def _decode_base64url(data: str) -> str:
-    """Decode base64url-encoded string."""
-    padding = "=" * (-len(data) % 4)
-    return base64.urlsafe_b64decode(data + padding).decode("utf-8", errors="replace")
-
-
-def _strip_quoted_reply(text: str) -> str:
-    """Strip quoted reply text, keeping only the new content."""
-    lines = text.split("\n")
-    result = []
-    for line in lines:
-        # Stop at common quote markers
-        stripped = line.strip()
-        if stripped.startswith(">"):
-            break
-        if stripped.startswith("On ") and stripped.endswith("wrote:"):
-            break
-        if stripped.startswith("---------- Forwarded message"):
-            break
-        result.append(line)
-
-    return "\n".join(result).strip()
+        return GmailMessage(data)

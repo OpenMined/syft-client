@@ -192,7 +192,7 @@ def authenticate(
             from syft_bg.notify.gmail import GmailAuth
 
             auth = GmailAuth()
-            credentials = auth.setup_auth(creds_path)
+            credentials = auth.authenticate_user(creds_path)
             gmail_token_path.parent.mkdir(parents=True, exist_ok=True)
             gmail_token_path.write_text(credentials.to_json())
             gmail_ok = True

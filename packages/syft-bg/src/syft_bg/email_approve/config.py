@@ -13,9 +13,6 @@ class EmailApproveConfig:
 
     do_email: Optional[str] = None
     syftbox_root: Optional[Path] = None
-    gmail_token_path: Optional[Path] = None
-    drive_token_path: Optional[Path] = None
-    credentials_path: Optional[Path] = None
     gcp_project_id: Optional[str] = None
     pubsub_topic: Optional[str] = None
     pubsub_subscription: Optional[str] = None
@@ -30,24 +27,22 @@ class EmailApproveConfig:
             return cls()
 
         data = load_yaml(config_path)
-        common = {k: v for k, v in data.items() if not isinstance(v, dict)}
-        section = data.get("email_approve", {})
-        merged = {**common, **section}
+        common_cfg = {k: v for k, v in data.items() if not isinstance(v, dict)}
+        email_approve_cfg = data.get("email_approve", {})
 
-        syftbox_root = merged.get("syftbox_root")
-        gmail_token_path = merged.get("gmail_token_path")
-        drive_token_path = merged.get("drive_token_path")
-        credentials_path = merged.get("credentials_path")
+        do_email = common_cfg.get("do_email")
+        syftbox_root = common_cfg.get("syftbox_root")
+
+        gcp_project_id = email_approve_cfg.get("gcp_project_id")
+        pubsub_topic = email_approve_cfg.get("pubsub_topic")
+        pubsub_subscription = email_approve_cfg.get("pubsub_subscription")
 
         return cls(
-            do_email=merged.get("do_email"),
+            do_email=do_email,
             syftbox_root=Path(syftbox_root) if syftbox_root else None,
-            gmail_token_path=Path(gmail_token_path) if gmail_token_path else None,
-            drive_token_path=Path(drive_token_path) if drive_token_path else None,
-            credentials_path=Path(credentials_path) if credentials_path else None,
-            gcp_project_id=merged.get("gcp_project_id"),
-            pubsub_topic=merged.get("pubsub_topic"),
-            pubsub_subscription=merged.get("pubsub_subscription"),
+            gcp_project_id=gcp_project_id,
+            pubsub_topic=pubsub_topic,
+            pubsub_subscription=pubsub_subscription,
         )
 
     def save_pubsub_config(self, config_path: Optional[Path] = None) -> None:
