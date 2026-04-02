@@ -78,13 +78,12 @@ Submit the job and retrieve results:
 ds.submit_python_job(
     user="do@org.com",
     code_path="analysis.py",
-    share_outputs_with_submitter=True,
 )
 ds.sync(); do.sync()
 
 # Data owner Approves & runs job
 do.jobs[0].approve()
-do.process_approved_jobs()
+do.process_approved_jobs(share_outputs_with_submitter=True)
 do.sync(); ds.sync()
 result = open(ds.jobs[-1].output_paths[0]).read()
 ```
