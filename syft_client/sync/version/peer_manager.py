@@ -104,6 +104,10 @@ class PeerManager(BaseModel):
             self._own_version = VersionInfo.current()
         return self._own_version
 
+    def read_own_version(self) -> Optional[VersionInfo]:
+        """Read existing version file from own SyftBox folder on Drive."""
+        return self.connection_router.read_own_version_file()
+
     def write_own_version(self) -> None:
         """Write version file to own SyftBox folder."""
         version_info = self.get_own_version()

@@ -1595,6 +1595,20 @@ class GDriveConnection(SyftboxPlatformConnection):
                 )
             )
 
+    def read_own_version_file(self) -> Optional["VersionInfo"]:
+        """Read version file from own /SyftBox folder."""
+        from syft_client.sync.version.version_info import VersionInfo
+
+        file_id = self._get_version_file_id()
+        if file_id is None:
+            return None
+
+        try:
+            file_data = self.download_file(file_id)
+            return VersionInfo.from_json(file_data.decode("utf-8"))
+        except Exception:
+            return None
+
     def _get_peer_version_file_id(self, peer_email: str) -> Optional[str]:
         """Find SYFT_version.json file in a peer's /SyftBox folder"""
         # Find the peer's SyftBox folder

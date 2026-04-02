@@ -410,6 +410,8 @@ class SyftboxManager(BaseModel):
         "should_create_checkpoint",
         "try_create_checkpoint",
         "delete_syftbox",
+        "read_own_version",
+        "write_own_version",
     )
 
     def __dir__(self):
@@ -518,7 +520,6 @@ class SyftboxManager(BaseModel):
             )
         )
         manager._init_encryption(encryption, encryption_keys)
-        manager.peer_manager.write_own_version()
         return manager
 
     def _init_encryption(
@@ -562,7 +563,6 @@ class SyftboxManager(BaseModel):
             )
         )
         manager._init_encryption(encryption, encryption_keys)
-        manager.peer_manager.write_own_version()
         return manager
 
     @classmethod
@@ -1337,6 +1337,14 @@ class SyftboxManager(BaseModel):
                 )
             except Exception:
                 pass
+
+    def read_own_version(self):
+        """Read existing version file from own SyftBox folder on Drive."""
+        return self.peer_manager.read_own_version()
+
+    def write_own_version(self):
+        """Write current version file to own SyftBox folder on Drive."""
+        self.peer_manager.write_own_version()
 
     def delete_syftbox(
         self, verbose: bool = True, broadcast_delete_events: bool = True
