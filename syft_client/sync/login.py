@@ -40,6 +40,9 @@ def _check_existing_state_version(client: SyftboxManager) -> None:
     if choice == "1":
         print("Deleting old SyftBox state...")
         client.delete_syftbox(verbose=True, broadcast_delete_events=False)
+        # Reset peer manager's connection caches so write_own_version
+        # doesn't try to use the now-deleted SyftBox folder ID
+        client.peer_manager.connection_router.reset_caches()
         print("Old state deleted. Continuing with fresh setup.\n")
     elif choice == "2":
         print("Exiting.")
