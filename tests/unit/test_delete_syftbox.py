@@ -1,6 +1,5 @@
 """Tests for the standalone delete_syftbox utility function."""
 
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -31,7 +30,9 @@ class TestDeleteSyftboxLocalDirs:
     """Test local directory cleanup (no GDrive calls needed)."""
 
     @patch("syft_client.gdrive_utils.check_env", return_value=None)
-    @patch("syft_client.sync.connections.drive.gdrive_transport.GDriveConnection.from_token_path")
+    @patch(
+        "syft_client.sync.connections.drive.gdrive_transport.GDriveConnection.from_token_path"
+    )
     def test_deletes_local_dirs(self, mock_from_token, _, tmp_path):
         mock_conn = mock_from_token.return_value
         mock_conn.gather_all_file_and_folder_ids.return_value = []
@@ -55,7 +56,9 @@ class TestDeleteSyftboxLocalDirs:
         assert not event_messages_dir.exists()
 
     @patch("syft_client.gdrive_utils.check_env", return_value=None)
-    @patch("syft_client.sync.connections.drive.gdrive_transport.GDriveConnection.from_token_path")
+    @patch(
+        "syft_client.sync.connections.drive.gdrive_transport.GDriveConnection.from_token_path"
+    )
     def test_skips_missing_local_dirs(self, mock_from_token, _, tmp_path):
         mock_conn = mock_from_token.return_value
         mock_conn.gather_all_file_and_folder_ids.return_value = []
@@ -75,4 +78,5 @@ class TestDeleteSyftboxLocalDirs:
 class TestDeleteSyftboxImport:
     def test_importable_from_top_level(self):
         from syft_client import delete_syftbox as fn
+
         assert callable(fn)

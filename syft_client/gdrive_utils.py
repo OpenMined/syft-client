@@ -288,8 +288,7 @@ def delete_syftbox(
 
     if email is None:
         raise ValueError(
-            "email is required when running locally. "
-            "On Colab it can be auto-detected."
+            "email is required when running locally. On Colab it can be auto-detected."
         )
 
     if env != Environment.COLAB and token_path is None:
