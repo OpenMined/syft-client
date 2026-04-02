@@ -48,8 +48,8 @@ do.approve_peer_request("ds@org.com")
 # Create & sync dataset
 do.create_dataset(
     name="census",
-    mock_path="mock/",
-    private_path="private/",
+    mock_path="mock.txt",
+    private_path="private.txt",
     users=["ds@org.com"],
 )
 do.sync(); ds.sync()
