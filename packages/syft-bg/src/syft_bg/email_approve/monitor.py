@@ -170,10 +170,10 @@ class EmailApproveMonitor:
         if from_email.lower() != self.do_email.lower():
             return
 
-        if not msg.thread_id:
-            return
-
-        if not msg.reply_text:
+        if not msg.thread_id or not msg.reply_text:
+            print(
+                f"[EmailApproveMonitor] Missing thread_id or reply_text for message {msg_id}"
+            )
             return
 
         try:
