@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from syft_bg.approve.config import AutoApproveConfig, AutoApprovalObj, FileEntry
-from syft_bg.cli.init import InitConfig, run_init_flow
+from syft_bg.cli.init import InitFlowError, UserPassedConfig, run_init_flow
 from syft_bg.common.config import get_creds_dir, get_default_paths
 from syft_bg.common.drive import is_colab
 
@@ -105,7 +105,9 @@ def _check_prerequisites(
     # Check Drive token (not needed on Colab — uses native auth)
     if not colab:
         drive_path = (
-            Path(drive_token_path) if drive_token_path else creds_dir / "token_do.json"
+            Path(drive_token_path)
+            if drive_token_path
+            else creds_dir / "drive_token.json"
         )
         if not drive_path.exists():
             if creds_path.exists():
@@ -180,7 +182,7 @@ def authenticate(
         return AuthResult(success=False, error=msg)
 
     gmail_token_path = creds_dir / "gmail_token.json"
-    drive_token_path = creds_dir / "token_do.json"
+    drive_token_path = creds_dir / "drive_token.json"
     gmail_ok = gmail_token_path.exists()
     drive_ok = drive_token_path.exists() or colab
 
@@ -192,7 +194,7 @@ def authenticate(
             from syft_bg.notify.gmail import GmailAuth
 
             auth = GmailAuth()
-            credentials = auth.setup_auth(creds_path)
+            credentials = auth.authenticate_user(creds_path)
             gmail_token_path.parent.mkdir(parents=True, exist_ok=True)
             gmail_token_path.write_text(credentials.to_json())
             gmail_ok = True
@@ -332,7 +334,7 @@ def init(
                     issues=issues,
                 )
 
-        config = InitConfig(
+        config = UserPassedConfig(
             email=email,
             syftbox_root=syftbox_root,
             yes=True,  # API always overwrites
@@ -350,10 +352,7 @@ def init(
             drive_token_path=str(drive_token_path) if drive_token_path else None,
         )
 
-        success = run_init_flow(config=config)
-
-        if not success:
-            return InitResult(success=False, error="Init flow failed")
+        run_init_flow(user_passed_config=config)
 
         result = InitResult(success=True, config_path=config_path)
 
@@ -374,6 +373,8 @@ def init(
 
         return result
 
+    except InitFlowError as e:
+        return InitResult(success=False, error=str(e))
     except Exception as e:
         return InitResult(success=False, error=str(e))
 

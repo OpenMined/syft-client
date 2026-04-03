@@ -149,6 +149,9 @@ def run_tui():
 
     # Handle special exit codes
     if result == 2:
-        from syft_bg.cli.init import run_init_flow
+        from syft_bg.cli.init import InitFlowError, run_init_flow
 
-        run_init_flow()
+        try:
+            run_init_flow()
+        except InitFlowError as e:
+            print(f"Error: {e}")

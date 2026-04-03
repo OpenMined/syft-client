@@ -9,7 +9,7 @@ SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
 # change this to token_ds.json for your other account
-TOKEN_PATH = Path(__file__).parent / "token_do.json"
+TOKEN_PATH = Path(__file__).parent / "drive_token.json"
 
 
 def create_token():
