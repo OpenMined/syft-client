@@ -34,10 +34,16 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 5. Fill in your email, click **next**
 6. Mark the policy checkbox, click **Continue** and **Create**
 7. On the **data access** section for the Oauth Consent screen
-   - Click **Add or Remove Scopes**
-   - Search for and select `https://www.googleapis.com/auth/drive`
-   - Scroll down and click **Update**
-   - Scroll down and click **Save**
+   - GDrive:
+     - Click **Add or Remove Scopes**
+     - Search for and select `https://www.googleapis.com/auth/drive`
+     - Scroll down and click **Update**
+     - Scroll down and click **Save**
+   - Gmail:
+     - Click **Add or Remove Scopes**
+     - Search for and select `https://www.googleapis.com/auth/gmail.modify`
+     - Scroll down and click **Update**
+     - Scroll down and click **Save**
 8. On the **Audience** section for the oauth consent screen under **Test users**:
    - Click **Add Users**
    - Add you email adress
