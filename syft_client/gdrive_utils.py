@@ -53,7 +53,23 @@ def credentials_to_token(
     flow = InstalledAppFlow.from_client_secrets_file(
         str(credentials_path.absolute()), SCOPES
     )
-    creds = flow.run_local_server(port=0)
+    try:
+        creds = flow.run_local_server(port=0)
+    except Exception:
+        flow.redirect_uri = "http://localhost:1"
+        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+
+        print("Visit this URL to authorize Google Drive access:\n")
+        print(f"  {auth_url}\n")
+        print("After authorizing, you'll see a page that won't load.")
+        print("Copy the 'code' value from the URL in your browser's address bar.")
+        print("(The URL looks like: http://localhost:1/?code=XXXXX&scope=...)\n")
+
+        code = input("Paste the authorization code here: ").strip()
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(creds.to_json())
     return output_path
 

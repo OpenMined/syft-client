@@ -22,12 +22,13 @@ def create_tmp_dataset_files(prefix=""):
     return mock_path, private_path
 
 
-JOB_CODE = """\
+def make_job_code(do1_email: str, do2_email: str) -> str:
+    return f"""\
 import json
 import syft_client as sc
 
-data_path_1 = sc.resolve_dataset_file_path("dataset1")
-data_path_2 = sc.resolve_dataset_file_path("dataset2")
+data_path_1 = sc.resolve_dataset_file_path("dataset1", owner_email="{do1_email}")
+data_path_2 = sc.resolve_dataset_file_path("dataset2", owner_email="{do2_email}")
 
 with open(data_path_1, "r") as f:
     data1 = f.read()
@@ -35,7 +36,7 @@ with open(data_path_1, "r") as f:
 with open(data_path_2, "r") as f:
     data2 = f.read()
 
-result = {"total_length": len(data1) + len(data2)}
+result = {{"total_length": len(data1) + len(data2)}}
 
 with open("outputs/result.json", "w") as f:
     f.write(json.dumps(result))
@@ -104,7 +105,7 @@ def test_enclave_job_distribution():
     assert len(ds_datasets) == 2
 
     # DS submits job to enclave
-    code_path = create_tmp_code_file(JOB_CODE)
+    code_path = create_tmp_code_file(make_job_code(do1.email, do2.email))
     ds.submit_python_job(
         enclave.email,
         code_path,
@@ -168,7 +169,7 @@ def test_enclave_job_approval_flow():
     ds.sync()
 
     # DS submits job to enclave
-    code_path = create_tmp_code_file(JOB_CODE)
+    code_path = create_tmp_code_file(make_job_code(do1.email, do2.email))
     ds.submit_python_job(
         enclave.email,
         code_path,
@@ -219,14 +220,13 @@ def test_enclave_full_job_flow():
         use_in_memory_cache=False,
     )
 
-    # DOs create datasets
     mock1, private1 = create_tmp_dataset_files("do1")
     do1.create_dataset(
         name="dataset1",
         mock_path=mock1,
         private_path=private1,
         summary="Dataset 1",
-        users=[ds.email],
+        users=[ds.email, enclave.email],
         upload_private=True,
         sync=False,
     )
@@ -236,7 +236,7 @@ def test_enclave_full_job_flow():
         mock_path=mock2,
         private_path=private2,
         summary="Dataset 2",
-        users=[ds.email],
+        users=[ds.email, enclave.email],
         upload_private=True,
         sync=False,
     )
@@ -246,8 +246,7 @@ def test_enclave_full_job_flow():
     do2.sync()
     ds.sync()
 
-    # DS submits job with share_results_with_do=True
-    code_path = create_tmp_code_file(SIMPLE_JOB_CODE)
+    code_path = create_tmp_code_file(make_job_code(do1.email, do2.email))
     ds.submit_python_job(
         enclave.email,
         code_path,
@@ -285,7 +284,8 @@ def test_enclave_full_job_flow():
     assert len(ds_job.output_paths) > 0
     with open(ds_job.output_paths[0], "r") as f:
         result = json.loads(f.read())
-    assert result["status"] == "ok"
+    assert "total_length" in result
+    assert result["total_length"] > 0
 
     # DOs sync and check they received results
     do1.sync()

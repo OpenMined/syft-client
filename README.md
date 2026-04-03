@@ -48,8 +48,8 @@ do.approve_peer_request("ds@org.com")
 # Create & sync dataset
 do.create_dataset(
     name="census",
-    mock_path="mock/",
-    private_path="private/",
+    mock_path="mock.txt",
+    private_path="private.txt",
     users=["ds@org.com"],
 )
 do.sync(); ds.sync()
@@ -83,7 +83,7 @@ ds.sync(); do.sync()
 
 # Data owner Approves & runs job
 do.jobs[0].approve()
-do.process_approved_jobs()
+do.process_approved_jobs(share_outputs_with_submitter=True)
 do.sync(); ds.sync()
 result = open(ds.jobs[-1].output_paths[0]).read()
 ```

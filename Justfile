@@ -121,3 +121,7 @@ bump-and-publish part="patch":
     just publish
     @echo "{{ _green }}Bump and publish complete!{{ _nc }}"
 
+# Launch Jupyter Lab
+jupyter:
+    uv run jupyter lab --notebook-dir={{ justfile_dir }}
+

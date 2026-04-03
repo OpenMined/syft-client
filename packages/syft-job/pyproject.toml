@@ -1,6 +1,6 @@
 [project]
 name = "syft-job"
-version = "0.1.30"
+version = "0.1.34"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8,7 +8,7 @@ dependencies = [
     "pydantic>=2.11.7",
     "pyyaml>=6.0",
     "pandas",
-    "syft-perms==0.1.5",
+    "syft-perms==0.1.9",
 ]
 
 [project.scripts]
