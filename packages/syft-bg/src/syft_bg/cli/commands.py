@@ -5,6 +5,10 @@ from typing import Optional
 
 import click
 
+from syft_bg.approve import ApprovalOrchestrator
+from syft_bg.common.syft_bg_config import SyftBgConfig
+from syft_bg.email_approve import EmailApproveOrchestrator
+from syft_bg.notify import NotificationOrchestrator
 from syft_bg.services import ServiceManager, ServiceStatus
 
 
@@ -292,7 +296,7 @@ def init(
 
       syft-bg init --notify-jobs --no-notify-peers --approve-jobs
     """
-    from syft_bg.cli.init import InitConfig, run_init_flow
+    from syft_bg.cli.init import InitFlowError, UserPassedConfig, run_init_flow
 
     parsed_approved_domains = None
     if approved_domains:
@@ -300,7 +304,7 @@ def init(
             d.strip() for d in approved_domains.split(",") if d.strip()
         ]
 
-    config = InitConfig(
+    config = UserPassedConfig(
         email=email,
         syftbox_root=syftbox_root,
         yes=yes,
@@ -318,7 +322,11 @@ def init(
         drive_token_path=drive_token,
     )
 
-    run_init_flow(config=config)
+    try:
+        run_init_flow(user_passed_config=config)
+    except InitFlowError as e:
+        click.echo(f"Error: {e}")
+        raise SystemExit(1)
 
 
 @main.command()
@@ -331,20 +339,23 @@ def tui():
 
     # Handle special exit codes
     if result == 2:
-        from syft_bg.cli.init import run_init_flow
+        from syft_bg.cli.init import InitFlowError, run_init_flow
 
-        run_init_flow()
+        try:
+            run_init_flow()
+        except InitFlowError as e:
+            click.echo(f"Error: {e}")
 
 
-@main.command()
-def setup():
+@main.command("setup-status")
+def setup_status():
     """Check environment and show setup status.
 
     Verifies that all required credentials and tokens are in place.
 
     Examples:
 
-      syft-bg setup
+      syft-bg setup-status
     """
     from syft_bg.common.config import get_creds_dir
     from syft_bg.common.drive import is_colab
@@ -388,7 +399,7 @@ def setup():
         )
 
     if not is_colab():
-        drive_token_path = creds_dir / "token_do.json"
+        drive_token_path = creds_dir / "drive_token.json"
         if drive_token_path.exists():
             click.echo(f"  ✓ Drive token: {drive_token_path}")
         else:
@@ -445,7 +456,7 @@ def setup():
 @click.option(
     "--service",
     "-s",
-    type=click.Choice(["notify", "approve"]),
+    type=click.Choice(["notify", "approve", "email_approve"]),
     required=True,
     help="Service to run",
 )
@@ -462,33 +473,29 @@ def run(service: str, once: bool):
 
       syft-bg run --service approve --once
     """
-    if service == "notify":
-        from syft_bg.notify import NotificationOrchestrator
+    try:
+        config = SyftBgConfig.from_path()
+    except FileNotFoundError:
+        click.echo("Error: config not found.", err=True)
+        click.echo("Run 'syft-bg init' first to configure the service.", err=True)
+        raise SystemExit(1)
 
-        try:
-            orchestrator = NotificationOrchestrator.from_config()
-            if once:
-                orchestrator.check()
-            else:
-                orchestrator.run()
-        except FileNotFoundError as e:
-            click.echo(f"Error: {e}", err=True)
-            click.echo("Run 'syft-bg init' first to configure the service.", err=True)
-            raise SystemExit(1)
+    try:
+        if service == "notify":
+            orchestrator = NotificationOrchestrator.from_config(config.notify)
+        elif service == "approve":
+            orchestrator = ApprovalOrchestrator.from_config(config.approve)
+        elif service == "email_approve":
+            orchestrator = EmailApproveOrchestrator.from_config(config.email_approve)
 
-    elif service == "approve":
-        from syft_bg.approve import ApprovalOrchestrator
-
-        try:
-            orchestrator = ApprovalOrchestrator.from_config()
-            if once:
-                orchestrator.check()
-            else:
-                orchestrator.run()
-        except FileNotFoundError as e:
-            click.echo(f"Error: {e}", err=True)
-            click.echo("Run 'syft-bg init' first to configure the service.", err=True)
-            raise SystemExit(1)
+        if once:
+            orchestrator.check()
+        else:
+            orchestrator.run()
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        click.echo("Run 'syft-bg init' first to configure the service.", err=True)
+        raise SystemExit(1)
 
 
 @main.command()

@@ -44,7 +44,7 @@ For notebooks and scripts, see the [Python API docs](docs/python-api.md).
 ```bash
 syft-bg                    # TUI dashboard
 syft-bg init               # Setup wizard (interactive or headless)
-syft-bg setup              # Check environment (credentials, tokens, config)
+syft-bg setup-status       # Check environment (credentials, tokens, config)
 syft-bg status             # Show service status
 syft-bg start [service]    # Start all or specific service
 syft-bg stop [service]     # Stop all or specific service
@@ -130,7 +130,7 @@ Rejection reasons are specific: "unknown peer", "unapproved file", "hash mismatc
 ## Environment Check
 
 ```bash
-$ syft-bg setup
+$ syft-bg setup-status
 
 SYFT-BG ENVIRONMENT CHECK
 ==================================================
