@@ -60,7 +60,9 @@ def _check_existing_state_version(client: SyftboxManager) -> None:
         sys.exit(1)
 
 
-def _init_client(client: SyftboxManager, sync: bool, load_peers: bool) -> SyftboxManager:
+def _init_client(
+    client: SyftboxManager, sync: bool, load_peers: bool
+) -> SyftboxManager:
     """Common post-creation initialization: version check, write version, sync, load peers."""
     _check_existing_state_version(client)
     client.write_own_version()
