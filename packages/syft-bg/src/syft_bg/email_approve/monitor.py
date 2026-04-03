@@ -1,9 +1,8 @@
 """Pub/Sub-based monitor for Gmail reply notifications."""
 
+import email.utils
 import json
 import threading
-from typing import Optional
-
 from google.cloud import pubsub_v1
 from google.oauth2.credentials import Credentials
 from googleapiclient.errors import HttpError
@@ -46,7 +45,6 @@ class EmailApproveMonitor:
         self.topic_name = topic_name
         self.do_email = do_email
         self._stop_event = threading.Event()
-        self._last_history_id: Optional[str] = None
 
     def start(self) -> threading.Thread:
         """Start the monitor in a background thread."""
@@ -65,7 +63,8 @@ class EmailApproveMonitor:
         """Start Gmail watch and seed history ID."""
         stored = self.state.get_data("email_approve_last_history_id")
         history_id, _ = self.watcher.start_watch(self.topic_name)
-        self._last_history_id = stored or history_id
+        if not stored:
+            self.state.set_data("email_approve_last_history_id", history_id)
 
     def _run(self):
         """Main run loop: subscribe to Pub/Sub with reconnect."""
@@ -86,6 +85,7 @@ class EmailApproveMonitor:
                     callback=self._on_pubsub_message,
                     flow_control=FLOW_CONTROL,
                 )
+                # this part is blocking
                 future.result()
             except Exception as e:
                 if self._stop_event.is_set():
@@ -129,26 +129,22 @@ class EmailApproveMonitor:
 
     def _process_history(self, new_history_id: str):
         """Fetch and process new messages since last history ID."""
-        if not self._last_history_id:
-            self._last_history_id = new_history_id
-            self.state.set_data("email_approve_last_history_id", new_history_id)
-            return
+        last = self.state.get_data("email_approve_last_history_id")
 
-        if new_history_id == self._last_history_id:
+        if new_history_id == last:
             return
 
         try:
-            msg_ids, newest = self.watcher.list_history_message_ids(
-                self._last_history_id
-            )
+            msg_ids, newest = self.watcher.list_history_message_ids(last)
         except HttpError as e:
+            # Gmail returns 404 when the historyId is too old (history expires).
+            # Reseed and move on; some messages may be missed.
             status = getattr(e.resp, "status", None)
             if status == 404:
                 print(
                     f"[EmailApproveMonitor] Stale historyId, reseeding to "
                     f"{new_history_id}"
                 )
-                self._last_history_id = new_history_id
                 self.state.set_data("email_approve_last_history_id", new_history_id)
                 return
             raise
@@ -159,7 +155,6 @@ class EmailApproveMonitor:
             self._process_message(msg_id)
 
         final = newest if int(newest) > int(new_history_id) else new_history_id
-        self._last_history_id = final
         self.state.set_data("email_approve_last_history_id", final)
 
     def _process_message(self, msg_id: str):
@@ -171,8 +166,8 @@ class EmailApproveMonitor:
             return
 
         # Only process emails sent by the DO (replies from self)
-        from_header = msg.get_header("From") or ""
-        if self.do_email not in from_header:
+        _, from_email = email.utils.parseaddr(msg.get_header("From") or "")
+        if from_email.lower() != self.do_email.lower():
             return
 
         if not msg.thread_id:
@@ -181,7 +176,12 @@ class EmailApproveMonitor:
         if not msg.reply_text:
             return
 
-        self.handler.handle_reply(msg.thread_id, msg.reply_text)
+        try:
+            self.handler.handle_reply(msg.thread_id, msg.reply_text)
+        except Exception as e:
+            print(
+                f"[EmailApproveMonitor] Error handling reply for thread {msg.thread_id}: {e}"
+            )
 
     def _watch_renew_loop(self):
         """Periodically renew the Gmail watch."""

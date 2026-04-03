@@ -60,70 +60,46 @@ class EmailApproveHandler:
         self.notify_state = notify_state
         self.do_email = do_email
 
-    def handle_reply(self, thread_id: str, reply_text: str) -> bool:
-        """Process a reply email for a job thread.
-
-        Returns True if an action was taken.
-        """
+    def handle_reply(self, thread_id: str, reply_text: str) -> None:
+        """Process a reply email for a job thread."""
         job_name = self.notify_state.get_job_name_by_thread_id(thread_id)
         if not job_name:
-            print(f"[EmailApproveHandler] No job found for thread {thread_id}")
-            return False
+            raise ValueError(f"No job found for thread {thread_id}")
 
         state_key = f"email_reply_{thread_id}"
         if self.state.was_notified(state_key, "processed"):
-            return False
+            return
 
         action, reason = parse_reply(reply_text)
         if action is None:
-            print(
-                f"[EmailApproveHandler] Unrecognized reply for {job_name}: "
-                f"{reply_text[:100]}"
-            )
-            return False
+            raise ValueError(f"Unrecognized reply for {job_name}: {reply_text[:100]}")
 
         job = self._find_job(job_name)
-        if not job:
-            print(f"[EmailApproveHandler] Job not found: {job_name}")
-            return False
 
         if job.status != "pending":
-            print(f"[EmailApproveHandler] Job {job_name} is {job.status}, not pending")
-            return False
+            raise ValueError(f"Job {job_name} is {job.status}, not pending")
 
         if action == "approve":
-            return self._approve_job(job, job_name, state_key)
+            self._approve_job(job, job_name, state_key)
         elif action == "deny":
-            return self._reject_job(job, job_name, reason or "", state_key)
-
-        return False
+            self._reject_job(job, job_name, reason or "", state_key)
 
     def _find_job(self, job_name: str):
         """Find a job by name in the client's job list."""
         for job in self.client.jobs:
             if job.name == job_name:
                 return job
-        return None
+        raise ValueError(f"Job not found: {job_name}")
 
-    def _approve_job(self, job, job_name: str, state_key: str) -> bool:
+    def _approve_job(self, job, job_name: str, state_key: str) -> None:
         """Approve a job and process it."""
-        try:
-            job.approve()
-            self.state.mark_notified(state_key, "processed")
-            self.client.process_approved_jobs()
-            print(f"[EmailApproveHandler] Approved job: {job_name}")
-            return True
-        except Exception as e:
-            print(f"[EmailApproveHandler] Failed to approve {job_name}: {e}")
-            return False
+        job.approve()
+        self.state.mark_notified(state_key, "processed")
+        self.client.process_approved_jobs()
+        print(f"[EmailApproveHandler] Approved job: {job_name}")
 
-    def _reject_job(self, job, job_name: str, reason: str, state_key: str) -> bool:
+    def _reject_job(self, job, job_name: str, reason: str, state_key: str) -> None:
         """Reject a job with a reason."""
-        try:
-            job.reject(reason)
-            self.state.mark_notified(state_key, "processed")
-            print(f"[EmailApproveHandler] Rejected job: {job_name} (reason: {reason})")
-            return True
-        except Exception as e:
-            print(f"[EmailApproveHandler] Failed to reject {job_name}: {e}")
-            return False
+        job.reject(reason)
+        self.state.mark_notified(state_key, "processed")
+        print(f"[EmailApproveHandler] Rejected job: {job_name} (reason: {reason})")
