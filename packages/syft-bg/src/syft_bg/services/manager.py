@@ -37,15 +37,31 @@ class ServiceManager:
 
     def start_all(self) -> dict[str, tuple[bool, str]]:
         results = {}
+        # Start sync first so consumers have a snapshot to read
+        if "sync" in self.services:
+            results["sync"] = self.start_service("sync")
         for name in self.services:
-            results[name] = self.start_service(name)
+            if name not in results:
+                results[name] = self.start_service(name)
         return results
 
     def stop_all(self) -> dict[str, tuple[bool, str]]:
         results = {}
+        # Stop consumers first, then sync
         for name in self.services:
-            results[name] = self.stop_service(name)
+            if name != "sync":
+                results[name] = self.stop_service(name)
+        if "sync" in self.services:
+            results["sync"] = self.stop_service("sync")
         return results
+
+    def restart_all(self) -> dict[str, tuple[bool, str]]:
+        stop_results = self.stop_all()
+        start_results = self.start_all()
+        return {
+            name: start_results.get(name, stop_results.get(name, (False, "unknown")))
+            for name in self.services
+        }
 
     def get_logs(self, name: str, lines: int = 50) -> list[str]:
         service = self.get_service(name)

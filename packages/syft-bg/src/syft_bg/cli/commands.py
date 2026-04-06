@@ -138,8 +138,8 @@ def restart(service: Optional[str]):
             click.echo(f"❌ {msg}", err=True)
     else:
         click.echo("Restarting all services...")
-        for name in manager.list_services():
-            success, msg = manager.restart_service(name)
+        results = manager.restart_all()
+        for name, (success, msg) in results.items():
             if success:
                 click.echo(f"✅ {name}: {msg}")
             else:
@@ -456,7 +456,7 @@ def setup_status():
 @click.option(
     "--service",
     "-s",
-    type=click.Choice(["notify", "approve", "email_approve"]),
+    type=click.Choice(["notify", "approve", "email_approve", "sync"]),
     required=True,
     help="Service to run",
 )
@@ -487,9 +487,18 @@ def run(service: str, once: bool):
             orchestrator = ApprovalOrchestrator.from_config(config.approve)
         elif service == "email_approve":
             orchestrator = EmailApproveOrchestrator.from_config(config.email_approve)
+        elif service == "sync":
+            from syft_bg.sync import SyncOrchestrator
+
+            orchestrator = SyncOrchestrator.from_config(config.sync)
+        else:
+            raise ValueError(f"Unknown service: {service}")
 
         if once:
-            orchestrator.check()
+            if hasattr(orchestrator, "check"):
+                orchestrator.check()
+            else:
+                orchestrator.run_once()
         else:
             orchestrator.run()
     except FileNotFoundError as e:
