@@ -9,6 +9,7 @@ from syft_bg.approve.config import AutoApproveConfig
 from syft_bg.common.config import get_default_paths
 from syft_bg.email_approve.config import EmailApproveConfig
 from syft_bg.notify.config import NotifyConfig
+from syft_bg.sync.config import SyncConfig
 
 
 class SyftBgConfig(BaseModel):
@@ -28,10 +29,16 @@ class SyftBgConfig(BaseModel):
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     approve: AutoApproveConfig = Field(default_factory=AutoApproveConfig)
     email_approve: EmailApproveConfig = Field(default_factory=EmailApproveConfig)
+    sync: SyncConfig = Field(default_factory=SyncConfig)
 
     def _merge_common_into_services(self) -> None:
         """Propagate top-level fields into service configs where not already set."""
-        for service_config in (self.notify, self.approve, self.email_approve):
+        for service_config in (
+            self.notify,
+            self.approve,
+            self.email_approve,
+            self.sync,
+        ):
             if hasattr(service_config, "do_email") and service_config.do_email is None:
                 service_config.do_email = self.do_email
             if (
