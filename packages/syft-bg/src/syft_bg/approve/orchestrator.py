@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from syft_bg.approve.config import AutoApproveConfig
 from syft_bg.approve.monitors.job import JobMonitor
@@ -55,19 +54,13 @@ class ApprovalOrchestrator(BaseOrchestrator):
     @classmethod
     def from_config(
         cls,
-        config_path: Optional[str] = None,
-        interval: Optional[int] = None,
+        config: AutoApproveConfig,
     ) -> ApprovalOrchestrator:
-        """Create orchestrator from config file."""
-        config = AutoApproveConfig.load(Path(config_path) if config_path else None)
-
+        """Create orchestrator from an AutoApproveConfig."""
         if not config.do_email:
             raise ValueError("Config missing 'do_email' field")
         if not config.syftbox_root:
             raise ValueError("Config missing 'syftbox_root' field")
-
-        if interval is not None:
-            config.interval = interval
 
         paths = get_default_paths()
         token_path = config.drive_token_path or paths.drive_token

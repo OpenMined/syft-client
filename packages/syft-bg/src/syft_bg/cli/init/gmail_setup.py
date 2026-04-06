@@ -4,13 +4,16 @@ from pathlib import Path
 
 import click
 
+from syft_bg.cli.init.exceptions import InitFlowError
+from syft_bg.notify.gmail import GmailAuth
+
 
 def setup_gmail(
     credentials_path: Path,
-    token_path: Path,
+    result_token_path: Path,
     skip: bool = False,
     quiet: bool = False,
-) -> bool:
+) -> None:
     """Set up Gmail authentication.
 
     Args:
@@ -19,29 +22,27 @@ def setup_gmail(
         skip: If True, skip OAuth setup (token must already exist)
         quiet: If True, suppress output messages
 
-    Returns:
-        True if setup successful, False otherwise
+    Raises:
+        InitFlowError: If setup fails.
     """
-    if token_path.exists():
+    if result_token_path.exists():
         if not quiet:
-            click.echo(f"Gmail token exists: {token_path}")
-        return True
+            click.echo(f"Gmail token exists: {result_token_path}")
+        return
 
-    # If skip requested but token doesn't exist, fail
     if skip:
-        click.echo("Error: Cannot skip Gmail OAuth - token not found")
-        click.echo(f"  Expected: {token_path}")
-        click.echo()
-        click.echo("Either:")
-        click.echo("  - Run without --skip-oauth to complete Gmail authentication")
-        click.echo("  - Provide existing token with --gmail-token /path/to/token.json")
-        return False
+        raise InitFlowError(
+            f"Cannot skip Gmail OAuth - token not found\n"
+            f"  Expected: {result_token_path}\n\n"
+            f"Either:\n"
+            f"  - Run without --skip-oauth to complete Gmail authentication\n"
+            f"  - Provide existing token with --gmail-token /path/to/token.json"
+        )
 
     if not quiet:
         click.echo("Gmail is required for email notifications.")
         click.echo()
 
-    # Check for credentials file
     if not credentials_path.exists():
         click.echo(f"credentials.json not found at {credentials_path}")
         click.echo()
@@ -53,7 +54,7 @@ def setup_gmail(
         click.echo()
 
         if quiet:
-            return False
+            raise InitFlowError(f"credentials.json not found at {credentials_path}")
 
         creds_input = click.prompt(
             "Or enter path to credentials.json", type=click.Path(exists=True)
@@ -62,19 +63,15 @@ def setup_gmail(
 
     if not quiet:
         click.echo("Setting up Gmail authentication...")
-    try:
-        from syft_bg.notify.gmail import GmailAuth
 
-        auth = GmailAuth()
-        credentials = auth.setup_auth(credentials_path)
-        token_path.parent.mkdir(parents=True, exist_ok=True)
-        token_path.write_text(credentials.to_json())
+    try:
+        gmail_auth = GmailAuth()
+        user_tokens = gmail_auth.authenticate_user(credentials_path)
+        result_token_path.parent.mkdir(parents=True, exist_ok=True)
+        result_token_path.write_text(user_tokens.to_json())
         if not quiet:
-            click.echo(f"Gmail token saved: {token_path}")
-        return True
+            click.echo(f"Gmail token saved: {result_token_path}")
     except ImportError:
-        click.echo("Gmail auth module not available, skipping setup", err=True)
-        return False
+        raise InitFlowError("Gmail auth module not available")
     except Exception as e:
-        click.echo(f"Gmail setup failed: {e}", err=True)
-        return False
+        raise InitFlowError(f"Gmail setup failed: {e}") from e

@@ -325,7 +325,7 @@ class PeerMonitor(Monitor):
         from syft_client import CREDENTIALS_DIR
 
         # Try common token names
-        for token_name in ["token_do.json", "token.json"]:
+        for token_name in ["drive_token.json", "token.json"]:
             token_path = CREDENTIALS_DIR / token_name
             if token_path.exists():
                 return token_path
