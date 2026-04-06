@@ -249,17 +249,48 @@ def _download_folder(
     return target
 
 
+def _get_default_syftbox_path(email: str) -> Path:
+    """Return the default local SyftBox directory for the current environment."""
+    env = check_env()
+    if env == Environment.COLAB:
+        return Path("/content") / f"SyftBox_{email}"
+    else:
+        return Path.home() / f"SyftBox_{email}"
+
+
+def _delete_local_syftbox_dirs(local_syftbox_path: Path, verbose: bool = True) -> None:
+    """Delete a local SyftBox directory and its companion cache directories."""
+    syftbox_name = local_syftbox_path.name
+    syftbox_parent = local_syftbox_path.parent
+    dirs_to_delete = [
+        local_syftbox_path,
+        syftbox_parent / f"{syftbox_name}-events",
+        syftbox_parent / f"{syftbox_name}-event-messages",
+    ]
+    for d in dirs_to_delete:
+        if d.exists():
+            shutil.rmtree(d)
+            if verbose:
+                print(f"Deleted local directory: {d}")
+
+
 def delete_syftbox(
     token_path: str | Path | None = None,
     email: str | None = None,
     local_syftbox_path: str | Path | None = None,
     verbose: bool = True,
 ) -> None:
-    """Delete all SyftBox state from Google Drive and optionally local directories.
+    """Delete all SyftBox state from Google Drive and local directories.
 
     This is a standalone utility that does not require a full SyftboxManager.
     It creates a temporary GDriveConnection to find and delete all SyftBox
-    files/folders from Google Drive.
+    files/folders from Google Drive, and also cleans up local cache directories.
+
+    Local cleanup includes the SyftBox directory and its companion cache
+    directories (``<name>-events``, ``<name>-event-messages``). If
+    ``local_syftbox_path`` is not provided, the default path for the current
+    environment is used (``~/SyftBox_{email}`` for Jupyter,
+    ``/content/SyftBox_{email}`` for Colab).
 
     Note: This function does NOT broadcast ``is_deleted`` events to peers.
     Broadcasting requires the full client (peer manager, event cache, encryption
@@ -273,8 +304,8 @@ def delete_syftbox(
         email: Google account email. Required when running locally. On Colab,
             this is auto-detected if not provided.
         local_syftbox_path: Optional path to the local SyftBox directory.
-            If provided, this directory and its companion cache directories
-            (``<name>-events``, ``<name>-event-messages``) will be deleted.
+            If not provided, the default path for the current environment
+            is used automatically.
         verbose: If True (default), print deletion progress.
     """
     from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
@@ -328,18 +359,10 @@ def delete_syftbox(
 
     conn.reset_caches()
 
-    # Delete local directories if path provided
+    # Delete local directories (auto-detect path if not provided)
     if local_syftbox_path is not None:
-        local_syftbox_path = Path(local_syftbox_path)
-        syftbox_name = local_syftbox_path.name
-        syftbox_parent = local_syftbox_path.parent
-        dirs_to_delete = [
-            local_syftbox_path,
-            syftbox_parent / f"{syftbox_name}-events",
-            syftbox_parent / f"{syftbox_name}-event-messages",
-        ]
-        for d in dirs_to_delete:
-            if d.exists():
-                shutil.rmtree(d)
-                if verbose:
-                    print(f"Deleted local directory: {d}")
+        resolved_path = Path(local_syftbox_path)
+    else:
+        resolved_path = _get_default_syftbox_path(email)
+
+    _delete_local_syftbox_dirs(resolved_path, verbose=verbose)
