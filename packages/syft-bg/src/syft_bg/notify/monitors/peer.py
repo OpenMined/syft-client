@@ -2,12 +2,14 @@
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from syft_bg.common.drive import create_drive_service
 from syft_bg.common.monitor import Monitor
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.handlers.peer import PeerHandler
+
+if TYPE_CHECKING:
+    from syft_bg.sync.snapshot_reader import SnapshotReader
 
 GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
@@ -23,17 +25,28 @@ class PeerMonitor(Monitor):
         drive_token_path: Optional[Path],
         handler: PeerHandler,
         state: JsonStateManager,
+        snapshot_reader: Optional["SnapshotReader"] = None,
     ):
         super().__init__()
         self.do_email = do_email
         self.drive_token_path = Path(drive_token_path) if drive_token_path else None
         self.handler = handler
         self.state = state
-        self._drive_service = create_drive_service(self.drive_token_path)
+        self.snapshot_reader = snapshot_reader
+        self._drive_service = None
+        if not self.snapshot_reader:
+            from syft_bg.common.drive import create_drive_service
+
+            self._drive_service = create_drive_service(self.drive_token_path)
 
     def _check_all_entities(self):
-        # Check for new peer requests
-        current_peer_emails = self._load_peers_from_drive()
+        snapshot = self.snapshot_reader.read() if self.snapshot_reader else None
+
+        if snapshot:
+            current_peer_emails = set(snapshot.drive_peer_emails)
+        else:
+            current_peer_emails = self._load_peers_from_drive()
+
         previous_peer_emails = set(self.state.get_data("peer_snapshot", []))
         new_peer_emails = current_peer_emails - previous_peer_emails
 
@@ -45,12 +58,13 @@ class PeerMonitor(Monitor):
 
         self.state.set_data("peer_snapshot", list(current_peer_emails))
 
-        # Check for newly approved peers
-        self._check_approved_peers()
+        self._check_approved_peers(snapshot)
 
-    def _check_approved_peers(self):
-        """Check SYFT_peers.json for newly approved peers and notify them."""
-        approved_peers = self._load_approved_peers_from_drive()
+    def _check_approved_peers(self, snapshot=None):
+        if snapshot:
+            approved_peers = set(snapshot.drive_approved_peers)
+        else:
+            approved_peers = self._load_approved_peers_from_drive()
 
         for peer_email in approved_peers:
             state_key = f"peer_granted_{peer_email}"

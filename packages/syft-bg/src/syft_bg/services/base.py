@@ -88,6 +88,8 @@ class Service:
             env = os.environ.copy()
             env["PYTHONUNBUFFERED"] = "1"
             env["SYFT_BG_DAEMON"] = "1"
+            if self.name != "sync":
+                env["PRE_SYNC"] = "false"
             process = subprocess.Popen(
                 [sys.executable, "-u", "-m", "syft_bg", "run", "--service", self.name],
                 stdout=log_fd,

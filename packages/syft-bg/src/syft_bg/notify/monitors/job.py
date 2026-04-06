@@ -2,7 +2,7 @@
 
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import yaml
 
@@ -10,6 +10,9 @@ from syft_bg.common.drive import create_drive_service, is_colab
 from syft_bg.common.monitor import Monitor
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.handlers.job import JobHandler
+
+if TYPE_CHECKING:
+    from syft_bg.sync.snapshot_reader import SnapshotReader
 
 GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
@@ -25,6 +28,7 @@ class JobMonitor(Monitor):
         handler: JobHandler,
         state: JsonStateManager,
         drive_token_path: Optional[Path] = None,
+        snapshot_reader: Optional["SnapshotReader"] = None,
     ):
         super().__init__()
         self.syftbox_root = Path(syftbox_root).expanduser()
@@ -33,17 +37,40 @@ class JobMonitor(Monitor):
         self.state = state
         self.job_dir = self.syftbox_root / do_email / "app_data" / "job"
         self.drive_token_path = Path(drive_token_path) if drive_token_path else None
+        self.snapshot_reader = snapshot_reader
         self._drive_service = None
-        self._startup_time = time.time()  # Track when monitor started
-        self._is_fresh_state = self.state.is_empty()  # True if no prior state
+        self._startup_time = time.time()
+        self._is_fresh_state = self.state.is_empty()
 
-        if is_colab() or (self.drive_token_path and self.drive_token_path.exists()):
-            self._drive_service = create_drive_service(self.drive_token_path)
+        if not self.snapshot_reader:
+            if is_colab() or (self.drive_token_path and self.drive_token_path.exists()):
+                self._drive_service = create_drive_service(self.drive_token_path)
 
     def _check_all_entities(self):
-        if self._drive_service:
+        if self.snapshot_reader:
+            self._poll_snapshot_for_new_jobs()
+        elif self._drive_service:
             self._poll_drive_for_new_jobs()
         self._check_local_for_status_changes()
+
+    def _poll_snapshot_for_new_jobs(self):
+        snapshot = self.snapshot_reader.read()
+        if not snapshot:
+            return
+
+        for msg in snapshot.inbox_messages:
+            if self.state.was_notified(f"msg_{msg.message_id}", "processed"):
+                continue
+
+            success = self.handler.on_new_job(
+                self.do_email, msg.job_name, msg.submitter
+            )
+            if success:
+                print(
+                    f"[JobMonitor] Sent new job notification: {msg.job_name} from {msg.submitter}"
+                )
+
+            self.state.mark_notified(f"msg_{msg.message_id}", "processed")
 
     def _poll_drive_for_new_jobs(self):
         if not self._drive_service:

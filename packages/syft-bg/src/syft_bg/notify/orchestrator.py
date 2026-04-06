@@ -13,6 +13,7 @@ from syft_bg.notify.handlers.job import JobHandler
 from syft_bg.notify.handlers.peer import PeerHandler
 from syft_bg.notify.monitors.job import JobMonitor
 from syft_bg.notify.monitors.peer import PeerMonitor
+from syft_bg.sync.snapshot_reader import SnapshotReader
 
 
 class NotificationOrchestrator(BaseOrchestrator):
@@ -26,6 +27,7 @@ class NotificationOrchestrator(BaseOrchestrator):
         gmail_token_path: Optional[Path] = None,
         state_path: Optional[Path] = None,
         interval: int = 30,
+        snapshot_reader: Optional[SnapshotReader] = None,
     ):
         super().__init__()
         self.do_email = do_email
@@ -38,6 +40,7 @@ class NotificationOrchestrator(BaseOrchestrator):
         )
         self.state_path = Path(state_path).expanduser() if state_path else None
         self.interval = interval
+        self.snapshot_reader = snapshot_reader
         self._monitors_initialized = False
 
     @classmethod
@@ -55,6 +58,12 @@ class NotificationOrchestrator(BaseOrchestrator):
         if not config.syftbox_root:
             raise ValueError("Config missing 'syftbox_root' field")
 
+        snapshot_reader = (
+            SnapshotReader(paths.sync_state)
+            if paths.sync_state.parent.exists()
+            else None
+        )
+
         return cls(
             do_email=config.do_email,
             syftbox_root=config.syftbox_root,
@@ -62,6 +71,7 @@ class NotificationOrchestrator(BaseOrchestrator):
             gmail_token_path=config.gmail_token_path or paths.gmail_token,
             state_path=paths.notify_state,
             interval=config.interval,
+            snapshot_reader=snapshot_reader,
         )
 
     def _init_monitors(self):
@@ -94,14 +104,20 @@ class NotificationOrchestrator(BaseOrchestrator):
             handler=job_handler,
             state=state,
             drive_token_path=self.drive_token_path,
+            snapshot_reader=self.snapshot_reader,
         )
 
-        if is_colab() or (self.drive_token_path and self.drive_token_path.exists()):
+        if (
+            self.snapshot_reader
+            or is_colab()
+            or (self.drive_token_path and self.drive_token_path.exists())
+        ):
             self._peer_monitor = PeerMonitor(
                 do_email=self.do_email,
                 drive_token_path=self.drive_token_path,
                 handler=peer_handler,
                 state=state,
+                snapshot_reader=self.snapshot_reader,
             )
 
         self._monitors_initialized = True
