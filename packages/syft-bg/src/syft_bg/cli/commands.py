@@ -1,6 +1,7 @@
 """CLI commands for syft-bg."""
 
 import hashlib
+import time
 from typing import Optional
 
 import click
@@ -59,7 +60,43 @@ def status():
                 f"{name:<12} {'○ ' + status_text:<12} {pid_text:<10} {service.description}"
             )
 
+    _print_sync_health()
     click.echo()
+
+
+def _print_sync_health() -> None:
+    import datetime
+
+    from syft_bg.common.config import get_default_paths
+    from syft_bg.sync.snapshot_reader import SnapshotReader
+
+    paths = get_default_paths()
+    reader = SnapshotReader(paths.sync_state)
+    snapshot = reader.read()
+
+    if snapshot is None:
+        return
+
+    click.echo()
+    click.echo("SYNC HEALTH")
+    click.echo("-" * 50)
+
+    sync_dt = datetime.datetime.fromtimestamp(snapshot.sync_time)
+    age_seconds = int(time.time() - snapshot.sync_time)
+
+    click.echo(f"  Last sync:   {sync_dt.strftime('%H:%M:%S')} ({age_seconds}s ago)")
+    click.echo(f"  Sync count:  {snapshot.sync_count}")
+    click.echo(f"  Duration:    {snapshot.sync_duration_ms}ms")
+    click.echo(f"  Jobs:        {len(snapshot.job_names)}")
+    click.echo(f"  Peers:       {len(snapshot.approved_peer_emails)}")
+    click.echo(f"  Inbox msgs:  {len(snapshot.inbox_messages)}")
+
+    if snapshot.sync_error:
+        click.echo(f"  Last error:  {snapshot.sync_error}")
+
+    max_age = snapshot.sync_count * 2 + 60
+    if age_seconds > max_age:
+        click.echo("  ⚠ Snapshot is stale — sync service may have stopped")
 
 
 @main.command()
