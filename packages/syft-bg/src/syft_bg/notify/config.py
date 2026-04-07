@@ -1,14 +1,14 @@
 """Configuration for notification service."""
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from pydantic import BaseModel
 
 from syft_bg.common.config import get_default_paths, load_yaml
 
 
-@dataclass
-class NotifyConfig:
+class NotifyConfig(BaseModel):
     """Configuration for the notification service."""
 
     do_email: Optional[str] = None

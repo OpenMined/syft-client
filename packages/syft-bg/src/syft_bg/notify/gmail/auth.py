@@ -6,7 +6,11 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+GMAIL_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/pubsub",
+]
 
 
 def run_oauth_flow_manual(flow: InstalledAppFlow) -> Credentials:
@@ -42,7 +46,7 @@ def run_oauth_flow_manual(flow: InstalledAppFlow) -> Credentials:
 class GmailAuth:
     """Handles Gmail OAuth authentication."""
 
-    def setup_auth(self, credentials_path: Path) -> Credentials:
+    def authenticate_user(self, credentials_path: Path) -> Credentials:
         """Run OAuth flow to get Gmail credentials."""
         credentials_path = Path(credentials_path).expanduser()
         flow = InstalledAppFlow.from_client_secrets_file(
