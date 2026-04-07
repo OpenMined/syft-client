@@ -114,18 +114,17 @@ def _validate_job_against_object(
     all_expected_paths = set(expected_contents.keys()) | expected_names
     job_code_files = _get_all_job_code_files(job)
 
-    if all_expected_paths != set(job_code_files.keys()):
-        error_msg = _get_error_message_for_file_mismatch(
-            all_expected_paths, set(job_code_files.keys())
-        )
-        return (False, error_msg)
+    # Every file in the job must be covered by the approval object
+    unapproved = set(job_code_files.keys()) - all_expected_paths
+    if unapproved:
+        return (False, f"unapproved files: {unapproved}")
 
     for rel_path, file_entry in expected_contents.items():
-        expected_hash = file_entry.hash
-        expected_path = file_entry.path
         job_file = job_code_files.get(rel_path)
         if job_file is None:
-            return (False, f"unapproved file: {rel_path}")
+            continue  # file not in this job — that's fine
+        expected_hash = file_entry.hash
+        expected_path = file_entry.path
         submitted_hash = _compute_file_hash(job_file)
         if submitted_hash is None:
             return (False, f"could not read file: {rel_path}")

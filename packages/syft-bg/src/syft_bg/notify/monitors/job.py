@@ -184,54 +184,69 @@ class JobMonitor(Monitor):
             )
 
     def _check_local_for_status_changes(self):
-        if not self.job_dir.exists():
+        inbox_dir = self.job_dir / "inbox"
+        if not inbox_dir.exists():
             return
 
-        for job_path in self.job_dir.iterdir():
-            if not job_path.is_dir():
+        for ds_dir in inbox_dir.iterdir():
+            if not ds_dir.is_dir():
                 continue
-            try:
-                self._check_job_status(job_path)
-            except Exception as e:
-                print(f"[JobMonitor] Error checking job {job_path.name}: {e}")
+            ds_email = ds_dir.name
+            for job_path in ds_dir.iterdir():
+                if not job_path.is_dir():
+                    continue
+                try:
+                    self._check_job_status(job_path, ds_email)
+                except Exception as e:
+                    print(f"[JobMonitor] Error checking job {job_path.name}: {e}")
 
-    def _check_job_status(self, job_path: Path):
+    def _check_job_status(self, job_path: Path, ds_email: str):
         config = self._load_job_config(job_path)
         if not config:
             return
 
         job_name = config.get("name", job_path.name)
-        ds_email = config.get("submitted_by")
-
-        if not ds_email or "@" not in ds_email:
-            print(f"[JobMonitor] Skip {job_name}: invalid submitted_by '{ds_email}'")
-            return
 
         # Skip old jobs on fresh state (avoid spamming about pre-existing jobs)
-        # But process normally on restart (state exists) to catch missed notifications
         if self._is_fresh_state:
             config_file = job_path / "config.yaml"
             if config_file.exists():
                 job_created = config_file.stat().st_mtime
                 if job_created < self._startup_time:
-                    # Fresh state + old job = skip (first-time setup scenario)
                     return
 
         # Check for new job (if not already notified)
         if not self.state.was_notified(job_name, "new"):
             success = self.handler.on_new_job(self.do_email, job_name, ds_email)
             if success:
-                print(f"📬 JobMonitor: Sent new job notification: {job_name}")
+                print(f"[JobMonitor] Sent new job notification: {job_name}")
 
-        if (job_path / "approved").exists():
+        # Read review state for approved/executed status
+        review_state = self._load_review_state(job_path.name, ds_email)
+        if not review_state:
+            return
+
+        if review_state.get("approved_at"):
             success = self.handler.on_job_approved(ds_email, job_name)
             if success:
-                print(f"✅ JobMonitor: Sent job approved notification: {job_name}")
+                print(f"[JobMonitor] Sent job approved notification: {job_name}")
 
-        if (job_path / "done").exists():
+        if review_state.get("completed_at"):
             success = self.handler.on_job_executed(ds_email, job_name)
             if success:
-                print(f"🎉 JobMonitor: Sent job executed notification: {job_name}")
+                print(f"[JobMonitor] Sent job executed notification: {job_name}")
+
+    def _load_review_state(self, job_name: str, ds_email: str) -> Optional[dict]:
+        """Load review/state.yaml for a job."""
+        state_file = self.job_dir / "review" / ds_email / job_name / "state.yaml"
+        if not state_file.exists():
+            return None
+        try:
+            with open(state_file, "r") as f:
+                return yaml.safe_load(f)
+        except (yaml.YAMLError, OSError) as e:
+            print(f"[JobMonitor] Error reading review state {state_file}: {e}")
+            return None
 
     def _load_job_config(self, job_path: Path) -> Optional[dict]:
         config_file = job_path / "config.yaml"

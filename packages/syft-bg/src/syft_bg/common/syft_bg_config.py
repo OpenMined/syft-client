@@ -47,6 +47,12 @@ class SyftBgConfig(BaseModel):
             ):
                 if self.syftbox_root is not None:
                     service_config.syftbox_root = Path(self.syftbox_root)
+            if (
+                hasattr(service_config, "drive_token_path")
+                and service_config.drive_token_path is None
+            ):
+                if self.drive_token_path is not None:
+                    service_config.drive_token_path = self.drive_token_path
 
     @classmethod
     def from_path(cls, config_path: Path | None = None) -> "SyftBgConfig":

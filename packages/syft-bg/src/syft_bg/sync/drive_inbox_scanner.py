@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 from syft_bg.sync.snapshot import InboxMessage
 
-GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
+GDRIVE_P2P_FOLDER_PREFIX = "syft_datasite"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SYFT_PEERS_FILE = "SYFT_peers.json"
 
@@ -29,28 +29,28 @@ class DriveInboxScanner:
             return []
 
     def scan_peer_emails(self) -> list[str]:
+        """Detect peer emails from inbox folder names.
+
+        Looks for folders: syft_datasite#<do_email>#inbox#<peer_email>
+        """
         try:
-            results = (
-                self._drive.files()
-                .list(
-                    q=f"name contains '{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}' and trashed=false "
-                    f"and mimeType = '{GOOGLE_FOLDER_MIME_TYPE}'"
-                )
-                .execute()
+            query = (
+                f"name contains '{GDRIVE_P2P_FOLDER_PREFIX}#' and "
+                f"name contains '#inbox#' and "
+                f"mimeType = '{GOOGLE_FOLDER_MIME_TYPE}' and "
+                "trashed=false"
             )
+            results = self._drive.files().list(q=query).execute()
 
             peers: set[str] = set()
             for folder in results.get("files", []):
-                name = folder["name"]
-                parts = name.split("_")
-                if len(parts) >= 6:
-                    sender_email = parts[3]
-                    recipient_email = parts[5] if len(parts) > 5 else None
+                parsed = self._parse_p2p_folder_name(folder["name"])
+                if parsed and parsed["folder_type"] == "inbox":
                     if (
-                        sender_email != self._do_email
-                        and recipient_email == self._do_email
+                        parsed["datasite_email"] == self._do_email
+                        and parsed["peer_email"] != self._do_email
                     ):
-                        peers.add(sender_email)
+                        peers.add(parsed["peer_email"])
 
             return list(peers)
 
@@ -82,9 +82,9 @@ class DriveInboxScanner:
             return []
 
     def _find_inbox_folders(self) -> list[tuple[str, str]]:
+        """Find inbox folders: syft_datasite#<do_email>#inbox#<peer_email>."""
         query = (
-            f"name contains '{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}' and "
-            f"name contains '_to_{self._do_email}' and "
+            f"name contains '{GDRIVE_P2P_FOLDER_PREFIX}#{self._do_email}#inbox#' and "
             f"mimeType = '{GOOGLE_FOLDER_MIME_TYPE}' and "
             "trashed=false"
         )
@@ -92,13 +92,27 @@ class DriveInboxScanner:
 
         folders = []
         for folder in results.get("files", []):
-            name = folder["name"]
-            parts = name.split("_")
-            if len(parts) >= 6:
-                sender_email = parts[3]
-                if sender_email != self._do_email:
-                    folders.append((sender_email, folder["id"]))
+            parsed = self._parse_p2p_folder_name(folder["name"])
+            if (
+                parsed
+                and parsed["folder_type"] == "inbox"
+                and parsed["datasite_email"] == self._do_email
+                and parsed["peer_email"] != self._do_email
+            ):
+                folders.append((parsed["peer_email"], folder["id"]))
         return folders
+
+    @staticmethod
+    def _parse_p2p_folder_name(name: str) -> Optional[dict[str, str]]:
+        """Parse syft_datasite#email#type#peer into components."""
+        parts = name.split("#")
+        if len(parts) != 4 or parts[0] != GDRIVE_P2P_FOLDER_PREFIX:
+            return None
+        return {
+            "datasite_email": parts[1],
+            "folder_type": parts[2],
+            "peer_email": parts[3],
+        }
 
     def _get_pending_messages(self, folder_id: str) -> list[dict[str, Any]]:
         query = f"'{folder_id}' in parents and name contains 'msgv2_' and trashed=false"

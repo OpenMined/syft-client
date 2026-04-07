@@ -166,6 +166,126 @@ class TestPeerMonitorWithSnapshot:
         assert monitor._drive_service is None
 
 
+class TestJobMonitorLocalStatusChanges:
+    """Tests for _check_local_for_status_changes with inbox/review directory structure."""
+
+    def _setup_job(self, temp_dir, ds_email="ds@t.com", job_name="test_job"):
+        """Create a job in the inbox/<ds_email>/<job_name>/ structure."""
+        do_email = "do@test.com"
+        job_dir = temp_dir / do_email / "app_data" / "job"
+
+        # Create inbox job directory with config
+        inbox_job = job_dir / "inbox" / ds_email / job_name
+        inbox_job.mkdir(parents=True)
+        config = inbox_job / "config.yaml"
+        config.write_text(f"name: {job_name}\ntype: python\n")
+
+        return job_dir, inbox_job
+
+    def _setup_review_state(self, temp_dir, ds_email, job_name, state_data):
+        """Create a review state.yaml for a job."""
+        do_email = "do@test.com"
+        review_dir = (
+            temp_dir / do_email / "app_data" / "job" / "review" / ds_email / job_name
+        )
+        review_dir.mkdir(parents=True, exist_ok=True)
+        import yaml
+
+        (review_dir / "state.yaml").write_text(yaml.dump(state_data))
+
+    def test_detects_new_job(self, temp_dir):
+        self._setup_job(temp_dir)
+        handler = MagicMock()
+        handler.on_new_job.return_value = True
+        state = JsonStateManager(temp_dir / "state.json")
+        state.mark_notified("_dummy", "x")  # non-empty state → not fresh
+
+        monitor = JobMonitor(
+            syftbox_root=temp_dir,
+            do_email="do@test.com",
+            handler=handler,
+            state=state,
+        )
+        monitor._check_local_for_status_changes()
+        handler.on_new_job.assert_called_once_with(
+            "do@test.com", "test_job", "ds@t.com"
+        )
+
+    def test_detects_approved_status(self, temp_dir):
+        self._setup_job(temp_dir)
+        self._setup_review_state(
+            temp_dir, "ds@t.com", "test_job", {"approved_at": "2026-01-01T00:00:00Z"}
+        )
+        handler = MagicMock()
+        handler.on_new_job.return_value = True
+        handler.on_job_approved.return_value = True
+        state = JsonStateManager(temp_dir / "state.json")
+        state.mark_notified("_dummy", "x")
+
+        monitor = JobMonitor(
+            syftbox_root=temp_dir,
+            do_email="do@test.com",
+            handler=handler,
+            state=state,
+        )
+        monitor._check_local_for_status_changes()
+        handler.on_job_approved.assert_called_once_with("ds@t.com", "test_job")
+
+    def test_detects_executed_status(self, temp_dir):
+        self._setup_job(temp_dir)
+        self._setup_review_state(
+            temp_dir,
+            "ds@t.com",
+            "test_job",
+            {
+                "approved_at": "2026-01-01T00:00:00Z",
+                "completed_at": "2026-01-01T00:01:00Z",
+            },
+        )
+        handler = MagicMock()
+        handler.on_new_job.return_value = True
+        handler.on_job_approved.return_value = True
+        handler.on_job_executed.return_value = True
+        state = JsonStateManager(temp_dir / "state.json")
+        state.mark_notified("_dummy", "x")
+
+        monitor = JobMonitor(
+            syftbox_root=temp_dir,
+            do_email="do@test.com",
+            handler=handler,
+            state=state,
+        )
+        monitor._check_local_for_status_changes()
+        handler.on_job_executed.assert_called_once_with("ds@t.com", "test_job")
+
+    def test_skips_old_jobs_on_fresh_state(self, temp_dir):
+        self._setup_job(temp_dir)
+        handler = MagicMock()
+        state = JsonStateManager(temp_dir / "state.json")  # empty = fresh
+
+        monitor = JobMonitor(
+            syftbox_root=temp_dir,
+            do_email="do@test.com",
+            handler=handler,
+            state=state,
+        )
+        monitor._check_local_for_status_changes()
+        handler.on_new_job.assert_not_called()
+
+    def test_no_inbox_dir_doesnt_crash(self, temp_dir):
+        handler = MagicMock()
+        state = JsonStateManager(temp_dir / "state.json")
+
+        monitor = JobMonitor(
+            syftbox_root=temp_dir,
+            do_email="do@test.com",
+            handler=handler,
+            state=state,
+        )
+        monitor._check_local_for_status_changes()  # should not raise
+        handler.on_new_job.assert_not_called()
+
+
 class TestPreSyncEnvVar:
     def _start_service(self, name: str, mock_popen):
         from syft_bg.services.base import Service

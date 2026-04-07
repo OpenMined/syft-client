@@ -8,10 +8,26 @@ from syft_bg.notify.gmail.sender import GmailSender
 
 
 def _read_job_code(
-    syftbox_root: Path, do_email: str, job_name: str
+    syftbox_root: Path, do_email: str, job_name: str, submitter: str = ""
 ) -> Optional[dict[str, str]]:
     """Read job code contents as a dict of filename -> file contents."""
-    job_dir = syftbox_root / do_email / "app_data" / "job" / job_name / "inbox" / "code"
+    if submitter:
+        code_dir = (
+            syftbox_root
+            / do_email
+            / "app_data"
+            / "job"
+            / "inbox"
+            / submitter
+            / job_name
+            / "code"
+        )
+    else:
+        # Legacy fallback
+        code_dir = (
+            syftbox_root / do_email / "app_data" / "job" / job_name / "inbox" / "code"
+        )
+    job_dir = code_dir
     if not job_dir.exists():
         return None
 
@@ -94,7 +110,9 @@ class JobHandler:
 
         job_code = None
         if self.syftbox_root and self.do_email:
-            job_code = _read_job_code(self.syftbox_root, self.do_email, job_name)
+            job_code = _read_job_code(
+                self.syftbox_root, self.do_email, job_name, submitter
+            )
 
         result = self.sender.notify_new_job(
             do_email,

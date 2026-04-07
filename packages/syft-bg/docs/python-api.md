@@ -10,7 +10,7 @@ import syft_bg
 syft_bg.init(email="you@example.com", start=True)
 ```
 
-Creates config and starts the background services (notify + approve).
+Creates config and starts the background services (sync + notify + approve).
 Use `start=False` to just create the config without starting.
 
 ## Status
@@ -81,6 +81,7 @@ syft_bg.start()           # start all services
 syft_bg.stop()            # stop all services
 syft_bg.restart()         # restart all services
 syft_bg.ensure_running()  # start any stopped services
+syft_bg.logs("sync")      # last 50 lines of sync service log
 syft_bg.logs("approve")   # last 50 lines of approve service log
 syft_bg.logs("notify")    # last 50 lines of notify service log
 ```

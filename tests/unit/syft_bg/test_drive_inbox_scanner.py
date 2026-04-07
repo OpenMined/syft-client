@@ -27,7 +27,7 @@ class TestScanInboxMessages:
         folders_result = {
             "files": [
                 {
-                    "name": "syft_outbox_inbox_ds@test.com_to_do@test.com",
+                    "name": "syft_datasite#do@test.com#inbox#ds@test.com",
                     "id": "folder1",
                 }
             ]
@@ -84,7 +84,7 @@ class TestScanPeerEmails:
             {
                 "files": [
                     {
-                        "name": "syft_outbox_inbox_ds@test.com_to_do@test.com",
+                        "name": "syft_datasite#do@test.com#inbox#ds@test.com",
                         "id": "f1",
                     }
                 ]
@@ -94,32 +94,34 @@ class TestScanPeerEmails:
         peers = scanner.scan_peer_emails()
         assert "ds@test.com" in peers
 
-    def test_excludes_do_email(self):
+    def test_excludes_do_as_peer(self):
         drive = _mock_drive(
             {
                 "files": [
                     {
-                        "name": "syft_outbox_inbox_do@test.com_to_do@test.com",
+                        "name": "syft_datasite#do@test.com#inbox#do@test.com",
                         "id": "f1",
                     }
                 ]
             }
         )
         scanner = DriveInboxScanner(drive, "do@test.com")
+        # DO should not appear as its own peer
         assert scanner.scan_peer_emails() == []
 
-    def test_filters_by_recipient(self):
+    def test_filters_by_datasite_email(self):
         drive = _mock_drive(
             {
                 "files": [
                     {
-                        "name": "syft_outbox_inbox_ds@test.com_to_other@test.com",
+                        "name": "syft_datasite#other@test.com#inbox#ds@test.com",
                         "id": "f1",
                     }
                 ]
             }
         )
         scanner = DriveInboxScanner(drive, "do@test.com")
+        # Folder belongs to other datasite, not ours
         assert scanner.scan_peer_emails() == []
 
     def test_handles_drive_error(self):
@@ -154,3 +156,21 @@ class TestScanApprovedPeers:
         drive.files().list().execute.side_effect = Exception("API error")
         scanner = DriveInboxScanner(drive, "do@test.com")
         assert scanner.scan_approved_peers() == []
+
+
+class TestParseP2PFolderName:
+    def test_valid_folder(self):
+        result = DriveInboxScanner._parse_p2p_folder_name(
+            "syft_datasite#do@test.com#inbox#ds@test.com"
+        )
+        assert result == {
+            "datasite_email": "do@test.com",
+            "folder_type": "inbox",
+            "peer_email": "ds@test.com",
+        }
+
+    def test_invalid_prefix(self):
+        assert DriveInboxScanner._parse_p2p_folder_name("other#a#b#c") is None
+
+    def test_wrong_part_count(self):
+        assert DriveInboxScanner._parse_p2p_folder_name("syft_datasite#a#b") is None

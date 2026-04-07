@@ -87,7 +87,7 @@ class ApprovalOrchestrator(BaseOrchestrator):
     def _build_reject_callback(self):
         """Build rejection callback that notifies DS via Gmail, if available."""
         paths = get_default_paths()
-        gmail_token_path = paths.creds_dir / "gmail_token.json"
+        gmail_token_path = paths.gmail_token
 
         if not gmail_token_path.exists():
             print(
