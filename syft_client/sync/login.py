@@ -1,6 +1,7 @@
 import sys
 import warnings
 
+from syft_client.gdrive_utils import delete_syftbox
 from syft_client.sync.utils.syftbox_utils import check_env
 from syft_client.sync.environments.environment import Environment
 from syft_client.sync.syftbox_manager import SyftboxManager
@@ -39,7 +40,11 @@ def _check_existing_state_version(client: SyftboxManager) -> None:
 
     if choice == "1":
         print("Deleting old SyftBox state...")
-        client.delete_syftbox(verbose=True, broadcast_delete_events=False)
+        delete_syftbox(
+            email=client.email,
+            local_syftbox_path=client.syftbox_folder,
+            verbose=True,
+        )
         # Reset peer manager's connection caches so write_own_version
         # doesn't try to use the now-deleted SyftBox folder ID
         client.peer_manager.connection_router.reset_caches()
