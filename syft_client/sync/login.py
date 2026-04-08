@@ -123,7 +123,7 @@ def _delete_all_state(
         verbose=True,
         exclude_ids=exclude_ids,
     )
-    client.peer_manager.connection_router.reset_caches()
+    client.reset_all_connection_caches()
 
 
 def _handle_do_mismatch(

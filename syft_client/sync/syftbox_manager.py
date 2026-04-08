@@ -1294,6 +1294,17 @@ class SyftboxManager(BaseModel):
         else:
             return self.datasite_watcher_syncer.connection_router
 
+    def reset_all_connection_caches(self):
+        """Reset GDrive caches on all connection router instances."""
+        if self.peer_manager:
+            self.peer_manager.connection_router.reset_caches()
+        if self.datasite_owner_syncer:
+            self.datasite_owner_syncer.connection_router.reset_caches()
+        if self.datasite_watcher_syncer:
+            self.datasite_watcher_syncer.connection_router.reset_caches()
+            if hasattr(self.datasite_watcher_syncer, "datasite_watcher_cache"):
+                self.datasite_watcher_syncer.datasite_watcher_cache.connection_router.reset_caches()
+
     def _clear_caches(self):
         if self.datasite_owner_syncer is not None:
             self.datasite_owner_syncer.event_cache.clear_cache()
@@ -1399,7 +1410,7 @@ class SyftboxManager(BaseModel):
 
         # Clear in-memory caches and filesystem cache contents
         self._clear_caches()
-        self._connection_router.reset_caches()
+        self.reset_all_connection_caches()
 
         # Delete local syftbox folder and cache directories
         self._delete_local_dirs()
