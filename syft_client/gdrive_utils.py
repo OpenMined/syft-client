@@ -258,6 +258,43 @@ def _get_default_syftbox_path(email: str) -> Path:
         return Path.home() / f"SyftBox_{email}"
 
 
+def read_local_version(local_syftbox_path: Path) -> "VersionInfo | None":
+    """Read the local SYFT_version.json from the SyftBox directory.
+
+    Args:
+        local_syftbox_path: Path to the local SyftBox directory.
+
+    Returns:
+        VersionInfo if the file exists and is valid, None otherwise.
+    """
+    from syft_client.sync.version.version_info import VersionInfo
+    from syft_client.version import VERSION_FILE_NAME
+
+    version_file = local_syftbox_path / VERSION_FILE_NAME
+    if not version_file.exists():
+        return None
+    try:
+        return VersionInfo.from_json(version_file.read_text())
+    except Exception:
+        return None
+
+
+def write_local_version(local_syftbox_path: Path) -> None:
+    """Write current version info to a local SYFT_version.json in the SyftBox directory.
+
+    Creates the SyftBox directory if it doesn't exist.
+
+    Args:
+        local_syftbox_path: Path to the local SyftBox directory.
+    """
+    from syft_client.sync.version.version_info import VersionInfo
+    from syft_client.version import VERSION_FILE_NAME
+
+    local_syftbox_path.mkdir(parents=True, exist_ok=True)
+    version_file = local_syftbox_path / VERSION_FILE_NAME
+    version_file.write_text(VersionInfo.current().to_json())
+
+
 def _delete_local_syftbox_dirs(local_syftbox_path: Path, verbose: bool = True) -> None:
     """Delete a local SyftBox directory and its companion cache directories."""
     syftbox_name = local_syftbox_path.name
@@ -274,42 +311,19 @@ def _delete_local_syftbox_dirs(local_syftbox_path: Path, verbose: bool = True) -
                 print(f"Deleted local directory: {d}")
 
 
-def delete_syftbox(
-    token_path: str | Path | None = None,
-    email: str | None = None,
-    local_syftbox_path: str | Path | None = None,
-    verbose: bool = True,
-) -> None:
-    """Delete all SyftBox state from Google Drive and local directories.
+def _resolve_email_and_token(
+    email: str | None, token_path: str | Path | None
+) -> tuple[str, Path | None]:
+    """Resolve email and token_path for standalone utilities.
 
-    This is a standalone utility that does not require a full SyftboxManager.
-    It creates a temporary GDriveConnection to find and delete all SyftBox
-    files/folders from Google Drive, and also cleans up local cache directories.
+    Auto-detects email on Colab. Resolves token_path from env var if needed.
 
-    Local cleanup includes the SyftBox directory and its companion cache
-    directories (``<name>-events``, ``<name>-event-messages``). If
-    ``local_syftbox_path`` is not provided, the default path for the current
-    environment is used (``~/SyftBox_{email}`` for Jupyter,
-    ``/content/SyftBox_{email}`` for Colab).
+    Returns:
+        (email, token_path) tuple.
 
-    Note: This function does NOT broadcast ``is_deleted`` events to peers.
-    Broadcasting requires the full client (peer manager, event cache, encryption
-    keys) which are not available in standalone mode. Peers will not be notified
-    that files have been removed; they will discover the deletion on their next
-    sync cycle.
-
-    Args:
-        token_path: Path to OAuth token JSON file. Required when running
-            locally. On Colab, pass ``None`` to use Colab's built-in auth.
-        email: Google account email. Required when running locally. On Colab,
-            this is auto-detected if not provided.
-        local_syftbox_path: Optional path to the local SyftBox directory.
-            If not provided, the default path for the current environment
-            is used automatically.
-        verbose: If True (default), print deletion progress.
+    Raises:
+        ValueError: If email or token_path cannot be resolved.
     """
-    from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
-
     env = check_env()
 
     if env == Environment.COLAB and email is None:
@@ -332,6 +346,34 @@ def delete_syftbox(
         token_path = resolved
 
     token_path = Path(token_path) if token_path is not None else None
+    return email, token_path
+
+
+def delete_remote_syftbox(
+    token_path: str | Path | None = None,
+    email: str | None = None,
+    verbose: bool = True,
+    exclude_ids: set[str] | None = None,
+) -> None:
+    """Delete all SyftBox state from Google Drive.
+
+    This is a standalone utility that does not require a full SyftboxManager.
+    It creates a temporary GDriveConnection to find and delete all SyftBox
+    files/folders from Google Drive.
+
+    Note: This function does NOT broadcast ``is_deleted`` events to peers.
+
+    Args:
+        token_path: Path to OAuth token JSON file. Required when running
+            locally. On Colab, pass ``None`` to use Colab's built-in auth.
+        email: Google account email. Required when running locally. On Colab,
+            this is auto-detected if not provided.
+        verbose: If True (default), print deletion progress.
+        exclude_ids: File/folder IDs to skip (e.g. already-archived folders).
+    """
+    from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
+
+    email, token_path = _resolve_email_and_token(email, token_path)
     conn = GDriveConnection.from_token_path(email=email, token_path=token_path)
 
     # Gather file IDs via folder hierarchy
@@ -340,7 +382,11 @@ def delete_syftbox(
     # Find orphaned syft files by name pattern
     orphaned_file_ids = set(conn.find_orphaned_message_files())
 
-    all_file_ids = list(folder_file_ids | orphaned_file_ids)
+    all_file_ids = folder_file_ids | orphaned_file_ids
+    if exclude_ids:
+        all_file_ids -= exclude_ids
+
+    all_file_ids = list(all_file_ids)
 
     start = time.time()
     conn.delete_multiple_files_by_ids(all_file_ids)
@@ -349,7 +395,7 @@ def delete_syftbox(
     if verbose:
         orphan_count = len(orphaned_file_ids - folder_file_ids)
         print(
-            f"Deleted {len(all_file_ids)} files/folders in {elapsed:.2f}s",
+            f"Deleted {len(all_file_ids)} remote files/folders in {elapsed:.2f}s",
             end="",
         )
         if orphan_count > 0:
@@ -359,10 +405,83 @@ def delete_syftbox(
 
     conn.reset_caches()
 
-    # Delete local directories (auto-detect path if not provided)
+
+def delete_local_syftbox(
+    email: str | None = None,
+    local_syftbox_path: str | Path | None = None,
+    verbose: bool = True,
+) -> None:
+    """Delete local SyftBox directories.
+
+    Deletes the SyftBox directory and its companion cache directories
+    (``<name>-events``, ``<name>-event-messages``).
+
+    Args:
+        email: Google account email. Used to resolve default path if
+            ``local_syftbox_path`` is not provided.
+        local_syftbox_path: Optional path to the local SyftBox directory.
+            If not provided, the default path for the current environment
+            is used automatically.
+        verbose: If True (default), print deletion progress.
+    """
     if local_syftbox_path is not None:
         resolved_path = Path(local_syftbox_path)
     else:
+        if email is None:
+            env = check_env()
+            if env == Environment.COLAB:
+                from syft_client.sync.utils.syftbox_utils import get_email_colab
+
+                email = get_email_colab()
+            if email is None:
+                raise ValueError(
+                    "email is required to resolve default local path. "
+                    "Provide email or local_syftbox_path explicitly."
+                )
         resolved_path = _get_default_syftbox_path(email)
 
     _delete_local_syftbox_dirs(resolved_path, verbose=verbose)
+
+
+def delete_syftbox(
+    token_path: str | Path | None = None,
+    email: str | None = None,
+    local_syftbox_path: str | Path | None = None,
+    verbose: bool = True,
+) -> None:
+    """Delete all SyftBox state from Google Drive and local directories.
+
+    Convenience wrapper that calls both :func:`delete_remote_syftbox` and
+    :func:`delete_local_syftbox`.
+
+    Note: This function does NOT broadcast ``is_deleted`` events to peers.
+    Broadcasting requires the full client (peer manager, event cache, encryption
+    keys) which are not available in standalone mode. Peers will not be notified
+    that files have been removed; they will discover the deletion on their next
+    sync cycle.
+
+    Args:
+        token_path: Path to OAuth token JSON file. Required when running
+            locally. On Colab, pass ``None`` to use Colab's built-in auth.
+        email: Google account email. Required when running locally. On Colab,
+            this is auto-detected if not provided.
+        local_syftbox_path: Optional path to the local SyftBox directory.
+            If not provided, the default path for the current environment
+            is used automatically.
+        verbose: If True (default), print deletion progress.
+    """
+    # Resolve once for both operations
+    email_resolved, token_path_resolved = _resolve_email_and_token(email, token_path)
+
+    delete_remote_syftbox(
+        token_path=token_path_resolved,
+        email=email_resolved,
+        verbose=verbose,
+    )
+    delete_local_syftbox(
+        email=email_resolved,
+        local_syftbox_path=local_syftbox_path,
+        verbose=verbose,
+    )
+
+
