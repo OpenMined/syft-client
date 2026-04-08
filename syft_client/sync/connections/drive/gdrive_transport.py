@@ -1128,6 +1128,43 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return file_ids
 
+    def list_own_p2p_folder_ids(self) -> list[tuple[str, str]]:
+        """Return [(folder_id, folder_name)] for all P2P folders owned by this user."""
+        query = (
+            f"name contains '{GDRIVE_P2P_FOLDER_DATASITE_PREFIX}'"
+            " and mimeType='application/vnd.google-apps.folder'"
+            " and 'me' in owners and trashed=false"
+        )
+        results = execute_with_retries(
+            self.drive_service.files().list(
+                q=query, fields="files(id, name)"
+            )
+        )
+        return [
+            (f["id"], f["name"]) for f in results.get("files", [])
+        ]
+
+    def move_files_to_folder(
+        self, file_ids: list[str], target_folder_id: str
+    ) -> None:
+        """Move files/folders to a target folder via parent swap."""
+        for file_id in file_ids:
+            file_info = execute_with_retries(
+                self.drive_service.files().get(
+                    fileId=file_id, fields="parents"
+                )
+            )
+            previous_parents = ",".join(file_info.get("parents", []))
+            execute_with_retries(
+                self.drive_service.files().update(
+                    fileId=file_id,
+                    addParents=target_folder_id,
+                    removeParents=previous_parents,
+                    fields="id, parents",
+                    supportsAllDrives=True,
+                )
+            )
+
     def create_file_payload(self, data: Any) -> Tuple[MediaIoBaseUpload, str]:
         """Create a file payload for the GDrive"""
         if isinstance(data, str):
