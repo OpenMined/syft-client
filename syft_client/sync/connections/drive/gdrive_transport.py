@@ -234,7 +234,9 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     @classmethod
     def from_config(cls, config: "GdriveConnectionConfig") -> "GDriveConnection":
-        return cls.from_token_path(config.email, config.token_path)
+        conn = cls.from_token_path(config.email, config.token_path)
+        conn.get_personal_syftbox_folder_id()
+        return conn
 
     @classmethod
     def from_token_path(cls, email: str, token_path: Path | None) -> "GDriveConnection":
@@ -267,6 +269,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         if isinstance(mock_service, MockDriveService):
             mock_service = MockDriveService(mock_service._backing_store, email)
         res.setup(drive_service=mock_service)
+        res.get_personal_syftbox_folder_id()
         return res
 
     def setup(
@@ -288,11 +291,9 @@ class GDriveConnection(SyftboxPlatformConnection):
                 self.credentials, environment=self.environment
             )
 
-        self.get_personal_syftbox_folder_id()
         self._is_setup = True
 
     def copy(self) -> "GDriveConnection":
-        # if is mock
         from syft_client.sync.connections.drive.mock_drive_service import (
             MockDriveService,
         )
@@ -300,7 +301,9 @@ class GDriveConnection(SyftboxPlatformConnection):
         if isinstance(self.drive_service, MockDriveService):
             return GDriveConnection.from_service(self.email, self.drive_service)
         else:
-            return GDriveConnection.from_token_path(self.email, self.token_path)
+            conn = GDriveConnection.from_token_path(self.email, self.token_path)
+            conn.get_personal_syftbox_folder_id()
+            return conn
 
     @property
     def environment(self) -> Environment:
