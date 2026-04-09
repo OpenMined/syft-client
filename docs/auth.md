@@ -15,12 +15,14 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 5. Click **Create**
 6. Wait for the project to be created, then select it
 
-## Step 2: Enable the Google Drive API
+## Step 2: Enable the API's
 
 1. In your project, go to **APIs & Services** > **Library**
 2. Search for "Google Drive API"
 3. Click on **Google Drive API**
 4. Click **Enable**
+5. In case you are using notifications (Data owner only), do the same for Gmail
+6. In case you are using email approval (Data owner only), do the same for Cloud Pub/Sub API
 
 ## Step 3: Configure OAuth Consent Screen
 
