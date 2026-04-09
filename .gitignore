@@ -151,6 +151,7 @@ credentials.json
 client_secret*.json
 token.pickle
 token.json
+*creds.json
 
 # SyftBox related
 ~/SyftBox/
