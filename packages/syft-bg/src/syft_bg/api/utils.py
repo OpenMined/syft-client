@@ -1,0 +1,264 @@
+"""Utility functions used by the syft-bg API layer."""
+
+import hashlib
+import shutil
+from pathlib import Path
+
+from syft_bg.approve.config import AutoApproveConfig, FileEntry
+from syft_bg.common.config import get_syftbg_dir, get_default_paths
+from syft_bg.common.drive import is_colab
+from syft_bg.common.syft_bg_config import SyftBgConfig
+from syft_bg.email_approve.pubsub_setup import get_project_id_from_credentials
+
+
+PERMISSION_FILE_NAME = "syft.pub.yaml"
+
+
+def move_token_to_syftbg_dir(token_path: Path) -> Path:
+    syft_bg_dir = get_syftbg_dir()
+    syft_bg_dir = Path(syft_bg_dir).expanduser().resolve()
+    syft_bg_dir.mkdir(parents=True, exist_ok=True)
+
+    target_token_path = syft_bg_dir / "token.json"
+    if Path(token_path).resolve() != target_token_path.resolve():
+        if Path(token_path).exists():
+            shutil.copy2(token_path, target_token_path)
+            token_path = target_token_path
+            print(f"Stored token at {target_token_path}")
+        else:
+            print(f"Warning: Provided token_path ({token_path}) does not exist.")
+
+
+def credentials_setup_steps(creds_path: Path, colab: bool) -> str:
+    """Return step-by-step instructions for setting up credentials.json."""
+    console_url = "https://console.cloud.google.com/apis/credentials"
+    if colab:
+        save_step = (
+            f"  5. Upload the downloaded JSON file to Google Drive at: {creds_path}"
+        )
+    else:
+        save_step = f"  5. Save the downloaded JSON file to: {creds_path}"
+
+    return (
+        f"  1. Open Google Cloud Console: {console_url}\n"
+        "  2. Create a project (or select an existing one)\n"
+        "  3. Click 'Create Credentials' > 'OAuth client ID'\n"
+        "     - If prompted, configure the consent screen first\n"
+        "       (External type, add your email as a test user)\n"
+        "  4. Select 'Desktop app' as application type, then click 'Create'\n"
+        f"{save_step}"
+    )
+
+
+def check_credentials_exist(
+    credentials_path: Path | None = None,
+    gmail_token_path: Path | None = None,
+    drive_token_path: Path | None = None,
+) -> list[str]:
+    """Check that all required credentials and tokens are in place.
+
+    Returns a list of issues. Empty list means all prerequisites are met.
+    """
+    creds_dir = get_syftbg_dir()
+    issues = []
+    colab = is_colab()
+
+    # Check credentials.json
+    creds_path = (
+        Path(credentials_path) if credentials_path else creds_dir / "credentials.json"
+    )
+    if not creds_path.exists():
+        steps = credentials_setup_steps(creds_path, colab)
+        issues.append(f"credentials.json not found at {creds_path}\n{steps}")
+
+    # Check Gmail token
+    gmail_path = (
+        Path(gmail_token_path) if gmail_token_path else creds_dir / "gmail_token.json"
+    )
+    if not gmail_path.exists():
+        if creds_path.exists():
+            issues.append(
+                f"Gmail token not found at {gmail_path}\n"
+                "  Run syft_bg.authenticate() to set it up interactively"
+            )
+        else:
+            issues.append(
+                f"Gmail token not found at {gmail_path}\n"
+                "  Set up credentials.json first, then run syft_bg.authenticate()"
+            )
+
+    # Check Drive token (not needed on Colab — uses native auth)
+    if not colab:
+        drive_path = (
+            Path(drive_token_path)
+            if drive_token_path
+            else creds_dir / "drive_token.json"
+        )
+        if not drive_path.exists():
+            if creds_path.exists():
+                issues.append(
+                    f"Drive token not found at {drive_path}\n"
+                    "  Run syft_bg.authenticate() to set it up interactively"
+                )
+            else:
+                issues.append(
+                    f"Drive token not found at {drive_path}\n"
+                    "  Set up credentials.json first, then run syft_bg.authenticate()"
+                )
+
+    return issues
+
+
+def save_gcp_project_id(credentials_path: Path) -> None:
+    """Extract project_id from credentials.json and save to config.yaml."""
+    try:
+        project_id = get_project_id_from_credentials(credentials_path)
+        config = SyftBgConfig.from_path()
+        config.email_approve.gcp_project_id = project_id
+        config.save()
+    except Exception:
+        pass
+
+
+def generate_unique_name(
+    name: str | None,
+    content_files: list[tuple[str, Path]],
+    config: AutoApproveConfig,
+) -> str:
+    """Generate a unique name for an auto-approval object."""
+    if name is None:
+        if content_files:
+            first_rel = content_files[0][0]
+            name = Path(first_rel).stem if len(content_files) == 1 else "auto_approval"
+        else:
+            name = "auto_approval"
+
+    if name in config.auto_approvals.objects:
+        base_name = name
+        counter = 1
+        while f"{base_name}_{counter}" in config.auto_approvals.objects:
+            counter += 1
+        name = f"{base_name}_{counter}"
+
+    return name
+
+
+def resolve_content_files(
+    contents: list[str | Path], base_dir: Path | None
+) -> tuple[list[tuple[str, Path]], str | None]:
+    """Resolve content paths to (relative_path, absolute_path) pairs.
+
+    Returns (content_files, error). error is None on success.
+    """
+    content_files: list[tuple[str, Path]] = []
+    for item in contents:
+        if base_dir is not None:
+            rel = str(item)
+            abs_path = base_dir / rel
+            if not abs_path.exists():
+                return [], f"File not found: {abs_path}"
+            content_files.append((rel, abs_path))
+        else:
+            p = Path(item).expanduser()
+            if p.is_dir():
+                found = sorted(f for f in p.rglob("*") if f.is_file())
+                if not found:
+                    return [], f"No files found in {p}"
+                for f in found:
+                    content_files.append((str(f.relative_to(p)), f))
+            elif not p.exists():
+                return [], f"File not found: {p}"
+            else:
+                content_files.append((p.name, p))
+    return content_files, None
+
+
+def copy_and_hash_files(
+    content_files: list[tuple[str, Path]], name: str
+) -> list[FileEntry]:
+    """Copy files to the managed auto-approvals directory and compute hashes."""
+    obj_dir = get_default_paths().auto_approvals_dir / name
+    obj_dir.mkdir(parents=True, exist_ok=True)
+
+    entries: list[FileEntry] = []
+    for rel_path, abs_path in content_files:
+        dest = obj_dir / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(abs_path, dest)
+        content = dest.read_text(encoding="utf-8")
+        file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+        entries.append(
+            FileEntry(relative_path=rel_path, path=str(dest), hash=file_hash)
+        )
+    return entries
+
+
+def restart_approve_service() -> None:
+    """Restart the approve service if it is currently running."""
+    try:
+        from syft_bg.services import ServiceManager
+        from syft_bg.services.base import ServiceStatus
+
+        manager = ServiceManager()
+        approve_svc = manager.get_service("approve")
+        if approve_svc:
+            svc_status = approve_svc.get_status()
+            if svc_status and svc_status.status == ServiceStatus.RUNNING:
+                manager.restart_service("approve")
+    except Exception:
+        pass
+
+
+def resolve_auto_approve_file_args(
+    user_files: dict[str, Path],
+    contents: list[str] | None,
+    file_paths: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """Determine which job files are content-matched vs name-only.
+
+    Returns (content_rel_paths, name_only).
+    """
+    if contents is None and file_paths is None:
+        return list(user_files.keys()), []
+    elif contents is not None and file_paths is None:
+        return list(contents), []
+    elif contents is None and file_paths is not None:
+        name_only = list(file_paths)
+        content_rel_paths = [rel for rel in user_files if rel not in set(file_paths)]
+        return content_rel_paths, name_only
+    else:
+        return list(contents), list(file_paths)  # type: ignore[arg-type]
+
+
+def validate_auto_approve_job_inputs(
+    user_files: dict[str, Path],
+    contents: list[str] | None,
+    file_paths: list[str] | None,
+) -> str | None:
+    """Validate inputs for auto_approve_job. Returns error string or None."""
+    if not user_files:
+        return "No user files found in job"
+    if contents is not None:
+        for fname in contents:
+            if fname not in user_files:
+                return f"File '{fname}' not found in job"
+    if file_paths is not None:
+        for fname in file_paths:
+            if fname not in user_files:
+                return f"File '{fname}' not found in job"
+    if contents is not None and file_paths is not None:
+        overlap = set(contents) & set(file_paths)
+        if overlap:
+            return f"Overlap between contents and file_paths: {overlap}"
+    return None
+
+
+def get_job_user_files(job) -> dict[str, Path]:
+    """Get user files from a job's code directory as {relative_path: abs_path} mapping."""
+    user_files: dict[str, Path] = {}
+    code_dir = job.code_dir
+    if code_dir.exists():
+        for f in code_dir.rglob("*"):
+            if f.is_file() and f.name != PERMISSION_FILE_NAME:
+                user_files[str(f.relative_to(code_dir))] = f
+    return user_files

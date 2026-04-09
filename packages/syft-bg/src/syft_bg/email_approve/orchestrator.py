@@ -10,10 +10,7 @@ from syft_bg.email_approve.config import EmailApproveConfig
 from syft_bg.email_approve.gmail_watch import GmailWatcher
 from syft_bg.email_approve.handler import EmailApproveHandler
 from syft_bg.email_approve.monitor import EmailApproveMonitor
-from syft_bg.email_approve.pubsub_setup import (
-    get_project_id_from_credentials,
-    setup_pubsub,
-)
+from syft_bg.email_approve.pubsub_setup import setup_pubsub
 from syft_bg.notify.gmail.auth import GmailAuth
 
 if TYPE_CHECKING:
@@ -27,11 +24,11 @@ class EmailApproveOrchestrator:
         self,
         client: SyftboxManager,
         config: EmailApproveConfig,
+        monitor: Optional[EmailApproveMonitor] = None,
     ):
-        self.client = client
+        self.syft_client = client
         self.config = config
-        self._monitor: Optional[EmailApproveMonitor] = None
-        self._initialized = False
+        self._monitor: Optional[EmailApproveMonitor] = monitor
 
     @classmethod
     def from_config(
@@ -44,51 +41,21 @@ class EmailApproveOrchestrator:
         if not config.syftbox_root:
             raise ValueError("Config missing 'syftbox_root' field")
 
-        client = _create_client(config)
-        return cls(client=client, config=config)
+        client = _create_syft_client(config)
+        credentials = GmailAuth().load_credentials(config.gmail_token_path)
 
-    def _init(self):
-        """Initialize Gmail watcher, Pub/Sub, handler, and monitor."""
-        if self._initialized:
-            return
-
-        paths = get_default_paths()
-        config = self.config
-
-        # Load Gmail credentials
-        gmail_token_path = paths.gmail_token
-        if not gmail_token_path.exists():
-            raise FileNotFoundError(
-                f"Gmail token not found: {gmail_token_path}\nRun 'syft-bg init' first."
-            )
-
-        auth = GmailAuth()
-        credentials = auth.load_credentials(gmail_token_path)
-
-        # Auto-detect project ID if needed
-        if not config.gcp_project_id:
-            config.gcp_project_id = get_project_id_from_credentials(paths.credentials)
-
-        # Auto-create Pub/Sub resources if needed
-        if not config.pubsub_topic or not config.pubsub_subscription:
-            topic_path, sub_path = setup_pubsub(credentials, config.gcp_project_id)
-            config.pubsub_topic = topic_path
-            config.pubsub_subscription = sub_path
-            config.save_pubsub_config()
-
-        # Create components
         watcher = GmailWatcher(credentials)
-        state = JsonStateManager(paths.email_approve_state)
-        notify_state = JsonStateManager(paths.notify_state)
+        state = JsonStateManager(config.email_approve_state_path)
+        notify_state = JsonStateManager(config.notify_state_path)
 
         handler = EmailApproveHandler(
-            client=self.client,
+            client=client,
             state=state,
             notify_state=notify_state,
             do_email=config.do_email,
         )
 
-        self._monitor = EmailApproveMonitor(
+        monitor = EmailApproveMonitor(
             watcher=watcher,
             handler=handler,
             state=state,
@@ -98,11 +65,22 @@ class EmailApproveOrchestrator:
             do_email=config.do_email,
         )
 
-        self._initialized = True
+        # Auto-create Pub/Sub resources if needed
+        if not config.pubsub_topic or not config.pubsub_subscription:
+            topic_path, sub_path = setup_pubsub(credentials, config.gcp_project_id)
+            config.pubsub_topic = topic_path
+            config.pubsub_subscription = sub_path
+            config.save_pubsub_config()
 
-    def run(self) -> None:
+        if not config.gmail_token_path.exists():
+            raise FileNotFoundError(
+                f"Gmail token not found: {config.gmail_token_path}\nRun 'syft-bg init' first."
+            )
+
+        return cls(client=client, config=config, monitor=monitor)
+
+    def run_loop(self) -> None:
         """Run the email approval service (blocking)."""
-        self._init()
         assert self._monitor is not None
 
         print("Starting email approval daemon...")
@@ -118,7 +96,7 @@ class EmailApproveOrchestrator:
             print("\nShutting down...")
             self._monitor.stop()
 
-    def check(self) -> None:
+    def run_once(self) -> None:
         """Run a single check (for --once mode). Not meaningful for push-based."""
         self._init()
         print(
@@ -132,7 +110,7 @@ class EmailApproveOrchestrator:
             self._monitor.stop()
 
 
-def _create_client(config: EmailApproveConfig) -> SyftboxManager:
+def _create_syft_client(config: EmailApproveConfig) -> SyftboxManager:
     """Create a SyftboxManager client from config."""
     from syft_client.sync.environments.environment import Environment
     from syft_client.sync.syftbox_manager import SyftboxManager

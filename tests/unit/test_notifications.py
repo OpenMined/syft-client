@@ -293,7 +293,7 @@ class Phase1Tests:
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "client_id": "client_id",
                 "client_secret": "secret",
-                "scopes": ["https://www.googleapis.com/auth/gmail.send"],
+                "scopes": ["https://www.googleapis.com/auth/gmail.modify"],
             }
             token_path.write_text(json.dumps(token_data))
 
@@ -320,7 +320,7 @@ class Phase1Tests:
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "client_id": "client_id",
                 "client_secret": "secret",
-                "scopes": ["https://www.googleapis.com/auth/gmail.send"],
+                "scopes": ["https://www.googleapis.com/auth/gmail.modify"],
             }
             token_path.write_text(json.dumps(token_data))
 

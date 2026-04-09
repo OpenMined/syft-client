@@ -20,9 +20,9 @@ syft-notify init
 
 This creates:
 
-- `~/.syft-creds/daemon.yaml` (config)
-- `~/.syft-creds/gmail_token.json` (Gmail OAuth)
-- `~/.syft-creds/token_do.json` (Drive OAuth)
+- `~/.syft-bg/daemon.yaml` (config)
+- `~/.syft-bg/gmail_token.json` (Gmail OAuth)
+- `~/.syft-bg/token_do.json` (Drive OAuth)
 
 ### 3. Install Systemd Service
 
@@ -59,7 +59,7 @@ sudo systemctl status syft-notify@USERNAME
 sudo journalctl -u syft-notify@USERNAME -f
 
 # Or view daemon logs directly
-tail -f ~/.syft-creds/syft-notify.log
+tail -f ~/.syft-bg/syft-notify.log
 ```
 
 ### Stop/Start/Restart
@@ -80,7 +80,7 @@ sudo systemctl disable syft-notify@USERNAME
 
 - **Auto-start on boot**: Service starts automatically when the system boots
 - **Auto-restart on failure**: If the daemon crashes, it will automatically restart after 10 seconds
-- **Log persistence**: Logs are saved to `~/.syft-creds/syft-notify.log`
+- **Log persistence**: Logs are saved to `~/.syft-bg/syft-notify.log`
 - **Security hardening**: Service runs with restricted permissions
 
 ## Troubleshooting
@@ -96,7 +96,7 @@ sudo systemctl disable syft-notify@USERNAME
 2. Verify config exists:
 
    ```bash
-   ls -la ~/.syft-creds/daemon.yaml
+   ls -la ~/.syft-bg/daemon.yaml
    ```
 
 3. Test manually first:
@@ -158,6 +158,6 @@ To manually rotate logs:
 
 ```bash
 syft-notify stop
-mv ~/.syft-creds/syft-notify.log ~/.syft-creds/syft-notify.log.old
+mv ~/.syft-bg/syft-notify.log ~/.syft-bg/syft-notify.log.old
 syft-notify start
 ```

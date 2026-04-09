@@ -29,9 +29,9 @@ syft-notify init
 
 This creates:
 
-- `~/.syft-creds/daemon.yaml` - Configuration
-- `~/.syft-creds/gmail_token.json` - Gmail OAuth token
-- `~/.syft-creds/token_do.json` - Google Drive OAuth token
+- `~/.syft-bg/daemon.yaml` - Configuration
+- `~/.syft-bg/gmail_token.json` - Gmail OAuth token
+- `~/.syft-bg/token_do.json` - Google Drive OAuth token
 
 ### 3. Start Daemon
 
@@ -99,20 +99,20 @@ syft-notify run --peers-only
 
 ## Configuration
 
-Edit `~/.syft-creds/daemon.yaml`:
+Edit `~/.syft-bg/daemon.yaml`:
 
 ```yaml
 do_email: test1@openmined.org
 syftbox_root: /home/user/SyftBox_test1@openmined.org
-drive_token_path: /home/user/.syft-creds/token_do.json
-gmail_token_path: /home/user/.syft-creds/gmail_token.json
+drive_token_path: /home/user/.syft-bg/token_do.json
+gmail_token_path: /home/user/.syft-bg/gmail_token.json
 interval: 30 # Check every 30 seconds
 ```
 
 ## File Locations
 
 ```
-~/.syft-creds/
+~/.syft-bg/
 ├── daemon.yaml                 # Configuration
 ├── gmail_token.json            # Gmail OAuth token
 ├── token_do.json               # Google Drive OAuth token
@@ -212,7 +212,7 @@ user=user
 autostart=true
 autorestart=true
 redirect_stderr=true
-stdout_logfile=/home/user/.syft-creds/syft-notify.log
+stdout_logfile=/home/user/.syft-bg/syft-notify.log
 ```
 
 ## Logging Integration
@@ -259,14 +259,14 @@ define command {
 
 ```bash
 # Count notifications per hour
-grep "✅ Sent" ~/.syft-creds/syft-notify.log | \
+grep "✅ Sent" ~/.syft-bg/syft-notify.log | \
   awk '{print $1" "$2}' | cut -d':' -f1 | uniq -c
 
 # Count errors
-grep "ERROR" ~/.syft-creds/syft-notify.log | wc -l
+grep "ERROR" ~/.syft-bg/syft-notify.log | wc -l
 
 # Check last notification time
-grep "✅ Sent" ~/.syft-creds/syft-notify.log | tail -1
+grep "✅ Sent" ~/.syft-bg/syft-notify.log | tail -1
 ```
 
 ## Troubleshooting
@@ -284,7 +284,7 @@ syft-notify logs --lines 100
 syft-notify run --once
 
 # Verify config
-cat ~/.syft-creds/daemon.yaml
+cat ~/.syft-bg/daemon.yaml
 ```
 
 ### No notifications received
@@ -292,7 +292,7 @@ cat ~/.syft-creds/daemon.yaml
 1. Check Gmail spam folder
 2. Verify tokens are valid:
    ```bash
-   ls -la ~/.syft-creds/*.json
+   ls -la ~/.syft-bg/*.json
    ```
 3. Run in foreground to see real-time output:
    ```bash
@@ -300,14 +300,14 @@ cat ~/.syft-creds/daemon.yaml
    ```
 4. Check notification state:
    ```bash
-   cat ~/.syft-creds/notification_state.json
+   cat ~/.syft-bg/notification_state.json
    ```
 
 ### Stale PID file
 
 ```bash
 # Remove stale PID file
-rm ~/.syft-creds/syft-notify.pid
+rm ~/.syft-bg/syft-notify.pid
 
 # Try starting again
 syft-notify start

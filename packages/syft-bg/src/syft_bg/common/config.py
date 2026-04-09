@@ -7,10 +7,10 @@ from typing import Any
 import yaml
 
 COLAB_DRIVE_PATH = Path("/content/drive/MyDrive")
-CREDS_DIR_NAME = "syft-creds"
+CREDS_DIR_NAME = "syft-bg"
 
 
-def get_creds_dir() -> Path:
+def get_syftbg_dir() -> Path:
     """Get the credentials directory, handling Colab vs local environments."""
     if COLAB_DRIVE_PATH.exists():
         return COLAB_DRIVE_PATH / CREDS_DIR_NAME
@@ -46,7 +46,7 @@ class DefaultPaths:
 
 def get_default_paths() -> DefaultPaths:
     """Get default paths for all services."""
-    creds = get_creds_dir()
+    creds = get_syftbg_dir()
     return DefaultPaths(
         # Shared
         config=creds / "config.yaml",

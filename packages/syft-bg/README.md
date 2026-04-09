@@ -136,14 +136,14 @@ SYFT-BG ENVIRONMENT CHECK
 ==================================================
 
 Checking credentials...
-  ✓ credentials.json found at ~/.syft-creds/credentials.json
+  ✓ credentials.json found at ~/.syft-bg/credentials.json
 
 Checking authentication tokens...
-  ✓ Gmail token: ~/.syft-creds/gmail_token.json
-  ✓ Drive token: ~/.syft-creds/token_do.json
+  ✓ Gmail token: ~/.syft-bg/gmail_token.json
+  ✓ Drive token: ~/.syft-bg/token_do.json
 
 Checking configuration...
-  ✓ Config file: ~/.syft-creds/config.yaml
+  ✓ Config file: ~/.syft-bg/config.yaml
 
 --------------------------------------------------
 ✅ Environment ready! Run 'syft-bg start' to begin.
@@ -165,7 +165,7 @@ To get credentials.json:
 1. Go to Google Cloud Console → APIs & Services → Credentials
 2. Create OAuth 2.0 Client ID (Desktop app)
 3. Download as credentials.json
-4. Place at `~/.syft-creds/credentials.json`
+4. Place at `~/.syft-bg/credentials.json`
 
 ## Services
 
@@ -191,7 +191,7 @@ Auto-approves peers and jobs based on your config:
 
 ## Configuration
 
-Config stored at `~/.syft-creds/config.yaml` (Colab: `/content/drive/MyDrive/syft-creds/config.yaml`).
+Config stored at `~/.syft-bg/config.yaml` (Colab: `/content/drive/MyDrive/syft-creds/config.yaml`).
 
 ```yaml
 do_email: you@example.com
@@ -255,7 +255,7 @@ syft-bg logs approve    # Approval service logs
 syft-bg logs notify -f  # Follow logs in real-time
 ```
 
-Log files stored at `~/.syft-creds/logs/`.
+Log files stored at `~/.syft-bg/logs/`.
 
 ## Colab / Jupyter
 

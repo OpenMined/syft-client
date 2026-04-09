@@ -1,6 +1,7 @@
 """CLI commands for syft-bg."""
 
 import hashlib
+import traceback
 from typing import Optional
 
 import click
@@ -185,151 +186,6 @@ def logs(service: str, follow: bool, lines: int):
 
 
 @main.command()
-# Core settings
-@click.option(
-    "--email",
-    "-e",
-    help="Data Owner email address.",
-)
-@click.option(
-    "--syftbox-root",
-    "-r",
-    help="SyftBox root directory.",
-)
-# Control flags
-@click.option(
-    "--yes",
-    "-y",
-    is_flag=True,
-    help="Auto-confirm update of existing configuration.",
-)
-@click.option(
-    "--quiet",
-    "-q",
-    is_flag=True,
-    help="Run with defaults, no prompts. Implies --skip-oauth.",
-)
-@click.option(
-    "--skip-oauth",
-    is_flag=True,
-    help="Skip OAuth setup. Tokens must already exist.",
-)
-# Notification settings
-@click.option(
-    "--notify-jobs/--no-notify-jobs",
-    default=None,
-    help="Enable/disable email notifications for new jobs.",
-)
-@click.option(
-    "--notify-peers/--no-notify-peers",
-    default=None,
-    help="Enable/disable email notifications for peer requests.",
-)
-@click.option(
-    "--notify-interval",
-    type=int,
-    help="Notification check interval in seconds. Default: 30.",
-)
-# Job approval settings
-@click.option(
-    "--approve-jobs/--no-approve-jobs",
-    default=None,
-    help="Enable/disable automatic job approval.",
-)
-# Peer approval settings
-@click.option(
-    "--approve-peers/--no-approve-peers",
-    default=None,
-    help="Enable/disable automatic peer approval.",
-)
-@click.option(
-    "--approved-domains",
-    help="Approved domains for peer auto-approval (comma-separated).",
-)
-@click.option(
-    "--approve-interval",
-    type=int,
-    help="Approval check interval in seconds. Default: 5.",
-)
-# OAuth/credentials paths
-@click.option(
-    "--credentials-path",
-    type=click.Path(),
-    help="Path to credentials.json for OAuth.",
-)
-@click.option(
-    "--gmail-token",
-    type=click.Path(),
-    help="Path to pre-existing Gmail token.",
-)
-@click.option(
-    "--drive-token",
-    type=click.Path(),
-    help="Path to pre-existing Drive token.",
-)
-def init(
-    email: str | None,
-    syftbox_root: str | None,
-    yes: bool,
-    quiet: bool,
-    skip_oauth: bool,
-    notify_jobs: bool | None,
-    notify_peers: bool | None,
-    notify_interval: int | None,
-    approve_jobs: bool | None,
-    approve_peers: bool | None,
-    approved_domains: str | None,
-    approve_interval: int | None,
-    credentials_path: str | None,
-    gmail_token: str | None,
-    drive_token: str | None,
-):
-    """Initialize all services with unified setup.
-
-    Examples:
-
-      syft-bg init
-
-      syft-bg init --email user@example.com
-
-      syft-bg init -e user@example.com -r ~/SyftBox --quiet --skip-oauth
-
-      syft-bg init --notify-jobs --no-notify-peers --approve-jobs
-    """
-    from syft_bg.cli.init import InitFlowError, UserPassedConfig, run_init_flow
-
-    parsed_approved_domains = None
-    if approved_domains:
-        parsed_approved_domains = [
-            d.strip() for d in approved_domains.split(",") if d.strip()
-        ]
-
-    config = UserPassedConfig(
-        email=email,
-        syftbox_root=syftbox_root,
-        yes=yes,
-        quiet=quiet,
-        skip_oauth=skip_oauth,
-        notify_jobs=notify_jobs,
-        notify_peers=notify_peers,
-        notify_interval=notify_interval,
-        approve_jobs=approve_jobs,
-        approve_peers=approve_peers,
-        approved_domains=parsed_approved_domains,
-        approve_interval=approve_interval,
-        credentials_path=credentials_path,
-        gmail_token_path=gmail_token,
-        drive_token_path=drive_token,
-    )
-
-    try:
-        run_init_flow(user_passed_config=config)
-    except InitFlowError as e:
-        click.echo(f"Error: {e}")
-        raise SystemExit(1)
-
-
-@main.command()
 def tui():
     """Launch interactive TUI dashboard."""
     from syft_bg.tui import SyftBgApp
@@ -357,10 +213,10 @@ def setup_status():
 
       syft-bg setup-status
     """
-    from syft_bg.common.config import get_creds_dir
+    from syft_bg.common.config import get_syftbg_dir
     from syft_bg.common.drive import is_colab
 
-    creds_dir = get_creds_dir()
+    creds_dir = get_syftbg_dir()
 
     click.echo()
     click.echo("SYFT-BG ENVIRONMENT CHECK")
@@ -492,8 +348,10 @@ def run(service: str, once: bool):
             orchestrator.check()
         else:
             orchestrator.run()
-    except FileNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
+    except FileNotFoundError:
+        click.echo(
+            f"Error initializing service {service}: {traceback.format_exc()}", err=True
+        )
         click.echo("Run 'syft-bg init' first to configure the service.", err=True)
         raise SystemExit(1)
 

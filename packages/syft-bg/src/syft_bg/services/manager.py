@@ -1,12 +1,12 @@
 from typing import Optional
 
 from syft_bg.services.base import Service, ServiceInfo, ServiceStatus
-from syft_bg.services.registry import SERVICES
+from syft_bg.services.registry import SERVICE_REGISTRY
 
 
 class ServiceManager:
     def __init__(self):
-        self.services = SERVICES
+        self.services = SERVICE_REGISTRY
 
     def list_services(self) -> list[str]:
         return list(self.services.keys())
@@ -20,37 +20,39 @@ class ServiceManager:
     def start_service(self, name: str) -> tuple[bool, str]:
         service = self.get_service(name)
         if not service:
-            return (False, f"Unknown service: {name}")
-        return service.start()
+            raise ValueError(f"Unknown service: {name}")
+        service.start()
 
     def stop_service(self, name: str) -> tuple[bool, str]:
         service = self.get_service(name)
         if not service:
-            return (False, f"Unknown service: {name}")
-        return service.stop()
+            raise ValueError(f"Unknown service: {name}")
+        service.stop()
 
     def restart_service(self, name: str) -> tuple[bool, str]:
         service = self.get_service(name)
         if not service:
-            return (False, f"Unknown service: {name}")
-        return service.restart()
+            raise ValueError(f"Unknown service: {name}")
+        service.restart()
 
     def start_all(self) -> dict[str, tuple[bool, str]]:
-        results = {}
         for name in self.services:
-            results[name] = self.start_service(name)
-        return results
+            try:
+                self.start_service(name)
+            except Exception as e:
+                print(f"Error starting service {name}: {e}")
 
     def stop_all(self) -> dict[str, tuple[bool, str]]:
-        results = {}
         for name in self.services:
-            results[name] = self.stop_service(name)
-        return results
+            try:
+                self.stop_service(name)
+            except Exception as e:
+                print(f"Error stopping service {name}: {e}")
 
     def get_logs(self, name: str, lines: int = 50) -> list[str]:
         service = self.get_service(name)
         if not service:
-            return []
+            raise ValueError(f"Unknown service: {name}")
         return service.get_logs(lines)
 
     def any_running(self) -> bool:
@@ -58,6 +60,12 @@ class ServiceManager:
             svc.get_status().status == ServiceStatus.RUNNING
             for svc in self.services.values()
         )
+
+    def is_running(self, name: str) -> bool:
+        service = self.get_service(name)
+        if not service:
+            raise ValueError(f"Unknown service: {name}")
+        return service.is_running()
 
     def all_running(self) -> bool:
         return all(

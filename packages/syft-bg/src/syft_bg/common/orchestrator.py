@@ -53,7 +53,7 @@ class BaseOrchestrator:
             self._peer_monitor.stop()
         self._threads.clear()
 
-    def check(self, monitor_type: Optional[MonitorType] = None) -> None:
+    def run_once(self, monitor_type: Optional[MonitorType] = None) -> None:
         """Run a single check cycle."""
         self._init_monitors()
 
@@ -70,7 +70,7 @@ class BaseOrchestrator:
         """Check if any monitor threads are running."""
         return any(t.is_alive() for t in self._threads)
 
-    def run(self, monitor_type: Optional[MonitorType] = None) -> None:
+    def run_loop(self, monitor_type: Optional[MonitorType] = None) -> None:
         """Run monitors in foreground (blocking)."""
         self._init_monitors()
         self._stop_event.clear()

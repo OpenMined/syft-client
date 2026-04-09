@@ -35,6 +35,7 @@ _COULD_BE_ID = re.compile(r"^[a-zA-Z0-9_-]{10,}$")
 def credentials_to_token(
     credentials_path: str | Path,
     output_path: str | Path | None = None,
+    store: bool = False,
 ) -> Path:
     """Convert a Google OAuth credentials.json to an authorized token file.
 
@@ -73,6 +74,15 @@ def credentials_to_token(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(creds.to_json())
+
+    if store:
+        path = Path.home() / ".syft-bg" / "token.json"
+        path.write_text(creds.to_json())
+        project_id_path = Path.home() / ".syft-bg" / "project_id.txt"
+        with open(credentials_path, "r") as f:
+            f.read().strip()
+        project_id_path.write_text(creds.project_id)
+
     return output_path
 
 
