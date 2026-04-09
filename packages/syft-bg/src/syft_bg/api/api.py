@@ -3,6 +3,9 @@
 import shutil
 from pathlib import Path
 
+from syft_bg.approve import ApprovalOrchestrator
+from syft_bg.email_approve import EmailApproveOrchestrator
+from syft_bg.notify import NotificationOrchestrator
 from syft_bg.api.results import AutoApproveResult, StatusResult
 from syft_bg.api.utils import (
     copy_and_hash_files,
@@ -19,73 +22,6 @@ from syft_bg.common.config import get_syftbg_dir, get_default_paths
 from syft_bg.common.drive import is_colab
 from syft_bg.common.syft_bg_config import SyftBgConfig
 from syft_bg.services import ServiceManager
-
-
-# perhaps add this later again
-# def authenticate(
-#     credentials_path: str | Path | None = None,
-# ) -> AuthResult:
-#     """Set up Gmail and Drive authentication interactively.
-
-#     Guides you through the OAuth flow step by step.
-#     Works in Colab, Jupyter, and terminal environments.
-
-#     Args:
-#         credentials_path: Path to credentials.json. Defaults to ~/.syft-bg/credentials.json
-
-#     Returns:
-#         AuthResult with status of each token.
-
-#     Example:
-#         >>> import syft_bg
-#         >>> syft_bg.authenticate()
-#     """
-#     creds_dir = get_syftbg_dir()
-#     colab = is_colab()
-
-#     creds_path = (
-#         Path(credentials_path).expanduser()
-#         if credentials_path
-#         else creds_dir / "credentials.json"
-#     )
-
-#     if not creds_path.exists():
-#         steps = credentials_setup_steps(creds_path, colab)
-#         msg = (
-#             f"credentials.json not found at {creds_path}\n{steps}\n"
-#             "  Then run syft_bg.authenticate() again"
-#         )
-#         return AuthResult(success=False, error=msg)
-
-#     gmail_out_token_path = creds_dir / "gmail_token.json"
-#     drive_out_token_path = creds_dir / "drive_token.json"
-#     gmail_ok = gmail_out_token_path.exists()
-#     drive_ok = drive_out_token_path.exists() or colab
-
-#     # --- Gmail token ---
-#     if not gmail_ok:
-#         authenticate_and_save(gmail_out_token_path, creds_path)
-#     else:
-#         print(f"Gmail token already exists at {gmail_out_token_path}")
-
-#     # --- Drive token ---
-#     if colab:
-#         print("Drive authentication: handled natively by Colab")
-#         drive_ok = True
-#     elif not drive_ok:
-#         authenticate_drive(drive_out_token_path, creds_path)
-#     else:
-#         print(f"Drive token already exists at {drive_out_token_path}")
-
-#     # Save GCP project ID from credentials.json into config so it's
-#     # available at runtime without needing the credentials file.
-#     save_gcp_project_id(creds_path)
-
-#     return AuthResult(
-#         success=gmail_ok and drive_ok,
-#         gmail_ok=gmail_ok,
-#         drive_ok=drive_ok,
-#     )
 
 
 def init(
@@ -228,6 +164,35 @@ def logs(service: str, n: int = 50) -> list[str]:
     return manager.get_logs(service, n)
 
 
+def run_foreground(service: str, once: bool = False) -> None:
+    """Run a service in the foreground (blocking).
+
+    Args:
+        service: Service name ("notify", "approve", or "email_approve").
+        once: If True, run a single check cycle and exit.
+    """
+
+    config = SyftBgConfig.from_path()
+
+    orchestrators = {
+        "notify": lambda: NotificationOrchestrator.from_config(config.notify),
+        "approve": lambda: ApprovalOrchestrator.from_config(config.approve),
+        "email_approve": lambda: EmailApproveOrchestrator.from_config(
+            config.email_approve
+        ),
+    }
+
+    if service not in orchestrators:
+        raise ValueError(f"Unknown service: {service}")
+
+    orchestrator = orchestrators[service]()
+
+    if once:
+        orchestrator.run_once()
+    else:
+        orchestrator.run()
+
+
 # ---------------------------------------------------------------------------
 # Status
 # ---------------------------------------------------------------------------
@@ -250,17 +215,13 @@ def status() -> StatusResult:
           gmail:       ready
         ...
     """
-    from syft_bg.common.config import load_yaml
     from syft_bg.services.base import ServiceStatus
 
-    creds_dir = get_syftbg_dir()
-    paths = get_default_paths()
-    colab = is_colab()
+    try:
+        config = SyftBgConfig.from_path()
+    except FileNotFoundError:
+        config = SyftBgConfig()
 
-    # Load config
-    config = load_yaml(paths.config)
-
-    # Service status
     manager = ServiceManager()
     services = {}
     for name, info in manager.get_all_status().items():
@@ -269,36 +230,13 @@ def status() -> StatusResult:
         else:
             services[name] = "stopped"
 
-    # Gmail token
-    gmail_token_path = creds_dir / "gmail_token.json"
-    email_configured = gmail_token_path.exists()
-
-    # Approval config
-    auto_approvals: dict[str, dict] = {}
-    approved_domains: list[str] = []
-    approve_section = config.get("approve", {})
-    aa_section = approve_section.get("auto_approvals", {})
-    peers_section = approve_section.get("peers", {})
-
-    for obj_name, obj_data in aa_section.get("objects", {}).items():
-        auto_approvals[obj_name] = {
-            "file_contents": [
-                s.get("name", "?") for s in obj_data.get("file_contents", [])
-            ],
-            "file_paths": obj_data.get("file_paths", []),
-            "peers": obj_data.get("peers", []),
-        }
-
-    approved_domains = peers_section.get("approved_domains", [])
+    gmail_token_path = get_syftbg_dir() / "gmail_token.json"
 
     return StatusResult(
-        email=config.get("do_email"),
-        syftbox_root=config.get("syftbox_root"),
+        config=config,
         services=services,
-        email_configured=email_configured,
-        auto_approvals=auto_approvals,
-        approved_domains=approved_domains,
-        is_colab=colab,
+        email_configured=gmail_token_path.exists(),
+        is_colab=is_colab(),
     )
 
 

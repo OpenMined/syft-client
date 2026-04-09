@@ -82,16 +82,18 @@ class Service:
         # Open log file for output
         log_fd = open(self.log_file, "a")
 
-        # Spawn syft-bg run --service <name> as a daemon
-        # Use -u for unbuffered output so logs appear immediately
+        # Spawn a subprocess that runs the orchestrator via the API
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         env["SYFT_BG_DAEMON"] = "1"
+        script = (
+            f"from syft_bg.api.api import run_foreground; run_foreground('{self.name}')"
+        )
         process = subprocess.Popen(
-            [sys.executable, "-u", "-m", "syft_bg", "run", "--service", self.name],
+            [sys.executable, "-u", "-c", script],
             stdout=log_fd,
             stderr=subprocess.STDOUT,
-            start_new_session=True,  # Detach from parent process group
+            start_new_session=True,
             env=env,
         )
 

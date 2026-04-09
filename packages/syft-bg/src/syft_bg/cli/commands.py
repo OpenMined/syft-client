@@ -5,10 +5,6 @@ from typing import Optional
 
 import click
 
-from syft_bg.approve import ApprovalOrchestrator
-from syft_bg.common.syft_bg_config import SyftBgConfig
-from syft_bg.email_approve import EmailApproveOrchestrator
-from syft_bg.notify import NotificationOrchestrator
 from syft_bg.services import ServiceManager, ServiceStatus
 
 
@@ -307,7 +303,7 @@ def setup_status():
     click.echo()
 
 
-@main.command()
+@main.command("run-foreground")
 @click.option(
     "--service",
     "-s",
@@ -316,7 +312,7 @@ def setup_status():
     help="Service to run",
 )
 @click.option("--once", is_flag=True, help="Run single check cycle and exit")
-def run(service: str, once: bool):
+def run_foreground(service: str, once: bool):
     """Run a service in foreground.
 
     This command is used internally by 'syft-bg start' to spawn services
@@ -324,29 +320,14 @@ def run(service: str, once: bool):
 
     Examples:
 
-      syft-bg run --service notify
+      syft-bg run-foreground --service notify
 
-      syft-bg run --service approve --once
+      syft-bg run-foreground --service approve --once
     """
-    try:
-        config = SyftBgConfig.from_path()
-    except FileNotFoundError:
-        click.echo("Error: config not found.", err=True)
-        click.echo("Run 'syft-bg init' first to configure the service.", err=True)
-        raise SystemExit(1)
+    from syft_bg.api.api import run_foreground as api_run_foreground
 
     try:
-        if service == "notify":
-            orchestrator = NotificationOrchestrator.from_config(config.notify)
-        elif service == "approve":
-            orchestrator = ApprovalOrchestrator.from_config(config.approve)
-        elif service == "email_approve":
-            orchestrator = EmailApproveOrchestrator.from_config(config.email_approve)
-
-        if once:
-            orchestrator.check()
-        else:
-            orchestrator.run()
+        api_run_foreground(service=service, once=once)
     except FileNotFoundError:
         click.echo(
             f"Error initializing service {service}: {traceback.format_exc()}", err=True

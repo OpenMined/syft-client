@@ -257,7 +257,7 @@ See the [Python API docs](docs/python-api.md) for programmatic usage. Drive cred
 Run services in foreground for debugging:
 
 ```bash
-syft-bg run --service notify   # Run notify in foreground
-syft-bg run --service approve  # Run approve in foreground
-syft-bg run --once             # Single check cycle, then exit
+syft-bg run-foreground --service notify   # Run notify in foreground
+syft-bg run-foreground --service approve  # Run approve in foreground
+syft-bg run-foreground --once             # Single check cycle, then exit
 ```
