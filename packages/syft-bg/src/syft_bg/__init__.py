@@ -9,7 +9,6 @@ from syft_bg.api import (
     auto_approve,
     auto_approve_job,
     ensure_running,
-    configure,
     logs,
     restart,
     reset,
@@ -20,7 +19,6 @@ from syft_bg.services import ServiceManager
 
 __all__ = [
     "ServiceManager",
-    "configure",
     "InitResult",
     "authenticate",
     "AuthResult",

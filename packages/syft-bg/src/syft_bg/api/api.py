@@ -91,7 +91,7 @@ def authenticate(
     )
 
 
-def configure(
+def init(
     do_email: str,
     syftbox_root: str | Path | None = None,
     token_path: str | Path | None = None,
