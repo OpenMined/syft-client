@@ -1,6 +1,5 @@
 """Notification orchestrator for email notifications."""
 
-from pathlib import Path
 from typing import Optional
 
 from syft_bg.common.drive import is_colab
@@ -20,8 +19,6 @@ class NotificationOrchestrator(BaseOrchestrator):
 
     def __init__(
         self,
-        do_email: str,
-        syftbox_root: Path,
         config: NotifyConfig,
         job_monitor: JobMonitor,
         peer_monitor: Optional[PeerMonitor] = None,
@@ -30,6 +27,14 @@ class NotificationOrchestrator(BaseOrchestrator):
         self.config = config
         self._job_monitor = job_monitor
         self._peer_monitor: Optional[PeerMonitor] = peer_monitor
+
+    def _init_monitors(self):
+        """No-op: monitors are created in from_config."""
+        pass
+
+    def setup(self) -> None:
+        """Verify Gmail credentials are valid."""
+        self._job_monitor.handler.sender.verify()
 
     @classmethod
     def from_config(

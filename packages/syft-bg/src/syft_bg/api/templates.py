@@ -6,7 +6,10 @@ syft-bg status
   email:       {email}
   syftbox:     {syftbox_root}
   environment: {env}
-  gmail:       {gmail}
+
+tokens
+{line}
+{tokens}
 
 services
 {line}

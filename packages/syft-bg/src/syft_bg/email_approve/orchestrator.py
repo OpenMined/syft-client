@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from syft_bg.common.config import get_default_paths
+from syft_bg.common.orchestrator import BaseOrchestrator
 from syft_bg.common.state import JsonStateManager
 from syft_bg.email_approve.config import EmailApproveConfig
 from syft_bg.email_approve.gmail_watch import GmailWatcher
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
 
 
-class EmailApproveOrchestrator:
+class EmailApproveOrchestrator(BaseOrchestrator):
     """Orchestrator for email-based job approval via Gmail push notifications."""
 
     def __init__(
@@ -26,9 +27,25 @@ class EmailApproveOrchestrator:
         config: EmailApproveConfig,
         monitor: Optional[EmailApproveMonitor] = None,
     ):
+        super().__init__()
         self.syft_client = client
         self.config = config
         self._monitor: Optional[EmailApproveMonitor] = monitor
+
+    def _init_monitors(self):
+        """No-op: push-based service uses EmailApproveMonitor directly."""
+        pass
+
+    def setup(self) -> None:
+        """Verify Gmail credentials and Pub/Sub are accessible."""
+        profile = (
+            self._monitor.watcher._service.users().getProfile(userId="me").execute()
+        )
+        if self.config.gcp_project_id is None:
+            raise ValueError(
+                "GCP project ID not found, please set it in ~/.syft-bg/config.yaml"
+            )
+        print(f"[EmailApproveOrchestrator] Gmail OK: {profile.get('emailAddress')}")
 
     @classmethod
     def from_config(
@@ -40,6 +57,12 @@ class EmailApproveOrchestrator:
             raise ValueError("Config missing 'do_email' field")
         if not config.syftbox_root:
             raise ValueError("Config missing 'syftbox_root' field")
+
+        if not config.gmail_token_path.exists():
+            raise FileNotFoundError(
+                f"Gmail token not found: {config.gmail_token_path}\n"
+                "Run 'syft-bg init' first."
+            )
 
         client = _create_syft_client(config)
         credentials = GmailAuth().load_credentials(config.gmail_token_path)
@@ -55,6 +78,13 @@ class EmailApproveOrchestrator:
             do_email=config.do_email,
         )
 
+        # Auto-create Pub/Sub resources if needed
+        if not config.pubsub_topic or not config.pubsub_subscription:
+            topic_path, sub_path = setup_pubsub(credentials, config.gcp_project_id)
+            config.pubsub_topic = topic_path
+            config.pubsub_subscription = sub_path
+            config.save_pubsub_config()
+
         monitor = EmailApproveMonitor(
             watcher=watcher,
             handler=handler,
@@ -64,18 +94,6 @@ class EmailApproveOrchestrator:
             topic_name=config.pubsub_topic,
             do_email=config.do_email,
         )
-
-        # Auto-create Pub/Sub resources if needed
-        if not config.pubsub_topic or not config.pubsub_subscription:
-            topic_path, sub_path = setup_pubsub(credentials, config.gcp_project_id)
-            config.pubsub_topic = topic_path
-            config.pubsub_subscription = sub_path
-            config.save_pubsub_config()
-
-        if not config.gmail_token_path.exists():
-            raise FileNotFoundError(
-                f"Gmail token not found: {config.gmail_token_path}\nRun 'syft-bg init' first."
-            )
 
         return cls(client=client, config=config, monitor=monitor)
 
@@ -97,11 +115,10 @@ class EmailApproveOrchestrator:
             self._monitor.stop()
 
     def run_once(self) -> None:
-        """Run a single check (for --once mode). Not meaningful for push-based."""
-        self._init()
+        """Not meaningful for push-based service."""
         print(
             "[EmailApproveOrchestrator] Push-based service does not support "
-            "--once. Use 'run' instead."
+            "--once. Use run_loop instead."
         )
 
     def stop(self) -> None:

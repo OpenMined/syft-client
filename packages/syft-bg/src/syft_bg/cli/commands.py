@@ -41,19 +41,26 @@ def status():
     click.echo(f"{'SERVICE':<12} {'STATUS':<12} {'PID':<10} {'DESCRIPTION'}")
     click.echo("-" * 50)
 
+    from syft_bg.api.utils import load_setup_state
+    from syft_bg.common.setup_state import SetupStatus as SStatus
+
     for name, info in all_status.items():
         service = manager.get_service(name)
-        status_text = get_status_text(info.status)
         pid_text = str(info.pid) if info.pid else "-"
 
         if info.status == ServiceStatus.RUNNING:
             click.echo(
-                f"{name:<12} {'● ' + status_text:<12} {pid_text:<10} {service.description}"
+                f"{name:<12} {'● Running':<12} {pid_text:<10} {service.description}"
             )
         else:
-            click.echo(
-                f"{name:<12} {'○ ' + status_text:<12} {pid_text:<10} {service.description}"
-            )
+            setup = load_setup_state(name)
+            if setup and setup.setup_status == SStatus.ERROR:
+                click.echo(f"{name:<12} {'✗ Error':<12} {pid_text:<10} {setup.error}")
+            else:
+                status_text = get_status_text(info.status)
+                click.echo(
+                    f"{name:<12} {'○ ' + status_text:<12} {pid_text:<10} {service.description}"
+                )
 
     click.echo()
 

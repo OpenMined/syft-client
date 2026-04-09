@@ -79,6 +79,8 @@ class EmailApproveHandler:
         job_name = self.notify_state.get_job_name_by_thread_id(thread_id)
         if not job_name:
             raise ValueError(f"No job found for thread {thread_id}")
+        else:
+            print(f"[EmailApproveHandler] Job found for thread {thread_id}: {job_name}")
 
         state_key = f"email_reply_{thread_id}"
         if self.state.was_notified(state_key, "processed"):

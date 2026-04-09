@@ -11,7 +11,82 @@ from syft_bg.common.syft_bg_config import SyftBgConfig
 from syft_bg.email_approve.pubsub_setup import get_project_id_from_credentials
 
 
+from syft_bg.common.setup_state import SetupState, SetupStatus
+
 PERMISSION_FILE_NAME = "syft.pub.yaml"
+
+
+def get_setup_state_path(service: str) -> Path:
+    """Get the setup_state.json path for a service."""
+    paths = get_default_paths()
+    mapping = {
+        "notify": paths.notify_setup_state,
+        "approve": paths.approve_setup_state,
+        "email_approve": paths.email_approve_setup_state,
+    }
+    return mapping[service]
+
+
+def clear_setup_state(path: Path) -> None:
+    """Remove old setup state so stale errors don't persist."""
+    if path.exists():
+        path.unlink()
+
+
+def write_setup_state(
+    service: str, path: Path, status: SetupStatus, error: str | None = None
+) -> None:
+    """Write a SetupState to disk."""
+    state = SetupState(
+        service_name=service,
+        setup_status=status,
+        error=error,
+    )
+    state.save(path)
+
+
+def setup_orchestrator(service: str):
+    """Create an orchestrator, run setup(), and persist state.
+
+    Loads config, builds the orchestrator via from_config, calls setup(),
+    and writes the result to setup_state.json. On failure the full
+    traceback is captured in the state file.
+    """
+    import traceback
+
+    from syft_bg.approve import ApprovalOrchestrator
+    from syft_bg.common.syft_bg_config import SyftBgConfig
+    from syft_bg.email_approve import EmailApproveOrchestrator
+    from syft_bg.notify import NotificationOrchestrator
+
+    config = SyftBgConfig.from_path()
+    state_path = get_setup_state_path(service)
+    clear_setup_state(state_path)
+
+    try:
+        if service == "notify":
+            orchestrator = NotificationOrchestrator.from_config(config.notify)
+        elif service == "approve":
+            orchestrator = ApprovalOrchestrator.from_config(config.approve)
+        elif service == "email_approve":
+            orchestrator = EmailApproveOrchestrator.from_config(config.email_approve)
+        else:
+            raise ValueError(f"Unknown service: {service}")
+        orchestrator.setup()
+    except Exception:
+        write_setup_state(
+            service, state_path, SetupStatus.ERROR, traceback.format_exc()
+        )
+        raise
+
+    write_setup_state(service, state_path, SetupStatus.SUCCESS)
+    return orchestrator
+
+
+def load_setup_state(service: str) -> SetupState | None:
+    """Load setup state for a service, or None if not found."""
+    path = get_setup_state_path(service)
+    return SetupState.load(path)
 
 
 def move_token_to_syftbg_dir(token_path: Path) -> Path:

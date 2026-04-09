@@ -24,6 +24,12 @@ class BaseOrchestrator:
         self._stop_event = threading.Event()
         self.interval: int = 30
 
+    def setup(self) -> None:
+        """Validate external dependencies. Override in subclasses.
+
+        Raises on failure so the error message and traceback are captured.
+        """
+
     def _init_monitors(self):
         """Initialize job and peer monitors. Override in subclass."""
         raise NotImplementedError("Subclass must implement _init_monitors()")

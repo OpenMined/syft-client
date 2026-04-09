@@ -73,9 +73,14 @@ class GmailAuth:
         return run_oauth_flow_manual(flow)
 
     def load_credentials(self, token_path: Path) -> Credentials:
-        """Load credentials from token file, refreshing if needed."""
+        """Load credentials from token file, refreshing if needed.
+
+        Loads without restricting scopes so a shared token file
+        (e.g. one that also carries Drive scopes) is not narrowed
+        on refresh.
+        """
         token_path = Path(token_path).expanduser()
-        creds = Credentials.from_authorized_user_file(str(token_path), GMAIL_SCOPES)
+        creds = Credentials.from_authorized_user_file(str(token_path))
 
         if creds.expired and creds.refresh_token:
             creds.refresh(Request())

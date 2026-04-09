@@ -32,6 +32,10 @@ class ApprovalOrchestrator(BaseOrchestrator):
         self._state = JsonStateManager(paths.approve_state)
         self._monitors_initialized = False
 
+    def setup(self) -> None:
+        """Verify client and config by initializing monitors."""
+        self._init_monitors()
+
     @classmethod
     def from_client(
         cls,

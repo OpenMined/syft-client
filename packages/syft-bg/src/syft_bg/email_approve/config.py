@@ -13,6 +13,9 @@ class EmailApproveConfig(BaseModel):
 
     do_email: Optional[str] = None
     syftbox_root: Optional[Path] = None
+    gmail_token_path: Path = Field(
+        default_factory=lambda: get_default_paths().gmail_token
+    )
     gcp_project_id: Optional[str] = None
     pubsub_topic: Optional[str] = None
     pubsub_subscription: Optional[str] = None

@@ -3,9 +3,6 @@
 import shutil
 from pathlib import Path
 
-from syft_bg.approve import ApprovalOrchestrator
-from syft_bg.email_approve import EmailApproveOrchestrator
-from syft_bg.notify import NotificationOrchestrator
 from syft_bg.api.results import AutoApproveResult, StatusResult
 from syft_bg.api.utils import (
     copy_and_hash_files,
@@ -15,6 +12,7 @@ from syft_bg.api.utils import (
     resolve_auto_approve_file_args,
     resolve_content_files,
     restart_approve_service,
+    setup_orchestrator,
     validate_auto_approve_job_inputs,
 )
 from syft_bg.approve.config import AutoApproveConfig, AutoApprovalObj
@@ -23,11 +21,15 @@ from syft_bg.common.drive import is_colab
 from syft_bg.common.syft_bg_config import SyftBgConfig
 from syft_bg.services import ServiceManager
 
+# This file should only contain user facing methods,
+# util functions should be in the utils.py file.
+
 
 def init(
     do_email: str,
     syftbox_root: str | Path | None = None,
     token_path: str | Path | None = None,
+    settings: dict[str, dict] | None = None,
 ) -> None:
     if token_path is not None:
         token_path = Path(token_path)
@@ -39,6 +41,11 @@ def init(
         token_path=token_path,
         drive_token_path=token_path,
     )
+
+    if settings:
+        for service_name, service_settings in settings.items():
+            config.set_service_config(service_name, service_settings)
+
     config.save()
     print(f"Config saved to {get_default_paths().config}")
 
@@ -150,7 +157,7 @@ def reset() -> None:
     print("Reset complete: stopped services, cleared state, logs, and PID files.")
 
 
-def logs(service: str, n: int = 50) -> list[str]:
+def logs(service: str, n: int = 50, as_list: bool = False) -> list[str]:
     """Get recent log lines for a service.
 
     Args:
@@ -161,7 +168,10 @@ def logs(service: str, n: int = 50) -> list[str]:
         List of log lines.
     """
     manager = ServiceManager()
-    return manager.get_logs(service, n)
+    results = manager.get_logs(service, n)
+    if as_list:
+        return results
+    print("\n".join(results))
 
 
 def run_foreground(service: str, once: bool = False) -> None:
@@ -171,26 +181,12 @@ def run_foreground(service: str, once: bool = False) -> None:
         service: Service name ("notify", "approve", or "email_approve").
         once: If True, run a single check cycle and exit.
     """
-
-    config = SyftBgConfig.from_path()
-
-    orchestrators = {
-        "notify": lambda: NotificationOrchestrator.from_config(config.notify),
-        "approve": lambda: ApprovalOrchestrator.from_config(config.approve),
-        "email_approve": lambda: EmailApproveOrchestrator.from_config(
-            config.email_approve
-        ),
-    }
-
-    if service not in orchestrators:
-        raise ValueError(f"Unknown service: {service}")
-
-    orchestrator = orchestrators[service]()
+    orchestrator = setup_orchestrator(service)
 
     if once:
         orchestrator.run_once()
     else:
-        orchestrator.run()
+        orchestrator.run_loop()
 
 
 # ---------------------------------------------------------------------------
@@ -225,17 +221,17 @@ def status() -> StatusResult:
     manager = ServiceManager()
     services = {}
     for name, info in manager.get_all_status().items():
+        svc = manager.get_service(name)
+        if not svc.pid_file.parent.exists():
+            continue
         if info.status == ServiceStatus.RUNNING:
             services[name] = f"running (PID {info.pid})"
         else:
             services[name] = "stopped"
 
-    gmail_token_path = get_syftbg_dir() / "gmail_token.json"
-
     return StatusResult(
         config=config,
         services=services,
-        email_configured=gmail_token_path.exists(),
         is_colab=is_colab(),
     )
 
