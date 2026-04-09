@@ -3,92 +3,89 @@
 import shutil
 from pathlib import Path
 
-from syft_bg.api.results import AuthResult, AutoApproveResult, StatusResult
+from syft_bg.api.results import AutoApproveResult, StatusResult
 from syft_bg.api.utils import (
     copy_and_hash_files,
-    credentials_setup_steps,
     generate_unique_name,
     get_job_user_files,
     move_token_to_syftbg_dir,
     resolve_auto_approve_file_args,
     resolve_content_files,
     restart_approve_service,
-    save_gcp_project_id,
     validate_auto_approve_job_inputs,
 )
 from syft_bg.approve.config import AutoApproveConfig, AutoApprovalObj
-from syft_bg.auth import authenticate_drive
 from syft_bg.common.config import get_syftbg_dir, get_default_paths
 from syft_bg.common.drive import is_colab
 from syft_bg.common.syft_bg_config import SyftBgConfig
-from syft_bg.notify.gmail.auth import authenticate_and_save
 from syft_bg.services import ServiceManager
 
 
-def authenticate(
-    credentials_path: str | Path | None = None,
-) -> AuthResult:
-    """Set up Gmail and Drive authentication interactively.
+# perhaps add this later again
+# def authenticate(
+#     credentials_path: str | Path | None = None,
+# ) -> AuthResult:
+#     """Set up Gmail and Drive authentication interactively.
 
-    Guides you through the OAuth flow step by step.
-    Works in Colab, Jupyter, and terminal environments.
+#     Guides you through the OAuth flow step by step.
+#     Works in Colab, Jupyter, and terminal environments.
 
-    Args:
-        credentials_path: Path to credentials.json. Defaults to ~/.syft-bg/credentials.json
+#     Args:
+#         credentials_path: Path to credentials.json. Defaults to ~/.syft-bg/credentials.json
 
-    Returns:
-        AuthResult with status of each token.
+#     Returns:
+#         AuthResult with status of each token.
 
-    Example:
-        >>> import syft_bg
-        >>> syft_bg.authenticate()
-    """
-    creds_dir = get_syftbg_dir()
-    colab = is_colab()
+#     Example:
+#         >>> import syft_bg
+#         >>> syft_bg.authenticate()
+#     """
+#     creds_dir = get_syftbg_dir()
+#     colab = is_colab()
 
-    creds_path = (
-        Path(credentials_path).expanduser()
-        if credentials_path
-        else creds_dir / "credentials.json"
-    )
+#     creds_path = (
+#         Path(credentials_path).expanduser()
+#         if credentials_path
+#         else creds_dir / "credentials.json"
+#     )
 
-    if not creds_path.exists():
-        steps = credentials_setup_steps(creds_path, colab)
-        msg = (
-            f"credentials.json not found at {creds_path}\n{steps}\n"
-            "  Then run syft_bg.authenticate() again"
-        )
-        return AuthResult(success=False, error=msg)
+#     if not creds_path.exists():
+#         steps = credentials_setup_steps(creds_path, colab)
+#         msg = (
+#             f"credentials.json not found at {creds_path}\n{steps}\n"
+#             "  Then run syft_bg.authenticate() again"
+#         )
+#         return AuthResult(success=False, error=msg)
 
-    gmail_out_token_path = creds_dir / "gmail_token.json"
-    drive_out_token_path = creds_dir / "drive_token.json"
-    gmail_ok = gmail_out_token_path.exists()
-    drive_ok = drive_out_token_path.exists() or colab
+#     gmail_out_token_path = creds_dir / "gmail_token.json"
+#     drive_out_token_path = creds_dir / "drive_token.json"
+#     gmail_ok = gmail_out_token_path.exists()
+#     drive_ok = drive_out_token_path.exists() or colab
 
-    # --- Gmail token ---
-    if not gmail_ok:
-        authenticate_and_save(gmail_out_token_path, creds_path)
-    else:
-        print(f"Gmail token already exists at {gmail_out_token_path}")
+#     # --- Gmail token ---
+#     if not gmail_ok:
+#         authenticate_and_save(gmail_out_token_path, creds_path)
+#     else:
+#         print(f"Gmail token already exists at {gmail_out_token_path}")
 
-    # --- Drive token ---
-    if colab:
-        print("Drive authentication: handled natively by Colab")
-        drive_ok = True
-    elif not drive_ok:
-        authenticate_drive(drive_out_token_path, creds_path)
-    else:
-        print(f"Drive token already exists at {drive_out_token_path}")
+#     # --- Drive token ---
+#     if colab:
+#         print("Drive authentication: handled natively by Colab")
+#         drive_ok = True
+#     elif not drive_ok:
+#         authenticate_drive(drive_out_token_path, creds_path)
+#     else:
+#         print(f"Drive token already exists at {drive_out_token_path}")
 
-    # Save GCP project ID from credentials.json into config so it's
-    # available at runtime without needing the credentials file.
-    save_gcp_project_id(creds_path)
+#     # Save GCP project ID from credentials.json into config so it's
+#     # available at runtime without needing the credentials file.
+#     save_gcp_project_id(creds_path)
 
-    return AuthResult(
-        success=gmail_ok and drive_ok,
-        gmail_ok=gmail_ok,
-        drive_ok=drive_ok,
-    )
+#     return AuthResult(
+#         success=gmail_ok and drive_ok,
+#         gmail_ok=gmail_ok,
+#         drive_ok=drive_ok,
+#     )
 
 
 def init(

@@ -397,6 +397,25 @@ def init(email: str, syftbox_root: str | None, token_path: str | None):
     )
 
 
+@main.command("ensure-running")
+@click.argument("services", nargs=-1, required=True)
+@click.option(
+    "--restart", is_flag=True, help="Restart services even if already running"
+)
+def ensure_running(services: tuple[str, ...], restart: bool):
+    """Start services if they aren't already running.
+
+    Examples:
+
+      syft-bg ensure-running notify approve
+
+      syft-bg ensure-running notify --restart
+    """
+    from syft_bg.api.api import ensure_running as api_ensure_running
+
+    api_ensure_running(list(services), restart=restart)
+
+
 @main.command("auto-approve")
 @click.argument("contents", nargs=-1, required=True, type=click.Path(exists=True))
 @click.option(

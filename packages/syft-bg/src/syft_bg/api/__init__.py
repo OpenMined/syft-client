@@ -1,8 +1,8 @@
 from syft_bg.api.api import (
-    authenticate as authenticate,
     auto_approve as auto_approve,
     auto_approve_job as auto_approve_job,
     ensure_running as ensure_running,
+    init as init,
     logs as logs,
     reset as reset,
     restart as restart,
