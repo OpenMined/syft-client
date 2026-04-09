@@ -89,7 +89,6 @@ def _print_sync_health() -> None:
     click.echo(f"  Duration:    {snapshot.sync_duration_ms}ms")
     click.echo(f"  Jobs:        {len(snapshot.job_names)}")
     click.echo(f"  Peers:       {len(snapshot.approved_peer_emails)}")
-    click.echo(f"  Inbox msgs:  {len(snapshot.inbox_messages)}")
 
     if snapshot.sync_error:
         click.echo(f"  Last error:  {snapshot.sync_error}")

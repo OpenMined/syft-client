@@ -8,7 +8,7 @@ from pathlib import Path
 from syft_bg.common.config import get_default_paths
 from syft_bg.common.syft_bg_config import SyftBgConfig
 from syft_bg.sync.config import SyncConfig
-from syft_bg.sync.snapshot import InboxMessage, SyncSnapshot
+from syft_bg.sync.snapshot import SyncSnapshot
 from syft_bg.sync.snapshot_reader import SnapshotReader
 from syft_bg.sync.snapshot_writer import SnapshotWriter
 
@@ -27,19 +27,12 @@ class TestSyncConfig:
         assert config.do_email == "a@b.com"
 
 
-class TestInboxMessage:
-    def test_roundtrip(self):
-        msg = InboxMessage(job_name="j1", submitter="ds@test.com", message_id="abc")
-        restored = InboxMessage.model_validate(msg.model_dump())
-        assert restored.job_name == "j1"
-        assert restored.submitter == "ds@test.com"
-        assert restored.message_id == "abc"
-
-
 class TestSyncSnapshot:
     def test_defaults(self):
         snap = SyncSnapshot(sync_time=1000.0)
         assert snap.job_names == []
+        assert snap.peer_emails == []
+        assert snap.approved_peer_emails == []
         assert snap.sync_error is None
         assert snap.sync_count == 0
 
@@ -48,15 +41,13 @@ class TestSyncSnapshot:
             sync_time=1000.0,
             sync_count=5,
             job_names=["j1"],
+            peer_emails=["a@b.com", "c@d.com"],
             approved_peer_emails=["a@b.com"],
-            inbox_messages=[
-                InboxMessage(job_name="j1", submitter="ds@t.com", message_id="x")
-            ],
         )
         restored = SyncSnapshot.model_validate(snap.model_dump())
         assert restored.sync_count == 5
-        assert len(restored.inbox_messages) == 1
-        assert restored.inbox_messages[0].job_name == "j1"
+        assert restored.peer_emails == ["a@b.com", "c@d.com"]
+        assert restored.approved_peer_emails == ["a@b.com"]
 
 
 class TestSnapshotWriter:

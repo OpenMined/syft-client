@@ -7,7 +7,7 @@ from click.testing import CliRunner
 
 from syft_bg.cli.commands import status
 from syft_bg.common.config import DefaultPaths
-from syft_bg.sync.snapshot import InboxMessage, SyncSnapshot
+from syft_bg.sync.snapshot import SyncSnapshot
 from syft_bg.sync.snapshot_writer import SnapshotWriter
 
 
@@ -46,9 +46,6 @@ class TestSyncHealthInStatus:
             snapshot_path,
             job_names=["job1", "job2"],
             approved_peer_emails=["a@t.com"],
-            inbox_messages=[
-                InboxMessage(job_name="j1", submitter="ds@t.com", message_id="m1")
-            ],
         )
         paths = _make_paths(temp_dir)
         with patch("syft_bg.common.config.get_default_paths", return_value=paths):
@@ -58,7 +55,6 @@ class TestSyncHealthInStatus:
         assert "Sync count:  5" in result.output
         assert "Jobs:        2" in result.output
         assert "Peers:       1" in result.output
-        assert "Inbox msgs:  1" in result.output
 
     def test_no_sync_health_when_no_snapshot(self, temp_dir):
         paths = _make_paths(temp_dir)

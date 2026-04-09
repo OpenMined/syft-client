@@ -2,11 +2,10 @@
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 import yaml
 
-from syft_bg.common.drive import create_drive_service, is_colab
 from syft_bg.common.monitor import Monitor
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.handlers.job import JobHandler
@@ -14,12 +13,9 @@ from syft_bg.notify.handlers.job import JobHandler
 if TYPE_CHECKING:
     from syft_bg.sync.snapshot_reader import SnapshotReader
 
-GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX = "syft_outbox_inbox"
-GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
-
 
 class JobMonitor(Monitor):
-    """Monitors for new jobs and job status changes."""
+    """Monitors for new jobs and job status changes via local filesystem."""
 
     def __init__(
         self,
@@ -27,7 +23,6 @@ class JobMonitor(Monitor):
         do_email: str,
         handler: JobHandler,
         state: JsonStateManager,
-        drive_token_path: Optional[Path] = None,
         snapshot_reader: Optional["SnapshotReader"] = None,
     ):
         super().__init__()
@@ -36,152 +31,12 @@ class JobMonitor(Monitor):
         self.handler = handler
         self.state = state
         self.job_dir = self.syftbox_root / do_email / "app_data" / "job"
-        self.drive_token_path = Path(drive_token_path) if drive_token_path else None
         self.snapshot_reader = snapshot_reader
-        self._drive_service = None
         self._startup_time = time.time()
         self._is_fresh_state = self.state.is_empty()
 
-        if not self.snapshot_reader:
-            if is_colab() or (self.drive_token_path and self.drive_token_path.exists()):
-                self._drive_service = create_drive_service(self.drive_token_path)
-
     def _check_all_entities(self):
-        if self.snapshot_reader:
-            self._poll_snapshot_for_new_jobs()
-        elif self._drive_service:
-            self._poll_drive_for_new_jobs()
         self._check_local_for_status_changes()
-
-    def _poll_snapshot_for_new_jobs(self):
-        snapshot = self.snapshot_reader.read()
-        if not snapshot:
-            return
-
-        for msg in snapshot.inbox_messages:
-            if self.state.was_notified(f"msg_{msg.message_id}", "processed"):
-                continue
-
-            success = self.handler.on_new_job(
-                self.do_email, msg.job_name, msg.submitter
-            )
-            if success:
-                print(
-                    f"[JobMonitor] Sent new job notification: {msg.job_name} from {msg.submitter}"
-                )
-
-            self.state.mark_notified(f"msg_{msg.message_id}", "processed")
-
-    def _poll_drive_for_new_jobs(self):
-        if not self._drive_service:
-            return
-
-        for ds_email, folder_id in self._find_inbox_folders():
-            messages = self._get_pending_messages(folder_id)
-
-            for msg_file in messages:
-                msg_id = msg_file["id"]
-
-                if self.state.was_notified(f"msg_{msg_id}", "processed"):
-                    continue
-
-                job_info = self._parse_job_from_message(msg_id, ds_email)
-                if job_info:
-                    self._handle_new_job_from_drive(job_info)
-
-                self.state.mark_notified(f"msg_{msg_id}", "processed")
-
-    def _find_inbox_folders(self) -> list[tuple[str, str]]:
-        if not self._drive_service:
-            return []
-
-        try:
-            query = (
-                f"name contains '{GDRIVE_OUTBOX_INBOX_FOLDER_PREFIX}' and "
-                f"name contains '_to_{self.do_email}' and "
-                f"mimeType = '{GOOGLE_FOLDER_MIME_TYPE}' and "
-                "trashed=false"
-            )
-            results = self._drive_service.files().list(q=query).execute()
-
-            folders = []
-            for folder in results.get("files", []):
-                name = folder["name"]
-                parts = name.split("_")
-                if len(parts) >= 6:
-                    sender_email = parts[3]
-                    if sender_email != self.do_email:
-                        folders.append((sender_email, folder["id"]))
-            return folders
-
-        except Exception as e:
-            print(f"[JobMonitor] Error finding inbox folders: {e}")
-            return []
-
-    def _get_pending_messages(self, folder_id: str) -> list[dict[str, Any]]:
-        if not self._drive_service:
-            return []
-
-        try:
-            query = (
-                f"'{folder_id}' in parents and name contains 'msgv2_' and trashed=false"
-            )
-            results = (
-                self._drive_service.files()
-                .list(q=query, fields="files(id, name)", orderBy="name")
-                .execute()
-            )
-            return results.get("files", [])
-
-        except Exception as e:
-            print(f"[JobMonitor] Error getting messages: {e}")
-            return []
-
-    def _parse_job_from_message(
-        self, file_id: str, ds_email: str
-    ) -> Optional[dict[str, Any]]:
-        if not self._drive_service:
-            return None
-
-        try:
-            from syft_client.sync.messages.proposed_filechange import (
-                ProposedFileChangesMessage,
-            )
-
-            request = self._drive_service.files().get_media(fileId=file_id)
-            content = request.execute()
-            msg = ProposedFileChangesMessage.from_compressed_data(content)
-
-            for change in msg.proposed_file_changes:
-                path = str(change.path_in_datasite)
-                if "app_data/job/" in path and path.endswith("config.yaml"):
-                    parts = path.split("/")
-                    try:
-                        job_idx = parts.index("job")
-                        job_name = parts[job_idx + 1]
-                        return {
-                            "job_name": job_name,
-                            "submitter": msg.sender_email,
-                            "message_id": file_id,
-                        }
-                    except (ValueError, IndexError):
-                        continue
-
-            return None
-
-        except Exception as e:
-            print(f"[JobMonitor] Error parsing message {file_id}: {e}")
-            return None
-
-    def _handle_new_job_from_drive(self, job_info: dict[str, Any]):
-        job_name = job_info["job_name"]
-        submitter = job_info["submitter"]
-
-        success = self.handler.on_new_job(self.do_email, job_name, submitter)
-        if success:
-            print(
-                f"[JobMonitor] Sent new job notification: {job_name} from {submitter}"
-            )
 
     def _check_local_for_status_changes(self):
         inbox_dir = self.job_dir / "inbox"
@@ -215,13 +70,11 @@ class JobMonitor(Monitor):
                 if job_created < self._startup_time:
                     return
 
-        # Check for new job (if not already notified)
         if not self.state.was_notified(job_name, "new"):
             success = self.handler.on_new_job(self.do_email, job_name, ds_email)
             if success:
                 print(f"[JobMonitor] Sent new job notification: {job_name}")
 
-        # Read review state for approved/executed status
         review_state = self._load_review_state(job_path.name, ds_email)
         if not review_state:
             return
@@ -237,7 +90,6 @@ class JobMonitor(Monitor):
                 print(f"[JobMonitor] Sent job executed notification: {job_name}")
 
     def _load_review_state(self, job_name: str, ds_email: str) -> Optional[dict]:
-        """Load review/state.yaml for a job."""
         state_file = self.job_dir / "review" / ds_email / job_name / "state.yaml"
         if not state_file.exists():
             return None

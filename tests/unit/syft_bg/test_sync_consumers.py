@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.monitors.job import JobMonitor
 from syft_bg.notify.monitors.peer import PeerMonitor
-from syft_bg.sync.snapshot import InboxMessage, SyncSnapshot
+from syft_bg.sync.snapshot import SyncSnapshot
 from syft_bg.sync.snapshot_reader import SnapshotReader
 from syft_bg.sync.snapshot_writer import SnapshotWriter
 
@@ -18,87 +18,10 @@ def _write_snapshot(path: Path, **kwargs) -> None:
     SnapshotWriter(path).write(SyncSnapshot(**defaults))
 
 
-class TestJobMonitorWithSnapshot:
-    def test_reads_inbox_from_snapshot(self, temp_dir):
-        snapshot_path = temp_dir / "snapshot.json"
-        _write_snapshot(
-            snapshot_path,
-            inbox_messages=[
-                InboxMessage(job_name="j1", submitter="ds@t.com", message_id="m1")
-            ],
-        )
-        reader = SnapshotReader(snapshot_path)
-        handler = MagicMock()
-        handler.on_new_job.return_value = True
-        state = JsonStateManager(temp_dir / "state.json")
-
-        monitor = JobMonitor(
-            syftbox_root=temp_dir,
-            do_email="do@test.com",
-            handler=handler,
-            state=state,
-            snapshot_reader=reader,
-        )
-        monitor._check_all_entities()
-        handler.on_new_job.assert_called_once_with("do@test.com", "j1", "ds@t.com")
-
-    def test_skips_already_notified(self, temp_dir):
-        snapshot_path = temp_dir / "snapshot.json"
-        _write_snapshot(
-            snapshot_path,
-            inbox_messages=[
-                InboxMessage(job_name="j1", submitter="ds@t.com", message_id="m1")
-            ],
-        )
-        reader = SnapshotReader(snapshot_path)
-        handler = MagicMock()
-        state = JsonStateManager(temp_dir / "state.json")
-        state.mark_notified("msg_m1", "processed")
-
-        monitor = JobMonitor(
-            syftbox_root=temp_dir,
-            do_email="do@test.com",
-            handler=handler,
-            state=state,
-            snapshot_reader=reader,
-        )
-        monitor._check_all_entities()
-        handler.on_new_job.assert_not_called()
-
-    def test_missing_snapshot_doesnt_crash(self, temp_dir):
-        reader = SnapshotReader(temp_dir / "missing.json")
-        handler = MagicMock()
-        state = JsonStateManager(temp_dir / "state.json")
-
-        monitor = JobMonitor(
-            syftbox_root=temp_dir,
-            do_email="do@test.com",
-            handler=handler,
-            state=state,
-            snapshot_reader=reader,
-        )
-        monitor._check_all_entities()
-        handler.on_new_job.assert_not_called()
-
-    def test_snapshot_skips_drive_init(self, temp_dir):
-        reader = SnapshotReader(temp_dir / "snapshot.json")
-        handler = MagicMock()
-        state = JsonStateManager(temp_dir / "state.json")
-
-        monitor = JobMonitor(
-            syftbox_root=temp_dir,
-            do_email="do@test.com",
-            handler=handler,
-            state=state,
-            snapshot_reader=reader,
-        )
-        assert monitor._drive_service is None
-
-
 class TestPeerMonitorWithSnapshot:
     def test_reads_peers_from_snapshot(self, temp_dir):
         snapshot_path = temp_dir / "snapshot.json"
-        _write_snapshot(snapshot_path, drive_peer_emails=["ds@test.com"])
+        _write_snapshot(snapshot_path, peer_emails=["ds@test.com"])
         reader = SnapshotReader(snapshot_path)
         handler = MagicMock()
         handler.on_new_peer_request_to_do.return_value = True
@@ -107,7 +30,6 @@ class TestPeerMonitorWithSnapshot:
 
         monitor = PeerMonitor(
             do_email="do@test.com",
-            drive_token_path=None,
             handler=handler,
             state=state,
             snapshot_reader=reader,
@@ -119,7 +41,7 @@ class TestPeerMonitorWithSnapshot:
 
     def test_reads_approved_peers_from_snapshot(self, temp_dir):
         snapshot_path = temp_dir / "snapshot.json"
-        _write_snapshot(snapshot_path, drive_approved_peers=["ds@test.com"])
+        _write_snapshot(snapshot_path, approved_peer_emails=["ds@test.com"])
         reader = SnapshotReader(snapshot_path)
         handler = MagicMock()
         handler.on_peer_granted.return_value = True
@@ -127,7 +49,6 @@ class TestPeerMonitorWithSnapshot:
 
         monitor = PeerMonitor(
             do_email="do@test.com",
-            drive_token_path=None,
             handler=handler,
             state=state,
             snapshot_reader=reader,
@@ -142,7 +63,6 @@ class TestPeerMonitorWithSnapshot:
 
         monitor = PeerMonitor(
             do_email="do@test.com",
-            drive_token_path=None,
             handler=handler,
             state=state,
             snapshot_reader=reader,
@@ -151,30 +71,14 @@ class TestPeerMonitorWithSnapshot:
         handler.on_new_peer_request_to_do.assert_not_called()
         handler.on_peer_granted.assert_not_called()
 
-    def test_snapshot_skips_drive_init(self, temp_dir):
-        reader = SnapshotReader(temp_dir / "snapshot.json")
-        handler = MagicMock()
-        state = JsonStateManager(temp_dir / "state.json")
-
-        monitor = PeerMonitor(
-            do_email="do@test.com",
-            drive_token_path=None,
-            handler=handler,
-            state=state,
-            snapshot_reader=reader,
-        )
-        assert monitor._drive_service is None
-
 
 class TestJobMonitorLocalStatusChanges:
     """Tests for _check_local_for_status_changes with inbox/review directory structure."""
 
     def _setup_job(self, temp_dir, ds_email="ds@t.com", job_name="test_job"):
-        """Create a job in the inbox/<ds_email>/<job_name>/ structure."""
         do_email = "do@test.com"
         job_dir = temp_dir / do_email / "app_data" / "job"
 
-        # Create inbox job directory with config
         inbox_job = job_dir / "inbox" / ds_email / job_name
         inbox_job.mkdir(parents=True)
         config = inbox_job / "config.yaml"
@@ -183,7 +87,6 @@ class TestJobMonitorLocalStatusChanges:
         return job_dir, inbox_job
 
     def _setup_review_state(self, temp_dir, ds_email, job_name, state_data):
-        """Create a review state.yaml for a job."""
         do_email = "do@test.com"
         review_dir = (
             temp_dir / do_email / "app_data" / "job" / "review" / ds_email / job_name
@@ -198,7 +101,7 @@ class TestJobMonitorLocalStatusChanges:
         handler = MagicMock()
         handler.on_new_job.return_value = True
         state = JsonStateManager(temp_dir / "state.json")
-        state.mark_notified("_dummy", "x")  # non-empty state → not fresh
+        state.mark_notified("_dummy", "x")  # non-empty state -> not fresh
 
         monitor = JobMonitor(
             syftbox_root=temp_dir,

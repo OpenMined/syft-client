@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import threading
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from syft_bg.common.config import get_default_paths
 from syft_bg.sync.config import SyncConfig
 from syft_bg.sync.snapshot import SyncSnapshot
 from syft_bg.sync.snapshot_writer import SnapshotWriter
 
 if TYPE_CHECKING:
-    from syft_bg.sync.drive_inbox_scanner import DriveInboxScanner
     from syft_client.sync.syftbox_manager import SyftboxManager
 
 
@@ -21,12 +18,10 @@ class SyncOrchestrator:
     def __init__(
         self,
         client: SyftboxManager,
-        inbox_scanner: Optional[DriveInboxScanner],
         snapshot_writer: SnapshotWriter,
         config: SyncConfig,
     ):
         self.client = client
-        self.inbox_scanner = inbox_scanner
         self.snapshot_writer = snapshot_writer
         self.config = config
         self._stop_event = threading.Event()
@@ -39,12 +34,13 @@ class SyncOrchestrator:
         if not config.syftbox_root:
             raise ValueError("SyncConfig missing 'syftbox_root'")
 
-        paths = get_default_paths()
-        token_path = config.drive_token_path or paths.drive_token
-
+        from syft_bg.common.config import get_default_paths
         from syft_client.sync.environments.environment import Environment
         from syft_client.sync.syftbox_manager import SyftboxManager
         from syft_client.sync.utils.syftbox_utils import check_env
+
+        paths = get_default_paths()
+        token_path = config.drive_token_path or paths.drive_token
 
         env = check_env()
         if env == Environment.COLAB:
@@ -59,12 +55,10 @@ class SyncOrchestrator:
                 token_path=token_path,
             )
 
-        inbox_scanner = _build_inbox_scanner(token_path, config.do_email)
         writer = SnapshotWriter(paths.sync_state)
 
         return cls(
             client=client,
-            inbox_scanner=inbox_scanner,
             snapshot_writer=writer,
             config=config,
         )
@@ -130,22 +124,15 @@ class SyncOrchestrator:
     ) -> SyncSnapshot:
         job_names = []
         approved_peers = []
+        all_peers = []
         try:
             job_names = [j.name for j in self.client.job_client.jobs]
             approved_peers = [p.email for p in self.client.peer_manager.approved_peers]
+            all_peers = approved_peers + [
+                p.email for p in self.client.peer_manager.requested_by_peer_peers
+            ]
         except Exception as e:
             print(f"[SyncOrchestrator] Error reading client state: {e}")
-
-        inbox_messages = []
-        drive_peer_emails: list[str] = []
-        drive_approved_peers: list[str] = []
-        if self.inbox_scanner:
-            try:
-                inbox_messages = self.inbox_scanner.scan_inbox_messages()
-                drive_peer_emails = self.inbox_scanner.scan_peer_emails()
-                drive_approved_peers = self.inbox_scanner.scan_approved_peers()
-            except Exception as e:
-                print(f"[SyncOrchestrator] Error scanning inbox: {e}")
 
         self._sync_count += 1
 
@@ -155,10 +142,8 @@ class SyncOrchestrator:
             sync_error=sync_error,
             sync_duration_ms=int((time.time() - start_time) * 1000),
             job_names=job_names,
+            peer_emails=all_peers,
             approved_peer_emails=approved_peers,
-            inbox_messages=inbox_messages,
-            drive_peer_emails=drive_peer_emails,
-            drive_approved_peers=drive_approved_peers,
         )
 
     def _print_startup_info(self) -> None:
@@ -167,20 +152,3 @@ class SyncOrchestrator:
         print(f"  Interval: {self.config.interval}s")
         print(f"  Max retries: {self.config.max_retries}")
         print()
-
-
-def _build_inbox_scanner(
-    token_path: Optional[Path], do_email: str
-) -> Optional[DriveInboxScanner]:
-    try:
-        from syft_bg.common.drive import create_drive_service, is_colab
-        from syft_bg.sync.drive_inbox_scanner import DriveInboxScanner
-
-        token = Path(token_path) if token_path else None
-        if is_colab() or (token and token.exists()):
-            drive_service = create_drive_service(token)
-            if drive_service:
-                return DriveInboxScanner(drive_service, do_email)
-    except Exception as e:
-        print(f"[SyncOrchestrator] Could not create inbox scanner: {e}")
-    return None

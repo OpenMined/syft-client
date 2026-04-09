@@ -3,7 +3,6 @@
 from pathlib import Path
 from typing import Optional
 
-from syft_bg.common.drive import is_colab
 from syft_bg.common.orchestrator import BaseOrchestrator
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.config import NotifyConfig
@@ -23,7 +22,6 @@ class NotificationOrchestrator(BaseOrchestrator):
         self,
         do_email: str,
         syftbox_root: Path,
-        drive_token_path: Optional[Path] = None,
         gmail_token_path: Optional[Path] = None,
         state_path: Optional[Path] = None,
         interval: int = 30,
@@ -32,9 +30,6 @@ class NotificationOrchestrator(BaseOrchestrator):
         super().__init__()
         self.do_email = do_email
         self.syftbox_root = Path(syftbox_root).expanduser()
-        self.drive_token_path = (
-            Path(drive_token_path).expanduser() if drive_token_path else None
-        )
         self.gmail_token_path = (
             Path(gmail_token_path).expanduser() if gmail_token_path else None
         )
@@ -48,7 +43,6 @@ class NotificationOrchestrator(BaseOrchestrator):
         cls,
         config: NotifyConfig,
     ) -> "NotificationOrchestrator":
-        """Create orchestrator from a NotifyConfig."""
         from syft_bg.common.config import get_default_paths
 
         paths = get_default_paths()
@@ -67,7 +61,6 @@ class NotificationOrchestrator(BaseOrchestrator):
         return cls(
             do_email=config.do_email,
             syftbox_root=config.syftbox_root,
-            drive_token_path=config.drive_token_path or paths.drive_token,
             gmail_token_path=config.gmail_token_path or paths.gmail_token,
             state_path=paths.notify_state,
             interval=config.interval,
@@ -75,7 +68,6 @@ class NotificationOrchestrator(BaseOrchestrator):
         )
 
     def _init_monitors(self):
-        """Initialize job and peer monitors."""
         if self._monitors_initialized:
             return
 
@@ -103,18 +95,12 @@ class NotificationOrchestrator(BaseOrchestrator):
             do_email=self.do_email,
             handler=job_handler,
             state=state,
-            drive_token_path=self.drive_token_path,
             snapshot_reader=self.snapshot_reader,
         )
 
-        if (
-            self.snapshot_reader
-            or is_colab()
-            or (self.drive_token_path and self.drive_token_path.exists())
-        ):
+        if self.snapshot_reader:
             self._peer_monitor = PeerMonitor(
                 do_email=self.do_email,
-                drive_token_path=self.drive_token_path,
                 handler=peer_handler,
                 state=state,
                 snapshot_reader=self.snapshot_reader,
@@ -123,14 +109,12 @@ class NotificationOrchestrator(BaseOrchestrator):
         self._monitors_initialized = True
 
     def notify_peer_granted(self, ds_email: str) -> bool:
-        """Notify DS that their peer request was granted."""
         self._init_monitors()
         if self._peer_monitor:
             return self._peer_monitor.notify_peer_granted(ds_email)
         return False
 
     def _print_startup_info(self):
-        """Print startup info for notify service."""
         print("Starting notification daemon...")
         print(f"  DO: {self.do_email}")
         print(f"  SyftBox: {self.syftbox_root}")
