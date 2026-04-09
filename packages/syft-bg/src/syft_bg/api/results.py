@@ -1,8 +1,15 @@
 """Result dataclasses returned by syft-bg API functions."""
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from syft_bg.approve.config import AutoApprovalObj
+    from syft_bg.common.syft_bg_config import SyftBgConfig
 
 
 class InitResult(BaseModel):
@@ -60,55 +67,81 @@ class AuthResult(BaseModel):
 class StatusResult(BaseModel):
     """Status of syft-bg services and configuration."""
 
-    email: str | None = None
-    syftbox_root: str | None = None
+    model_config = {"arbitrary_types_allowed": True}
+
+    config: "SyftBgConfig"
     services: dict[str, str] = Field(default_factory=dict)
     email_configured: bool = False
-    auto_approvals: dict[str, dict] = Field(default_factory=dict)
-    approved_domains: list[str] = Field(default_factory=list)
     is_colab: bool = False
 
-    def __repr__(self) -> str:
-        lines = ["syft-bg status"]
-        lines.append("=" * 40)
+    @property
+    def email(self) -> str | None:
+        return self.config.do_email
 
-        lines.append(f"  email:       {self.email or 'not configured'}")
-        lines.append(f"  syftbox:     {self.syftbox_root or 'not configured'}")
-        lines.append(f"  environment: {'Colab' if self.is_colab else 'local'}")
-        lines.append(
-            f"  gmail:       {'ready' if self.email_configured else 'not set up'}"
+    @property
+    def syftbox_root(self) -> str | None:
+        return self.config.syftbox_root
+
+    @property
+    def auto_approvals(self) -> dict[str, "AutoApprovalObj"]:
+        return self.config.approve.auto_approvals.objects
+
+    @property
+    def approved_domains(self) -> list[str]:
+        return self.config.approve.peers.approved_domains
+
+    def _services_contents(self) -> str:
+        return "\n".join(f"  {name:<12} {s}" for name, s in self.services.items())
+
+    def _auto_approval_obj_contents(self, name: str, obj: AutoApprovalObj) -> str:
+        contents = "\n".join(
+            f"    content: {e.relative_path}" for e in obj.file_contents
+        )
+        files = "\n".join(f"    file:   {f}" for f in obj.file_paths)
+        peers = (
+            f"    peers:  {', '.join(obj.peers)}" if obj.peers else "    peers:  (any)"
+        )
+        body = "\n".join(part for part in [contents, files, peers] if part)
+        return f"  [{name}]\n{body}"
+
+    def _auto_approvals_contents(self) -> str:
+        return "\n".join(
+            self._auto_approval_obj_contents(name, obj)
+            for name, obj in self.auto_approvals.items()
         )
 
-        lines.append("")
-        lines.append("services")
-        lines.append("-" * 40)
-        for name, svc_status in self.services.items():
-            lines.append(f"  {name:<12} {svc_status}")
+    def _approved_domains_contents(self) -> str:
+        return "\n".join(f"  {d}" for d in self.approved_domains)
+
+    def __repr__(self) -> str:
+        from syft_bg.api.templates import (
+            APPROVED_DOMAINS_SECTION,
+            AUTO_APPROVALS_SECTION,
+            STATUS_TEMPLATE,
+        )
+
+        line = "-" * 40
+        result = STATUS_TEMPLATE.format(
+            sep="=" * 40,
+            email=self.email or "not configured",
+            syftbox_root=self.syftbox_root or "not configured",
+            env="Colab" if self.is_colab else "local",
+            gmail="ready" if self.email_configured else "not set up",
+            line=line,
+            services=self._services_contents(),
+        )
 
         if self.auto_approvals:
-            lines.append("")
-            lines.append("auto-approval objects")
-            lines.append("-" * 40)
-            for obj_name, obj_data in self.auto_approvals.items():
-                lines.append(f"  [{obj_name}]")
-                for entry in obj_data.get("file_contents", []):
-                    lines.append(f"    content: {entry}")
-                for fname in obj_data.get("file_paths", []):
-                    lines.append(f"    file:   {fname}")
-                peers = obj_data.get("peers", [])
-                if peers:
-                    lines.append(f"    peers:  {', '.join(peers)}")
-                else:
-                    lines.append("    peers:  (any)")
+            result += AUTO_APPROVALS_SECTION.format(
+                line=line, contents=self._auto_approvals_contents()
+            )
 
         if self.approved_domains:
-            lines.append("")
-            lines.append("auto-approved domains")
-            lines.append("-" * 40)
-            for domain in self.approved_domains:
-                lines.append(f"  {domain}")
+            result += APPROVED_DOMAINS_SECTION.format(
+                line=line, contents=self._approved_domains_contents()
+            )
 
-        return "\n".join(lines)
+        return result
 
 
 class AutoApproveResult(BaseModel):
