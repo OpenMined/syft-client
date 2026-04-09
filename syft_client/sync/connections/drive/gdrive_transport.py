@@ -1136,23 +1136,15 @@ class GDriveConnection(SyftboxPlatformConnection):
             " and 'me' in owners and trashed=false"
         )
         results = execute_with_retries(
-            self.drive_service.files().list(
-                q=query, fields="files(id, name)"
-            )
+            self.drive_service.files().list(q=query, fields="files(id, name)")
         )
-        return [
-            (f["id"], f["name"]) for f in results.get("files", [])
-        ]
+        return [(f["id"], f["name"]) for f in results.get("files", [])]
 
-    def move_files_to_folder(
-        self, file_ids: list[str], target_folder_id: str
-    ) -> None:
+    def move_files_to_folder(self, file_ids: list[str], target_folder_id: str) -> None:
         """Move files/folders to a target folder via parent swap."""
         for file_id in file_ids:
             file_info = execute_with_retries(
-                self.drive_service.files().get(
-                    fileId=file_id, fields="parents"
-                )
+                self.drive_service.files().get(fileId=file_id, fields="parents")
             )
             previous_parents = ",".join(file_info.get("parents", []))
             execute_with_retries(

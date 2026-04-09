@@ -258,7 +258,7 @@ def _get_default_syftbox_path(email: str) -> Path:
         return Path.home() / f"SyftBox_{email}"
 
 
-def read_local_version(local_syftbox_path: Path) -> "VersionInfo | None":
+def read_local_version(local_syftbox_path: Path):
     """Read the local SYFT_version.json from the SyftBox directory.
 
     Args:

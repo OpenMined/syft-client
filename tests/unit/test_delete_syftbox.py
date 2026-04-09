@@ -3,7 +3,6 @@
 from unittest.mock import patch, MagicMock
 
 from syft_client.gdrive_utils import (
-    delete_syftbox,
     read_local_version,
     write_local_version,
 )
@@ -126,13 +125,16 @@ class TestVersionMismatchCheck:
 class TestDeleteSyftboxImport:
     def test_importable_from_top_level(self):
         from syft_client import delete_syftbox as fn
+
         assert callable(fn)
 
     def test_new_functions_importable_from_top_level(self):
         from syft_client import delete_local_syftbox, delete_remote_syftbox
+
         assert callable(delete_local_syftbox)
         assert callable(delete_remote_syftbox)
 
     def test_archive_importable_from_top_level(self):
         from syft_client import archive_remote_p2p_folders
+
         assert callable(archive_remote_p2p_folders)

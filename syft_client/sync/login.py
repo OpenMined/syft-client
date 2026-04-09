@@ -46,7 +46,7 @@ def _print_version_status(
     """Print a summary of the three version components."""
     local_str = local_version.syft_client_version if local_version else "(none)"
     remote_str = remote_version.syft_client_version if remote_version else "(none)"
-    print(f"\n⚠️  Version mismatch detected.")
+    print("\n⚠️  Version mismatch detected.")
     print(f"  Installed client:  {SYFT_CLIENT_VERSION}")
     print(f"  Local SyftBox:     {local_str}")
     print(f"  Remote SyftBox:    {remote_str}\n")
@@ -154,8 +154,10 @@ def _handle_ds_mismatch(
         token_path = _get_client_token_path(client)
         print(f"Archiving P2P data and upgrading to v{SYFT_CLIENT_VERSION}...")
         archived_ids = archive_remote_p2p_folders(
-            email=client.email, token_path=token_path,
-            old_version=old_version, verbose=True,
+            email=client.email,
+            token_path=token_path,
+            old_version=old_version,
+            verbose=True,
         )
         _delete_all_state(client, exclude_ids=archived_ids)
         print("Done. Continuing login.\n")
