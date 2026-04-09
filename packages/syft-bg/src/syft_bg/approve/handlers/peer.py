@@ -27,12 +27,14 @@ class PeerApprovalHandler:
         state: Optional[StateManager] = None,
         on_approve: Optional[Callable[[str], None]] = None,
         verbose: bool = True,
+        auto_approve_emails: set[str] = (),
     ):
         self.client = client
         self.config = config
         self.state = state
         self.on_approve = on_approve
         self.verbose = verbose
+        self.auto_approve_emails = set(auto_approve_emails)
 
     def _get_pending_peers(self) -> list[str]:
         """Get list of pending peer emails."""
@@ -47,6 +49,9 @@ class PeerApprovalHandler:
         """Check if a peer should be approved."""
         if self.state and self.state.was_approved(f"peer_{peer_email}"):
             return (False, "already approved by syft-approve")
+
+        if peer_email in self.auto_approve_emails:
+            return (True, "peer in auto_approve list")
 
         domain = self._get_domain(peer_email)
         if domain not in self.config.approved_domains:
@@ -68,7 +73,7 @@ class PeerApprovalHandler:
 
     def check_and_approve(self) -> list[str]:
         """Check all pending peers and approve those matching criteria."""
-        if not self.config.enabled:
+        if not self.config.enabled and not self.auto_approve_emails:
             return []
 
         approved_peers = []

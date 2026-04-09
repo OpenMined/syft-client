@@ -125,6 +125,13 @@ class ApprovalOrchestrator(BaseOrchestrator):
             )
             return None
 
+    def _collect_auto_approve_emails(self) -> set[str]:
+        """Collect peer emails from all auto-approval objects."""
+        emails: set[str] = set()
+        for obj in self.config.auto_approvals.objects.values():
+            emails.update(obj.peers)
+        return emails
+
     def _init_monitors(self):
         """Initialize job and peer monitors."""
         if self._monitors_initialized:
@@ -141,12 +148,14 @@ class ApprovalOrchestrator(BaseOrchestrator):
                 verbose=True,
             )
 
-        if self.config.peers.enabled:
+        auto_approve_emails = self._collect_auto_approve_emails()
+        if self.config.peers.enabled or auto_approve_emails:
             self._peer_monitor = PeerMonitor(
                 client=self.client,
                 config=self.config.peers,
                 state=self._state,
                 verbose=True,
+                auto_approve_emails=auto_approve_emails,
             )
 
         self._monitors_initialized = True
