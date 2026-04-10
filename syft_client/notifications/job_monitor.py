@@ -395,9 +395,9 @@ class JobMonitor(Monitor):
         Config file format:
             syftbox_root: ~/SyftBox          # Required
             do_email: data_owner@email.com   # Required
-            drive_token_path: ~/.syft-creds/token_do.json  # Optional (enables direct Drive polling)
-            gmail_token_path: ~/.syft-creds/gmail_token.json  # Optional
-            state_file: ~/.syft-creds/state.json  # Optional
+            drive_token_path: ~/.syft-bg/token_do.json  # Optional (enables direct Drive polling)
+            gmail_token_path: ~/.syft-bg/gmail_token.json  # Optional
+            state_file: ~/.syft-bg/state.json  # Optional
 
         Returns:
             Configured JobMonitor instance

@@ -21,6 +21,8 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 2. Search for "Google Drive API"
 3. Click on **Google Drive API**
 4. Click **Enable**
+5. In case you are using notifications (Data owner only), do the same for Gmail
+6. In case you are using email approval (Data owner only), do the same for Cloud Pub/Sub API
 
 ## Step 3: Configure OAuth Consent Screen
 
@@ -33,11 +35,17 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 4. Select **External** user type (unless you have a Google Workspace organization), click next
 5. Fill in your email, click **next**
 6. Mark the policy checkbox, click **Continue** and **Create**
-7. On the **data access** section for the Oauth Consent screen
-   - Click **Add or Remove Scopes**
-   - Search for and select `https://www.googleapis.com/auth/drive`
-   - Scroll down and click **Update**
-   - Scroll down and click **Save**
+7. On the **data access** section for the Oauth Consent screen. As a data scientist, you only ever need gdrive, but if you are using syft-client as a data owner, you may also need Gmail, specifically if you use email features like notifications or email approval.
+   - GDrive:
+     - Click **Add or Remove Scopes**
+     - Search for and select `https://www.googleapis.com/auth/drive`
+     - Scroll down and click **Update**
+     - Scroll down and click **Save**
+   - Gmail (data owner only for email features):
+     - Click **Add or Remove Scopes**
+     - Search for and select `https://www.googleapis.com/auth/gmail.modify`
+     - Scroll down and click **Update**
+     - Scroll down and click **Save**
 8. On the **Audience** section for the oauth consent screen under **Test users**:
    - Click **Add Users**
    - Add you email adress

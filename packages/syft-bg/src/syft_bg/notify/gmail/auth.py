@@ -6,15 +6,10 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-GMAIL_SEND_SCOPES = [
-    "https://www.googleapis.com/auth/gmail.send",
+GMAIL_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/pubsub",
 ]
-
-# TODO: enable when email_approve service is ready
-# EMAIL_APPROVE_SCOPES = [
-#     "https://www.googleapis.com/auth/gmail.readonly",
-#     "https://www.googleapis.com/auth/pubsub",
-# ]
 
 
 def run_oauth_flow_manual(flow: InstalledAppFlow) -> Credentials:
@@ -47,6 +42,25 @@ def run_oauth_flow_manual(flow: InstalledAppFlow) -> Credentials:
     return flow.credentials
 
 
+def authenticate_and_save(creds_path: Path, token_path: Path) -> bool:
+    """Run Gmail OAuth flow and save the token to disk.
+
+    Returns True if authentication succeeded, False otherwise.
+    """
+    print("Setting up Gmail authentication...")
+    print("This is needed for email notifications.\n")
+    try:
+        auth = GmailAuth()
+        credentials = auth.authenticate_user(creds_path)
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(credentials.to_json())
+        print(f"Gmail token saved to {token_path}\n")
+        return True
+    except Exception as e:
+        print(f"Gmail setup failed: {e}\n")
+        return False
+
+
 class GmailAuth:
     """Handles Gmail OAuth authentication."""
 
@@ -54,12 +68,17 @@ class GmailAuth:
         """Run OAuth flow to get Gmail credentials."""
         credentials_path = Path(credentials_path).expanduser()
         flow = InstalledAppFlow.from_client_secrets_file(
-            str(credentials_path), GMAIL_SEND_SCOPES
+            str(credentials_path), GMAIL_SCOPES
         )
         return run_oauth_flow_manual(flow)
 
     def load_credentials(self, token_path: Path) -> Credentials:
-        """Load credentials from token file, refreshing if needed."""
+        """Load credentials from token file, refreshing if needed.
+
+        Loads without restricting scopes so a shared token file
+        (e.g. one that also carries Drive scopes) is not narrowed
+        on refresh.
+        """
         token_path = Path(token_path).expanduser()
         creds = Credentials.from_authorized_user_file(str(token_path))
 

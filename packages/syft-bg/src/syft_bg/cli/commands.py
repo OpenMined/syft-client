@@ -1,15 +1,10 @@
 """CLI commands for syft-bg."""
 
-import hashlib
-import time
+import traceback
 from typing import Optional
 
 import click
 
-from syft_bg.approve import ApprovalOrchestrator
-from syft_bg.common.syft_bg_config import SyftBgConfig
-from syft_bg.email_approve import EmailApproveOrchestrator
-from syft_bg.notify import NotificationOrchestrator
 from syft_bg.services import ServiceManager, ServiceStatus
 
 
@@ -46,56 +41,28 @@ def status():
     click.echo(f"{'SERVICE':<12} {'STATUS':<12} {'PID':<10} {'DESCRIPTION'}")
     click.echo("-" * 50)
 
+    from syft_bg.api.utils import load_setup_state
+    from syft_bg.common.setup_state import SetupStatus as SStatus
+
     for name, info in all_status.items():
         service = manager.get_service(name)
-        status_text = get_status_text(info.status)
         pid_text = str(info.pid) if info.pid else "-"
 
         if info.status == ServiceStatus.RUNNING:
             click.echo(
-                f"{name:<12} {'● ' + status_text:<12} {pid_text:<10} {service.description}"
+                f"{name:<12} {'● Running':<12} {pid_text:<10} {service.description}"
             )
         else:
-            click.echo(
-                f"{name:<12} {'○ ' + status_text:<12} {pid_text:<10} {service.description}"
-            )
-
-    _print_sync_health()
-    click.echo()
-
-
-def _print_sync_health() -> None:
-    import datetime
-
-    from syft_bg.common.config import get_default_paths
-    from syft_bg.sync.snapshot_reader import SnapshotReader
-
-    paths = get_default_paths()
-    reader = SnapshotReader(paths.sync_state)
-    snapshot = reader.read()
-
-    if snapshot is None:
-        return
+            setup = load_setup_state(name)
+            if setup and setup.setup_status == SStatus.ERROR:
+                click.echo(f"{name:<12} {'✗ Error':<12} {pid_text:<10} {setup.error}")
+            else:
+                status_text = get_status_text(info.status)
+                click.echo(
+                    f"{name:<12} {'○ ' + status_text:<12} {pid_text:<10} {service.description}"
+                )
 
     click.echo()
-    click.echo("SYNC HEALTH")
-    click.echo("-" * 50)
-
-    sync_dt = datetime.datetime.fromtimestamp(snapshot.sync_time)
-    age_seconds = int(time.time() - snapshot.sync_time)
-
-    click.echo(f"  Last sync:   {sync_dt.strftime('%H:%M:%S')} ({age_seconds}s ago)")
-    click.echo(f"  Sync count:  {snapshot.sync_count}")
-    click.echo(f"  Duration:    {snapshot.sync_duration_ms}ms")
-    click.echo(f"  Jobs:        {len(snapshot.job_names)}")
-    click.echo(f"  Peers:       {len(snapshot.approved_peer_emails)}")
-
-    if snapshot.sync_error:
-        click.echo(f"  Last error:  {snapshot.sync_error}")
-
-    max_age = snapshot.sync_count * 2 + 60
-    if age_seconds > max_age:
-        click.echo("  ⚠ Snapshot is stale — sync service may have stopped")
 
 
 @main.command()
@@ -174,8 +141,8 @@ def restart(service: Optional[str]):
             click.echo(f"❌ {msg}", err=True)
     else:
         click.echo("Restarting all services...")
-        results = manager.restart_all()
-        for name, (success, msg) in results.items():
+        for name in manager.list_services():
+            success, msg = manager.restart_service(name)
             if success:
                 click.echo(f"✅ {name}: {msg}")
             else:
@@ -221,151 +188,6 @@ def logs(service: str, follow: bool, lines: int):
 
 
 @main.command()
-# Core settings
-@click.option(
-    "--email",
-    "-e",
-    help="Data Owner email address.",
-)
-@click.option(
-    "--syftbox-root",
-    "-r",
-    help="SyftBox root directory.",
-)
-# Control flags
-@click.option(
-    "--yes",
-    "-y",
-    is_flag=True,
-    help="Auto-confirm update of existing configuration.",
-)
-@click.option(
-    "--quiet",
-    "-q",
-    is_flag=True,
-    help="Run with defaults, no prompts. Implies --skip-oauth.",
-)
-@click.option(
-    "--skip-oauth",
-    is_flag=True,
-    help="Skip OAuth setup. Tokens must already exist.",
-)
-# Notification settings
-@click.option(
-    "--notify-jobs/--no-notify-jobs",
-    default=None,
-    help="Enable/disable email notifications for new jobs.",
-)
-@click.option(
-    "--notify-peers/--no-notify-peers",
-    default=None,
-    help="Enable/disable email notifications for peer requests.",
-)
-@click.option(
-    "--notify-interval",
-    type=int,
-    help="Notification check interval in seconds. Default: 30.",
-)
-# Job approval settings
-@click.option(
-    "--approve-jobs/--no-approve-jobs",
-    default=None,
-    help="Enable/disable automatic job approval.",
-)
-# Peer approval settings
-@click.option(
-    "--approve-peers/--no-approve-peers",
-    default=None,
-    help="Enable/disable automatic peer approval.",
-)
-@click.option(
-    "--approved-domains",
-    help="Approved domains for peer auto-approval (comma-separated).",
-)
-@click.option(
-    "--approve-interval",
-    type=int,
-    help="Approval check interval in seconds. Default: 5.",
-)
-# OAuth/credentials paths
-@click.option(
-    "--credentials-path",
-    type=click.Path(),
-    help="Path to credentials.json for OAuth.",
-)
-@click.option(
-    "--gmail-token",
-    type=click.Path(),
-    help="Path to pre-existing Gmail token.",
-)
-@click.option(
-    "--drive-token",
-    type=click.Path(),
-    help="Path to pre-existing Drive token.",
-)
-def init(
-    email: str | None,
-    syftbox_root: str | None,
-    yes: bool,
-    quiet: bool,
-    skip_oauth: bool,
-    notify_jobs: bool | None,
-    notify_peers: bool | None,
-    notify_interval: int | None,
-    approve_jobs: bool | None,
-    approve_peers: bool | None,
-    approved_domains: str | None,
-    approve_interval: int | None,
-    credentials_path: str | None,
-    gmail_token: str | None,
-    drive_token: str | None,
-):
-    """Initialize all services with unified setup.
-
-    Examples:
-
-      syft-bg init
-
-      syft-bg init --email user@example.com
-
-      syft-bg init -e user@example.com -r ~/SyftBox --quiet --skip-oauth
-
-      syft-bg init --notify-jobs --no-notify-peers --approve-jobs
-    """
-    from syft_bg.cli.init import InitFlowError, UserPassedConfig, run_init_flow
-
-    parsed_approved_domains = None
-    if approved_domains:
-        parsed_approved_domains = [
-            d.strip() for d in approved_domains.split(",") if d.strip()
-        ]
-
-    config = UserPassedConfig(
-        email=email,
-        syftbox_root=syftbox_root,
-        yes=yes,
-        quiet=quiet,
-        skip_oauth=skip_oauth,
-        notify_jobs=notify_jobs,
-        notify_peers=notify_peers,
-        notify_interval=notify_interval,
-        approve_jobs=approve_jobs,
-        approve_peers=approve_peers,
-        approved_domains=parsed_approved_domains,
-        approve_interval=approve_interval,
-        credentials_path=credentials_path,
-        gmail_token_path=gmail_token,
-        drive_token_path=drive_token,
-    )
-
-    try:
-        run_init_flow(user_passed_config=config)
-    except InitFlowError as e:
-        click.echo(f"Error: {e}")
-        raise SystemExit(1)
-
-
-@main.command()
 def tui():
     """Launch interactive TUI dashboard."""
     from syft_bg.tui import SyftBgApp
@@ -393,10 +215,10 @@ def setup_status():
 
       syft-bg setup-status
     """
-    from syft_bg.common.config import get_creds_dir
+    from syft_bg.common.config import get_syftbg_dir
     from syft_bg.common.drive import is_colab
 
-    creds_dir = get_creds_dir()
+    creds_dir = get_syftbg_dir()
 
     click.echo()
     click.echo("SYFT-BG ENVIRONMENT CHECK")
@@ -488,16 +310,16 @@ def setup_status():
     click.echo()
 
 
-@main.command()
+@main.command("run-foreground")
 @click.option(
     "--service",
     "-s",
-    type=click.Choice(["notify", "approve", "email_approve", "sync"]),
+    type=click.Choice(["notify", "approve", "email_approve"]),
     required=True,
     help="Service to run",
 )
 @click.option("--once", is_flag=True, help="Run single check cycle and exit")
-def run(service: str, once: bool):
+def run_foreground(service: str, once: bool):
     """Run a service in foreground.
 
     This command is used internally by 'syft-bg start' to spawn services
@@ -505,82 +327,85 @@ def run(service: str, once: bool):
 
     Examples:
 
-      syft-bg run --service notify
+      syft-bg run-foreground --service notify
 
-      syft-bg run --service approve --once
+      syft-bg run-foreground --service approve --once
     """
+    from syft_bg.api.api import run_foreground as api_run_foreground
+
     try:
-        config = SyftBgConfig.from_path()
+        api_run_foreground(service=service, once=once)
     except FileNotFoundError:
-        click.echo("Error: config not found.", err=True)
-        click.echo("Run 'syft-bg init' first to configure the service.", err=True)
-        raise SystemExit(1)
-
-    try:
-        if service == "notify":
-            orchestrator = NotificationOrchestrator.from_config(config.notify)
-        elif service == "approve":
-            orchestrator = ApprovalOrchestrator.from_config(config.approve)
-        elif service == "email_approve":
-            orchestrator = EmailApproveOrchestrator.from_config(config.email_approve)
-        elif service == "sync":
-            from syft_bg.sync import SyncOrchestrator
-
-            orchestrator = SyncOrchestrator.from_config(config.sync)
-        else:
-            raise ValueError(f"Unknown service: {service}")
-
-        if once:
-            if hasattr(orchestrator, "check"):
-                orchestrator.check()
-            else:
-                orchestrator.run_once()
-        else:
-            orchestrator.run()
-    except FileNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
+        click.echo(
+            f"Error initializing service {service}: {traceback.format_exc()}", err=True
+        )
         click.echo("Run 'syft-bg init' first to configure the service.", err=True)
         raise SystemExit(1)
 
 
 @main.command()
-@click.argument("file", type=click.Path(exists=True))
 @click.option(
-    "--length",
-    "-l",
-    type=int,
-    default=16,
-    help="Hash length (default: 16 characters)",
+    "--email",
+    "-e",
+    required=True,
+    help="Data owner email address.",
 )
-def hash(file: str, length: int):
-    """Generate SHA256 hash for a script file.
+@click.option(
+    "--syftbox-root",
+    "-r",
+    default=None,
+    type=click.Path(),
+    help="Path to the SyftBox root directory.",
+)
+@click.option(
+    "--token-path",
+    "-t",
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to the OAuth token file.",
+)
+def init(email: str, syftbox_root: str | None, token_path: str | None):
+    """Initialize syft-bg configuration.
 
-    Prefer using 'syft-bg set-script' which hashes and updates config
-    in one step. This command is useful for inspecting hashes directly.
+    Sets up the config file with the data owner email and optional
+    SyftBox root directory and OAuth token.
 
     Examples:
 
-      syft-bg hash main.py
+      syft-bg init -e alice@uni.edu
 
-      syft-bg hash main.py --length 8
-
-    Output format: sha256:<hash>
+      syft-bg init -e alice@uni.edu -r ~/syftbox -t ~/token.json
     """
-    from pathlib import Path
+    from syft_bg.api.api import init as api_init
 
-    file_path = Path(file)
-    try:
-        content = file_path.read_text(encoding="utf-8")
-        full_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        short_hash = full_hash[:length]
-        click.echo(f"sha256:{short_hash}")
-    except Exception as e:
-        click.echo(f"Error reading file: {e}", err=True)
-        raise SystemExit(1)
+    api_init(
+        do_email=email,
+        syftbox_root=syftbox_root,
+        token_path=token_path,
+    )
 
 
-@main.command("set-script")
-@click.argument("scripts", nargs=-1, required=True, type=click.Path(exists=True))
+@main.command("ensure-running")
+@click.argument("services", nargs=-1, required=True)
+@click.option(
+    "--restart", is_flag=True, help="Restart services even if already running"
+)
+def ensure_running(services: tuple[str, ...], restart: bool):
+    """Start services if they aren't already running.
+
+    Examples:
+
+      syft-bg ensure-running notify approve
+
+      syft-bg ensure-running notify --restart
+    """
+    from syft_bg.api.api import ensure_running as api_ensure_running
+
+    api_ensure_running(list(services), restart=restart)
+
+
+@main.command("auto-approve")
+@click.argument("contents", nargs=-1, required=True, type=click.Path(exists=True))
 @click.option(
     "--peers",
     "-p",
@@ -597,134 +422,67 @@ def hash(file: str, length: int):
     "--file-paths",
     "-f",
     multiple=True,
-    help="Non-.py filenames to allow (e.g. params.json).",
+    help="Filenames to allow by name only (e.g. params.json).",
 )
 @click.option(
-    "--replace",
-    is_flag=True,
-    help="Replace existing object with this name instead of updating.",
+    "--base-dir",
+    "-b",
+    default=None,
+    type=click.Path(exists=True, file_okay=False),
+    help="Base directory to resolve relative paths in contents against.",
 )
-def set_script(
-    scripts: tuple[str, ...],
+def auto_approve(
+    contents: tuple[str, ...],
     peers: tuple[str, ...],
     name: str | None,
     file_paths: tuple[str, ...],
-    replace: bool,
+    base_dir: str | None,
 ):
     """Create or update an auto-approval object.
 
-    Accepts multiple .py files or directories. Directories are expanded
-    to all .py files within them. Scripts are copied to the managed
-    auto-approvals directory and hashed.
+    Accepts file paths or directories as contents. These are files whose
+    content will be hashed and matched. Directories are expanded to all
+    files within them.
 
     Examples:
 
-      syft-bg set-script main.py -p alice@uni.edu -p bob@co.com
+      syft-bg auto-approve main.py -p alice@uni.edu -p bob@co.com
 
-      syft-bg set-script main.py utils.py -n my_analysis
+      syft-bg auto-approve main.py utils.py -n my_analysis
 
-      syft-bg set-script ./src/ -p alice@uni.edu -f params.json
+      syft-bg auto-approve ./src/ -p alice@uni.edu -f params.json
+
+      syft-bg auto-approve main.py -b ./project/ -f config.yaml
     """
-    import shutil
     from pathlib import Path
 
-    from syft_bg.approve.config import AutoApproveConfig, AutoApprovalObj, FileEntry
-    from syft_bg.common.config import get_default_paths
+    from syft_bg.api.api import auto_approve as api_auto_approve
 
-    # Resolve all .py files from arguments (files and directories)
-    py_files: list[Path] = []
-    for s in scripts:
-        p = Path(s)
-        if p.is_dir():
-            found = sorted(p.rglob("*.py"))
-            if not found:
-                click.echo(f"Warning: no .py files found in {p}", err=True)
-            py_files.extend(found)
-        elif p.suffix != ".py":
-            click.echo(f"Error: {p.name} is not a .py file", err=True)
-            raise SystemExit(1)
-        else:
-            py_files.append(p)
-
-    if not py_files:
-        click.echo("Error: no .py files to process", err=True)
-        raise SystemExit(1)
-
-    # Auto-generate name if not provided
-    if name is None:
-        name = py_files[0].stem if len(py_files) == 1 else "auto_approval"
-        # Ensure unique name
-        config = AutoApproveConfig.load()
-        base_name = name
-        counter = 1
-        while name in config.auto_approvals.objects and not replace:
-            name = f"{base_name}_{counter}"
-            counter += 1
-    else:
-        config = AutoApproveConfig.load()
-
-    # Copy scripts to managed directory and hash
-    paths = get_default_paths()
-    obj_dir = paths.auto_approvals_dir / name
-    obj_dir.mkdir(parents=True, exist_ok=True)
-
-    script_entries: list[FileEntry] = []
-    for file_path in py_files:
-        dest = obj_dir / file_path.name
-        shutil.copy2(file_path, dest)
-        content = dest.read_text(encoding="utf-8")
-        file_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
-        script_entries.append(
-            FileEntry(relative_path=file_path.name, path=str(dest), hash=file_hash)
-        )
-
-    obj = AutoApprovalObj(
-        file_contents=script_entries,
-        file_paths=list(file_paths),
-        peers=list(peers),
+    result = api_auto_approve(
+        contents=list(contents),
+        file_paths=list(file_paths) or None,
+        peers=list(peers) or None,
+        name=name,
+        base_dir=Path(base_dir) if base_dir else None,
     )
 
-    if not replace and name in config.auto_approvals.objects:
-        # Additive: merge file_contents, peers, file_paths
-        existing = config.auto_approvals.objects[name]
-        existing_by_name = {s.relative_path: s for s in existing.file_contents}
-        for entry in script_entries:
-            existing_by_name[entry.relative_path] = entry
-        existing.file_contents = list(existing_by_name.values())
-        existing.peers = list(set(existing.peers + list(peers)))
-        existing.file_paths = list(set(existing.file_paths + list(file_paths)))
-    else:
-        config.auto_approvals.objects[name] = obj
+    if not result.success:
+        click.echo(f"Error: {result.error}", err=True)
+        raise SystemExit(1)
 
-    config.save()
-
-    click.echo(f"Auto-approval object: {name}")
-    for entry in script_entries:
-        click.echo(f"  {entry.relative_path}  {entry.hash}")
-    if peers:
-        click.echo(f"Peers: {', '.join(peers)}")
+    click.echo(f"Auto-approval object: {result.name}")
+    if result.file_contents:
+        for entry in result.file_contents:
+            click.echo(f"  {entry}")
+    if result.peers:
+        click.echo(f"Peers: {', '.join(result.peers)}")
     else:
         click.echo("Peers: (any)")
-    if file_paths:
-        click.echo(f"Allowed files: {', '.join(file_paths)}")
-    click.echo()
-    click.echo("Config updated.")
-
-    # Check if services are running and suggest restart
-    manager = ServiceManager()
-    approve_svc = manager.get_service("approve")
-    approve_status = approve_svc.get_status() if approve_svc else None
-    if approve_status and approve_status.status == ServiceStatus.RUNNING:
-        click.echo()
-        if click.confirm("Approve service is running. Restart to apply changes?"):
-            success, msg = manager.restart_service("approve")
-            if success:
-                click.echo(f"Restarted: {msg}")
-            else:
-                click.echo(f"Restart failed: {msg}", err=True)
+    if result.file_paths:
+        click.echo(f"Allowed files: {', '.join(result.file_paths)}")
 
 
-@main.command("remove-script")
+@main.command("remove-auto-approval")
 @click.argument("files", nargs=-1, required=True)
 @click.option(
     "--name",
@@ -732,14 +490,14 @@ def set_script(
     required=True,
     help="Name of the auto-approval object to remove scripts from.",
 )
-def remove_script(files: tuple[str, ...], name: str):
+def remove_auto_approval(files: tuple[str, ...], name: str):
     """Remove scripts from an auto-approval object.
 
     Examples:
 
-      syft-bg remove-script utils.py -n my_analysis
+      syft-bg remove-auto-approval utils.py -n my_analysis
 
-      syft-bg remove-script main.py utils.py -n my_analysis
+      syft-bg remove-auto-approval main.py utils.py -n my_analysis
     """
     from syft_bg.approve.config import AutoApproveConfig
 
@@ -802,21 +560,21 @@ def remove_peer(peer: str, name: str | None):
     click.echo(f"Removed peer {peer} from {removed_from} object(s).")
 
 
-@main.command("list-scripts")
+@main.command("list-auto-approvals")
 @click.option(
     "--name",
     "-n",
     default=None,
     help="Show a specific auto-approval object only.",
 )
-def list_scripts(name: str | None):
+def list_auto_approvals(name: str | None):
     """List auto-approval objects and their scripts.
 
     Examples:
 
-      syft-bg list-scripts
+      syft-bg list-auto-approvals
 
-      syft-bg list-scripts -n my_analysis
+      syft-bg list-auto-approvals -n my_analysis
     """
     from syft_bg.approve.config import AutoApproveConfig
 

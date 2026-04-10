@@ -5,11 +5,8 @@ from pathlib import Path
 
 import click
 
-from syft_bg.cli.init.drive_setup import setup_drive
 from syft_bg.cli.init.exceptions import InitFlowError
-from syft_bg.cli.init.gmail_setup import setup_gmail
-from syft_bg.common.config import get_creds_dir
-from syft_bg.common.drive import is_colab
+from syft_bg.common.config import get_default_paths
 from syft_bg.common.syft_bg_config import SyftBgConfig
 
 
@@ -118,43 +115,43 @@ def _resolve_common_settings(config: UserPassedConfig, result: SyftBgConfig) -> 
         )
 
 
-def _setup_auth(
-    user_passed_config: UserPassedConfig,
-    result_config: SyftBgConfig,
-    creds_dir: Path,
-) -> None:
-    """Run Gmail and Drive OAuth setup, storing paths on result_config."""
-    result_config.credentials_path = (
-        user_passed_config.credentials_path | result_config.credentials_path
-    )
+# def _setup_auth(
+#     user_passed_config: UserPassedConfig,
+#     result_config: SyftBgConfig,
+# ) -> None:
+#     """Run Gmail and Drive OAuth setup, storing paths on result_config."""
+#     result_config.credentials_path = Path(
+#         user_passed_config.credentials_path or result_config.credentials_path
+#     )
 
-    result_config.gmail_token_path = (
-        user_passed_config.gmail_token_path | result_config.gmail_token_path
-    )
-    result_config.drive_token_path = (
-        user_passed_config.drive_token_path | result_config.drive_token_path
-    )
+#     result_config.gmail_token_path = Path(
+#         user_passed_config.gmail_token_path or result_config.gmail_token_path
+#     )
+#     result_config.drive_token_path = Path(
+#         user_passed_config.drive_token_path or result_config.drive_token_path
+#     )
 
-    setup_gmail(
-        result_config.credentials_path,
-        result_config.gmail_token_path,
-        skip=user_passed_config.skip_oauth,
-        quiet=user_passed_config.quiet,
-    )
+#     _print_section("GOOGLE DRIVE AUTHENTICATION", quiet=user_passed_config.quiet)
 
-    _print_section("GOOGLE DRIVE AUTHENTICATION", quiet=user_passed_config.quiet)
+#     if is_colab():
+#         if not user_passed_config.quiet:
+#             click.echo(
+#                 "Colab detected - Drive and Gmail authentication handled by Colab"
+#             )
+#     else:
+#         setup_gmail(
+#             result_config.credentials_path,
+#             result_config.gmail_token_path,
+#             skip=user_passed_config.skip_oauth,
+#             quiet=user_passed_config.quiet,
+#         )
 
-    if is_colab():
-        if not user_passed_config.quiet:
-            click.echo("Colab detected - Drive authentication handled natively")
-    else:
-        if not setup_drive(
-            result_config.credentials_path,
-            result_config.drive_token_path,
-            skip=user_passed_config.skip_oauth,
-            quiet=user_passed_config.quiet,
-        ):
-            raise InitFlowError("Google Drive authentication setup failed")
+#         setup_drive(
+#             result_config.credentials_path,
+#             result_config.drive_token_path,
+#             skip=user_passed_config.skip_oauth,
+#             quiet=user_passed_config.quiet,
+#         )
 
 
 def _resolve_notify_settings(config: UserPassedConfig, result: SyftBgConfig) -> None:
@@ -275,16 +272,15 @@ def run_init_flow(
 
     _print_banner(quiet=user_passed_config.quiet)
 
-    creds_dir = get_creds_dir()
-    config_path = creds_dir / "config.yaml"
+    config_path = get_default_paths().config
 
     result_config = _load_existing_config(user_passed_config, config_path)
 
     _print_section("COMMON SETTINGS", quiet=user_passed_config.quiet)
     _resolve_common_settings(user_passed_config, result_config)
 
-    _print_section("GMAIL AUTHENTICATION", quiet=user_passed_config.quiet)
-    _setup_auth(user_passed_config, result_config, creds_dir)
+    # _print_section("GMAIL AUTHENTICATION", quiet=user_passed_config.quiet)
+    # _setup_auth(user_passed_config, result_config)
 
     _print_section("NOTIFICATION SERVICE", quiet=user_passed_config.quiet)
     _resolve_notify_settings(user_passed_config, result_config)

@@ -24,6 +24,12 @@ class BaseOrchestrator:
         self._stop_event = threading.Event()
         self.interval: int = 30
 
+    def setup(self) -> None:
+        """Validate external dependencies. Override in subclasses.
+
+        Raises on failure so the error message and traceback are captured.
+        """
+
     def _init_monitors(self):
         """Initialize job and peer monitors. Override in subclass."""
         raise NotImplementedError("Subclass must implement _init_monitors()")
@@ -53,7 +59,7 @@ class BaseOrchestrator:
             self._peer_monitor.stop()
         self._threads.clear()
 
-    def check(self, monitor_type: Optional[MonitorType] = None) -> None:
+    def run_once(self, monitor_type: Optional[MonitorType] = None) -> None:
         """Run a single check cycle."""
         self._init_monitors()
 
@@ -70,7 +76,7 @@ class BaseOrchestrator:
         """Check if any monitor threads are running."""
         return any(t.is_alive() for t in self._threads)
 
-    def run(self, monitor_type: Optional[MonitorType] = None) -> None:
+    def run_loop(self, monitor_type: Optional[MonitorType] = None) -> None:
         """Run monitors in foreground (blocking)."""
         self._init_monitors()
         self._stop_event.clear()

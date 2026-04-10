@@ -15,14 +15,14 @@ Usage (Notebook):
     monitor.stop()         # Stop all
 
 Usage (CLI Daemon):
-    # Create config file (~/.syft-creds/daemon.yaml):
+    # Create config file (~/.syft-bg/daemon.yaml):
     #   do_email: "dataowner@example.com"
     #   syftbox_root: "~/SyftBox_dataowner@example.com"
-    #   drive_token_path: "~/.syft-creds/token_do.json"
-    #   gmail_token_path: "~/.syft-creds/gmail_token.json"
+    #   drive_token_path: "~/.syft-bg/token_do.json"
+    #   gmail_token_path: "~/.syft-bg/gmail_token.json"
 
     # Run daemon:
-    syft-notify --config ~/.syft-creds/daemon.yaml
+    syft-notify --config ~/.syft-bg/daemon.yaml
 """
 
 import threading
@@ -38,13 +38,13 @@ COLAB_DRIVE_PATH = Path("/content/drive/MyDrive")
 CREDS_DIR_NAME = "syft-creds"
 
 
-def get_creds_dir() -> Path:
+def get_syftbg_dir() -> Path:
     """
     Get the credentials directory path.
 
     Returns:
         - Colab/Drive mounted: /content/drive/MyDrive/syft-creds/
-        - Local/VM: ~/.syft-creds/
+        - Local/VM: ~/.syft-bg/
     """
     # Check if Drive is mounted (Colab or manual mount)
     drive_creds = COLAB_DRIVE_PATH / CREDS_DIR_NAME
@@ -57,17 +57,17 @@ def get_creds_dir() -> Path:
 
 def get_credentials_path() -> Path:
     """Get path to credentials.json (OAuth client secrets)."""
-    return get_creds_dir() / "credentials.json"
+    return get_syftbg_dir() / "credentials.json"
 
 
 def get_gmail_token_path() -> Path:
     """Get path to gmail_token.json."""
-    return get_creds_dir() / "gmail_token.json"
+    return get_syftbg_dir() / "gmail_token.json"
 
 
 def get_state_path() -> Path:
     """Get path to notification state file."""
-    return get_creds_dir() / "notification_state.json"
+    return get_syftbg_dir() / "notification_state.json"
 
 
 MonitorType = Literal["jobs", "peers"]
@@ -151,7 +151,7 @@ class NotificationMonitor:
         Example:
             >>> NotificationMonitor.setup()
         """
-        creds_dir = get_creds_dir()
+        creds_dir = get_syftbg_dir()
         creds_path = (
             Path(credentials_path) if credentials_path else get_credentials_path()
         )
@@ -289,16 +289,16 @@ class NotificationMonitor:
         Config file format:
             do_email: "dataowner@example.com"        # Required
             syftbox_root: "~/SyftBox_dataowner"      # Required
-            drive_token_path: "~/.syft-creds/token_do.json"  # Required for Drive polling
-            gmail_token_path: "~/.syft-creds/gmail_token.json"  # Optional (auto-detected)
-            state_path: "~/.syft-creds/notification_state.json"  # Optional
+            drive_token_path: "~/.syft-bg/token_do.json"  # Required for Drive polling
+            gmail_token_path: "~/.syft-bg/gmail_token.json"  # Optional (auto-detected)
+            state_path: "~/.syft-bg/notification_state.json"  # Optional
             interval: 30  # Optional, seconds between checks
 
         Returns:
             Configured NotificationMonitor
 
         Example:
-            >>> monitor = NotificationMonitor.from_config("~/.syft-creds/daemon.yaml")
+            >>> monitor = NotificationMonitor.from_config("~/.syft-bg/daemon.yaml")
             >>> monitor.run()  # Blocking
         """
         import yaml
@@ -452,7 +452,7 @@ class NotificationMonitor:
             self._peer_monitor.stop()
         self._threads.clear()
 
-    def check(self, monitor_type: Optional[MonitorType] = None) -> None:
+    def run_once(self, monitor_type: Optional[MonitorType] = None) -> None:
         """
         Run a single check (non-blocking).
 
@@ -467,7 +467,7 @@ class NotificationMonitor:
 
         if monitor_type is None or monitor_type == "peers":
             if self._peer_monitor:
-                self._peer_monitor.check()
+                self._peer_monitor.run_once()
 
     def notify_peer_granted(self, ds_email: str) -> None:
         """
@@ -556,6 +556,6 @@ class NotificationMonitor:
         print("✅ Notification daemon stopped")
 
     @staticmethod
-    def get_creds_dir() -> Path:
+    def get_syftbg_dir() -> Path:
         """Get the credentials directory path (for user reference)."""
-        return get_creds_dir()
+        return get_syftbg_dir()

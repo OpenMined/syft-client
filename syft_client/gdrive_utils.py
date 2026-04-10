@@ -2,6 +2,8 @@
 
 import io
 import re
+import shutil
+import time
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -12,9 +14,9 @@ from googleapiclient.http import MediaIoBaseDownload
 
 from syft_client.sync.connections.drive.gdrive_transport import (
     build_drive_service,
-    SCOPES,
     GOOGLE_FOLDER_MIME_TYPE,
 )
+from syft_client.sync.connections.drive.gdrive_transport import SCOPES as GDRIVE_SCOPES
 from syft_client.sync.connections.drive.gdrive_retry import (
     execute_with_retries,
     next_chunk_with_retries,
@@ -30,9 +32,18 @@ from syft_client.sync.config.config import settings
 _COULD_BE_ID = re.compile(r"^[a-zA-Z0-9_-]{10,}$")
 
 
+DO_SCOPES = [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/pubsub",
+]
+
+
 def credentials_to_token(
     credentials_path: str | Path,
     output_path: str | Path | None = None,
+    store: bool = False,
+    do_scopes: bool = False,
 ) -> Path:
     """Convert a Google OAuth credentials.json to an authorized token file.
 
@@ -50,8 +61,9 @@ def credentials_to_token(
     else:
         output_path = Path(output_path)
 
+    scopes = DO_SCOPES if do_scopes else GDRIVE_SCOPES
     flow = InstalledAppFlow.from_client_secrets_file(
-        str(credentials_path.absolute()), SCOPES
+        str(credentials_path.absolute()), scopes
     )
     try:
         creds = flow.run_local_server(port=0)
@@ -71,6 +83,15 @@ def credentials_to_token(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(creds.to_json())
+
+    if store:
+        path = Path.home() / ".syft-bg" / "token.json"
+        path.write_text(creds.to_json())
+        project_id_path = Path.home() / ".syft-bg" / "project_id.txt"
+        with open(credentials_path, "r") as f:
+            f.read().strip()
+        project_id_path.write_text(creds.project_id)
+
     return output_path
 
 
@@ -114,7 +135,9 @@ def _build_service(token_path: str | Path | None = None):
             "No token path provided. Set SYFTCLIENT_TOKEN_PATH env var "
             "or pass token_path explicitly."
         )
-    credentials = GoogleCredentials.from_authorized_user_file(str(resolved), SCOPES)
+    credentials = GoogleCredentials.from_authorized_user_file(
+        str(resolved), GDRIVE_SCOPES
+    )
     return build_drive_service(credentials)
 
 
@@ -245,3 +268,122 @@ def _download_folder(
         _download_single_file(service, f["id"], target / f["name"], f["name"])
 
     return target
+
+
+def _get_default_syftbox_path(email: str) -> Path:
+    """Return the default local SyftBox directory for the current environment."""
+    env = check_env()
+    if env == Environment.COLAB:
+        return Path("/content") / f"SyftBox_{email}"
+    else:
+        return Path.home() / f"SyftBox_{email}"
+
+
+def _delete_local_syftbox_dirs(local_syftbox_path: Path, verbose: bool = True) -> None:
+    """Delete a local SyftBox directory and its companion cache directories."""
+    syftbox_name = local_syftbox_path.name
+    syftbox_parent = local_syftbox_path.parent
+    dirs_to_delete = [
+        local_syftbox_path,
+        syftbox_parent / f"{syftbox_name}-events",
+        syftbox_parent / f"{syftbox_name}-event-messages",
+    ]
+    for d in dirs_to_delete:
+        if d.exists():
+            shutil.rmtree(d)
+            if verbose:
+                print(f"Deleted local directory: {d}")
+
+
+def delete_syftbox(
+    token_path: str | Path | None = None,
+    email: str | None = None,
+    local_syftbox_path: str | Path | None = None,
+    verbose: bool = True,
+) -> None:
+    """Delete all SyftBox state from Google Drive and local directories.
+
+    This is a standalone utility that does not require a full SyftboxManager.
+    It creates a temporary GDriveConnection to find and delete all SyftBox
+    files/folders from Google Drive, and also cleans up local cache directories.
+
+    Local cleanup includes the SyftBox directory and its companion cache
+    directories (``<name>-events``, ``<name>-event-messages``). If
+    ``local_syftbox_path`` is not provided, the default path for the current
+    environment is used (``~/SyftBox_{email}`` for Jupyter,
+    ``/content/SyftBox_{email}`` for Colab).
+
+    Note: This function does NOT broadcast ``is_deleted`` events to peers.
+    Broadcasting requires the full client (peer manager, event cache, encryption
+    keys) which are not available in standalone mode. Peers will not be notified
+    that files have been removed; they will discover the deletion on their next
+    sync cycle.
+
+    Args:
+        token_path: Path to OAuth token JSON file. Required when running
+            locally. On Colab, pass ``None`` to use Colab's built-in auth.
+        email: Google account email. Required when running locally. On Colab,
+            this is auto-detected if not provided.
+        local_syftbox_path: Optional path to the local SyftBox directory.
+            If not provided, the default path for the current environment
+            is used automatically.
+        verbose: If True (default), print deletion progress.
+    """
+    from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
+
+    env = check_env()
+
+    if env == Environment.COLAB and email is None:
+        from syft_client.sync.utils.syftbox_utils import get_email_colab
+
+        email = get_email_colab()
+
+    if email is None:
+        raise ValueError(
+            "email is required when running locally. On Colab it can be auto-detected."
+        )
+
+    if env != Environment.COLAB and token_path is None:
+        resolved = settings.token_path
+        if not resolved:
+            raise ValueError(
+                "token_path is required when running locally. "
+                "Set SYFTCLIENT_TOKEN_PATH env var or pass token_path explicitly."
+            )
+        token_path = resolved
+
+    token_path = Path(token_path) if token_path is not None else None
+    conn = GDriveConnection.from_token_path(email=email, token_path=token_path)
+
+    # Gather file IDs via folder hierarchy
+    folder_file_ids = set(conn.gather_all_file_and_folder_ids())
+
+    # Find orphaned syft files by name pattern
+    orphaned_file_ids = set(conn.find_orphaned_message_files())
+
+    all_file_ids = list(folder_file_ids | orphaned_file_ids)
+
+    start = time.time()
+    conn.delete_multiple_files_by_ids(all_file_ids)
+    elapsed = time.time() - start
+
+    if verbose:
+        orphan_count = len(orphaned_file_ids - folder_file_ids)
+        print(
+            f"Deleted {len(all_file_ids)} files/folders in {elapsed:.2f}s",
+            end="",
+        )
+        if orphan_count > 0:
+            print(f" (including {orphan_count} orphaned)")
+        else:
+            print()
+
+    conn.reset_caches()
+
+    # Delete local directories (auto-detect path if not provided)
+    if local_syftbox_path is not None:
+        resolved_path = Path(local_syftbox_path)
+    else:
+        resolved_path = _get_default_syftbox_path(email)
+
+    _delete_local_syftbox_dirs(resolved_path, verbose=verbose)

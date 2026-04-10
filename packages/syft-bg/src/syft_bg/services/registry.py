@@ -36,4 +36,4 @@ def _create_services() -> dict[str, Service]:
     }
 
 
-SERVICES = _create_services()
+SERVICE_REGISTRY = _create_services()

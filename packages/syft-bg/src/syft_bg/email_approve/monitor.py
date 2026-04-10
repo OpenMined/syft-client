@@ -2,6 +2,7 @@
 
 import email.utils
 import json
+import queue
 import threading
 from google.cloud import pubsub_v1
 from google.oauth2.credentials import Credentials
@@ -45,6 +46,7 @@ class EmailApproveMonitor:
         self.topic_name = topic_name
         self.do_email = do_email
         self._stop_event = threading.Event()
+        self._history_queue: queue.Queue[tuple[str, object]] = queue.Queue()
 
     def start(self) -> threading.Thread:
         """Start the monitor in a background thread."""
@@ -70,6 +72,9 @@ class EmailApproveMonitor:
         """Main run loop: subscribe to Pub/Sub with reconnect."""
         renew_thread = threading.Thread(target=self._watch_renew_loop, daemon=True)
         renew_thread.start()
+
+        worker_thread = threading.Thread(target=self._process_queue, daemon=True)
+        worker_thread.start()
 
         backoff = MIN_BACKOFF
         subscriber = pubsub_v1.SubscriberClient(credentials=self.credentials)
@@ -107,12 +112,11 @@ class EmailApproveMonitor:
         print("[EmailApproveMonitor] Stopped")
 
     def _on_pubsub_message(self, message):
-        """Handle a Pub/Sub notification from Gmail."""
+        """Enqueue Pub/Sub notification for single-threaded processing."""
         try:
             payload = json.loads(message.data.decode("utf-8"))
             history_id = str(payload.get("historyId", ""))
         except Exception:
-            print("[EmailApproveMonitor] Bad Pub/Sub payload, acking.")
             message.ack()
             return
 
@@ -120,18 +124,31 @@ class EmailApproveMonitor:
             message.ack()
             return
 
-        try:
-            self._process_history(history_id)
-            message.ack()
-        except Exception as e:
-            print(f"[EmailApproveMonitor] Error processing notification: {e}")
-            message.nack()
+        self._history_queue.put((history_id, message))
+
+    def _process_queue(self):
+        """Single-threaded worker that processes history IDs from the queue."""
+        while not self._stop_event.is_set():
+            try:
+                history_id, message = self._history_queue.get(timeout=1)
+            except queue.Empty:
+                continue
+
+            try:
+                self._process_history(history_id)
+            except Exception as e:
+                print(
+                    f"[EmailApproveMonitor] Error processing history: {e}", flush=True
+                )
+            finally:
+                message.ack()
 
     def _process_history(self, new_history_id: str):
         """Fetch and process new messages since last history ID."""
         last = self.state.get_data("email_approve_last_history_id")
 
         if new_history_id == last:
+            print(f"[EmailApproveMonitor] historyId unchanged ({last}), skipping")
             return
 
         try:
@@ -148,6 +165,9 @@ class EmailApproveMonitor:
                 self.state.set_data("email_approve_last_history_id", new_history_id)
                 return
             raise
+
+        if len(msg_ids) > 0:
+            print(f"[EmailApproveMonitor] Found {len(msg_ids)} message(s)")
 
         for msg_id in msg_ids:
             if self._stop_event.is_set():
@@ -168,6 +188,9 @@ class EmailApproveMonitor:
         # Only process emails sent by the DO (replies from self)
         _, from_email = email.utils.parseaddr(msg.get_header("From") or "")
         if from_email.lower() != self.do_email.lower():
+            print(
+                f"[EmailApproveMonitor] Skipping msg {msg_id}: from={from_email}, expected={self.do_email}"
+            )
             return
 
         if not msg.thread_id or not msg.reply_text:
@@ -177,6 +200,9 @@ class EmailApproveMonitor:
             return
 
         try:
+            print(
+                f"[EmailApproveMonitor] Handling reply for thread {msg.thread_id}, reply_text: {msg.reply_text}"
+            )
             self.handler.handle_reply(msg.thread_id, msg.reply_text)
         except Exception as e:
             print(

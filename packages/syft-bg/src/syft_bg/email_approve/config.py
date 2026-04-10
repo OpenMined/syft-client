@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from syft_bg.common.config import get_default_paths, load_yaml, save_yaml
 
@@ -13,9 +13,18 @@ class EmailApproveConfig(BaseModel):
 
     do_email: Optional[str] = None
     syftbox_root: Optional[Path] = None
+    gmail_token_path: Path = Field(
+        default_factory=lambda: get_default_paths().gmail_token
+    )
     gcp_project_id: Optional[str] = None
     pubsub_topic: Optional[str] = None
     pubsub_subscription: Optional[str] = None
+    email_approve_state_path: Path = Field(
+        default_factory=lambda: get_default_paths().email_approve_state
+    )
+    notify_state_path: Path = Field(
+        default_factory=lambda: get_default_paths().notify_state
+    )
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "EmailApproveConfig":

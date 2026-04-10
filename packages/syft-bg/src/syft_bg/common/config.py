@@ -7,10 +7,10 @@ from typing import Any
 import yaml
 
 COLAB_DRIVE_PATH = Path("/content/drive/MyDrive")
-CREDS_DIR_NAME = "syft-creds"
+CREDS_DIR_NAME = "syft-bg"
 
 
-def get_creds_dir() -> Path:
+def get_syftbg_dir() -> Path:
     """Get the credentials directory, handling Colab vs local environments."""
     if COLAB_DRIVE_PATH.exists():
         return COLAB_DRIVE_PATH / CREDS_DIR_NAME
@@ -43,21 +43,21 @@ class DefaultPaths:
     email_approve_pid: Path
     email_approve_log: Path
 
-    # Sync service paths
-    sync_state: Path
-    sync_pid: Path
-    sync_log: Path
+    # Setup state paths (per-service)
+    notify_setup_state: Path
+    approve_setup_state: Path
+    email_approve_setup_state: Path
 
 
 def get_default_paths() -> DefaultPaths:
     """Get default paths for all services."""
-    creds = get_creds_dir()
+    creds = get_syftbg_dir()
     return DefaultPaths(
         # Shared
         config=creds / "config.yaml",
         credentials=creds / "credentials.json",
-        gmail_token=creds / "gmail_token.json",
-        drive_token=creds / "drive_token.json",
+        gmail_token=creds / "token.json",
+        drive_token=creds / "token.json",
         # Notify
         notify_state=creds / "notify" / "state.json",
         notify_pid=creds / "notify" / "daemon.pid",
@@ -71,10 +71,10 @@ def get_default_paths() -> DefaultPaths:
         email_approve_state=creds / "email_approve" / "state.json",
         email_approve_pid=creds / "email_approve" / "daemon.pid",
         email_approve_log=creds / "email_approve" / "daemon.log",
-        # Sync
-        sync_state=creds / "sync" / "state.json",
-        sync_pid=creds / "sync" / "daemon.pid",
-        sync_log=creds / "sync" / "daemon.log",
+        # Setup state
+        notify_setup_state=creds / "notify" / "setup_state.json",
+        approve_setup_state=creds / "approve" / "setup_state.json",
+        email_approve_setup_state=creds / "email_approve" / "setup_state.json",
     )
 
 

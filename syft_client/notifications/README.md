@@ -12,7 +12,7 @@ Get Google OAuth credentials:
 4. Go to **APIs & Services → Credentials**
 5. Create **OAuth 2.0 Client ID** (Desktop app)
 6. Download as `credentials.json`
-7. Place in `~/.syft-creds/credentials.json`
+7. Place in `~/.syft-bg/credentials.json`
 
 ## Install
 
@@ -32,7 +32,7 @@ This will:
 - Prompt for your Data Owner email
 - Run OAuth flow for Google Drive (opens browser)
 - Run OAuth flow for Gmail (opens browser)
-- Create `~/.syft-creds/daemon.yaml`
+- Create `~/.syft-bg/daemon.yaml`
 
 ## Run as Background Daemon
 
