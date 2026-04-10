@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from typing import TYPE_CHECKING, Optional
 
+from syft_bg.common.orchestrator import BaseOrchestrator
 from syft_bg.sync.config import SyncConfig
 from syft_bg.sync.snapshot import SyncSnapshot
 from syft_bg.sync.snapshot_writer import SnapshotWriter
@@ -14,17 +14,18 @@ if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
 
 
-class SyncOrchestrator:
+class SyncOrchestrator(BaseOrchestrator):
     def __init__(
         self,
         client: SyftboxManager,
         snapshot_writer: SnapshotWriter,
         config: SyncConfig,
     ):
+        super().__init__()
         self.client = client
         self.snapshot_writer = snapshot_writer
         self.config = config
-        self._stop_event = threading.Event()
+        self.interval = config.interval
         self._sync_count = 0
 
     @classmethod
@@ -63,7 +64,15 @@ class SyncOrchestrator:
             config=config,
         )
 
-    def run(self) -> None:
+    def _init_monitors(self):
+        """No-op: sync doesn't use monitors."""
+        pass
+
+    def setup(self) -> None:
+        """Verify Drive credentials by running a single sync."""
+        self.client.sync()
+
+    def run_loop(self, monitor_type=None) -> None:
         self._print_startup_info()
         try:
             while not self._stop_event.is_set():
@@ -72,12 +81,10 @@ class SyncOrchestrator:
         except KeyboardInterrupt:
             print("\nShutting down...")
         self._stop_event.set()
+        print("Daemon stopped")
 
-    def run_once(self) -> None:
+    def run_once(self, monitor_type=None) -> None:
         self._sync_and_snapshot()
-
-    def stop(self) -> None:
-        self._stop_event.set()
 
     def _sync_and_snapshot(self) -> None:
         start = time.time()

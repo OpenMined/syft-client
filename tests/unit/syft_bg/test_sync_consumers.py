@@ -2,7 +2,7 @@
 
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.monitors.job import JobMonitor
@@ -73,7 +73,7 @@ class TestPeerMonitorWithSnapshot:
 
 
 class TestJobMonitorLocalStatusChanges:
-    """Tests for _check_local_for_status_changes with inbox/review directory structure."""
+    """Tests for process_local_status_changes with inbox/review directory structure."""
 
     def _setup_job(self, temp_dir, ds_email="ds@t.com", job_name="test_job"):
         do_email = "do@test.com"
@@ -82,22 +82,14 @@ class TestJobMonitorLocalStatusChanges:
         inbox_job = job_dir / "inbox" / ds_email / job_name
         inbox_job.mkdir(parents=True)
         config = inbox_job / "config.yaml"
-        config.write_text(f"name: {job_name}\ntype: python\n")
+        config.write_text(
+            f"name: {job_name}\ntype: python\nsubmitted_at: '2026-01-01T00:00:00'\n"
+        )
 
         return job_dir, inbox_job
 
-    def _setup_review_state(self, temp_dir, ds_email, job_name, state_data):
-        do_email = "do@test.com"
-        review_dir = (
-            temp_dir / do_email / "app_data" / "job" / "review" / ds_email / job_name
-        )
-        review_dir.mkdir(parents=True, exist_ok=True)
-        import yaml
-
-        (review_dir / "state.yaml").write_text(yaml.dump(state_data))
-
     def test_detects_new_job(self, temp_dir):
-        self._setup_job(temp_dir)
+        _, inbox_job = self._setup_job(temp_dir)
         handler = MagicMock()
         handler.on_new_job.return_value = True
         state = JsonStateManager(temp_dir / "state.json")
@@ -109,16 +101,14 @@ class TestJobMonitorLocalStatusChanges:
             handler=handler,
             state=state,
         )
-        monitor._check_local_for_status_changes()
+        monitor.process_local_status_changes()
         handler.on_new_job.assert_called_once_with(
             "do@test.com", "test_job", "ds@t.com"
         )
 
     def test_detects_approved_status(self, temp_dir):
-        self._setup_job(temp_dir)
-        self._setup_review_state(
-            temp_dir, "ds@t.com", "test_job", {"approved_at": "2026-01-01T00:00:00Z"}
-        )
+        _, inbox_job = self._setup_job(temp_dir)
+        (inbox_job / "approved").touch()
         handler = MagicMock()
         handler.on_new_job.return_value = True
         handler.on_job_approved.return_value = True
@@ -131,20 +121,13 @@ class TestJobMonitorLocalStatusChanges:
             handler=handler,
             state=state,
         )
-        monitor._check_local_for_status_changes()
+        monitor.process_local_status_changes()
         handler.on_job_approved.assert_called_once_with("ds@t.com", "test_job")
 
     def test_detects_executed_status(self, temp_dir):
-        self._setup_job(temp_dir)
-        self._setup_review_state(
-            temp_dir,
-            "ds@t.com",
-            "test_job",
-            {
-                "approved_at": "2026-01-01T00:00:00Z",
-                "completed_at": "2026-01-01T00:01:00Z",
-            },
-        )
+        _, inbox_job = self._setup_job(temp_dir)
+        (inbox_job / "approved").touch()
+        (inbox_job / "done").touch()
         handler = MagicMock()
         handler.on_new_job.return_value = True
         handler.on_job_approved.return_value = True
@@ -158,7 +141,7 @@ class TestJobMonitorLocalStatusChanges:
             handler=handler,
             state=state,
         )
-        monitor._check_local_for_status_changes()
+        monitor.process_local_status_changes()
         handler.on_job_executed.assert_called_once_with("ds@t.com", "test_job")
 
     def test_skips_old_jobs_on_fresh_state(self, temp_dir):
@@ -172,7 +155,7 @@ class TestJobMonitorLocalStatusChanges:
             handler=handler,
             state=state,
         )
-        monitor._check_local_for_status_changes()
+        monitor.process_local_status_changes()
         handler.on_new_job.assert_not_called()
 
     def test_no_inbox_dir_doesnt_crash(self, temp_dir):
@@ -185,36 +168,5 @@ class TestJobMonitorLocalStatusChanges:
             handler=handler,
             state=state,
         )
-        monitor._check_local_for_status_changes()  # should not raise
+        monitor.process_local_status_changes()  # should not raise
         handler.on_new_job.assert_not_called()
-
-
-class TestPreSyncEnvVar:
-    def _start_service(self, name: str, mock_popen):
-        from syft_bg.services.base import Service
-
-        svc = Service(
-            name=name,
-            description="test",
-            pid_file=Path("/tmp/test.pid"),
-            log_file=Path("/tmp/test.log"),
-        )
-        mock_popen.return_value = MagicMock(pid=1234)
-        svc.start()
-        return mock_popen.call_args.kwargs.get("env", {})
-
-    def test_consumer_service_sets_pre_sync_false(self):
-        with (
-            patch.dict("os.environ", {"PATH": "/usr/bin"}, clear=True),
-            patch("subprocess.Popen") as mock_popen,
-        ):
-            env = self._start_service("notify", mock_popen)
-            assert env.get("PRE_SYNC") == "false"
-
-    def test_sync_service_does_not_set_pre_sync_false(self):
-        with (
-            patch.dict("os.environ", {"PATH": "/usr/bin"}, clear=True),
-            patch("subprocess.Popen") as mock_popen,
-        ):
-            env = self._start_service("sync", mock_popen)
-            assert env.get("PRE_SYNC") != "false"

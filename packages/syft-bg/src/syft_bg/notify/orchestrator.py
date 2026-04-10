@@ -2,7 +2,6 @@
 
 from typing import Optional
 
-from syft_bg.common.drive import is_colab
 from syft_bg.common.orchestrator import BaseOrchestrator
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.config import NotifyConfig
@@ -12,6 +11,7 @@ from syft_bg.notify.handlers.job import JobHandler
 from syft_bg.notify.handlers.peer import PeerHandler
 from syft_bg.notify.monitors.job import JobMonitor
 from syft_bg.notify.monitors.peer import PeerMonitor
+from syft_bg.sync.snapshot_reader import SnapshotReader
 
 
 class NotificationOrchestrator(BaseOrchestrator):
@@ -70,19 +70,26 @@ class NotificationOrchestrator(BaseOrchestrator):
             do_email=config.do_email,
             handler=job_handler,
             state=state_manager,
-            drive_token_path=config.drive_token_path,
         )
 
-        if is_colab() or (config.drive_token_path and config.drive_token_path.exists()):
+        from syft_bg.common.config import get_default_paths
+
+        paths = get_default_paths()
+        snapshot_reader = (
+            SnapshotReader(paths.sync_state)
+            if paths.sync_state.parent.exists()
+            else None
+        )
+
+        if snapshot_reader:
             peer_monitor = PeerMonitor(
                 do_email=config.do_email,
-                drive_token_path=config.drive_token_path,
                 handler=peer_handler,
                 state=state_manager,
+                snapshot_reader=snapshot_reader,
             )
         else:
-            print("⚠️  Drive token not found. Peer monitoring disabled.")
-            print(f"   Expected at: {config.drive_token_path}")
+            print("⚠️  Sync snapshot not found. Peer monitoring disabled.")
             peer_monitor = None
 
         return cls(

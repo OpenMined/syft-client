@@ -36,6 +36,10 @@ def _make_paths(temp_dir):
         sync_state=temp_dir / "sync" / "state.json",
         sync_pid=temp_dir / "sync" / "daemon.pid",
         sync_log=temp_dir / "sync" / "daemon.log",
+        notify_setup_state=temp_dir / "notify" / "setup_state.json",
+        approve_setup_state=temp_dir / "approve" / "setup_state.json",
+        email_approve_setup_state=temp_dir / "email_approve" / "setup_state.json",
+        sync_setup_state=temp_dir / "sync" / "setup_state.json",
     )
 
 

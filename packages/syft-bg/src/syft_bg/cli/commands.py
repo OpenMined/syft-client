@@ -62,7 +62,41 @@ def status():
                     f"{name:<12} {'○ ' + status_text:<12} {pid_text:<10} {service.description}"
                 )
 
+    # Sync health
+    _print_sync_health()
+
     click.echo()
+
+
+def _print_sync_health():
+    """Print sync snapshot health if available."""
+    from syft_bg.common.config import get_default_paths
+    from syft_bg.sync.snapshot_reader import SnapshotReader
+
+    paths = get_default_paths()
+    reader = SnapshotReader(paths.sync_state)
+    snapshot = reader.read()
+    if not snapshot:
+        return
+
+    click.echo()
+    click.echo("SYNC HEALTH")
+    click.echo("-" * 50)
+
+    import time
+
+    age_s = time.time() - snapshot.sync_time
+    click.echo(f"  Sync count:  {snapshot.sync_count}")
+    click.echo(f"  Duration:    {snapshot.sync_duration_ms}ms")
+    click.echo(f"  Jobs:        {len(snapshot.job_names)}")
+    click.echo(f"  Peers:       {len(snapshot.approved_peer_emails)}")
+
+    if snapshot.sync_error:
+        click.echo(f"  Last error:  {snapshot.sync_error}")
+
+    if age_s > 120:
+        minutes = int(age_s / 60)
+        click.echo(f"  Warning:     Last sync {minutes}m ago (stale)")
 
 
 @main.command()
@@ -314,7 +348,7 @@ def setup_status():
 @click.option(
     "--service",
     "-s",
-    type=click.Choice(["notify", "approve", "email_approve"]),
+    type=click.Choice(["notify", "approve", "email_approve", "sync"]),
     required=True,
     help="Service to run",
 )
