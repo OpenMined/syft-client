@@ -8,7 +8,7 @@ from pathlib import Path
 from syft_bg.common.config import get_default_paths
 from syft_bg.common.syft_bg_config import SyftBgConfig
 from syft_bg.sync.config import SyncConfig
-from syft_bg.sync.snapshot import SyncSnapshot
+from syft_bg.sync.snapshot import PeerVersionInfo, SyncSnapshot
 from syft_bg.sync.snapshot_reader import SnapshotReader
 from syft_bg.sync.snapshot_writer import SnapshotWriter
 
@@ -35,6 +35,8 @@ class TestSyncSnapshot:
         assert snap.approved_peer_emails == []
         assert snap.sync_error is None
         assert snap.sync_count == 0
+        assert snap.own_version is None
+        assert snap.peer_versions == {}
 
     def test_roundtrip(self):
         snap = SyncSnapshot(
@@ -48,6 +50,33 @@ class TestSyncSnapshot:
         assert restored.sync_count == 5
         assert restored.peer_emails == ["a@b.com", "c@d.com"]
         assert restored.approved_peer_emails == ["a@b.com"]
+
+    def test_version_data_roundtrip(self):
+        own = PeerVersionInfo(syft_client_version="0.1.112", protocol_version="1.0.0")
+        peer_v = PeerVersionInfo(
+            syft_client_version="0.1.110", protocol_version="1.0.0"
+        )
+        snap = SyncSnapshot(
+            sync_time=1000.0,
+            own_version=own,
+            peer_versions={"ds@example.com": peer_v},
+        )
+        restored = SyncSnapshot.model_validate(snap.model_dump())
+        assert restored.own_version.syft_client_version == "0.1.112"
+        assert restored.peer_versions["ds@example.com"].protocol_version == "1.0.0"
+
+    def test_old_snapshot_without_version_fields(self):
+        """Snapshots written before version fields were added still deserialize."""
+        raw = {
+            "sync_time": 1000.0,
+            "sync_count": 1,
+            "job_names": ["j1"],
+            "peer_emails": [],
+            "approved_peer_emails": [],
+        }
+        snap = SyncSnapshot.model_validate(raw)
+        assert snap.own_version is None
+        assert snap.peer_versions == {}
 
 
 class TestSnapshotWriter:

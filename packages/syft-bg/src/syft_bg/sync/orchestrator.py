@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Optional
 
 from syft_bg.common.orchestrator import BaseOrchestrator
 from syft_bg.sync.config import SyncConfig
-from syft_bg.sync.snapshot import SyncSnapshot
+from syft_bg.sync.snapshot import PeerVersionInfo, SyncSnapshot
 from syft_bg.sync.snapshot_writer import SnapshotWriter
 
 if TYPE_CHECKING:
@@ -132,12 +132,27 @@ class SyncOrchestrator(BaseOrchestrator):
         job_names = []
         approved_peers = []
         all_peers = []
+        own_version = None
+        peer_versions = {}
         try:
             job_names = [j.name for j in self.client.job_client.jobs]
             approved_peers = [p.email for p in self.client.peer_manager.approved_peers]
             all_peers = approved_peers + [
                 p.email for p in self.client.peer_manager.requested_by_peer_peers
             ]
+
+            own_vi = self.client.peer_manager.get_own_version()
+            own_version = PeerVersionInfo(
+                syft_client_version=own_vi.syft_client_version,
+                protocol_version=own_vi.protocol_version,
+            )
+            for peer_email in approved_peers:
+                vi = self.client.peer_manager.get_peer_version(peer_email)
+                if vi:
+                    peer_versions[peer_email] = PeerVersionInfo(
+                        syft_client_version=vi.syft_client_version,
+                        protocol_version=vi.protocol_version,
+                    )
         except Exception as e:
             print(f"[SyncOrchestrator] Error reading client state: {e}")
 
@@ -151,6 +166,8 @@ class SyncOrchestrator(BaseOrchestrator):
             job_names=job_names,
             peer_emails=all_peers,
             approved_peer_emails=approved_peers,
+            own_version=own_version,
+            peer_versions=peer_versions,
         )
 
     def _print_startup_info(self) -> None:
