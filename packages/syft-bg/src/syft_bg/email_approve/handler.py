@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
@@ -10,7 +11,10 @@ from typing import TYPE_CHECKING, Optional
 from syft_bg.common.state import JsonStateManager
 
 if TYPE_CHECKING:
-    from syft_client.sync.syftbox_manager import SyftboxManager
+    from syft_job.client import JobClient
+    from syft_job.job_runner import SyftJobRunner
+
+    from syft_bg.sync.snapshot_reader import SnapshotReader
 
 
 class EmailAction(Enum):
@@ -64,12 +68,16 @@ class EmailApproveHandler:
 
     def __init__(
         self,
-        client: SyftboxManager,
+        job_client: JobClient,
+        job_runner: SyftJobRunner,
+        snapshot_reader: SnapshotReader,
         state: JsonStateManager,
         notify_state: JsonStateManager,
         do_email: str,
     ):
-        self.client = client
+        self.job_client = job_client
+        self.job_runner = job_runner
+        self.snapshot_reader = snapshot_reader
         self.state = state
         self.notify_state = notify_state
         self.do_email = do_email
@@ -102,20 +110,22 @@ class EmailApproveHandler:
 
     def _find_job(self, job_name: str):
         """Find a job by name in the client's job list."""
-        for job in self.client.jobs:
+        for job in self.job_client.jobs:
             if job.name == job_name:
                 return job
         raise ValueError(f"Job not found: {job_name}")
 
     def _approve_job(self, job, job_name: str, state_key: str) -> None:
-        """Approve a job, execute it, share results, and sync."""
+        """Approve a job, execute it, and share results."""
         job.approve()
         self.state.mark_notified(state_key, "processed")
-        self.client.process_approved_jobs(
+
+        skip_names = self._get_incompatible_job_names()
+        self.job_runner.process_approved_jobs(
             share_outputs_with_submitter=True,
             share_logs_with_submitter=True,
+            skip_job_names=skip_names if skip_names else None,
         )
-        self.client.sync()
         print(f"[EmailApproveHandler] Approved job: {job_name}")
 
     def _reject_job(self, job, job_name: str, reason: str, state_key: str) -> None:
@@ -123,3 +133,33 @@ class EmailApproveHandler:
         job.reject(reason)
         self.state.mark_notified(state_key, "processed")
         print(f"[EmailApproveHandler] Rejected job: {job_name} (reason: {reason})")
+
+    def _get_incompatible_job_names(self) -> list[str]:
+        """Check version compat from sync snapshot, matching SyftboxManager behavior."""
+        snapshot = self.snapshot_reader.read()
+        if not snapshot or not snapshot.own_version:
+            return []
+
+        skip = []
+        for job in self.job_client.jobs:
+            if job.status != "approved" or job.submitted_by == "unknown":
+                continue
+            peer_ver = snapshot.peer_versions.get(job.submitted_by)
+            if peer_ver is None:
+                warnings.warn(
+                    f"Skipping job '{job.name}' from {job.submitted_by}: "
+                    "version unknown."
+                )
+                skip.append(job.name)
+            elif (
+                peer_ver.syft_client_version != snapshot.own_version.syft_client_version
+                or peer_ver.protocol_version != snapshot.own_version.protocol_version
+            ):
+                warnings.warn(
+                    f"Skipping job '{job.name}' from {job.submitted_by}: "
+                    f"version mismatch "
+                    f"(local={snapshot.own_version.syft_client_version}, "
+                    f"peer={peer_ver.syft_client_version})"
+                )
+                skip.append(job.name)
+        return skip
