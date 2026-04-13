@@ -15,7 +15,7 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 5. Click **Create**
 6. Wait for the project to be created, then select it
 
-## Step 2: Enable the Google Drive API
+## Step 2: Enable the API's
 
 1. In your project, go to **APIs & Services** > **Library**
 2. Search for "Google Drive API"

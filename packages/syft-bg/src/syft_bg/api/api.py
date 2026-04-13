@@ -145,16 +145,15 @@ def restart(service: str | None = None) -> dict[str, tuple[bool, str]]:
 
 
 def reset() -> None:
-    """Stop all services and clear all state, logs, and PID files.
-
-    This gives you a clean slate without removing tokens or config.
-    """
+    """Stop all services and clear all state, config, logs, and PID files."""
     manager = ServiceManager()
     manager.stop_all()
 
     syftbg_dir = get_syftbg_dir()
     shutil.rmtree(syftbg_dir, ignore_errors=True)
-    print("Reset complete: stopped services, cleared state, logs, and PID files.")
+    print(
+        "Reset complete: stopped services, cleared state, config, logs, and PID files."
+    )
 
 
 def logs(service: str, n: int = 50, as_list: bool = False) -> list[str]:
