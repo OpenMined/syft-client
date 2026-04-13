@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from syft_bg.approve.config import AutoApproveConfig
 from syft_bg.common.config import get_default_paths
@@ -29,6 +29,21 @@ class SyftBgConfig(BaseModel):
     approve: AutoApproveConfig = Field(default_factory=AutoApproveConfig)
     email_approve: EmailApproveConfig = Field(default_factory=EmailApproveConfig)
 
+    @staticmethod
+    def _get_default_syftbox_root(email: str) -> str:
+        return str(Path.home() / f"SyftBox_{email}")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _set_default_syftbox_root(cls, data: dict) -> dict:
+        """Default syftbox_root to ~/SyftBox_{do_email} when not set."""
+        if not isinstance(data, dict):
+            return data
+        if not data.get("syftbox_root") and data.get("do_email"):
+            data = dict(data)
+            data["syftbox_root"] = cls._get_default_syftbox_root(data["do_email"])
+        return data
+
     def _merge_common_into_services(self) -> None:
         """Propagate top-level fields into service configs where not already set."""
         for service_config in (self.notify, self.approve, self.email_approve):
@@ -40,6 +55,26 @@ class SyftBgConfig(BaseModel):
             ):
                 if self.syftbox_root is not None:
                     service_config.syftbox_root = Path(self.syftbox_root)
+
+    def set_service_config(self, name: str, config: dict) -> None:
+        subconfig = getattr(self, name)
+        for key, value in config.items():
+            if key not in subconfig.model_fields:
+                raise ValueError(f"Unknown config key: {key}")
+            setattr(subconfig, key, value)
+
+    def _repr_html_(self) -> str:
+        """
+        Display config as pretty YAML in Jupyter/HTML.
+        """
+        import yaml
+
+        data = self.model_dump(mode="json")
+        yaml_str = yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
+        return f"""<b>SyftBgConfig:</b> <br>
+location: {get_default_paths().config} <br>
+.save() to store
+<pre>{yaml_str}</pre>"""
 
     @classmethod
     def from_path(cls, config_path: Path | None = None) -> "SyftBgConfig":

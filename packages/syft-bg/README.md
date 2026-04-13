@@ -15,24 +15,16 @@ pip install syft-bg
 ## Quick Start
 
 ```bash
-syft-bg init      # Interactive setup wizard
-syft-bg start     # Start background services
-syft-bg status    # Check what's running
+syft-bg init -e you@example.com          # Create config
+syft-bg ensure-running notify approve    # Start services
+syft-bg status                           # Check what's running
 ```
 
-### Headless Mode
+With custom settings:
 
 ```bash
-# Fully automated (tokens must already exist)
-syft-bg init --email user@example.com --quiet
-
-# With custom settings
-syft-bg init \
-  --email user@example.com \
-  --syftbox-root ~/SyftBox \
-  --notify-jobs \
-  --approve-jobs \
-  --skip-oauth
+syft-bg init -e user@example.com -r ~/SyftBox -t ~/token.json
+syft-bg ensure-running notify approve
 ```
 
 ### Python API
@@ -42,56 +34,73 @@ For notebooks and scripts, see the [Python API docs](docs/python-api.md).
 ## Commands
 
 ```bash
-syft-bg                    # TUI dashboard
-syft-bg init               # Setup wizard (interactive or headless)
-syft-bg setup-status       # Check environment (credentials, tokens, config)
-syft-bg status             # Show service status
-syft-bg start [service]    # Start all or specific service
-syft-bg stop [service]     # Stop all or specific service
-syft-bg restart [service]  # Restart all or specific service
-syft-bg logs <service>     # View logs (notify or approve)
-syft-bg hash <file>        # Generate script hash for a file
-syft-bg set-script         # Set approved scripts for peers
-syft-bg remove-script      # Remove approved scripts from peers
-syft-bg remove-peer        # Remove a peer from config
-syft-bg list-scripts       # List approved scripts per peer
-syft-bg install            # Install systemd service (auto-start on boot)
-syft-bg uninstall          # Remove systemd service
+syft-bg                        # TUI dashboard
+syft-bg init -e <email>              # Create config
+syft-bg ensure-running <services>    # Start services if not already running
+syft-bg setup-status                 # Check environment (credentials, tokens, config)
+syft-bg status                       # Show service status
+syft-bg start [service]        # Start all or specific service
+syft-bg stop [service]         # Stop all or specific service
+syft-bg restart [service]      # Restart all or specific service
+syft-bg logs <service>         # View logs (notify or approve)
+syft-bg auto-approve           # Create auto-approval object
+syft-bg remove-auto-approval   # Remove files from an auto-approval object
+syft-bg remove-peer            # Remove a peer from config
+syft-bg list-auto-approvals    # List auto-approval objects
+syft-bg install                # Install systemd service (auto-start on boot)
+syft-bg uninstall              # Remove systemd service
 ```
 
-## Per-Peer Script Approval
-
-Data owners can restrict job auto-approval on a per-peer basis.
-Each peer gets a list of approved scripts (name + SHA256 hash).
-Only jobs that match every submitted `.py` file against the approved list are auto-approved.
-
-### Setting up approved scripts
+## Starting and Stopping Services
 
 ```bash
-# Approve a single script for one or more peers
-syft-bg set-script main.py -p alice@uni.edu -p bob@co.com
-
-# Approve multiple scripts
-syft-bg set-script main.py utils.py -p charlie@org.com
-
-# Approve all .py files in a directory
-syft-bg set-script ./src/ -p alice@uni.edu
-
-# Replace all existing scripts (instead of adding)
-syft-bg set-script main.py -p alice@uni.edu --replace
+syft-bg start               # Start all services
+syft-bg start notify        # Start a specific service
+syft-bg stop                # Stop all services
+syft-bg stop approve        # Stop a specific service
+syft-bg restart             # Restart all services
+syft-bg restart notify      # Restart a specific service
 ```
 
-### Managing scripts and peers
+Use `ensure-running` to start services only if they aren't already running:
 
 ```bash
-# List all peers and their approved scripts
-syft-bg list-scripts
+syft-bg ensure-running notify approve
+syft-bg ensure-running notify approve --restart  # Force restart
+```
 
-# List scripts for a specific peer
-syft-bg list-scripts -p alice@uni.edu
+## Auto-Approval
 
-# Remove a script from a peer
-syft-bg remove-script utils.py -p alice@uni.edu
+Data owners can configure auto-approval objects that automatically approve matching jobs.
+Each object specifies files to match by content (name + SHA256 hash) and optionally files to match by name only.
+
+### Creating auto-approval objects
+
+```bash
+# Approve files for specific peers
+syft-bg auto-approve main.py -p alice@uni.edu -p bob@co.com
+
+# Approve multiple files with a name
+syft-bg auto-approve main.py utils.py -n my_analysis
+
+# Approve all files in a directory, allow params.json by name only
+syft-bg auto-approve ./src/ -p alice@uni.edu -f params.json
+
+# Use a base directory for relative path resolution
+syft-bg auto-approve main.py -b ./project/ -f config.yaml
+```
+
+### Managing auto-approvals and peers
+
+```bash
+# List all auto-approval objects
+syft-bg list-auto-approvals
+
+# List a specific auto-approval object
+syft-bg list-auto-approvals -n my_analysis
+
+# Remove files from an auto-approval object
+syft-bg remove-auto-approval utils.py -n my_analysis
 
 # Remove a peer entirely
 syft-bg remove-peer alice@uni.edu
@@ -101,31 +110,17 @@ syft-bg remove-peer alice@uni.edu
 
 When a job is submitted, the approval service checks:
 
-1. The submitting peer must be in the `peers` config
-2. Every `.py` file in the job must match an approved script name
-3. The SHA256 hash of each file must match the approved hash
-
-Rejection reasons are specific: "unknown peer", "unapproved file", "hash mismatch".
+1. Every file in the job must match an approved file entry
+2. Content-matched files must have a matching SHA256 hash
+3. If peers are specified, the submitter must be in the list
 
 ## CLI Flags for `syft-bg init`
 
-| Flag                                 | Description                                          |
-| ------------------------------------ | ---------------------------------------------------- |
-| `--email, -e`                        | Data Owner email address                             |
-| `--syftbox-root`                     | SyftBox directory path                               |
-| `--yes, -y`                          | Auto-confirm config overwrite                        |
-| `--quiet, -q`                        | No prompts, use defaults (implies --skip-oauth)      |
-| `--skip-oauth`                       | Skip OAuth setup (tokens must exist)                 |
-| `--notify-jobs/--no-notify-jobs`     | Job email notifications                              |
-| `--notify-peers/--no-notify-peers`   | Peer email notifications                             |
-| `--notify-interval`                  | Notification check interval (seconds)                |
-| `--approve-jobs/--no-approve-jobs`   | Auto-approve jobs                                    |
-| `--approve-peers/--no-approve-peers` | Auto-approve peers                                   |
-| `--approved-domains`                 | Approved domains for peer approval (comma-separated) |
-| `--approve-interval`                 | Approval check interval (seconds)                    |
-| `--credentials-path`                 | Path to credentials.json                             |
-| `--gmail-token`                      | Path to existing Gmail token                         |
-| `--drive-token`                      | Path to existing Drive token                         |
+| Flag                 | Description              |
+| -------------------- | ------------------------ |
+| `--email, -e`        | Data Owner email address |
+| `--syftbox-root, -r` | SyftBox directory path   |
+| `--token-path, -t`   | Path to OAuth token file |
 
 ## Environment Check
 
@@ -136,14 +131,14 @@ SYFT-BG ENVIRONMENT CHECK
 ==================================================
 
 Checking credentials...
-  ✓ credentials.json found at ~/.syft-creds/credentials.json
+  ✓ credentials.json found at ~/.syft-bg/credentials.json
 
 Checking authentication tokens...
-  ✓ Gmail token: ~/.syft-creds/gmail_token.json
-  ✓ Drive token: ~/.syft-creds/token_do.json
+  ✓ Gmail token: ~/.syft-bg/gmail_token.json
+  ✓ Drive token: ~/.syft-bg/token_do.json
 
 Checking configuration...
-  ✓ Config file: ~/.syft-creds/config.yaml
+  ✓ Config file: ~/.syft-bg/config.yaml
 
 --------------------------------------------------
 ✅ Environment ready! Run 'syft-bg start' to begin.
@@ -151,21 +146,17 @@ Checking configuration...
 
 ## OAuth Setup
 
-Two OAuth flows are required (same credentials.json, separate tokens):
+Two OAuth tokens are required (same credentials.json, separate tokens):
 
 1. **Gmail** → `gmail_token.json` (send email permission)
-2. **Drive** → `token_do.json` (read/write files permission)
-
-**Interactive mode**: Prints OAuth URL, you paste the authorization code back.
-
-**Headless mode** (`--quiet`): Skips OAuth, requires tokens to already exist.
+2. **Drive** → `drive_token.json` (read/write files permission)
 
 To get credentials.json:
 
 1. Go to Google Cloud Console → APIs & Services → Credentials
 2. Create OAuth 2.0 Client ID (Desktop app)
 3. Download as credentials.json
-4. Place at `~/.syft-creds/credentials.json`
+4. Place at `~/.syft-bg/credentials.json`
 
 ## Services
 
@@ -191,7 +182,7 @@ Auto-approves peers and jobs based on your config:
 
 ## Configuration
 
-Config stored at `~/.syft-creds/config.yaml` (Colab: `/content/drive/MyDrive/syft-creds/config.yaml`).
+Config stored at `~/.syft-bg/config.yaml` (Colab: `/content/drive/MyDrive/syft-creds/config.yaml`).
 
 ```yaml
 do_email: you@example.com
@@ -255,7 +246,7 @@ syft-bg logs approve    # Approval service logs
 syft-bg logs notify -f  # Follow logs in real-time
 ```
 
-Log files stored at `~/.syft-creds/logs/`.
+Log files stored at `~/.syft-bg/logs/`.
 
 ## Colab / Jupyter
 
@@ -266,7 +257,7 @@ See the [Python API docs](docs/python-api.md) for programmatic usage. Drive cred
 Run services in foreground for debugging:
 
 ```bash
-syft-bg run --service notify   # Run notify in foreground
-syft-bg run --service approve  # Run approve in foreground
-syft-bg run --once             # Single check cycle, then exit
+syft-bg run-foreground --service notify   # Run notify in foreground
+syft-bg run-foreground --service approve  # Run approve in foreground
+syft-bg run-foreground --once             # Single check cycle, then exit
 ```

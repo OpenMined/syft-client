@@ -8,7 +8,12 @@ from syft_bg.common.state import JsonStateManager
 from syft_bg.email_approve.gmail_message import (
     _strip_quoted_reply,
 )
-from syft_bg.email_approve.handler import EmailApproveHandler, parse_reply
+from syft_bg.email_approve.handler import (
+    EmailAction,
+    EmailApprovalResponse,
+    EmailApproveHandler,
+    parse_reply,
+)
 
 
 # --- Reply parsing tests ---
@@ -16,44 +21,62 @@ from syft_bg.email_approve.handler import EmailApproveHandler, parse_reply
 
 class TestParseReply:
     def test_approve(self):
-        assert parse_reply("approve") == ("approve", None)
+        assert parse_reply("approve") == EmailApprovalResponse(
+            action=EmailAction.APPROVE
+        )
 
     def test_approve_case_insensitive(self):
-        assert parse_reply("Approve") == ("approve", None)
-        assert parse_reply("APPROVE") == ("approve", None)
+        assert parse_reply("Approve") == EmailApprovalResponse(
+            action=EmailAction.APPROVE
+        )
+        assert parse_reply("APPROVE") == EmailApprovalResponse(
+            action=EmailAction.APPROVE
+        )
 
     def test_approve_with_trailing_text(self):
-        assert parse_reply("approve please") == ("approve", None)
+        assert parse_reply("approve please") == EmailApprovalResponse(
+            action=EmailAction.APPROVE
+        )
 
     def test_deny_with_reason(self):
-        assert parse_reply("deny bad code") == ("deny", "bad code")
+        assert parse_reply("deny bad code") == EmailApprovalResponse(
+            action=EmailAction.DENY, reason="bad code"
+        )
 
     def test_deny_no_reason(self):
-        assert parse_reply("deny") == ("deny", "No reason provided")
+        assert parse_reply("deny") == EmailApprovalResponse(
+            action=EmailAction.DENY, reason="No reason provided"
+        )
 
     def test_deny_case_insensitive(self):
-        assert parse_reply("Deny the code is unsafe") == (
-            "deny",
-            "the code is unsafe",
+        assert parse_reply("Deny the code is unsafe") == EmailApprovalResponse(
+            action=EmailAction.DENY, reason="the code is unsafe"
         )
 
     def test_empty_string(self):
-        assert parse_reply("") == (None, None)
+        assert parse_reply("") == EmailApprovalResponse(action=EmailAction.UNKNOWN)
 
     def test_unrecognized_command(self):
-        assert parse_reply("hello world") == (None, None)
+        assert parse_reply("hello world") == EmailApprovalResponse(
+            action=EmailAction.UNKNOWN
+        )
 
     def test_leading_blank_lines(self):
-        assert parse_reply("\n\napprove") == ("approve", None)
+        assert parse_reply("\n\napprove") == EmailApprovalResponse(
+            action=EmailAction.APPROVE
+        )
 
     def test_deny_with_multiword_reason(self):
-        assert parse_reply("deny this code accesses private data") == (
-            "deny",
-            "this code accesses private data",
+        assert parse_reply(
+            "deny this code accesses private data"
+        ) == EmailApprovalResponse(
+            action=EmailAction.DENY, reason="this code accesses private data"
         )
 
     def test_whitespace_only(self):
-        assert parse_reply("   \n  \n  ") == (None, None)
+        assert parse_reply("   \n  \n  ") == EmailApprovalResponse(
+            action=EmailAction.UNKNOWN
+        )
 
 
 # --- Strip quoted reply tests ---
@@ -110,7 +133,11 @@ class TestEmailApproveHandler:
         handler.handle_reply("thread123", "approve")
 
         mock_job.approve.assert_called_once()
-        client.process_approved_jobs.assert_called_once()
+        client.process_approved_jobs.assert_called_once_with(
+            share_outputs_with_submitter=True,
+            share_logs_with_submitter=True,
+        )
+        client.sync.assert_called_once()
 
     def test_deny_job(self, tmp_path):
         handler, client, state, notify_state = self._make_handler(tmp_path)

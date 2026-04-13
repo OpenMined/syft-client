@@ -13,7 +13,7 @@ class FileEntry(BaseModel):
     """A file stored in the auto-approvals directory with its hash."""
 
     relative_path: str  # e.g. "subdir/main.py"
-    path: str  # e.g. "~/.syft-creds/auto_approvals/my_analysis/main.py"
+    path: str  # e.g. "~/.syft-bg/auto_approvals/my_analysis/main.py"
     hash: str  # e.g. "sha256:abc123..."
 
     @classmethod

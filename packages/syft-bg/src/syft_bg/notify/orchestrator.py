@@ -1,6 +1,5 @@
 """Notification orchestrator for email notifications."""
 
-from pathlib import Path
 from typing import Optional
 
 from syft_bg.common.drive import is_colab
@@ -20,25 +19,22 @@ class NotificationOrchestrator(BaseOrchestrator):
 
     def __init__(
         self,
-        do_email: str,
-        syftbox_root: Path,
-        drive_token_path: Optional[Path] = None,
-        gmail_token_path: Optional[Path] = None,
-        state_path: Optional[Path] = None,
-        interval: int = 30,
+        config: NotifyConfig,
+        job_monitor: JobMonitor,
+        peer_monitor: Optional[PeerMonitor] = None,
     ):
         super().__init__()
-        self.do_email = do_email
-        self.syftbox_root = Path(syftbox_root).expanduser()
-        self.drive_token_path = (
-            Path(drive_token_path).expanduser() if drive_token_path else None
-        )
-        self.gmail_token_path = (
-            Path(gmail_token_path).expanduser() if gmail_token_path else None
-        )
-        self.state_path = Path(state_path).expanduser() if state_path else None
-        self.interval = interval
-        self._monitors_initialized = False
+        self.config = config
+        self._job_monitor = job_monitor
+        self._peer_monitor: Optional[PeerMonitor] = peer_monitor
+
+    def _init_monitors(self):
+        """No-op: monitors are created in from_config."""
+        pass
+
+    def setup(self) -> None:
+        """Verify Gmail credentials are valid."""
+        self._job_monitor.handler.sender.verify()
 
     @classmethod
     def from_config(
@@ -46,69 +42,57 @@ class NotificationOrchestrator(BaseOrchestrator):
         config: NotifyConfig,
     ) -> "NotificationOrchestrator":
         """Create orchestrator from a NotifyConfig."""
-        from syft_bg.common.config import get_default_paths
-
-        paths = get_default_paths()
-
         if not config.do_email:
             raise ValueError("Config missing 'do_email' field")
         if not config.syftbox_root:
             raise ValueError("Config missing 'syftbox_root' field")
 
-        return cls(
-            do_email=config.do_email,
-            syftbox_root=config.syftbox_root,
-            drive_token_path=config.drive_token_path or paths.drive_token,
-            gmail_token_path=config.gmail_token_path or paths.gmail_token,
-            state_path=paths.notify_state,
-            interval=config.interval,
-        )
-
-    def _init_monitors(self):
-        """Initialize job and peer monitors."""
-        if self._monitors_initialized:
-            return
-
-        if not self.gmail_token_path or not self.gmail_token_path.exists():
+        if not config.gmail_token_path or not config.gmail_token_path.exists():
             raise FileNotFoundError(
-                f"Gmail token not found: {self.gmail_token_path}\n\n"
+                f"Gmail token not found: {config.gmail_token_path}\n\n"
                 "Run setup to configure Gmail authentication first."
             )
-
-        auth = GmailAuth()
-        credentials = auth.load_credentials(self.gmail_token_path)
+        credentials = GmailAuth().load_credentials(config.gmail_token_path)
         sender = GmailSender(credentials)
 
-        if self.state_path:
-            self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        state = JsonStateManager(self.state_path)
+        state_manager = JsonStateManager(config.notify_state_path)
 
         job_handler = JobHandler(
-            sender, state, do_email=self.do_email, syftbox_root=self.syftbox_root
+            sender,
+            state_manager,
+            do_email=config.do_email,
+            syftbox_root=config.syftbox_root,
         )
-        peer_handler = PeerHandler(sender, state)
+        peer_handler = PeerHandler(sender, state_manager)
 
-        self._job_monitor = JobMonitor(
-            syftbox_root=self.syftbox_root,
-            do_email=self.do_email,
+        job_monitor = JobMonitor(
+            syftbox_root=config.syftbox_root,
+            do_email=config.do_email,
             handler=job_handler,
-            state=state,
-            drive_token_path=self.drive_token_path,
+            state=state_manager,
+            drive_token_path=config.drive_token_path,
         )
 
-        if is_colab() or (self.drive_token_path and self.drive_token_path.exists()):
-            self._peer_monitor = PeerMonitor(
-                do_email=self.do_email,
-                drive_token_path=self.drive_token_path,
+        if is_colab() or (config.drive_token_path and config.drive_token_path.exists()):
+            peer_monitor = PeerMonitor(
+                do_email=config.do_email,
+                drive_token_path=config.drive_token_path,
                 handler=peer_handler,
-                state=state,
+                state=state_manager,
             )
+        else:
+            print("⚠️  Drive token not found. Peer monitoring disabled.")
+            print(f"   Expected at: {config.drive_token_path}")
+            peer_monitor = None
 
-        self._monitors_initialized = True
+        return cls(
+            config=config,
+            job_monitor=job_monitor,
+            peer_monitor=peer_monitor,
+        )
 
     def notify_peer_granted(self, ds_email: str) -> bool:
         """Notify DS that their peer request was granted."""
-        self._init_monitors()
         if self._peer_monitor:
             return self._peer_monitor.notify_peer_granted(ds_email)
         return False
@@ -116,7 +100,7 @@ class NotificationOrchestrator(BaseOrchestrator):
     def _print_startup_info(self):
         """Print startup info for notify service."""
         print("Starting notification daemon...")
-        print(f"  DO: {self.do_email}")
-        print(f"  SyftBox: {self.syftbox_root}")
-        print(f"  Interval: {self.interval}s")
+        print(f"  DO: {self.config.do_email}")
+        print(f"  SyftBox: {self.config.syftbox_root}")
+        print(f"  Interval: {self.config.interval}s")
         print()

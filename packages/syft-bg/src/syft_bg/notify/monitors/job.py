@@ -4,7 +4,8 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-import yaml
+from syft_job.config import SyftJobConfig
+from syft_job.models.config import JobSubmissionMetadata
 
 from syft_bg.common.drive import create_drive_service, is_colab
 from syft_bg.common.monitor import Monitor
@@ -31,11 +32,13 @@ class JobMonitor(Monitor):
         self.do_email = do_email
         self.handler = handler
         self.state = state
-        self.job_dir = self.syftbox_root / do_email / "app_data" / "job"
+        self.job_config = SyftJobConfig.from_syftbox_folder(
+            str(self.syftbox_root), do_email
+        )
         self.drive_token_path = Path(drive_token_path) if drive_token_path else None
         self._drive_service = None
-        self._startup_time = time.time()  # Track when monitor started
-        self._is_fresh_state = self.state.is_empty()  # True if no prior state
+        self._startup_time = time.time()
+        self._is_fresh_state = self.state.is_empty()
 
         if is_colab() or (self.drive_token_path and self.drive_token_path.exists()):
             self._drive_service = create_drive_service(self.drive_token_path)
@@ -43,7 +46,7 @@ class JobMonitor(Monitor):
     def _check_all_entities(self):
         if self._drive_service:
             self._poll_drive_for_new_jobs()
-        self._check_local_for_status_changes()
+        self.process_local_status_changes()
 
     def _poll_drive_for_new_jobs(self):
         if not self._drive_service:
@@ -156,29 +159,29 @@ class JobMonitor(Monitor):
                 f"[JobMonitor] Sent new job notification: {job_name} from {submitter}"
             )
 
-    def _check_local_for_status_changes(self):
-        if not self.job_dir.exists():
+    def process_local_status_changes(self):
+        inbox_dir = self.job_config.get_all_submissions_dir(self.do_email)
+        if not inbox_dir.exists():
             return
 
-        for job_path in self.job_dir.iterdir():
-            if not job_path.is_dir():
+        for ds_dir in inbox_dir.iterdir():
+            if not ds_dir.is_dir():
                 continue
-            try:
-                self._check_job_status(job_path)
-            except Exception as e:
-                print(f"[JobMonitor] Error checking job {job_path.name}: {e}")
+            for job_path in ds_dir.iterdir():
+                if not job_path.is_dir():
+                    continue
+                try:
+                    self._maybe_process_job(job_path)
+                except Exception as e:
+                    print(f"[JobMonitor] Error checking job {job_path.name}: {e}")
 
-    def _check_job_status(self, job_path: Path):
-        config = self._load_job_config(job_path)
-        if not config:
+    def _maybe_process_job(self, job_path: Path):
+        metadata = self._load_job_metadata(job_path)
+        if not metadata:
             return
 
-        job_name = config.get("name", job_path.name)
-        ds_email = config.get("submitted_by")
-
-        if not ds_email or "@" not in ds_email:
-            print(f"[JobMonitor] Skip {job_name}: invalid submitted_by '{ds_email}'")
-            return
+        job_name = metadata.name
+        ds_email = metadata.submitted_by
 
         # Skip old jobs on fresh state (avoid spamming about pre-existing jobs)
         # But process normally on restart (state exists) to catch missed notifications
@@ -206,14 +209,13 @@ class JobMonitor(Monitor):
             if success:
                 print(f"🎉 JobMonitor: Sent job executed notification: {job_name}")
 
-    def _load_job_config(self, job_path: Path) -> Optional[dict]:
+    def _load_job_metadata(self, job_path: Path) -> Optional[JobSubmissionMetadata]:
         config_file = job_path / "config.yaml"
         if not config_file.exists():
             return None
 
         try:
-            with open(config_file, "r") as f:
-                return yaml.safe_load(f)
-        except (yaml.YAMLError, OSError, IOError) as e:
+            return JobSubmissionMetadata.load(config_file)
+        except Exception as e:
             print(f"[JobMonitor] Error reading job config {config_file}: {e}")
             return None

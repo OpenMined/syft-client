@@ -5,7 +5,7 @@ This document explains how to integrate `syft-notify` logs with centralized logg
 ## Log File Locations
 
 ```
-~/.syft-creds/
+~/.syft-bg/
 ├── syft-notify.log           # Main daemon output
 ├── syft-notify.error.log     # Error output (stderr)
 ├── syft-notify.log.1         # Rotated log (1-7 kept)
@@ -43,8 +43,8 @@ filebeat.inputs:
   - type: log
     enabled: true
     paths:
-      - /home/*//.syft-creds/syft-notify.log
-      - /home/*//.syft-creds/syft-notify.error.log
+      - /home/*//.syft-bg/syft-notify.log
+      - /home/*//.syft-bg/syft-notify.error.log
     fields:
       service: syft-notify
       environment: production
@@ -82,7 +82,7 @@ curl -L https://toolbelt.treasuredata.com/sh/install-ubuntu-jammy-fluent-package
 ```xml
 <source>
   @type tail
-  path /home/*/.syft-creds/syft-notify.log
+  path /home/*/.syft-bg/syft-notify.log
   pos_file /var/log/fluent/syft-notify.log.pos
   tag syft.notify
   <parse>
@@ -119,7 +119,7 @@ $ModLoad imfile
 $InputFilePollInterval 10
 
 # Monitor syft-notify logs
-$InputFileName /home/*/.syft-creds/syft-notify.log
+$InputFileName /home/*/.syft-bg/syft-notify.log
 $InputFileTag syft-notify:
 $InputFileStateFile syft-notify-state
 $InputFileSeverity info
@@ -166,7 +166,7 @@ scrape_configs:
           - localhost
         labels:
           job: syft-notify
-          __path__: /home/*/.syft-creds/syft-notify*.log
+          __path__: /home/*/.syft-bg/syft-notify*.log
 ```
 
 **Start Promtail:**
@@ -195,7 +195,7 @@ sudo dpkg -i amazon-cloudwatch-agent.deb
       "files": {
         "collect_list": [
           {
-            "file_path": "/home/*/.syft-creds/syft-notify.log",
+            "file_path": "/home/*/.syft-bg/syft-notify.log",
             "log_group_name": "/syftbox/notify",
             "log_stream_name": "{instance_id}-notify",
             "timezone": "UTC"
@@ -236,7 +236,7 @@ logging:
     syft_notify:
       type: files
       include_paths:
-        - /home/*/.syft-creds/syft-notify.log
+        - /home/*/.syft-bg/syft-notify.log
   service:
     pipelines:
       default_pipeline:
@@ -258,7 +258,7 @@ import re
 
 log_pattern = r'^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - (?P<logger>\S+) - (?P<level>\S+) - (?P<message>.*)$'
 
-with open('~/.syft-creds/syft-notify.log') as f:
+with open('~/.syft-bg/syft-notify.log') as f:
     for line in f:
         match = re.match(log_pattern, line)
         if match:
@@ -354,7 +354,7 @@ This outputs:
 #!/bin/bash
 # alert_on_errors.sh
 
-LOG_FILE="$HOME/.syft-creds/syft-notify.log"
+LOG_FILE="$HOME/.syft-bg/syft-notify.log"
 ERROR_COUNT=$(tail -n 1000 "$LOG_FILE" | grep -c "ERROR")
 
 if [ "$ERROR_COUNT" -gt 0 ]; then
@@ -383,7 +383,7 @@ The daemon automatically rotates logs:
 ```bash
 # /etc/logrotate.d/syft-notify
 
-/home/*/.syft-creds/syft-notify*.log {
+/home/*/.syft-bg/syft-notify*.log {
     daily
     rotate 30
     compress
@@ -402,13 +402,13 @@ Extract metrics from logs for dashboards:
 
 ```bash
 # Count notifications sent per hour
-grep "✅ Sent and marked as notified" ~/.syft-creds/syft-notify.log | \
+grep "✅ Sent and marked as notified" ~/.syft-bg/syft-notify.log | \
   awk '{print $1" "$2}' | \
   cut -d':' -f1 | \
   uniq -c
 
 # Count errors per day
-grep "ERROR" ~/.syft-creds/syft-notify.log | \
+grep "ERROR" ~/.syft-bg/syft-notify.log | \
   awk '{print $1}' | \
   uniq -c
 ```
@@ -417,7 +417,7 @@ grep "ERROR" ~/.syft-creds/syft-notify.log | \
 
 1. **Monitor log file size**: Set up alerts if logs grow too large
 2. **Compress old logs**: Use gzip to save disk space
-3. **Secure log files**: Restrict permissions (`chmod 600 ~/.syft-creds/*.log`)
+3. **Secure log files**: Restrict permissions (`chmod 600 ~/.syft-bg/*.log`)
 4. **Test log forwarding**: Verify logs reach your aggregator
 5. **Set up alerts**: Get notified of errors immediately
 6. **Regular cleanup**: Archive/delete very old logs

@@ -13,7 +13,7 @@ try:
 except ImportError:
     from notifications_base import AuthProvider
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 
 class GmailAuth(AuthProvider):

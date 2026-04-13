@@ -35,11 +35,9 @@ class GmailWatcher:
         """
         body = {
             "topicName": topic_name,
-            "labelIds": ["INBOX"],
-            "labelFilterBehavior": "INCLUDE",
         }
-        # Register a Gmail push notification: new INBOX messages -> Pub/Sub topic
-        # This does not handle subscription to the Pub/Sub topic, which is handled by the EmailApproveMonitor.
+        # Register a Gmail push notification: any mailbox change -> Pub/Sub topic
+        # No label filter so we catch both received and sent messages.
         resp = self._service.users().watch(userId="me", body=body).execute()
         history_id = str(resp["historyId"])
         expiration_ms = int(resp["expiration"])
@@ -78,7 +76,6 @@ class GmailWatcher:
                     userId="me",
                     startHistoryId=start_history_id,
                     historyTypes=["messageAdded"],
-                    labelId="INBOX",
                     pageToken=page_token,
                 )
                 .execute()

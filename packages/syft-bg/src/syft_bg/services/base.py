@@ -73,36 +73,32 @@ class Service:
     def start(self) -> tuple[bool, str]:
         """Start the service as a background subprocess."""
         if self.is_running():
-            return (False, f"{self.name} is already running")
+            print(f"{self.name} is already running")
 
-        try:
-            # Ensure directories exist
-            self.pid_file.parent.mkdir(parents=True, exist_ok=True)
-            self.log_file.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure directories exist
+        self.pid_file.parent.mkdir(parents=True, exist_ok=True)
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Open log file for output
-            log_fd = open(self.log_file, "a")
+        # Open log file for output
+        log_fd = open(self.log_file, "a")
 
-            # Spawn syft-bg run --service <name> as a daemon
-            # Use -u for unbuffered output so logs appear immediately
-            env = os.environ.copy()
-            env["PYTHONUNBUFFERED"] = "1"
-            env["SYFT_BG_DAEMON"] = "1"
-            process = subprocess.Popen(
-                [sys.executable, "-u", "-m", "syft_bg", "run", "--service", self.name],
-                stdout=log_fd,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,  # Detach from parent process group
-                env=env,
-            )
+        # Spawn a subprocess that runs the orchestrator via the API
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        env["SYFT_BG_DAEMON"] = "1"
+        script = (
+            f"from syft_bg.api.api import run_foreground; run_foreground('{self.name}')"
+        )
+        process = subprocess.Popen(
+            [sys.executable, "-u", "-c", script],
+            stdout=log_fd,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=env,
+        )
 
-            # Write PID file
-            self.pid_file.write_text(str(process.pid))
-
-            return (True, f"{self.name} started (PID {process.pid})")
-
-        except Exception as e:
-            return (False, str(e))
+        # Write PID file
+        self.pid_file.write_text(str(process.pid))
 
     def stop(self) -> tuple[bool, str]:
         """Stop the service."""
@@ -110,49 +106,41 @@ class Service:
             # Clean up stale PID file
             if self.pid_file.exists():
                 self.pid_file.unlink()
-            return (False, f"{self.name} is not running")
+            raise ValueError(f"{self.name} is not running")
 
         pid = self.get_pid()
         if not pid:
             return (False, "Could not get PID")
 
-        try:
-            # Send SIGTERM for graceful shutdown
-            os.kill(pid, signal.SIGTERM)
+        # Send SIGTERM for graceful shutdown
+        os.kill(pid, signal.SIGTERM)
 
-            # Wait briefly for process to terminate
-            import time
+        # Wait briefly for process to terminate
+        import time
 
-            for _ in range(10):  # Wait up to 1 second
-                time.sleep(0.1)
-                try:
-                    os.kill(pid, 0)
-                except OSError:
-                    break  # Process terminated
-            else:
-                # Force kill if still running
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
+        for _ in range(10):  # Wait up to 1 second
+            time.sleep(0.1)
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                break  # Process terminated
+        else:
+            # Force kill if still running
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
 
-            # Clean up PID file
-            if self.pid_file.exists():
-                self.pid_file.unlink()
-
-            return (True, f"{self.name} stopped")
-
-        except OSError as e:
-            return (False, f"Failed to stop: {e}")
+        # Clean up PID file
+        if self.pid_file.exists():
+            self.pid_file.unlink()
 
     def restart(self) -> tuple[bool, str]:
         """Restart the service."""
         if self.is_running():
-            success, msg = self.stop()
-            if not success:
-                return (False, f"Failed to stop: {msg}")
+            self.stop()
 
-        return self.start()
+        self.start()
 
     def get_logs(self, lines: int = 50) -> list[str]:
         """Get recent log lines."""

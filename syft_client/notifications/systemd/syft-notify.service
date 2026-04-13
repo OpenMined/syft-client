@@ -16,22 +16,22 @@ ExecStop=/usr/local/bin/syft-notify stop
 ExecReload=/usr/local/bin/syft-notify restart
 
 # PID file location
-PIDFile=/home/%i/.syft-creds/syft-notify.pid
+PIDFile=/home/%i/.syft-bg/syft-notify.pid
 
 # Restart policy
 Restart=on-failure
 RestartSec=10s
 
 # Logging
-StandardOutput=append:/home/%i/.syft-creds/syft-notify.log
-StandardError=append:/home/%i/.syft-creds/syft-notify.error.log
+StandardOutput=append:/home/%i/.syft-bg/syft-notify.log
+StandardError=append:/home/%i/.syft-bg/syft-notify.error.log
 
 # Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/%i/.syft-creds /home/%i/SyftBox_%i
+ReadWritePaths=/home/%i/.syft-bg /home/%i/SyftBox_%i
 
 [Install]
 WantedBy=multi-user.target

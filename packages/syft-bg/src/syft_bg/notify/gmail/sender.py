@@ -29,6 +29,10 @@ class GmailSender:
         self.use_html = use_html
         self._renderer: Optional[TemplateRenderer] = None
 
+    def verify(self) -> None:
+        """Verify credentials by fetching the Gmail user profile."""
+        self.service.users().getProfile(userId="me").execute()
+
     @property
     def renderer(self) -> Optional[TemplateRenderer]:
         if self._renderer is None:
