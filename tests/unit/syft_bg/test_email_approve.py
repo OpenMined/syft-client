@@ -136,7 +136,7 @@ class TestEmailApproveHandler:
         mock_job.status = "pending"
         job_client.jobs = [mock_job]
 
-        handler.handle_reply("thread123", "approve")
+        handler.handle_reply(thread_id="thread123", reply_text="approve")
 
         mock_job.approve.assert_called_once()
         job_runner.process_approved_jobs.assert_called_once_with(
@@ -155,7 +155,7 @@ class TestEmailApproveHandler:
         mock_job.status = "pending"
         job_client.jobs = [mock_job]
 
-        handler.handle_reply("thread456", "deny unsafe code")
+        handler.handle_reply(thread_id="thread456", reply_text="deny unsafe code")
 
         mock_job.reject.assert_called_once_with("unsafe code")
 
@@ -163,7 +163,7 @@ class TestEmailApproveHandler:
         handler, *_ = self._make_handler(tmp_path)
 
         with pytest.raises(ValueError, match="No job found for thread"):
-            handler.handle_reply("unknown_thread", "approve")
+            handler.handle_reply(thread_id="unknown_thread", reply_text="approve")
 
     def test_unrecognized_reply(self, tmp_path):
         handler, job_client, _, _, state, notify_state = self._make_handler(tmp_path)
@@ -176,7 +176,7 @@ class TestEmailApproveHandler:
         job_client.jobs = [mock_job]
 
         with pytest.raises(ValueError, match="Unrecognized reply"):
-            handler.handle_reply("thread789", "maybe later")
+            handler.handle_reply(thread_id="thread789", reply_text="maybe later")
         mock_job.approve.assert_not_called()
         mock_job.reject.assert_not_called()
 
@@ -191,12 +191,12 @@ class TestEmailApproveHandler:
         job_client.jobs = [mock_job]
 
         # Process once
-        handler.handle_reply("thread_dup", "approve")
+        handler.handle_reply(thread_id="thread_dup", reply_text="approve")
         mock_job.approve.assert_called_once()
 
         # Process again — should be skipped
         mock_job.reset_mock()
-        handler.handle_reply("thread_dup", "approve")
+        handler.handle_reply(thread_id="thread_dup", reply_text="approve")
         mock_job.approve.assert_not_called()
 
     def test_job_not_pending(self, tmp_path):
@@ -210,7 +210,7 @@ class TestEmailApproveHandler:
         job_client.jobs = [mock_job]
 
         with pytest.raises(ValueError, match="is approved, not pending"):
-            handler.handle_reply("thread_done", "approve")
+            handler.handle_reply(thread_id="thread_done", reply_text="approve")
         mock_job.approve.assert_not_called()
 
     def test_approve_skips_incompatible_version(self, tmp_path):
@@ -243,7 +243,7 @@ class TestEmailApproveHandler:
 
         mock_job.approve.side_effect = approve_side_effect
 
-        handler.handle_reply("thread_ver", "approve")
+        handler.handle_reply(thread_id="thread_ver", reply_text="approve")
 
         mock_job.approve.assert_called_once()
         job_runner.process_approved_jobs.assert_called_once()
@@ -280,7 +280,7 @@ class TestEmailApproveHandler:
 
         mock_job.approve.side_effect = approve_side_effect
 
-        handler.handle_reply("thread_ok", "approve")
+        handler.handle_reply(thread_id="thread_ok", reply_text="approve")
 
         mock_job.approve.assert_called_once()
         job_runner.process_approved_jobs.assert_called_once_with(

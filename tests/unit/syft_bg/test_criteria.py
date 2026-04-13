@@ -8,11 +8,10 @@ from syft_bg.approve.config import AutoApprovalObj, AutoApprovalsConfig, FileEnt
 from syft_bg.approve.criteria import (
     _compute_file_hash,
     _content_matches,
-    _get_python_files,
     _hash_matches,
     _validate_job_against_object,
-    resolve_auto_approval,
 )
+from syft_bg.approve.handlers.job import JobApprovalHandler
 
 
 def _write_files(base_dir: Path, files: dict[str, str]) -> Path:
@@ -50,40 +49,6 @@ def create_mock_job(
     job.code_dir = code_dir or Path("/nonexistent")
     job.files = files or []
     return job
-
-
-class TestGetPythonFiles:
-    """Tests for _get_python_files."""
-
-    def test_finds_py_files(self, temp_dir):
-        main_py = temp_dir / "main.py"
-        main_py.write_text("code")
-        config_yaml = temp_dir / "config.yaml"
-        config_yaml.write_text("config")
-        run_sh = temp_dir / "run.sh"
-        run_sh.write_text("#!/bin/bash")
-        params = temp_dir / "params.json"
-        params.write_text("{}")
-
-        job = create_mock_job(files=[main_py, config_yaml, run_sh, params])
-        py_files = _get_python_files(job)
-
-        assert len(py_files) == 1
-        assert py_files[0].name == "main.py"
-
-    def test_excludes_non_py(self, temp_dir):
-        params = temp_dir / "params.json"
-        params.write_text("{}")
-        job = create_mock_job(files=[params])
-        assert _get_python_files(job) == []
-
-    def test_multiple_py_files(self, temp_dir):
-        a = temp_dir / "main.py"
-        b = temp_dir / "extra.py"
-        a.write_text("a")
-        b.write_text("b")
-        job = create_mock_job(files=[a, b])
-        assert len(_get_python_files(job)) == 2
 
 
 class TestComputeFileHash:
@@ -153,9 +118,9 @@ class TestValidateAgainstObject:
         obj = _auto_approval_obj_from_dir(code_dir)
         job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_job_against_object(job, obj)
-        assert ok is True
-        assert reason == "ok"
+        result = _validate_job_against_object(job, obj)
+        assert result.match is True
+        assert result.reason == "ok"
 
     def test_no_matching_files(self, temp_dir):
         code_dir = _write_files(temp_dir / "code", {"params.json": "{}"})
@@ -165,9 +130,9 @@ class TestValidateAgainstObject:
         obj = _auto_approval_obj_from_dir(auto_approval_stored_dir)
         job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_job_against_object(job, obj)
-        assert ok is False
-        assert "unapproved" in reason
+        result = _validate_job_against_object(job, obj)
+        assert result.match is False
+        assert "unapproved" in result.reason
 
     def test_multiple_files_all_match(self, temp_dir):
         code_dir = _write_files(
@@ -177,8 +142,8 @@ class TestValidateAgainstObject:
         obj = _auto_approval_obj_from_dir(code_dir)
         job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_job_against_object(job, obj)
-        assert ok is True
+        result = _validate_job_against_object(job, obj)
+        assert result.match is True
 
     def test_subset_of_approved_files_passes(self, temp_dir):
         """Job with main.py only should match approval with main.py + utils.py."""
@@ -189,8 +154,8 @@ class TestValidateAgainstObject:
         code_dir = _write_files(temp_dir / "code", {"main.py": 'print("a")\n'})
         job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_job_against_object(job, obj)
-        assert ok is True
+        result = _validate_job_against_object(job, obj)
+        assert result.match is True
 
     def test_unapproved_file(self, temp_dir):
         files = {"main.py": 'print("a")\n'}
@@ -199,9 +164,9 @@ class TestValidateAgainstObject:
         obj = _auto_approval_obj_from_dir(auto_approval_stored_dir)
         job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_job_against_object(job, obj)
-        assert ok is False
-        assert "unapproved" in reason
+        result = _validate_job_against_object(job, obj)
+        assert result.match is False
+        assert "unapproved" in result.reason
 
     def test_hash_mismatch(self, temp_dir):
         code_dir = _write_files(temp_dir / "code", {"main.py": 'print("modified")\n'})
@@ -213,9 +178,9 @@ class TestValidateAgainstObject:
         obj = AutoApprovalObj(file_contents=[entry])
         job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_job_against_object(job, obj)
-        assert ok is False
-        assert "hash mismatch" in reason
+        result = _validate_job_against_object(job, obj)
+        assert result.match is False
+        assert "hash mismatch" in result.reason
 
     def test_content_mismatch(self, temp_dir):
         content = 'print("hello")\n'
@@ -232,20 +197,25 @@ class TestValidateAgainstObject:
         obj = AutoApprovalObj(file_contents=[entry])
         job = create_mock_job(code_dir=code_dir)
 
-        ok, reason = _validate_job_against_object(job, obj)
-        assert ok is False
-        assert "content mismatch" in reason
+        result = _validate_job_against_object(job, obj)
+        assert result.match is False
+        assert "content mismatch" in result.reason
 
 
-class TestResolveAutoApproval:
-    """Tests for resolve_auto_approval."""
+def _make_handler(config: AutoApprovalsConfig) -> JobApprovalHandler:
+    """Create a JobApprovalHandler with a mock client for testing evaluate_auto_approval."""
+    return JobApprovalHandler(client=MagicMock(), config=config)
+
+
+class TestEvaluateAutoApproval:
+    """Tests for JobApprovalHandler.evaluate_auto_approval."""
 
     def test_non_pending_rejected(self):
         job = create_mock_job(status="approved")
-        config = AutoApprovalsConfig()
-        ok, reason = resolve_auto_approval(job, config)
-        assert ok is False
-        assert "status" in reason
+        handler = _make_handler(AutoApprovalsConfig())
+        result = handler.evaluate_auto_approval(job)
+        assert result.match is False
+        assert "status" in result.reason
 
     def test_no_matching_objects(self):
         job = create_mock_job(submitted_by="unknown@test.com")
@@ -256,9 +226,10 @@ class TestResolveAutoApproval:
                 ),
             }
         )
-        ok, reason = resolve_auto_approval(job, config)
-        assert ok is False
-        assert "no auto-approval objects match peer" in reason
+        handler = _make_handler(config)
+        result = handler.evaluate_auto_approval(job)
+        assert result.match is False
+        assert "no auto-approval objects match peer" in result.reason
 
     def test_peer_in_object_passes(self, temp_dir):
         code_dir = _write_files(temp_dir / "code", {"main.py": 'print("hello")\n'})
@@ -267,8 +238,9 @@ class TestResolveAutoApproval:
         config = AutoApprovalsConfig(objects={"analysis": obj})
         job = create_mock_job(submitted_by="alice@test.com", code_dir=code_dir)
 
-        ok, reason = resolve_auto_approval(job, config)
-        assert ok is True
+        handler = _make_handler(config)
+        result = handler.evaluate_auto_approval(job)
+        assert result.match is True
 
     def test_empty_peers_matches_any(self, temp_dir):
         code_dir = _write_files(temp_dir / "code", {"main.py": 'print("hello")\n'})
@@ -276,8 +248,9 @@ class TestResolveAutoApproval:
         config = AutoApprovalsConfig(objects={"open": obj})
         job = create_mock_job(submitted_by="anyone@test.com", code_dir=code_dir)
 
-        ok, reason = resolve_auto_approval(job, config)
-        assert ok is True
+        handler = _make_handler(config)
+        result = handler.evaluate_auto_approval(job)
+        assert result.match is True
 
     def test_filename_mismatch(self, temp_dir):
         code_dir = _write_files(temp_dir / "code", {"train.py": 'print("hello")\n'})
@@ -289,5 +262,6 @@ class TestResolveAutoApproval:
         config = AutoApprovalsConfig(objects={"obj": obj})
         job = create_mock_job(submitted_by="alice@test.com", code_dir=code_dir)
 
-        ok, reason = resolve_auto_approval(job, config)
-        assert ok is False
+        handler = _make_handler(config)
+        result = handler.evaluate_auto_approval(job)
+        assert result.match is False

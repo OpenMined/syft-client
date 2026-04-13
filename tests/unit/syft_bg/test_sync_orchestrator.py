@@ -9,18 +9,18 @@ from syft_bg.sync.snapshot_writer import SnapshotWriter
 
 
 def _make_orchestrator(temp_dir, **config_overrides):
-    client = MagicMock()
-    client.job_client.jobs = []
-    client.peer_manager.approved_peers = []
-    client.peer_manager.requested_by_peer_peers = []
+    syft_client = MagicMock()
+    syft_client.job_client.jobs = []
+    syft_client.peer_manager.approved_peers = []
+    syft_client.peer_manager.requested_by_peer_peers = []
 
     writer = SnapshotWriter(temp_dir / "snapshot.json")
     defaults = {"interval": 1, "max_retries": 2, "retry_backoff": 0.01}
     defaults.update(config_overrides)
     config = SyncConfig(**defaults)
 
-    orch = SyncOrchestrator(client, writer, config)
-    return orch, client
+    orch = SyncOrchestrator(syft_client, writer, config)
+    return orch, syft_client
 
 
 class TestRunOnce:
