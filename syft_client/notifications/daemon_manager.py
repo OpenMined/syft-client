@@ -34,7 +34,7 @@ class DaemonManager:
         self.config_path = Path(config_path).expanduser()
 
         # File paths
-        creds_dir = Path.home() / ".syft-creds"
+        creds_dir = Path.home() / ".syft-bg"
         creds_dir.mkdir(parents=True, exist_ok=True)
 
         self.pid_file = creds_dir / "syft-notify.pid"

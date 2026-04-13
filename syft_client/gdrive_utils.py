@@ -14,9 +14,9 @@ from googleapiclient.http import MediaIoBaseDownload
 
 from syft_client.sync.connections.drive.gdrive_transport import (
     build_drive_service,
-    SCOPES,
     GOOGLE_FOLDER_MIME_TYPE,
 )
+from syft_client.sync.connections.drive.gdrive_transport import SCOPES as GDRIVE_SCOPES
 from syft_client.sync.connections.drive.gdrive_retry import (
     execute_with_retries,
     next_chunk_with_retries,
@@ -32,9 +32,18 @@ from syft_client.sync.config.config import settings
 _COULD_BE_ID = re.compile(r"^[a-zA-Z0-9_-]{10,}$")
 
 
+DO_SCOPES = [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/pubsub",
+]
+
+
 def credentials_to_token(
     credentials_path: str | Path,
     output_path: str | Path | None = None,
+    store: bool = False,
+    do_scopes: bool = False,
 ) -> Path:
     """Convert a Google OAuth credentials.json to an authorized token file.
 
@@ -52,8 +61,9 @@ def credentials_to_token(
     else:
         output_path = Path(output_path)
 
+    scopes = DO_SCOPES if do_scopes else GDRIVE_SCOPES
     flow = InstalledAppFlow.from_client_secrets_file(
-        str(credentials_path.absolute()), SCOPES
+        str(credentials_path.absolute()), scopes
     )
     try:
         creds = flow.run_local_server(port=0)
@@ -73,6 +83,15 @@ def credentials_to_token(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(creds.to_json())
+
+    if store:
+        path = Path.home() / ".syft-bg" / "token.json"
+        path.write_text(creds.to_json())
+        project_id_path = Path.home() / ".syft-bg" / "project_id.txt"
+        with open(credentials_path, "r") as f:
+            f.read().strip()
+        project_id_path.write_text(creds.project_id)
+
     return output_path
 
 
@@ -116,7 +135,9 @@ def _build_service(token_path: str | Path | None = None):
             "No token path provided. Set SYFTCLIENT_TOKEN_PATH env var "
             "or pass token_path explicitly."
         )
-    credentials = GoogleCredentials.from_authorized_user_file(str(resolved), SCOPES)
+    credentials = GoogleCredentials.from_authorized_user_file(
+        str(resolved), GDRIVE_SCOPES
+    )
     return build_drive_service(credentials)
 
 

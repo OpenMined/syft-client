@@ -135,7 +135,7 @@ class Monitor(ABC):
         """
         pass
 
-    def check(self, interval: Optional[int] = None, duration: Optional[int] = None):
+    def run_once(self, interval: Optional[int] = None, duration: Optional[int] = None):
         """
         Run monitoring checks.
 

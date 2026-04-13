@@ -85,13 +85,34 @@ def grant_gmail_publish_access(
     print(f"[PubSubSetup] Granted Gmail publish access to {topic_path}")
 
 
+def _load_project_id_from_config() -> str | None:
+    """Load gcp_project_id from config.yaml if available."""
+    from syft_bg.common.config import get_default_paths, load_yaml
+
+    config_path = get_default_paths().config
+    if not config_path.exists():
+        return None
+    data = load_yaml(config_path)
+    return data.get("email_approve", {}).get("gcp_project_id")
+
+
 def setup_pubsub(
     credentials: Credentials,
-    project_id: str,
+    project_id: str | None = None,
     topic_id: str = "syft-gmail-notifications",
     subscription_id: str = "syft-gmail-sub",
 ) -> tuple[str, str]:
-    """Set up all Pub/Sub resources. Returns (topic_path, subscription_path)."""
+    """Set up all Pub/Sub resources. Returns (topic_path, subscription_path).
+
+    If project_id is not provided, it is loaded from config.yaml.
+    """
+    if project_id is None:
+        project_id = _load_project_id_from_config()
+    if project_id is None:
+        raise ValueError(
+            "gcp_project_id not found. Run syft_bg.authenticate() first "
+            "to extract it from credentials.json."
+        )
     topic_path = ensure_topic(credentials, project_id, topic_id)
     grant_gmail_publish_access(credentials, project_id, topic_id)
     sub_path = ensure_subscription(credentials, project_id, topic_id, subscription_id)
