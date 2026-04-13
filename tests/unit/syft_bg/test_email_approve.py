@@ -14,7 +14,6 @@ from syft_bg.email_approve.handler import (
     EmailApproveHandler,
     parse_reply,
 )
-from syft_bg.sync.snapshot import PeerVersionInfo, SyncSnapshot
 
 
 # --- Reply parsing tests ---
@@ -112,20 +111,17 @@ class TestEmailApproveHandler:
         notify_state = JsonStateManager(tmp_path / "notify_state.json")
         job_client = MagicMock()
         job_runner = MagicMock()
-        snapshot_reader = MagicMock()
-        snapshot_reader.read.return_value = None
         handler = EmailApproveHandler(
             job_client=job_client,
             job_runner=job_runner,
-            snapshot_reader=snapshot_reader,
             state=state,
             notify_state=notify_state,
             do_email="do@example.com",
         )
-        return handler, job_client, job_runner, snapshot_reader, state, notify_state
+        return handler, job_client, job_runner, state, notify_state
 
     def test_approve_job(self, tmp_path):
-        handler, job_client, job_runner, _, state, notify_state = self._make_handler(
+        handler, job_client, job_runner, state, notify_state = self._make_handler(
             tmp_path
         )
 
@@ -142,11 +138,10 @@ class TestEmailApproveHandler:
         job_runner.process_approved_jobs.assert_called_once_with(
             share_outputs_with_submitter=True,
             share_logs_with_submitter=True,
-            skip_job_names=None,
         )
 
     def test_deny_job(self, tmp_path):
-        handler, job_client, _, _, state, notify_state = self._make_handler(tmp_path)
+        handler, job_client, _, state, notify_state = self._make_handler(tmp_path)
 
         notify_state.store_thread_id("test.job", "thread456")
 
@@ -166,7 +161,7 @@ class TestEmailApproveHandler:
             handler.handle_reply(thread_id="unknown_thread", reply_text="approve")
 
     def test_unrecognized_reply(self, tmp_path):
-        handler, job_client, _, _, state, notify_state = self._make_handler(tmp_path)
+        handler, job_client, _, state, notify_state = self._make_handler(tmp_path)
 
         notify_state.store_thread_id("test.job", "thread789")
 
@@ -181,7 +176,7 @@ class TestEmailApproveHandler:
         mock_job.reject.assert_not_called()
 
     def test_already_processed_reply(self, tmp_path):
-        handler, job_client, _, _, state, notify_state = self._make_handler(tmp_path)
+        handler, job_client, _, state, notify_state = self._make_handler(tmp_path)
 
         notify_state.store_thread_id("test.job", "thread_dup")
 
@@ -200,7 +195,7 @@ class TestEmailApproveHandler:
         mock_job.approve.assert_not_called()
 
     def test_job_not_pending(self, tmp_path):
-        handler, job_client, _, _, state, notify_state = self._make_handler(tmp_path)
+        handler, job_client, _, state, notify_state = self._make_handler(tmp_path)
 
         notify_state.store_thread_id("test.job", "thread_done")
 
@@ -212,82 +207,6 @@ class TestEmailApproveHandler:
         with pytest.raises(ValueError, match="is approved, not pending"):
             handler.handle_reply(thread_id="thread_done", reply_text="approve")
         mock_job.approve.assert_not_called()
-
-    def test_approve_skips_incompatible_version(self, tmp_path):
-        handler, job_client, job_runner, snapshot_reader, state, notify_state = (
-            self._make_handler(tmp_path)
-        )
-
-        notify_state.store_thread_id("test.job", "thread_ver")
-
-        mock_job = MagicMock()
-        mock_job.name = "test.job"
-        mock_job.status = "pending"
-        mock_job.submitted_by = "submitter@example.com"
-        job_client.jobs = [mock_job]
-
-        snapshot_reader.read.return_value = SyncSnapshot(
-            sync_time=0,
-            own_version=PeerVersionInfo(
-                syft_client_version="0.2.0", protocol_version="1.0.0"
-            ),
-            peer_versions={
-                "submitter@example.com": PeerVersionInfo(
-                    syft_client_version="0.1.0", protocol_version="1.0.0"
-                )
-            },
-        )
-
-        def approve_side_effect():
-            mock_job.status = "approved"
-
-        mock_job.approve.side_effect = approve_side_effect
-
-        handler.handle_reply(thread_id="thread_ver", reply_text="approve")
-
-        mock_job.approve.assert_called_once()
-        job_runner.process_approved_jobs.assert_called_once()
-        call_kwargs = job_runner.process_approved_jobs.call_args[1]
-        assert call_kwargs.get("skip_job_names") == ["test.job"]
-
-    def test_approve_no_skip_when_versions_match(self, tmp_path):
-        handler, job_client, job_runner, snapshot_reader, state, notify_state = (
-            self._make_handler(tmp_path)
-        )
-
-        notify_state.store_thread_id("test.job", "thread_ok")
-
-        mock_job = MagicMock()
-        mock_job.name = "test.job"
-        mock_job.status = "pending"
-        mock_job.submitted_by = "submitter@example.com"
-        job_client.jobs = [mock_job]
-
-        snapshot_reader.read.return_value = SyncSnapshot(
-            sync_time=0,
-            own_version=PeerVersionInfo(
-                syft_client_version="0.1.112", protocol_version="1.0.0"
-            ),
-            peer_versions={
-                "submitter@example.com": PeerVersionInfo(
-                    syft_client_version="0.1.112", protocol_version="1.0.0"
-                )
-            },
-        )
-
-        def approve_side_effect():
-            mock_job.status = "approved"
-
-        mock_job.approve.side_effect = approve_side_effect
-
-        handler.handle_reply(thread_id="thread_ok", reply_text="approve")
-
-        mock_job.approve.assert_called_once()
-        job_runner.process_approved_jobs.assert_called_once_with(
-            share_outputs_with_submitter=True,
-            share_logs_with_submitter=True,
-            skip_job_names=None,
-        )
 
 
 # --- State reverse lookup test ---

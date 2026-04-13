@@ -16,7 +16,6 @@ from syft_bg.email_approve.handler import EmailApproveHandler
 from syft_bg.email_approve.monitor import EmailApproveMonitor
 from syft_bg.email_approve.pubsub_setup import setup_pubsub
 from syft_bg.notify.gmail.auth import GmailAuth
-from syft_bg.sync.snapshot_reader import SnapshotReader
 
 
 class EmailApproveOrchestrator(BaseOrchestrator):
@@ -71,8 +70,6 @@ class EmailApproveOrchestrator(BaseOrchestrator):
         job_client = JobClient.from_config(job_config)
         job_runner = SyftJobRunner.from_config(job_config)
 
-        snapshot_reader = SnapshotReader(config.sync_state_path)
-
         credentials = GmailAuth().load_credentials(config.gmail_token_path)
 
         watcher = GmailWatcher(credentials)
@@ -82,7 +79,6 @@ class EmailApproveOrchestrator(BaseOrchestrator):
         handler = EmailApproveHandler(
             job_client=job_client,
             job_runner=job_runner,
-            snapshot_reader=snapshot_reader,
             state=state,
             notify_state=notify_state,
             do_email=config.do_email,
