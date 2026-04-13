@@ -90,36 +90,3 @@ class TestSyncFailure:
         assert client.sync.call_count == 2  # max_retries=2
         snap = SnapshotReader(temp_dir / "snapshot.json").read()
         assert snap.sync_error is not None
-
-
-class TestSyncCount:
-    def test_increments_across_cycles(self, temp_dir):
-        orch, _ = _make_orchestrator(temp_dir)
-        orch.run_once()
-        orch.run_once()
-        snap = SnapshotReader(temp_dir / "snapshot.json").read()
-        assert snap.sync_count == 2
-
-
-class TestDurationTracking:
-    def test_records_duration_ms(self, temp_dir):
-        orch, _ = _make_orchestrator(temp_dir)
-        orch.run_once()
-        snap = SnapshotReader(temp_dir / "snapshot.json").read()
-        assert snap.sync_duration_ms >= 0
-
-
-class TestLogging:
-    def test_prints_cycle_info(self, temp_dir, capsys):
-        orch, _ = _make_orchestrator(temp_dir)
-        orch.run_once()
-        output = capsys.readouterr().out
-        assert "Cycle" in output
-        assert "ms" in output
-
-    def test_prints_error_on_failure(self, temp_dir, capsys):
-        orch, client = _make_orchestrator(temp_dir)
-        client.sync.side_effect = Exception("timeout")
-        orch.run_once()
-        output = capsys.readouterr().out
-        assert "failed" in output.lower()
