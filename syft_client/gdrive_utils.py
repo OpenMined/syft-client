@@ -374,7 +374,6 @@ def delete_remote_syftbox(
     token_path: str | Path | None = None,
     email: str | None = None,
     verbose: bool = True,
-    exclude_ids: set[str] | None = None,
 ) -> None:
     """Delete all SyftBox state from Google Drive.
 
@@ -390,7 +389,6 @@ def delete_remote_syftbox(
         email: Google account email. Required when running locally. On Colab,
             this is auto-detected if not provided.
         verbose: If True (default), print deletion progress.
-        exclude_ids: File/folder IDs to skip (e.g. already-archived folders).
     """
     from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 
@@ -403,11 +401,7 @@ def delete_remote_syftbox(
     # Find orphaned syft files by name pattern
     orphaned_file_ids = set(conn.find_orphaned_message_files())
 
-    all_file_ids = folder_file_ids | orphaned_file_ids
-    if exclude_ids:
-        all_file_ids -= exclude_ids
-
-    all_file_ids = list(all_file_ids)
+    all_file_ids = list(folder_file_ids | orphaned_file_ids)
 
     start = time.time()
     conn.delete_multiple_files_by_ids(all_file_ids)
@@ -504,69 +498,3 @@ def delete_syftbox(
         local_syftbox_path=local_syftbox_path,
         verbose=verbose,
     )
-
-
-SYFTBOX_ARCHIVE_FOLDER = "SyftBox_archive"
-
-
-def _get_or_create_archive_version_folder(conn, old_version: str) -> str:
-    """Find or create SyftBox_archive/<old_version>/ at GDrive root.
-
-    Returns the folder ID of the version subfolder.
-    """
-    # Find or create SyftBox_archive at root
-    archive_id = conn._find_folder_by_name(SYFTBOX_ARCHIVE_FOLDER)
-    if archive_id is None:
-        archive_id = conn.create_folder(SYFTBOX_ARCHIVE_FOLDER, None)
-
-    # Find or create version subfolder
-    version_id = conn._find_folder_by_name(old_version, parent_id=archive_id)
-    if version_id is None:
-        version_id = conn.create_folder(old_version, archive_id)
-
-    return version_id
-
-
-def archive_remote_p2p_folders(
-    token_path: str | Path | None = None,
-    email: str | None = None,
-    old_version: str = "",
-    verbose: bool = True,
-) -> set[str]:
-    """Archive P2P folders to SyftBox_archive/<old_version>/ at GDrive root.
-
-    Moves (not copies) all P2P communication folders from /SyftBox to the
-    archive. Returns the set of moved folder IDs so they can be excluded
-    from subsequent deletion.
-
-    Args:
-        token_path: Path to OAuth token JSON file.
-        email: Google account email.
-        old_version: Version string for the archive subfolder name.
-        verbose: If True, print progress.
-
-    Returns:
-        Set of folder IDs that were moved to the archive.
-    """
-    from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
-
-    email, token_path = _resolve_email_and_token(email, token_path)
-    conn = GDriveConnection.from_token_path(email=email, token_path=token_path)
-
-    p2p_folders = conn.list_own_p2p_folder_ids()
-    if not p2p_folders:
-        if verbose:
-            print("No P2P folders to archive.")
-        return set()
-
-    version_folder_id = _get_or_create_archive_version_folder(conn, old_version)
-    folder_ids = [fid for fid, _ in p2p_folders]
-    conn.move_files_to_folder(folder_ids, version_folder_id)
-
-    if verbose:
-        print(
-            f"Archived {len(folder_ids)} P2P folders to "
-            f"{SYFTBOX_ARCHIVE_FOLDER}/{old_version}/"
-        )
-
-    return set(folder_ids)

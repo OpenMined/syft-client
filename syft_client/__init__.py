@@ -12,7 +12,6 @@ from syft_client.gdrive_utils import (  # noqa: F401
     delete_syftbox,
     delete_local_syftbox,
     delete_remote_syftbox,
-    archive_remote_p2p_folders,
 )
 
 SYFT_CLIENT_DIR = Path(__file__).parent.parent

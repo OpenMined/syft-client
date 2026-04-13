@@ -1,7 +1,7 @@
 import sys
+from pathlib import Path
 
 from syft_client.gdrive_utils import (
-    archive_remote_p2p_folders,
     delete_local_syftbox,
     delete_remote_syftbox,
     read_local_version,
@@ -15,7 +15,6 @@ from syft_client.sync.utils.print_utils import print_client_connected
 from syft_client.sync.utils.syftbox_utils import get_email_colab
 from syft_client.sync.config.config import settings
 from syft_client.version import SYFT_CLIENT_VERSION
-from pathlib import Path
 
 
 def _detect_version_state(
@@ -52,29 +51,13 @@ def _print_version_status(
     print(f"  Remote SyftBox:    {remote_str}\n")
 
 
-def _prompt_do_mismatch(
+def _prompt_mismatch(
     local_version: VersionInfo | None,
     remote_version: VersionInfo | None,
 ) -> str:
-    """Prompt a Data Owner about version mismatch. Returns choice."""
+    """Prompt user about version mismatch. Returns choice."""
     _print_version_status(local_version, remote_version)
-    print(f"  [1] Delete all state and start fresh with v{SYFT_CLIENT_VERSION}")
-    print("  [2] Quit\n")
-    choice = input("Choice [1/2]: ").strip()
-    if choice not in ("1", "2"):
-        print(f"Invalid choice '{choice}'. Exiting.")
-        sys.exit(1)
-    return choice
-
-
-def _prompt_ds_mismatch(
-    local_version: VersionInfo | None,
-    remote_version: VersionInfo | None,
-) -> str:
-    """Prompt a Data Scientist about version mismatch. Returns choice."""
-    old_version = _get_old_version(local_version, remote_version)
-    _print_version_status(local_version, remote_version)
-    print(f"  [1] Archive P2P data to SyftBox_archive/{old_version}/ and upgrade")
+    print(f"  [1] Upgrade to v{SYFT_CLIENT_VERSION} (old remote data preserved)")
     print(f"  [2] Delete all state and start fresh with v{SYFT_CLIENT_VERSION}")
     print("  [3] Quit\n")
     choice = input("Choice [1/2/3]: ").strip()
@@ -82,21 +65,6 @@ def _prompt_ds_mismatch(
         print(f"Invalid choice '{choice}'. Exiting.")
         sys.exit(1)
     return choice
-
-
-def _get_old_version(
-    local_version: VersionInfo | None,
-    remote_version: VersionInfo | None,
-) -> str:
-    """Determine the old version string for archive naming.
-
-    Prefers remote (authoritative P2P state), falls back to local.
-    """
-    if remote_version:
-        return remote_version.syft_client_version
-    if local_version:
-        return local_version.syft_client_version
-    return "unknown"
 
 
 def _get_client_token_path(client: SyftboxManager) -> Path | None:
@@ -107,9 +75,7 @@ def _get_client_token_path(client: SyftboxManager) -> Path | None:
     return None
 
 
-def _delete_all_state(
-    client: SyftboxManager, exclude_ids: set[str] | None = None
-) -> None:
+def _delete_all_state(client: SyftboxManager) -> None:
     """Delete local + remote SyftBox state and reset caches."""
     token_path = _get_client_token_path(client)
     delete_local_syftbox(
@@ -121,48 +87,28 @@ def _delete_all_state(
         email=client.email,
         token_path=token_path,
         verbose=True,
-        exclude_ids=exclude_ids,
     )
     client.reset_all_connection_caches()
 
 
-def _handle_do_mismatch(
+def _handle_mismatch(
     client: SyftboxManager,
     local_version: VersionInfo | None,
     remote_version: VersionInfo | None,
 ) -> None:
-    """Handle version mismatch for a Data Owner."""
-    choice = _prompt_do_mismatch(local_version, remote_version)
+    """Handle version mismatch with unified prompt."""
+    choice = _prompt_mismatch(local_version, remote_version)
     if choice == "1":
         print(f"Upgrading to v{SYFT_CLIENT_VERSION}...")
-        _delete_all_state(client)
-        print("Done. Continuing login.\n")
-    else:
-        print("Exiting.")
-        sys.exit(0)
-
-
-def _handle_ds_mismatch(
-    client: SyftboxManager,
-    local_version: VersionInfo | None,
-    remote_version: VersionInfo | None,
-) -> None:
-    """Handle version mismatch for a Data Scientist."""
-    choice = _prompt_ds_mismatch(local_version, remote_version)
-    if choice == "1":
-        old_version = _get_old_version(local_version, remote_version)
-        token_path = _get_client_token_path(client)
-        print(f"Archiving P2P data and upgrading to v{SYFT_CLIENT_VERSION}...")
-        archived_ids = archive_remote_p2p_folders(
+        delete_local_syftbox(
             email=client.email,
-            token_path=token_path,
-            old_version=old_version,
+            local_syftbox_path=client.syftbox_folder,
             verbose=True,
         )
-        _delete_all_state(client, exclude_ids=archived_ids)
+        client.reset_all_connection_caches()
         print("Done. Continuing login.\n")
     elif choice == "2":
-        print(f"Upgrading to v{SYFT_CLIENT_VERSION}...")
+        print(f"Deleting all state and starting fresh with v{SYFT_CLIENT_VERSION}...")
         _delete_all_state(client)
         print("Done. Continuing login.\n")
     else:
@@ -173,18 +119,13 @@ def _handle_ds_mismatch(
 def _check_existing_state_version(client: SyftboxManager) -> None:
     """Check local and remote versions against installed version.
 
-    Routes to role-specific handlers (DO or DS) if a mismatch is found.
-    After this function returns, all state has been cleaned up (if needed)
-    and _init_client will write the current version to both local and remote.
+    On mismatch, prompts user to upgrade (local delete only, remote preserved
+    via version subfolders) or hard-reset (delete everything).
     """
     local_version, remote_version = _detect_version_state(client)
     if not _has_mismatch(local_version, remote_version):
         return
-
-    if client.has_do_role:
-        _handle_do_mismatch(client, local_version, remote_version)
-    elif client.has_ds_role:
-        _handle_ds_mismatch(client, local_version, remote_version)
+    _handle_mismatch(client, local_version, remote_version)
 
 
 def _init_client(
@@ -196,6 +137,12 @@ def _init_client(
     # Write current version to both local and remote
     write_local_version(client.syftbox_folder)
     client.write_own_version()
+
+    # Load peers early so we can restore local permissions before sync.
+    # After a version upgrade that deletes local state, permission files
+    # (syft.pub.yaml) are lost — this restores them for approved peers.
+    client.load_peers()
+    client.ensure_local_peer_permissions()
 
     if sync:
         client.sync()
