@@ -861,6 +861,18 @@ class SyftboxManager(BaseModel):
             self.job_client.setup_ds_job_folder_as_do(peer_email)
             self._share_any_datasets_with_peer(peer_email)
 
+    def ensure_local_peer_permissions(self) -> None:
+        """Recreate local permission files for all approved peers.
+
+        After an upgrade that deletes local state, permission files
+        (syft.pub.yaml) are lost. This restores them so that incoming
+        proposals from approved peers are not silently rejected.
+        """
+        if not self.has_do_role:
+            return
+        for peer in self.peer_manager.approved_peers:
+            self.job_client.setup_ds_job_folder_as_do(peer.email)
+
     def _share_any_datasets_with_peer(self, peer_email: str):
         """Share all datasets that have 'any' permission with a specific peer.
 
