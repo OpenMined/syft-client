@@ -25,6 +25,9 @@ class EmailApproveConfig(BaseModel):
     notify_state_path: Path = Field(
         default_factory=lambda: get_default_paths().notify_state
     )
+    sync_state_path: Path = Field(
+        default_factory=lambda: get_default_paths().sync_state
+    )
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "EmailApproveConfig":

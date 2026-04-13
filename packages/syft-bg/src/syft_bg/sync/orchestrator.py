@@ -35,13 +35,9 @@ class SyncOrchestrator(BaseOrchestrator):
         if not config.syftbox_root:
             raise ValueError("SyncConfig missing 'syftbox_root'")
 
-        from syft_bg.common.config import get_default_paths
         from syft_client.sync.environments.environment import Environment
         from syft_client.sync.syftbox_manager import SyftboxManager
         from syft_client.sync.utils.syftbox_utils import check_env
-
-        paths = get_default_paths()
-        token_path = config.drive_token_path or paths.drive_token
 
         env = check_env()
         if env == Environment.COLAB:
@@ -53,10 +49,10 @@ class SyncOrchestrator(BaseOrchestrator):
             client = SyftboxManager.for_jupyter(
                 email=config.do_email,
                 has_do_role=True,
-                token_path=token_path,
+                token_path=config.drive_token_path,
             )
 
-        writer = SnapshotWriter(paths.sync_state)
+        writer = SnapshotWriter(config.sync_state_path)
 
         return cls(
             client=client,

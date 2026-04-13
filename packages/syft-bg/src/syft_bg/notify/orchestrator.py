@@ -72,12 +72,9 @@ class NotificationOrchestrator(BaseOrchestrator):
             state=state_manager,
         )
 
-        from syft_bg.common.config import get_default_paths
-
-        paths = get_default_paths()
         snapshot_reader = (
-            SnapshotReader(paths.sync_state)
-            if paths.sync_state.parent.exists()
+            SnapshotReader(config.sync_state_path)
+            if config.sync_state_path.parent.exists()
             else None
         )
 

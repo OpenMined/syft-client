@@ -8,7 +8,6 @@ from syft_job import SyftJobConfig
 from syft_job.client import JobClient
 from syft_job.job_runner import SyftJobRunner
 
-from syft_bg.common.config import get_default_paths
 from syft_bg.common.orchestrator import BaseOrchestrator
 from syft_bg.common.state import JsonStateManager
 from syft_bg.email_approve.config import EmailApproveConfig
@@ -72,9 +71,7 @@ class EmailApproveOrchestrator(BaseOrchestrator):
         job_client = JobClient.from_config(job_config)
         job_runner = SyftJobRunner.from_config(job_config)
 
-        # Snapshot reader for version compat data from sync service
-        paths = get_default_paths()
-        snapshot_reader = SnapshotReader(paths.sync_state)
+        snapshot_reader = SnapshotReader(config.sync_state_path)
 
         credentials = GmailAuth().load_credentials(config.gmail_token_path)
 
