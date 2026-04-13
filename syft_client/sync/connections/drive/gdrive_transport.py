@@ -28,6 +28,7 @@ from syft_client.sync.connections.base_connection import (
     FileCollection,
     SyftboxPlatformConnection,
 )
+from syft_client.version import SYFT_CLIENT_VERSION
 from syft_datasets.dataset_manager import (
     DATASET_COLLECTION_PREFIX,
     PRIVATE_DATASET_COLLECTION_PREFIX,
@@ -310,44 +311,77 @@ class GDriveConnection(SyftboxPlatformConnection):
         return check_env()
 
     def create_personal_syftbox_folder(self) -> str:
-        """Creates /SyftBox/myemail"""
+        """Creates /SyftBox/{email}/{version}/"""
         syftbox_folder_id = self.get_syftbox_folder_id()
-        return self.create_folder(self.email, syftbox_folder_id)
+        email_folder_id = self.create_folder(self.email, syftbox_folder_id)
+        version_folder_id = self._find_or_create_version_subfolder(email_folder_id)
+        self._personal_syftbox_folder_id = version_folder_id
+        return version_folder_id
 
     def create_syftbox_folder(self) -> str:
         """Creates /SyftBox"""
         return self.create_folder(SYFTBOX_FOLDER, None)
 
     def create_archive_folder(self, sender_email: str) -> str:
+        """Creates archive folder with version subfolder. Returns version subfolder ID."""
         archive_folder = GdriveArchiveFolder(
             sender_email=sender_email, recipient_email=self.email
         )
         archive_folder_name = archive_folder.as_string()
         syftbox_folder_id = self.get_syftbox_folder_id()
-        return self.create_folder(archive_folder_name, syftbox_folder_id)
+        archive_id = self.create_folder(archive_folder_name, syftbox_folder_id)
+        version_id = self._find_or_create_version_subfolder(archive_id)
+        self.archive_folder_id_cache[sender_email] = version_id
+        return version_id
+
+    def _find_p2p_folder_id(self, peer_email: str, folder_type: str) -> str | None:
+        """Find P2P folder by name (without version subfolder resolution)."""
+        folder = GdriveP2PFolder(
+            datasite_email=peer_email, folder_type=folder_type, peer_email=self.email
+        )
+        return self._find_folder_by_name(folder.as_string(), owner_email=self.email)
 
     def create_peer_datasite_folders(self, peer_email: str):
         """Create inbox + outbox folders for peer's datasite on own drive, share with peer.
 
-        Creates:
-        - syft_datasite_{peer}_inbox_{self} — I submit proposals to peer here
-        - syft_datasite_{peer}_outbox_{self} — peer pushes events to me here
+        Creates P2P folders with version subfolders inside. Permissions are set
+        on the P2P folder so subfolders inherit access.
         """
         # Inbox: I write proposals, peer reads
-        inbox_id = self._get_peer_datasite_inbox_id(peer_email)
-        if inbox_id is None:
-            inbox_id = self._create_peer_datasite_folder(peer_email, "inbox")
-        self.add_permission(inbox_id, peer_email, write=True)
+        inbox_version_id = self._get_peer_datasite_inbox_id(peer_email)
+        if inbox_version_id is None:
+            p2p_inbox_id = self._create_peer_datasite_folder(peer_email, "inbox")
+        else:
+            p2p_inbox_id = self._find_p2p_folder_id(peer_email, "inbox")
+        if p2p_inbox_id:
+            self.add_permission(p2p_inbox_id, peer_email, write=True)
 
         # Outbox: peer writes events, I read
-        outbox_id = self._get_peer_datasite_outbox_id(peer_email)
-        if outbox_id is None:
-            outbox_id = self._create_peer_datasite_folder(peer_email, "outbox")
-        self.add_permission(outbox_id, peer_email, write=True)
+        outbox_version_id = self._get_peer_datasite_outbox_id(peer_email)
+        if outbox_version_id is None:
+            p2p_outbox_id = self._create_peer_datasite_folder(peer_email, "outbox")
+        else:
+            p2p_outbox_id = self._find_p2p_folder_id(peer_email, "outbox")
+        if p2p_outbox_id:
+            self.add_permission(p2p_outbox_id, peer_email, write=True)
 
     def add_peer(self, peer_email: str):
         """Alias for create_peer_datasite_folders."""
         self.create_peer_datasite_folders(peer_email)
+
+    def ensure_peer_version_subfolders(self, peer_email: str) -> None:
+        """Ensure version subfolders exist in all P2P folders we own for this peer.
+
+        Called during load_peers() so that after an upgrade, our P2P folders
+        are ready even before any messages are sent/received. Also re-shares
+        the version file with the peer (idempotent).
+        """
+        self._get_peer_datasite_inbox_id(peer_email)
+        self._get_peer_datasite_outbox_id(peer_email)
+        # Archive folder (syft_{peer}_to_{me}_archive) — we own this
+        self.owner_get_archive_folder_id(peer_email)
+        # Ensure version file is shared with peer (survives upgrade)
+        self.share_version_file_with_peer(peer_email)
 
     def _get_peers_file_id(self) -> str | None:
         """Find SYFT_peers.json file in /SyftBox folder"""
@@ -669,7 +703,10 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
 
     def _create_peer_datasite_folder(self, peer_email: str, folder_type: str) -> str:
-        """Create a datasite folder under /SyftBox for peer's datasite."""
+        """Create a P2P folder + version subfolder under /SyftBox.
+
+        Returns the P2P folder ID (for permissions). Caches the version subfolder ID.
+        """
         if folder_type not in ("inbox", "outbox"):
             raise ValueError(
                 f"Invalid folder_type: {folder_type}. Must be 'inbox' or 'outbox'."
@@ -678,30 +715,31 @@ class GDriveConnection(SyftboxPlatformConnection):
         folder = GdriveP2PFolder(
             datasite_email=peer_email, folder_type=folder_type, peer_email=self.email
         )
-        folder_name = folder.as_string()
-        folder_id = self.create_folder(folder_name, parent_id)
+        p2p_folder_id = self.create_folder(folder.as_string(), parent_id)
+        version_id = self._find_or_create_version_subfolder(p2p_folder_id)
         if folder_type == "inbox":
-            self.peer_datasite_inbox_cache[peer_email] = folder_id
+            self.peer_datasite_inbox_cache[peer_email] = version_id
         else:
-            self.peer_datasite_outbox_cache[peer_email] = folder_id
-        return folder_id
+            self.peer_datasite_outbox_cache[peer_email] = version_id
+        return p2p_folder_id
 
     def get_personal_syftbox_folder_id(self) -> str:
-        """/SyftBox/myemail"""
+        """/SyftBox/{email}/{version}/"""
         if self._personal_syftbox_folder_id:
             return self._personal_syftbox_folder_id
-        else:
-            syftbox_folder_id = self.get_syftbox_folder_id()
-            personal_syftbox_folder_id = self._find_folder_by_name(
-                self.email,
-                parent_id=syftbox_folder_id,
-                owner_email=self.email,
-            )
-            if personal_syftbox_folder_id:
-                self._personal_syftbox_folder_id = personal_syftbox_folder_id
-                return self._personal_syftbox_folder_id
-            else:
-                return self.create_personal_syftbox_folder()
+
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        email_folder_id = self._find_folder_by_name(
+            self.email,
+            parent_id=syftbox_folder_id,
+            owner_email=self.email,
+        )
+        if email_folder_id is None:
+            return self.create_personal_syftbox_folder()
+
+        version_folder_id = self._find_or_create_version_subfolder(email_folder_id)
+        self._personal_syftbox_folder_id = version_folder_id
+        return version_folder_id
 
     def get_syftbox_folder_id(self) -> str:
         """/SyftBox"""
@@ -729,15 +767,17 @@ class GDriveConnection(SyftboxPlatformConnection):
         return items[0]["id"] if items else None
 
     def owner_get_archive_folder_id(self, sender_email: str) -> str:
+        """Get version subfolder inside the per-peer archive folder."""
         if sender_email in self.archive_folder_id_cache:
             return self.archive_folder_id_cache[sender_email]
-        else:
-            archive_folder_id = self.get_archive_folder_id_from_drive(sender_email)
-            if archive_folder_id:
-                self.archive_folder_id_cache[sender_email] = archive_folder_id
-                return archive_folder_id
-            else:
-                return self.create_archive_folder(sender_email)
+
+        archive_folder_id = self.get_archive_folder_id_from_drive(sender_email)
+        if archive_folder_id is None:
+            return self.create_archive_folder(sender_email)
+
+        version_id = self._find_or_create_version_subfolder(archive_folder_id)
+        self.archive_folder_id_cache[sender_email] = version_id
+        return version_id
 
     @staticmethod
     def _extract_timestamp_from_filename(filename: str) -> float | None:
@@ -912,64 +952,83 @@ class GDriveConnection(SyftboxPlatformConnection):
         return msg
 
     def _get_peer_datasite_inbox_id(self, peer_email: str) -> str | None:
-        """Get folder: syft_datasite_{peer}_inbox_{self}, owned by self."""
+        """Get version subfolder inside syft_datasite_{peer}_inbox_{self}, owned by self."""
         if peer_email in self.peer_datasite_inbox_cache:
             return self.peer_datasite_inbox_cache[peer_email]
 
         folder = GdriveP2PFolder(
             datasite_email=peer_email, folder_type="inbox", peer_email=self.email
         )
-        folder_id = self._find_folder_by_name(
+        p2p_folder_id = self._find_folder_by_name(
             folder.as_string(), owner_email=self.email
         )
-        if folder_id is not None:
-            self.peer_datasite_inbox_cache[peer_email] = folder_id
-        return folder_id
+        if p2p_folder_id is not None:
+            version_id = self._find_or_create_version_subfolder(p2p_folder_id)
+            self.peer_datasite_inbox_cache[peer_email] = version_id
+            return version_id
+        return None
 
     def _get_peer_datasite_outbox_id(self, peer_email: str) -> str | None:
-        """Get folder: syft_datasite_{peer}_outbox_{self}, owned by self."""
+        """Get version subfolder inside syft_datasite_{peer}_outbox_{self}, owned by self."""
         if peer_email in self.peer_datasite_outbox_cache:
             return self.peer_datasite_outbox_cache[peer_email]
 
         folder = GdriveP2PFolder(
             datasite_email=peer_email, folder_type="outbox", peer_email=self.email
         )
-        folder_id = self._find_folder_by_name(
+        p2p_folder_id = self._find_folder_by_name(
             folder.as_string(), owner_email=self.email
         )
-        if folder_id is not None:
-            self.peer_datasite_outbox_cache[peer_email] = folder_id
-        return folder_id
+        if p2p_folder_id is not None:
+            version_id = self._find_or_create_version_subfolder(p2p_folder_id)
+            self.peer_datasite_outbox_cache[peer_email] = version_id
+            return version_id
+        return None
 
     def _get_own_datasite_inbox_id(self, peer_email: str) -> str | None:
-        """Get folder: syft_datasite_{self}_inbox_{peer}, owned by peer."""
+        """Get version subfolder inside syft_datasite_{self}_inbox_{peer}, owned by peer.
+
+        Find-only: the peer (folder owner) creates the version subfolder
+        when they write. If it doesn't exist, the peer hasn't upgraded yet.
+        """
         if peer_email in self.own_datasite_inbox_cache:
             return self.own_datasite_inbox_cache[peer_email]
 
         folder = GdriveP2PFolder(
             datasite_email=self.email, folder_type="inbox", peer_email=peer_email
         )
-        folder_id = self._find_folder_by_name(
+        p2p_folder_id = self._find_folder_by_name(
             folder.as_string(), owner_email=peer_email
         )
-        if folder_id is not None:
-            self.own_datasite_inbox_cache[peer_email] = folder_id
-        return folder_id
+        if p2p_folder_id is not None:
+            version_id = self._find_folder_by_name(
+                SYFT_CLIENT_VERSION, parent_id=p2p_folder_id
+            )
+            if version_id is not None:
+                self.own_datasite_inbox_cache[peer_email] = version_id
+                return version_id
+        return None
 
     def _get_own_datasite_outbox_id(self, peer_email: str) -> str | None:
-        """Get folder: syft_datasite_{self}_outbox_{peer}, owned by peer."""
+        """Get version subfolder inside syft_datasite_{self}_outbox_{peer}, owned by peer.
+
+        Uses find-or-create because the current user writes events here
+        (has write access even though peer owns the parent folder).
+        """
         if peer_email in self.own_datasite_outbox_cache:
             return self.own_datasite_outbox_cache[peer_email]
 
         folder = GdriveP2PFolder(
             datasite_email=self.email, folder_type="outbox", peer_email=peer_email
         )
-        folder_id = self._find_folder_by_name(
+        p2p_folder_id = self._find_folder_by_name(
             folder.as_string(), owner_email=peer_email
         )
-        if folder_id is not None:
-            self.own_datasite_outbox_cache[peer_email] = folder_id
-        return folder_id
+        if p2p_folder_id is not None:
+            version_id = self._find_or_create_version_subfolder(p2p_folder_id)
+            self.own_datasite_outbox_cache[peer_email] = version_id
+            return version_id
+        return None
 
     def watcher_send_raw_bytes_to_inbox(
         self, recipient: str, filename: str, data: bytes
@@ -1128,34 +1187,31 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return file_ids
 
-    def list_own_p2p_folder_ids(self) -> list[tuple[str, str]]:
-        """Return [(folder_id, folder_name)] for all P2P folders owned by this user."""
+    def list_peer_p2p_version_subfolders(self, peer_email: str) -> list[str]:
+        """List version subfolders in a peer's outbox P2P folder.
+
+        Returns version strings (subfolder names) the peer has used.
+        Fallback for version detection when shared SYFT_version.json is unavailable.
+        """
+        folder = GdriveP2PFolder(
+            datasite_email=self.email,
+            folder_type="outbox",
+            peer_email=peer_email,
+        )
+        p2p_folder_id = self._find_folder_by_name(
+            folder.as_string(), owner_email=peer_email
+        )
+        if p2p_folder_id is None:
+            return []
         query = (
-            f"name contains '{GDRIVE_P2P_FOLDER_DATASITE_PREFIX}'"
-            " and mimeType='application/vnd.google-apps.folder'"
-            " and 'me' in owners and trashed=false"
+            f"'{p2p_folder_id}' in parents"
+            f" and mimeType='{GOOGLE_FOLDER_MIME_TYPE}'"
+            " and trashed=false"
         )
         results = execute_with_retries(
-            self.drive_service.files().list(q=query, fields="files(id, name)")
+            self.drive_service.files().list(q=query, fields="files(name)")
         )
-        return [(f["id"], f["name"]) for f in results.get("files", [])]
-
-    def move_files_to_folder(self, file_ids: list[str], target_folder_id: str) -> None:
-        """Move files/folders to a target folder via parent swap."""
-        for file_id in file_ids:
-            file_info = execute_with_retries(
-                self.drive_service.files().get(fileId=file_id, fields="parents")
-            )
-            previous_parents = ",".join(file_info.get("parents", []))
-            execute_with_retries(
-                self.drive_service.files().update(
-                    fileId=file_id,
-                    addParents=target_folder_id,
-                    removeParents=previous_parents,
-                    fields="id, parents",
-                    supportsAllDrives=True,
-                )
-            )
+        return [f["name"] for f in results.get("files", [])]
 
     def create_file_payload(self, data: Any) -> Tuple[MediaIoBaseUpload, str]:
         """Create a file payload for the GDrive"""
@@ -1197,6 +1253,15 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
         items = results.get("files", [])
         return items[0]["id"] if items else None
+
+    def _find_or_create_version_subfolder(self, parent_folder_id: str) -> str:
+        """Find or create a version subfolder (e.g. '0.1.112/') inside parent."""
+        subfolder_id = self._find_folder_by_name(
+            SYFT_CLIENT_VERSION, parent_id=parent_folder_id
+        )
+        if subfolder_id is None:
+            subfolder_id = self.create_folder(SYFT_CLIENT_VERSION, parent_folder_id)
+        return subfolder_id
 
     def download_file(self, file_id: str) -> bytes:
         request = self.drive_service.files().get_media(fileId=file_id)
@@ -1689,7 +1754,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         return f"{self.email}-checkpoints"
 
     def _get_checkpoints_folder_id(self) -> str | None:
-        """Find the checkpoints folder ID from Google Drive."""
+        """Find the checkpoints version subfolder ID from Google Drive."""
         folder_name = self._get_checkpoints_folder_name()
         syftbox_folder_id = self.get_syftbox_folder_id()
         query = (
@@ -1698,17 +1763,21 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
         results = self.drive_service.files().list(q=query, fields="files(id)").execute()
         items = results.get("files", [])
-        return items[0]["id"] if items else None
+        if items:
+            parent_id = items[0]["id"]
+            return self._find_or_create_version_subfolder(parent_id)
+        return None
 
     def _get_or_create_checkpoints_folder_id(self) -> str:
-        """Get or create the checkpoints folder."""
+        """Get or create the checkpoints folder with version subfolder."""
         folder_id = self._get_checkpoints_folder_id()
         if folder_id is not None:
             return folder_id
-        # Create the folder
+        # Create the folder + version subfolder
         folder_name = self._get_checkpoints_folder_name()
         syftbox_folder_id = self.get_syftbox_folder_id()
-        return self.create_folder(folder_name, syftbox_folder_id)
+        parent_id = self.create_folder(folder_name, syftbox_folder_id)
+        return self._find_or_create_version_subfolder(parent_id)
 
     def upload_raw_checkpoint(self, filename: str, data: bytes) -> str:
         """Upload raw checkpoint bytes to Google Drive.
@@ -1988,11 +2057,9 @@ class GDriveConnection(SyftboxPlatformConnection):
         return f"{self.email}-rolling-state"
 
     def _get_rolling_state_folder_id(self, use_cache: bool = True) -> str | None:
-        """
-        Find the rolling state folder ID from Google Drive.
+        """Find the rolling state version subfolder ID from Google Drive.
 
-        Args:
-            use_cache: If True, return cached value if available.
+        Returns the version subfolder ID (not the parent rolling state folder).
         """
         if use_cache and self._rolling_state_folder_id is not None:
             return self._rolling_state_folder_id
@@ -2006,21 +2073,24 @@ class GDriveConnection(SyftboxPlatformConnection):
         results = self.drive_service.files().list(q=query, fields="files(id)").execute()
         items = results.get("files", [])
         if items:
-            self._rolling_state_folder_id = items[0]["id"]
-            return self._rolling_state_folder_id
+            parent_id = items[0]["id"]
+            version_id = self._find_or_create_version_subfolder(parent_id)
+            self._rolling_state_folder_id = version_id
+            return version_id
         return None
 
     def _get_or_create_rolling_state_folder_id(self) -> str:
-        """Get or create the rolling state folder."""
+        """Get or create the rolling state folder with version subfolder."""
         folder_id = self._get_rolling_state_folder_id()
         if folder_id is not None:
             return folder_id
-        # Create the folder
+        # Create the folder + version subfolder
         folder_name = self._get_rolling_state_folder_name()
         syftbox_folder_id = self.get_syftbox_folder_id()
-        folder_id = self.create_folder(folder_name, syftbox_folder_id)
-        self._rolling_state_folder_id = folder_id
-        return folder_id
+        parent_id = self.create_folder(folder_name, syftbox_folder_id)
+        version_id = self._find_or_create_version_subfolder(parent_id)
+        self._rolling_state_folder_id = version_id
+        return version_id
 
     def upload_raw_rolling_state(self, filename: str, data: bytes) -> str:
         """Upload raw rolling state bytes to Google Drive.

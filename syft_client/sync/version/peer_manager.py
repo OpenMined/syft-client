@@ -473,6 +473,13 @@ class PeerManager(BaseModel):
 
         self.peer_store.set_peers(peers)
 
+        # Ensure version subfolders exist in our P2P folders for approved peers.
+        # After a version upgrade, the P2P folders exist but the version subfolders
+        # inside them don't yet — create them eagerly so peers can communicate.
+        for peer in peers:
+            if peer.state in (PeerState.ACCEPTED, PeerState.REQUESTED_BY_ME):
+                self.connection_router.ensure_peer_version_subfolders(peer.email)
+
         # Try to read encryption bundles from GDrive for peers missing bundles
         if self.peer_store.use_encryption:
             for peer in peers:
