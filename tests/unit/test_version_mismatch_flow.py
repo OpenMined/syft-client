@@ -6,10 +6,8 @@ from syft_client.gdrive_utils import delete_local_syftbox
 from syft_client.sync.connections.drive.gdrive_transport import (
     GDRIVE_P2P_FOLDER_DATASITE_PREFIX,
     GOOGLE_FOLDER_MIME_TYPE,
-    GdriveP2PFolder,
 )
 from syft_client.sync.syftbox_manager import SyftboxManager
-from syft_client.version import SYFT_CLIENT_VERSION
 
 from tests.unit.utils import create_test_project_folder, create_tmp_dataset_files
 
@@ -42,9 +40,7 @@ def _list_version_subfolders(connection, p2p_folder_id):
         f" and mimeType='{GOOGLE_FOLDER_MIME_TYPE}'"
         " and trashed=false"
     )
-    results = connection.drive_service.files().list(
-        q=q, fields="files(name)"
-    ).execute()
+    results = connection.drive_service.files().list(q=q, fields="files(name)").execute()
     return [f["name"] for f in results.get("files", [])]
 
 
@@ -55,9 +51,9 @@ def _find_p2p_folders(connection, email):
         f" and mimeType='{GOOGLE_FOLDER_MIME_TYPE}'"
         " and 'me' in owners and trashed=false"
     )
-    results = connection.drive_service.files().list(
-        q=q, fields="files(id, name)"
-    ).execute()
+    results = (
+        connection.drive_service.files().list(q=q, fields="files(id, name)").execute()
+    )
     return results.get("files", [])
 
 
@@ -152,16 +148,12 @@ def test_version_mismatch_and_backup_flow():
         # DO syncs and processes the new job
         do_manager.sync()
         new_jobs = [j for j in do_manager.jobs if j.name == "post_upgrade.job"]
-        assert len(new_jobs) == 1, (
-            f"Expected 1 post_upgrade job, got {len(new_jobs)}"
-        )
+        assert len(new_jobs) == 1, f"Expected 1 post_upgrade job, got {len(new_jobs)}"
 
         new_jobs[0].approve()
         do_manager.process_approved_jobs()
         do_manager.sync()
 
         # Re-fetch to get updated status
-        done_jobs = [
-            j for j in do_manager.jobs if j.name == "post_upgrade.job"
-        ]
+        done_jobs = [j for j in do_manager.jobs if j.name == "post_upgrade.job"]
         assert done_jobs[0].status == "done"
