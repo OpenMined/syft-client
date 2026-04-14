@@ -132,7 +132,7 @@ class TestValidateAgainstObject:
 
         result = _validate_job_against_object(job, obj)
         assert result.match is False
-        assert "unapproved" in result.reason
+        assert "extra files" in result.reason
 
     def test_multiple_files_all_match(self, temp_dir):
         code_dir = _write_files(
@@ -145,8 +145,8 @@ class TestValidateAgainstObject:
         result = _validate_job_against_object(job, obj)
         assert result.match is True
 
-    def test_subset_of_approved_files_passes(self, temp_dir):
-        """Job with main.py only should match approval with main.py + utils.py."""
+    def test_subset_of_approved_files_fails(self, temp_dir):
+        """Job with main.py only should NOT match approval with main.py + utils.py."""
         all_files = {"main.py": 'print("a")\n', "utils.py": 'print("b")\n'}
         auto_approval_stored_dir = _write_files(temp_dir / "approved", all_files)
         obj = _auto_approval_obj_from_dir(auto_approval_stored_dir)
@@ -155,7 +155,8 @@ class TestValidateAgainstObject:
         job = create_mock_job(code_dir=code_dir)
 
         result = _validate_job_against_object(job, obj)
-        assert result.match is True
+        assert result.match is False
+        assert "missing files" in result.reason
 
     def test_unapproved_file(self, temp_dir):
         files = {"main.py": 'print("a")\n'}
@@ -166,7 +167,7 @@ class TestValidateAgainstObject:
 
         result = _validate_job_against_object(job, obj)
         assert result.match is False
-        assert "unapproved" in result.reason
+        assert "extra files" in result.reason
 
     def test_hash_mismatch(self, temp_dir):
         code_dir = _write_files(temp_dir / "code", {"main.py": 'print("modified")\n'})

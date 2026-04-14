@@ -81,17 +81,23 @@ def _validate_job_against_object(
     all_expected_paths = set(expected_contents.keys()) | expected_names
     job_code_files = _get_all_job_code_files(job)
 
-    # Every file in the job must be covered by the approval object
-    unapproved = set(job_code_files.keys()) - all_expected_paths
-    if unapproved:
+    # Job files must exactly match the approval object's expected files
+    actual_paths = set(job_code_files.keys())
+    if actual_paths != all_expected_paths:
+        missing = all_expected_paths - actual_paths
+        extra = actual_paths - all_expected_paths
+        parts = []
+        if missing:
+            parts.append(f"missing files: {missing}")
+        if extra:
+            parts.append(f"extra files: {extra}")
         return AutoApprovalValidationResult(
-            match=False, reason=f"unapproved files: {unapproved}"
+            match=False,
+            reason=f"job files do not match expected filenames: {'; '.join(parts)}",
         )
 
     for rel_path, file_entry in expected_contents.items():
         job_file = job_code_files.get(rel_path)
-        if job_file is None:
-            continue  # file not in this job — that's fine
         expected_hash = file_entry.hash
         expected_path = file_entry.path
         submitted_hash = _compute_file_hash(job_file)
