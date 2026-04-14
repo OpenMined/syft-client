@@ -6,9 +6,9 @@ import time
 from typing import TYPE_CHECKING, Optional
 
 from syft_bg.common.orchestrator import BaseOrchestrator
+from syft_bg.common.state import JsonStateManager
 from syft_bg.sync.config import SyncConfig
 from syft_bg.sync.snapshot import PeerVersionInfo, SyncSnapshot
-from syft_bg.sync.snapshot_writer import SnapshotWriter
 
 if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
@@ -18,12 +18,12 @@ class SyncOrchestrator(BaseOrchestrator):
     def __init__(
         self,
         client: SyftboxManager,
-        snapshot_writer: SnapshotWriter,
+        state: JsonStateManager,
         config: SyncConfig,
     ):
         super().__init__()
         self.client = client
-        self.snapshot_writer = snapshot_writer
+        self.state = state
         self.config = config
         self.interval = config.interval
         self._sync_count = 0
@@ -52,11 +52,11 @@ class SyncOrchestrator(BaseOrchestrator):
                 token_path=config.drive_token_path,
             )
 
-        writer = SnapshotWriter(config.sync_state_path)
+        state = JsonStateManager(config.sync_state_path)
 
         return cls(
             client=client,
-            snapshot_writer=writer,
+            state=state,
             config=config,
         )
 
@@ -92,7 +92,7 @@ class SyncOrchestrator(BaseOrchestrator):
             sync_error = str(e)
 
         snapshot = self._build_snapshot(start, sync_error)
-        self.snapshot_writer.write(snapshot)
+        self.state.set_data("snapshot", snapshot.model_dump())
 
         duration_ms = snapshot.sync_duration_ms
         count = snapshot.sync_count

@@ -51,7 +51,6 @@ def _make_notify_orchestrator(
         do_email=do_manager.email,
         handler=job_handler,
         state=notify_state,
-        drive_token_path=None,
     )
     job_monitor._is_fresh_state = False
 
@@ -81,7 +80,8 @@ def _make_email_approve_orchestrator(
     email_approve_state.set_data("email_approve_last_history_id", "10000")
 
     handler = EmailApproveHandler(
-        client=do_manager,
+        job_client=do_manager.job_client,
+        job_runner=do_manager.job_runner,
         state=email_approve_state,
         notify_state=notify_state,
         do_email=do_email,
@@ -124,7 +124,6 @@ def _make_email_approve_orchestrator(
     )
 
     orchestrator = EmailApproveOrchestrator(
-        client=do_manager,
         config=config,
         monitor=monitor,
     )
@@ -206,6 +205,9 @@ def test_email_approval_e2e():
     assert do_manager.jobs[0].status == "done"
 
     # DS should see output files after sync
+    # (In production, the sync service pushes DO changes to Drive periodically.
+    # In this test we trigger it manually.)
+    do_manager.sync()
     ds_manager.sync()
     ds_job = [j for j in ds_manager.jobs if j.name == job_name][0]
     assert len(ds_job.output_paths) > 0

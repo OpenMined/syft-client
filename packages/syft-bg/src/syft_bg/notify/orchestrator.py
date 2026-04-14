@@ -11,7 +11,6 @@ from syft_bg.notify.handlers.job import JobHandler
 from syft_bg.notify.handlers.peer import PeerHandler
 from syft_bg.notify.monitors.job import JobMonitor
 from syft_bg.notify.monitors.peer import PeerMonitor
-from syft_bg.sync.snapshot_reader import SnapshotReader
 
 
 class NotificationOrchestrator(BaseOrchestrator):
@@ -72,22 +71,14 @@ class NotificationOrchestrator(BaseOrchestrator):
             state=state_manager,
         )
 
-        snapshot_reader = (
-            SnapshotReader(config.sync_state_path)
-            if config.sync_state_path.parent.exists()
-            else None
-        )
+        sync_state = JsonStateManager(config.sync_state_path)
 
-        if snapshot_reader:
-            peer_monitor = PeerMonitor(
-                do_email=config.do_email,
-                handler=peer_handler,
-                state=state_manager,
-                snapshot_reader=snapshot_reader,
-            )
-        else:
-            print("⚠️  Sync snapshot not found. Peer monitoring disabled.")
-            peer_monitor = None
+        peer_monitor = PeerMonitor(
+            do_email=config.do_email,
+            handler=peer_handler,
+            state=state_manager,
+            sync_state=sync_state,
+        )
 
         return cls(
             config=config,

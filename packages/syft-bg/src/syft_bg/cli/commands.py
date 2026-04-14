@@ -71,12 +71,17 @@ def status():
 def _print_sync_health():
     """Print sync snapshot health if available."""
     from syft_bg.common.config import get_default_paths
-    from syft_bg.sync.snapshot_reader import SnapshotReader
+    from syft_bg.common.state import JsonStateManager
+    from syft_bg.sync.snapshot import SyncSnapshot
 
     paths = get_default_paths()
-    reader = SnapshotReader(paths.sync_state)
-    snapshot = reader.read()
-    if not snapshot:
+    state = JsonStateManager(paths.sync_state)
+    data = state.get_data("snapshot")
+    if not data:
+        return
+    try:
+        snapshot = SyncSnapshot.model_validate(data)
+    except (ValueError, TypeError):
         return
 
     click.echo()

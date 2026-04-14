@@ -1,13 +1,9 @@
 """Peer monitor for detecting new peer requests."""
 
-from typing import TYPE_CHECKING
-
 from syft_bg.common.monitor import Monitor
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.handlers.peer import PeerHandler
-
-if TYPE_CHECKING:
-    from syft_bg.sync.snapshot_reader import SnapshotReader
+from syft_bg.sync.snapshot import SyncSnapshot
 
 
 class PeerMonitor(Monitor):
@@ -18,16 +14,25 @@ class PeerMonitor(Monitor):
         do_email: str,
         handler: PeerHandler,
         state: JsonStateManager,
-        snapshot_reader: "SnapshotReader",
+        sync_state: JsonStateManager,
     ):
         super().__init__()
         self.do_email = do_email
         self.handler = handler
         self.state = state
-        self.snapshot_reader = snapshot_reader
+        self.sync_state = sync_state
+
+    def _read_snapshot(self) -> SyncSnapshot | None:
+        data = self.sync_state.get_data("snapshot")
+        if not data:
+            return None
+        try:
+            return SyncSnapshot.model_validate(data)
+        except (ValueError, TypeError):
+            return None
 
     def _check_all_entities(self):
-        snapshot = self.snapshot_reader.read()
+        snapshot = self._read_snapshot()
         if not snapshot:
             return
 

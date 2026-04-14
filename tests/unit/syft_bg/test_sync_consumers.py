@@ -1,28 +1,25 @@
-"""Tests for Wave 5: consumer services wired to sync snapshots."""
+"""Tests for consumer services wired to sync state."""
 
 import time
-from pathlib import Path
 from unittest.mock import MagicMock
 
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.monitors.job import JobMonitor
 from syft_bg.notify.monitors.peer import PeerMonitor
 from syft_bg.sync.snapshot import SyncSnapshot
-from syft_bg.sync.snapshot_reader import SnapshotReader
-from syft_bg.sync.snapshot_writer import SnapshotWriter
 
 
-def _write_snapshot(path: Path, **kwargs) -> None:
+def _write_snapshot(state: JsonStateManager, **kwargs) -> None:
     defaults = {"sync_time": time.time(), "sync_count": 1}
     defaults.update(kwargs)
-    SnapshotWriter(path).write(SyncSnapshot(**defaults))
+    snapshot = SyncSnapshot(**defaults)
+    state.set_data("snapshot", snapshot.model_dump())
 
 
 class TestPeerMonitorWithSnapshot:
     def test_reads_peers_from_snapshot(self, temp_dir):
-        snapshot_path = temp_dir / "snapshot.json"
-        _write_snapshot(snapshot_path, peer_emails=["ds@test.com"])
-        reader = SnapshotReader(snapshot_path)
+        sync_state = JsonStateManager(temp_dir / "sync_state.json")
+        _write_snapshot(sync_state, peer_emails=["ds@test.com"])
         handler = MagicMock()
         handler.on_new_peer_request_to_do.return_value = True
         handler.on_peer_request_sent.return_value = True
@@ -32,7 +29,7 @@ class TestPeerMonitorWithSnapshot:
             do_email="do@test.com",
             handler=handler,
             state=state,
-            snapshot_reader=reader,
+            sync_state=sync_state,
         )
         monitor._check_all_entities()
         handler.on_new_peer_request_to_do.assert_called_once_with(
@@ -40,9 +37,8 @@ class TestPeerMonitorWithSnapshot:
         )
 
     def test_reads_approved_peers_from_snapshot(self, temp_dir):
-        snapshot_path = temp_dir / "snapshot.json"
-        _write_snapshot(snapshot_path, approved_peer_emails=["ds@test.com"])
-        reader = SnapshotReader(snapshot_path)
+        sync_state = JsonStateManager(temp_dir / "sync_state.json")
+        _write_snapshot(sync_state, approved_peer_emails=["ds@test.com"])
         handler = MagicMock()
         handler.on_peer_granted.return_value = True
         state = JsonStateManager(temp_dir / "state.json")
@@ -51,13 +47,13 @@ class TestPeerMonitorWithSnapshot:
             do_email="do@test.com",
             handler=handler,
             state=state,
-            snapshot_reader=reader,
+            sync_state=sync_state,
         )
         monitor._check_all_entities()
         handler.on_peer_granted.assert_called_once_with("ds@test.com", "do@test.com")
 
     def test_missing_snapshot_returns_empty_peers(self, temp_dir):
-        reader = SnapshotReader(temp_dir / "missing.json")
+        sync_state = JsonStateManager(temp_dir / "sync_state.json")
         handler = MagicMock()
         state = JsonStateManager(temp_dir / "state.json")
 
@@ -65,7 +61,7 @@ class TestPeerMonitorWithSnapshot:
             do_email="do@test.com",
             handler=handler,
             state=state,
-            snapshot_reader=reader,
+            sync_state=sync_state,
         )
         monitor._check_all_entities()
         handler.on_new_peer_request_to_do.assert_not_called()
@@ -89,7 +85,7 @@ class TestJobMonitorLocalStatusChanges:
         return job_dir, inbox_job
 
     def test_detects_new_job(self, temp_dir):
-        _, inbox_job = self._setup_job(temp_dir)
+        self._setup_job(temp_dir)
         handler = MagicMock()
         handler.on_new_job.return_value = True
         state = JsonStateManager(temp_dir / "state.json")
