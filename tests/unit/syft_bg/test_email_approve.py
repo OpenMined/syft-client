@@ -1,6 +1,6 @@
 """Tests for email-based job approval: reply parsing, handler, and gmail_watch helpers."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -71,6 +71,29 @@ class TestParseReply:
             "deny this code accesses private data"
         ) == EmailApprovalResponse(
             action=EmailAction.DENY, reason="this code accesses private data"
+        )
+
+    def test_auto_approve_hyphenated(self):
+        assert parse_reply("auto-approve") == EmailApprovalResponse(
+            action=EmailAction.AUTO_APPROVE
+        )
+
+    def test_auto_approve_space(self):
+        assert parse_reply("auto approve") == EmailApprovalResponse(
+            action=EmailAction.AUTO_APPROVE
+        )
+
+    def test_autoapprove_no_separator(self):
+        assert parse_reply("autoapprove") == EmailApprovalResponse(
+            action=EmailAction.AUTO_APPROVE
+        )
+
+    def test_auto_approve_case_insensitive(self):
+        assert parse_reply("Auto-Approve") == EmailApprovalResponse(
+            action=EmailAction.AUTO_APPROVE
+        )
+        assert parse_reply("AUTO APPROVE") == EmailApprovalResponse(
+            action=EmailAction.AUTO_APPROVE
         )
 
     def test_whitespace_only(self):
@@ -193,6 +216,31 @@ class TestEmailApproveHandler:
         mock_job.reset_mock()
         handler.handle_reply(thread_id="thread_dup", reply_text="approve")
         mock_job.approve.assert_not_called()
+
+    def test_auto_approve_job(self, tmp_path):
+        handler, job_client, job_runner, state, notify_state = self._make_handler(
+            tmp_path
+        )
+
+        notify_state.store_thread_id("test.job", "thread_auto")
+
+        mock_job = MagicMock()
+        mock_job.name = "test.job"
+        mock_job.status = "pending"
+        mock_job.submitted_by = "ds@example.com"
+        job_client.jobs = [mock_job]
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        with patch(
+            "syft_bg.api.api.auto_approve_job",
+            return_value=mock_result,
+        ) as mock_auto:
+            handler.handle_reply(thread_id="thread_auto", reply_text="auto-approve")
+
+        mock_job.approve.assert_called_once()
+        job_runner.process_approved_jobs.assert_called_once()
+        mock_auto.assert_called_once_with(mock_job)
 
     def test_job_not_pending(self, tmp_path):
         handler, job_client, _, state, notify_state = self._make_handler(tmp_path)

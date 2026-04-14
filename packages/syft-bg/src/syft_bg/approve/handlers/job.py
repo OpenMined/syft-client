@@ -117,6 +117,10 @@ class JobApprovalHandler:
                     print(f"Failed to approve {job.name}: {e}")
 
         if approved_jobs:
-            self.client.process_approved_jobs(stream_output=self.verbose)
+            self.client.process_approved_jobs(
+                stream_output=self.verbose,
+                share_outputs_with_submitter=True,
+                share_logs_with_submitter=True,
+            )
 
         return approved_jobs

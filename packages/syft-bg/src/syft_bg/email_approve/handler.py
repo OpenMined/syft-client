@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 class EmailAction(Enum):
     APPROVE = "approve"
+    AUTO_APPROVE = "auto_approve"
     DENY = "deny"
     UNKNOWN = "unknown"
 
@@ -38,6 +39,9 @@ def parse_reply(text: str) -> EmailApprovalResponse:
             continue
 
         lower = line.lower()
+        if lower.startswith(("auto-approve", "auto approve", "autoapprove")):
+            return EmailApprovalResponse(action=EmailAction.AUTO_APPROVE)
+
         if lower.startswith("approve") or lower.startswith("aprove"):
             return EmailApprovalResponse(action=EmailAction.APPROVE)
 
@@ -100,6 +104,8 @@ class EmailApproveHandler:
 
         if response.action == EmailAction.APPROVE:
             self._approve_job(job, job_name, state_key)
+        elif response.action == EmailAction.AUTO_APPROVE:
+            self._auto_approve_job(job, job_name, state_key)
         elif response.action == EmailAction.DENY:
             self._reject_job(job, job_name, response.reason or "", state_key)
 
@@ -120,6 +126,20 @@ class EmailApproveHandler:
             share_logs_with_submitter=True,
         )
         print(f"[EmailApproveHandler] Approved job: {job_name}")
+
+    def _auto_approve_job(self, job, job_name: str, state_key: str) -> None:
+        """Approve a job and create an auto-approval object for future jobs."""
+        self._approve_job(job, job_name, state_key)
+
+        from syft_bg.api.api import auto_approve_job
+
+        result = auto_approve_job(job)
+        if result.success:
+            print(f"[EmailApproveHandler] Auto-approval created for: {job_name}")
+        else:
+            print(
+                f"[EmailApproveHandler] Failed to create auto-approval for {job_name}: {result.error}"
+            )
 
     def _reject_job(self, job, job_name: str, reason: str, state_key: str) -> None:
         """Reject a job with a reason."""
