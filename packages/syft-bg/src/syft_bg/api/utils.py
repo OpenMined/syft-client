@@ -336,14 +336,22 @@ def validate_auto_approve_job_inputs(
     return None
 
 
+_GENERATED_DIRS = {".venv", "outputs", "__pycache__"}
+
+
 def get_job_user_files(job) -> dict[str, Path]:
     """Get user files from a job's code directory as {relative_path: abs_path} mapping."""
     user_files: dict[str, Path] = {}
     code_dir = job.code_dir
     if code_dir.exists():
         for f in code_dir.rglob("*"):
-            if f.is_file() and f.name != PERMISSION_FILE_NAME:
-                user_files[str(f.relative_to(code_dir))] = f
+            if not f.is_file() or f.name == PERMISSION_FILE_NAME:
+                continue
+            # Skip files inside directories generated during job execution
+            rel = f.relative_to(code_dir)
+            if rel.parts[0] in _GENERATED_DIRS:
+                continue
+            user_files[str(rel)] = f
     return user_files
 
 

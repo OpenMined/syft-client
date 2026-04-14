@@ -495,7 +495,7 @@ class SyftJobRunner:
         state.save(state_file)
 
     def _move_outputs_to_review(self, submission_dir: Path, review_dir: Path) -> None:
-        inbox_outputs = submission_dir / "outputs"
+        inbox_outputs = submission_dir / "code" / "outputs"
         review_outputs = review_dir / "outputs"
         if inbox_outputs.exists() and inbox_outputs.is_dir():
             # Merge into review/outputs (which was pre-created by _prepare_outputs_dir)
@@ -512,9 +512,9 @@ class SyftJobRunner:
 
     def _prepare_outputs_dir(self, job_name: str, user: str | None = None) -> None:
         """Clear and recreate outputs dir in both inbox/ (for job cwd) and review/ (for final results)."""
-        # Create outputs/ in inbox dir so job scripts can write there
+        # Create outputs/ inside code/ dir so job scripts can write there (cwd is code/)
         submission_dir = self._resolve_submission_dir(job_name, user)
-        inbox_outputs = submission_dir / "outputs"
+        inbox_outputs = submission_dir / "code" / "outputs"
         inbox_outputs.mkdir(parents=True, exist_ok=True)
 
         # Create outputs/ in review dir with owner-only read permissions

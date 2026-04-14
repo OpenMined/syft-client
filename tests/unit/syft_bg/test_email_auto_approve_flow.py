@@ -134,9 +134,7 @@ def _create_project_code_files_with_json_contents(params: dict) -> Path:
     project_dir = Path(tempfile.mkdtemp(prefix="test_email_auto_approve_"))
     (project_dir / "main.py").write_text(
         """import json
-from pathlib import Path
-script_dir = Path(__file__).parent
-with open(script_dir / "params.json", "r") as f:
+with open("params.json", "r") as f:
     params = json.load(f)
 with open("outputs/result.json", "w") as f:
     json.dump({"params": params, "status": "done"}, f)
