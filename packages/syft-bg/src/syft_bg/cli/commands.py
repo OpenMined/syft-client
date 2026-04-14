@@ -84,24 +84,18 @@ def _print_sync_health():
     except (ValueError, TypeError):
         return
 
-    click.echo()
-    click.echo("SYNC HEALTH")
-    click.echo("-" * 50)
-
     import time
 
     age_s = time.time() - snapshot.sync_time
-    click.echo(f"  Sync count:  {snapshot.sync_count}")
-    click.echo(f"  Duration:    {snapshot.sync_duration_ms}ms")
-    click.echo(f"  Jobs:        {len(snapshot.job_names)}")
-    click.echo(f"  Peers:       {len(snapshot.approved_peer_emails)}")
 
+    click.echo()
     if snapshot.sync_error:
-        click.echo(f"  Last error:  {snapshot.sync_error}")
-
-    if age_s > 120:
+        click.echo(f"  Sync: last error — {snapshot.sync_error}")
+    elif age_s > 120:
         minutes = int(age_s / 60)
-        click.echo(f"  Warning:     Last sync {minutes}m ago (stale)")
+        click.echo(f"  Sync: stale (last sync {minutes}m ago)")
+    else:
+        click.echo(f"  Sync: healthy ({snapshot.sync_duration_ms}ms)")
 
 
 @main.command()
