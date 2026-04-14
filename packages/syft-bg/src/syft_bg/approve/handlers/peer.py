@@ -73,9 +73,6 @@ class PeerApprovalHandler:
 
     def check_and_approve(self) -> list[str]:
         """Check all pending peers and approve those matching criteria."""
-        if not self.config.enabled and not self.auto_approve_emails:
-            return []
-
         approved_peers = []
 
         for peer_email in self._get_pending_peers():
