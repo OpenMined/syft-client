@@ -1,41 +1,26 @@
 """Job event handler for notifications."""
 
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.gmail.sender import GmailSender
 
+if TYPE_CHECKING:
+    from syft_job.client import JobClient
 
-def _read_job_code(
-    syftbox_root: Path, do_email: str, job_name: str, submitter: str = ""
-) -> Optional[dict[str, str]]:
+
+def _read_job_code(job_client: "JobClient", job_name: str) -> Optional[dict[str, str]]:
     """Read job code contents as a dict of filename -> file contents."""
-    if submitter:
-        code_dir = (
-            syftbox_root
-            / do_email
-            / "app_data"
-            / "job"
-            / "inbox"
-            / submitter
-            / job_name
-            / "code"
-        )
-    else:
-        # Legacy fallback
-        code_dir = (
-            syftbox_root / do_email / "app_data" / "job" / job_name / "inbox" / "code"
-        )
-    job_dir = code_dir
-    if not job_dir.exists():
+    job = next((j for j in job_client.jobs if j.name == job_name), None)
+    if not job or not job.code_dir.exists():
         return None
 
     code_files: dict[str, str] = {}
-    for f in sorted(job_dir.rglob("*")):
+    for f in sorted(job.code_dir.rglob("*")):
         if not f.is_file():
             continue
-        rel = str(f.relative_to(job_dir))
+        rel = str(f.relative_to(job.code_dir))
         try:
             code_files[rel] = f.read_text(errors="replace")
         except Exception as e:
@@ -88,10 +73,19 @@ class JobHandler:
         self.sender = sender
         self.state = state
         self.do_email = do_email
-        self.syftbox_root = syftbox_root
         self.notify_on_new = notify_on_new
         self.notify_on_approved = notify_on_approved
         self.notify_on_executed = notify_on_executed
+
+        self.job_client = None
+        if syftbox_root and do_email:
+            from syft_job import SyftJobConfig
+            from syft_job.client import JobClient
+
+            config = SyftJobConfig(
+                syftbox_folder=syftbox_root, current_user_email=do_email
+            )
+            self.job_client = JobClient.from_config(config)
 
     def on_new_job(
         self,
@@ -109,10 +103,8 @@ class JobHandler:
             return False
 
         job_code = None
-        if self.syftbox_root and self.do_email:
-            job_code = _read_job_code(
-                self.syftbox_root, self.do_email, job_name, submitter
-            )
+        if self.job_client:
+            job_code = _read_job_code(self.job_client, job_name)
 
         result = self.sender.notify_new_job(
             do_email,
