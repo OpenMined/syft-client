@@ -14,6 +14,7 @@ from syft_bg.email_approve.pubsub_setup import get_project_id_from_credentials
 from syft_bg.common.setup_state import SetupState, SetupStatus
 
 PERMISSION_FILE_NAME = "syft.pub.yaml"
+DEFAULT_NAME_ONLY_FILES = {"params.json"}
 
 
 def get_setup_state_path(service: str) -> Path:
@@ -298,13 +299,16 @@ def resolve_auto_approve_file_args(
     Returns (content_rel_paths, name_only).
     """
     if contents is None and file_paths is None:
-        return list(user_files.keys()), []
+        all_files = set(user_files.keys())
+        name_only = all_files.intersection(DEFAULT_NAME_ONLY_FILES)
+        content_matched = all_files - name_only
+        return list(content_matched), list(name_only)
     elif contents is not None and file_paths is None:
         return list(contents), []
     elif contents is None and file_paths is not None:
         name_only = list(file_paths)
-        content_rel_paths = [rel for rel in user_files if rel not in set(file_paths)]
-        return content_rel_paths, name_only
+        content_rel_paths = set(user_files.keys()) - set(file_paths)
+        return list(content_rel_paths), name_only
     else:
         return list(contents), list(file_paths)  # type: ignore[arg-type]
 
