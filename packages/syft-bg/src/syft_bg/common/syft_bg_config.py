@@ -31,10 +31,6 @@ class SyftBgConfig(BaseModel):
     email_approve: EmailApproveConfig = Field(default_factory=EmailApproveConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
 
-    @staticmethod
-    def _get_default_syftbox_root(email: str) -> str:
-        return str(Path.home() / f"SyftBox_{email}")
-
     @model_validator(mode="before")
     @classmethod
     def _set_default_syftbox_root(cls, data: dict) -> dict:
@@ -42,23 +38,14 @@ class SyftBgConfig(BaseModel):
         if not isinstance(data, dict):
             return data
         if not data.get("syftbox_root") and data.get("do_email"):
-            data = dict(data)
-            data["syftbox_root"] = cls._get_default_syftbox_root(data["do_email"])
-        return data
+            from syft_client.sync.syftbox_manager import (
+                get_jupyter_default_syftbox_folder,
+            )
 
-    @staticmethod
-    def _get_default_syftbox_root(email: str) -> str:
-        return str(Path.home() / f"SyftBox_{email}")
-
-    @model_validator(mode="before")
-    @classmethod
-    def _set_default_syftbox_root(cls, data: dict) -> dict:
-        """Default syftbox_root to ~/SyftBox_{do_email} when not set."""
-        if not isinstance(data, dict):
-            return data
-        if not data.get("syftbox_root") and data.get("do_email"):
             data = dict(data)
-            data["syftbox_root"] = cls._get_default_syftbox_root(data["do_email"])
+            data["syftbox_root"] = str(
+                get_jupyter_default_syftbox_folder(data["do_email"])
+            )
         return data
 
     def _merge_common_into_services(self) -> None:
