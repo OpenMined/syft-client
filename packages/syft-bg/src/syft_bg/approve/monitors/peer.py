@@ -22,7 +22,6 @@ class PeerMonitor(Monitor):
         state: Optional[StateManager] = None,
         on_approve: Optional[Callable[[str], None]] = None,
         verbose: bool = True,
-        auto_approve_emails: set[str] = (),
     ):
         super().__init__()
         self.handler = PeerApprovalHandler(
@@ -31,7 +30,6 @@ class PeerMonitor(Monitor):
             state=state,
             on_approve=on_approve,
             verbose=verbose,
-            auto_approve_emails=auto_approve_emails,
         )
 
     def _check_all_entities(self):

@@ -50,6 +50,7 @@ class PeerApprovalConfig(BaseModel):
     enabled: bool = False
     approved_domains: list[str] = Field(default_factory=list)
     auto_share_datasets: list[str] = Field(default_factory=list)
+    auto_approve_emails: list[str] = Field(default_factory=list, exclude=True)
 
 
 class AutoApproveConfig(BaseModel):

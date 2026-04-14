@@ -146,14 +146,15 @@ class ApprovalOrchestrator(BaseOrchestrator):
                 verbose=True,
             )
 
-        auto_approve_emails = self._collect_auto_approve_emails()
-        if auto_approve_emails or self.config.peers.approved_domains:
+        self.config.peers.auto_approve_emails = list(
+            self._collect_auto_approve_emails()
+        )
+        if self.config.peers.auto_approve_emails or self.config.peers.approved_domains:
             self._peer_monitor = PeerMonitor(
                 client=self.client,
                 config=self.config.peers,
                 state=self._state,
                 verbose=True,
-                auto_approve_emails=auto_approve_emails,
             )
 
         self._monitors_initialized = True
@@ -167,7 +168,7 @@ class ApprovalOrchestrator(BaseOrchestrator):
         print(
             f"  Auto-approvals: {'enabled' if self.config.auto_approvals.enabled else 'disabled'}"
         )
-        auto_emails = self._collect_auto_approve_emails()
+        emails = self.config.peers.auto_approve_emails
         domains = self.config.peers.approved_domains
-        print(f"  Peer approval: {len(auto_emails)} emails, {len(domains)} domains")
+        print(f"  Peer approval: {len(emails)} emails, {len(domains)} domains")
         print()
