@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from syft_bg.approve.config import AutoApproveConfig
 from syft_bg.approve.monitors.job import JobMonitor
 from syft_bg.approve.monitors.peer import PeerMonitor
-from syft_bg.common.config import get_default_paths
 from syft_bg.common.orchestrator import BaseOrchestrator
 from syft_bg.common.state import JsonStateManager
 
@@ -28,8 +27,7 @@ class ApprovalOrchestrator(BaseOrchestrator):
         self.config = config
         self.interval = config.interval
 
-        paths = get_default_paths()
-        self._state = JsonStateManager(paths.approve_state)
+        self._state = JsonStateManager(config.approve_state_path)
         self._monitors_initialized = False
 
     def setup(self) -> None:
@@ -66,9 +64,6 @@ class ApprovalOrchestrator(BaseOrchestrator):
         if not config.syftbox_root:
             raise ValueError("Config missing 'syftbox_root' field")
 
-        paths = get_default_paths()
-        token_path = config.drive_token_path or paths.drive_token
-
         from syft_client.sync.environments.environment import Environment
         from syft_client.sync.syftbox_manager import SyftboxManager
         from syft_client.sync.utils.syftbox_utils import check_env
@@ -83,15 +78,14 @@ class ApprovalOrchestrator(BaseOrchestrator):
             client = SyftboxManager.for_jupyter(
                 email=config.do_email,
                 has_do_role=True,
-                token_path=token_path,
+                token_path=config.drive_token_path,
             )
 
         return cls(client=client, config=config)
 
     def _build_reject_callback(self):
         """Build rejection callback that notifies DS via Gmail, if available."""
-        paths = get_default_paths()
-        gmail_token_path = paths.creds_dir / "gmail_token.json"
+        gmail_token_path = self.config.gmail_token_path
 
         if not gmail_token_path.exists():
             print(
@@ -107,7 +101,7 @@ class ApprovalOrchestrator(BaseOrchestrator):
 
             creds = Credentials.from_authorized_user_file(str(gmail_token_path))
             sender = GmailSender(creds)
-            notify_state = JsonStateManager(paths.notify_state)
+            notify_state = JsonStateManager(self.config.notify_state_path)
             notify_handler = JobHandler(
                 sender=sender,
                 state=notify_state,
@@ -129,6 +123,13 @@ class ApprovalOrchestrator(BaseOrchestrator):
             )
             return None
 
+    def _collect_auto_approve_emails(self) -> set[str]:
+        """Collect peer emails from all auto-approval objects."""
+        emails: set[str] = set()
+        for obj in self.config.auto_approvals.objects.values():
+            emails.update(obj.peers)
+        return emails
+
     def _init_monitors(self):
         """Initialize job and peer monitors."""
         if self._monitors_initialized:
@@ -145,7 +146,10 @@ class ApprovalOrchestrator(BaseOrchestrator):
                 verbose=True,
             )
 
-        if self.config.peers.enabled:
+        self.config.peers.auto_approve_emails = list(
+            self._collect_auto_approve_emails()
+        )
+        if self.config.peers.auto_approve_emails or self.config.peers.approved_domains:
             self._peer_monitor = PeerMonitor(
                 client=self.client,
                 config=self.config.peers,
@@ -164,5 +168,7 @@ class ApprovalOrchestrator(BaseOrchestrator):
         print(
             f"  Auto-approvals: {'enabled' if self.config.auto_approvals.enabled else 'disabled'}"
         )
-        print(f"  Peers: {'enabled' if self.config.peers.enabled else 'disabled'}")
+        emails = self.config.peers.auto_approve_emails
+        domains = self.config.peers.approved_domains
+        print(f"  Peer approval: {len(emails)} emails, {len(domains)} domains")
         print()

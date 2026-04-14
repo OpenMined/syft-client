@@ -43,10 +43,16 @@ class DefaultPaths:
     email_approve_pid: Path
     email_approve_log: Path
 
+    # Sync service paths
+    sync_state: Path
+    sync_pid: Path
+    sync_log: Path
+
     # Setup state paths (per-service)
     notify_setup_state: Path
     approve_setup_state: Path
     email_approve_setup_state: Path
+    sync_setup_state: Path
 
 
 def get_default_paths() -> DefaultPaths:
@@ -71,10 +77,15 @@ def get_default_paths() -> DefaultPaths:
         email_approve_state=creds / "email_approve" / "state.json",
         email_approve_pid=creds / "email_approve" / "daemon.pid",
         email_approve_log=creds / "email_approve" / "daemon.log",
+        # Sync
+        sync_state=creds / "sync" / "state.json",
+        sync_pid=creds / "sync" / "daemon.pid",
+        sync_log=creds / "sync" / "daemon.log",
         # Setup state
         notify_setup_state=creds / "notify" / "setup_state.json",
         approve_setup_state=creds / "approve" / "setup_state.json",
         email_approve_setup_state=creds / "email_approve" / "setup_state.json",
+        sync_setup_state=creds / "sync" / "setup_state.json",
     )
 
 

@@ -6,8 +6,11 @@ from typing import TYPE_CHECKING, Callable, Optional, Protocol
 
 from syft_job.job import JobInfo
 
-from syft_bg.approve.config import AutoApprovalsConfig
-from syft_bg.approve.criteria import resolve_auto_approval
+from syft_bg.approve.config import AutoApprovalObj, AutoApprovalsConfig
+from syft_bg.approve.criteria import (
+    AutoApprovalValidationResult,
+    _validate_job_against_object,
+)
 
 if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
@@ -44,6 +47,37 @@ class JobApprovalHandler:
         self.client.load_peers()
         return [p.email for p in self.client.peer_manager.approved_peers]
 
+    def evaluate_auto_approval(self, job: JobInfo) -> AutoApprovalValidationResult:
+        """Find matching auto-approval objects for a job and validate.
+
+        Searches all objects where the peer is listed (or peers is empty = any peer).
+        Any matching object wins.
+        """
+        if job.status != "pending":
+            return AutoApprovalValidationResult(
+                match=False, reason=f"status is {job.status}, not pending"
+            )
+
+        candidate_objects: list[tuple[str, AutoApprovalObj]] = []
+        for name, obj in self.config.objects.items():
+            if not obj.peers or job.submitted_by in obj.peers:
+                candidate_objects.append((name, obj))
+
+        if not candidate_objects:
+            return AutoApprovalValidationResult(
+                match=False,
+                reason=f"no auto-approval objects match peer: {job.submitted_by}",
+            )
+
+        last_reason = ""
+        for name, obj in candidate_objects:
+            result = _validate_job_against_object(job, obj)
+            if result.match:
+                return AutoApprovalValidationResult(match=True, reason="ok")
+            last_reason = f"[{name}] {result.reason}"
+
+        return AutoApprovalValidationResult(match=False, reason=last_reason)
+
     def check_and_approve(self) -> list[JobInfo]:
         """Check all jobs and approve those matching criteria."""
         if not self.config.enabled:
@@ -55,17 +89,14 @@ class JobApprovalHandler:
             if self.state and self.state.was_approved(job.name):
                 continue
 
-            matches, reason = resolve_auto_approval(
-                job=job,
-                config=self.config,
-            )
+            result = self.evaluate_auto_approval(job)
 
-            if not matches:
+            if not result.match:
                 if job.status == "pending":
                     if self.verbose:
-                        print(f"Skipped: {job.name} ({reason})")
+                        print(f"Skipped: {job.name} ({result.reason})")
                     if self.on_reject:
-                        self.on_reject(job, reason)
+                        self.on_reject(job, result.reason)
                 continue
 
             try:

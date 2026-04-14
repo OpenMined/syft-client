@@ -27,6 +27,12 @@ def _create_services() -> dict[str, Service]:
             pid_file=paths.email_approve_pid,
             log_file=paths.email_approve_log,
         ),
+        "sync": Service(
+            name="sync",
+            description="Centralized sync and Drive operations",
+            pid_file=paths.sync_pid,
+            log_file=paths.sync_log,
+        ),
     }
 
 

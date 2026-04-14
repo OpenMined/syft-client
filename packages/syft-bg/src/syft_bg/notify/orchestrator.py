@@ -2,7 +2,6 @@
 
 from typing import Optional
 
-from syft_bg.common.drive import is_colab
 from syft_bg.common.orchestrator import BaseOrchestrator
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.config import NotifyConfig
@@ -70,20 +69,16 @@ class NotificationOrchestrator(BaseOrchestrator):
             do_email=config.do_email,
             handler=job_handler,
             state=state_manager,
-            drive_token_path=config.drive_token_path,
         )
 
-        if is_colab() or (config.drive_token_path and config.drive_token_path.exists()):
-            peer_monitor = PeerMonitor(
-                do_email=config.do_email,
-                drive_token_path=config.drive_token_path,
-                handler=peer_handler,
-                state=state_manager,
-            )
-        else:
-            print("⚠️  Drive token not found. Peer monitoring disabled.")
-            print(f"   Expected at: {config.drive_token_path}")
-            peer_monitor = None
+        sync_state = JsonStateManager(config.sync_state_path)
+
+        peer_monitor = PeerMonitor(
+            do_email=config.do_email,
+            handler=peer_handler,
+            state=state_manager,
+            sync_state=sync_state,
+        )
 
         return cls(
             config=config,

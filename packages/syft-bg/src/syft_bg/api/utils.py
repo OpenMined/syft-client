@@ -23,6 +23,7 @@ def get_setup_state_path(service: str) -> Path:
         "notify": paths.notify_setup_state,
         "approve": paths.approve_setup_state,
         "email_approve": paths.email_approve_setup_state,
+        "sync": paths.sync_setup_state,
     }
     return mapping[service]
 
@@ -58,6 +59,7 @@ def setup_orchestrator(service: str):
     from syft_bg.common.syft_bg_config import SyftBgConfig
     from syft_bg.email_approve import EmailApproveOrchestrator
     from syft_bg.notify import NotificationOrchestrator
+    from syft_bg.sync.orchestrator import SyncOrchestrator
 
     config = SyftBgConfig.from_path()
     state_path = get_setup_state_path(service)
@@ -70,6 +72,8 @@ def setup_orchestrator(service: str):
             orchestrator = ApprovalOrchestrator.from_config(config.approve)
         elif service == "email_approve":
             orchestrator = EmailApproveOrchestrator.from_config(config.email_approve)
+        elif service == "sync":
+            orchestrator = SyncOrchestrator.from_config(config.sync)
         else:
             raise ValueError(f"Unknown service: {service}")
         orchestrator.setup()

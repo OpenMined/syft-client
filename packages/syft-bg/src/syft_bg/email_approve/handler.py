@@ -10,7 +10,8 @@ from typing import TYPE_CHECKING, Optional
 from syft_bg.common.state import JsonStateManager
 
 if TYPE_CHECKING:
-    from syft_client.sync.syftbox_manager import SyftboxManager
+    from syft_job.client import JobClient
+    from syft_job.job_runner import SyftJobRunner
 
 
 class EmailAction(Enum):
@@ -64,12 +65,14 @@ class EmailApproveHandler:
 
     def __init__(
         self,
-        client: SyftboxManager,
+        job_client: JobClient,
+        job_runner: SyftJobRunner,
         state: JsonStateManager,
         notify_state: JsonStateManager,
         do_email: str,
     ):
-        self.client = client
+        self.job_client = job_client
+        self.job_runner = job_runner
         self.state = state
         self.notify_state = notify_state
         self.do_email = do_email
@@ -102,20 +105,20 @@ class EmailApproveHandler:
 
     def _find_job(self, job_name: str):
         """Find a job by name in the client's job list."""
-        for job in self.client.jobs:
+        for job in self.job_client.jobs:
             if job.name == job_name:
                 return job
         raise ValueError(f"Job not found: {job_name}")
 
     def _approve_job(self, job, job_name: str, state_key: str) -> None:
-        """Approve a job, execute it, share results, and sync."""
+        """Approve a job, execute it, and share results."""
         job.approve()
         self.state.mark_notified(state_key, "processed")
-        self.client.process_approved_jobs(
+
+        self.job_runner.process_approved_jobs(
             share_outputs_with_submitter=True,
             share_logs_with_submitter=True,
         )
-        self.client.sync()
         print(f"[EmailApproveHandler] Approved job: {job_name}")
 
     def _reject_job(self, job, job_name: str, reason: str, state_key: str) -> None:

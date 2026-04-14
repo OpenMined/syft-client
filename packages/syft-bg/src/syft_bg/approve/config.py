@@ -50,6 +50,7 @@ class PeerApprovalConfig(BaseModel):
     enabled: bool = False
     approved_domains: list[str] = Field(default_factory=list)
     auto_share_datasets: list[str] = Field(default_factory=list)
+    auto_approve_emails: list[str] = Field(default_factory=list, exclude=True)
 
 
 class AutoApproveConfig(BaseModel):
@@ -57,7 +58,18 @@ class AutoApproveConfig(BaseModel):
 
     do_email: Optional[str] = None
     syftbox_root: Optional[Path] = None
-    drive_token_path: Optional[Path] = None
+    drive_token_path: Path = Field(
+        default_factory=lambda: get_default_paths().drive_token
+    )
+    gmail_token_path: Path = Field(
+        default_factory=lambda: get_default_paths().gmail_token
+    )
+    approve_state_path: Path = Field(
+        default_factory=lambda: get_default_paths().approve_state
+    )
+    notify_state_path: Path = Field(
+        default_factory=lambda: get_default_paths().notify_state
+    )
     interval: int = 5
     auto_approvals: AutoApprovalsConfig = Field(default_factory=AutoApprovalsConfig)
     peers: PeerApprovalConfig = Field(default_factory=PeerApprovalConfig)
@@ -82,22 +94,23 @@ class AutoApproveConfig(BaseModel):
         auto_approvals_data = approve_section.get("auto_approvals", {})
         peers_data = approve_section.get("peers", {})
 
-        return cls(
-            do_email=common.get("do_email"),
-            syftbox_root=Path(common["syftbox_root"]).expanduser()
-            if common.get("syftbox_root")
-            else None,
-            drive_token_path=Path(common["drive_token_path"]).expanduser()
-            if common.get("drive_token_path")
-            else None,
-            interval=approve_section.get("interval", 5),
-            auto_approvals=AutoApprovalsConfig(**auto_approvals_data)
+        kwargs: dict = {
+            "interval": approve_section.get("interval", 5),
+            "auto_approvals": AutoApprovalsConfig(**auto_approvals_data)
             if auto_approvals_data
             else AutoApprovalsConfig(),
-            peers=PeerApprovalConfig(**peers_data)
+            "peers": PeerApprovalConfig(**peers_data)
             if peers_data
             else PeerApprovalConfig(),
-        )
+        }
+        if common.get("do_email"):
+            kwargs["do_email"] = common["do_email"]
+        if common.get("syftbox_root"):
+            kwargs["syftbox_root"] = Path(common["syftbox_root"]).expanduser()
+        if common.get("drive_token_path"):
+            kwargs["drive_token_path"] = Path(common["drive_token_path"]).expanduser()
+
+        return cls(**kwargs)
 
     def save(self, config_path: Optional[Path] = None) -> None:
         """Save configuration to YAML file."""

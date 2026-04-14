@@ -109,102 +109,103 @@ class TestEmailApproveHandler:
     def _make_handler(self, tmp_path):
         state = JsonStateManager(tmp_path / "email_approve_state.json")
         notify_state = JsonStateManager(tmp_path / "notify_state.json")
-        client = MagicMock()
+        job_client = MagicMock()
+        job_runner = MagicMock()
         handler = EmailApproveHandler(
-            client=client,
+            job_client=job_client,
+            job_runner=job_runner,
             state=state,
             notify_state=notify_state,
             do_email="do@example.com",
         )
-        return handler, client, state, notify_state
+        return handler, job_client, job_runner, state, notify_state
 
     def test_approve_job(self, tmp_path):
-        handler, client, state, notify_state = self._make_handler(tmp_path)
+        handler, job_client, job_runner, state, notify_state = self._make_handler(
+            tmp_path
+        )
 
-        # Set up thread_id -> job_name mapping in notify state
         notify_state.store_thread_id("test.job", "thread123")
 
-        # Set up a mock job
         mock_job = MagicMock()
         mock_job.name = "test.job"
         mock_job.status = "pending"
-        client.jobs = [mock_job]
+        job_client.jobs = [mock_job]
 
-        handler.handle_reply("thread123", "approve")
+        handler.handle_reply(thread_id="thread123", reply_text="approve")
 
         mock_job.approve.assert_called_once()
-        client.process_approved_jobs.assert_called_once_with(
+        job_runner.process_approved_jobs.assert_called_once_with(
             share_outputs_with_submitter=True,
             share_logs_with_submitter=True,
         )
-        client.sync.assert_called_once()
 
     def test_deny_job(self, tmp_path):
-        handler, client, state, notify_state = self._make_handler(tmp_path)
+        handler, job_client, _, state, notify_state = self._make_handler(tmp_path)
 
         notify_state.store_thread_id("test.job", "thread456")
 
         mock_job = MagicMock()
         mock_job.name = "test.job"
         mock_job.status = "pending"
-        client.jobs = [mock_job]
+        job_client.jobs = [mock_job]
 
-        handler.handle_reply("thread456", "deny unsafe code")
+        handler.handle_reply(thread_id="thread456", reply_text="deny unsafe code")
 
         mock_job.reject.assert_called_once_with("unsafe code")
 
     def test_unknown_thread_id(self, tmp_path):
-        handler, client, state, notify_state = self._make_handler(tmp_path)
+        handler, *_ = self._make_handler(tmp_path)
 
         with pytest.raises(ValueError, match="No job found for thread"):
-            handler.handle_reply("unknown_thread", "approve")
+            handler.handle_reply(thread_id="unknown_thread", reply_text="approve")
 
     def test_unrecognized_reply(self, tmp_path):
-        handler, client, state, notify_state = self._make_handler(tmp_path)
+        handler, job_client, _, state, notify_state = self._make_handler(tmp_path)
 
         notify_state.store_thread_id("test.job", "thread789")
 
         mock_job = MagicMock()
         mock_job.name = "test.job"
         mock_job.status = "pending"
-        client.jobs = [mock_job]
+        job_client.jobs = [mock_job]
 
         with pytest.raises(ValueError, match="Unrecognized reply"):
-            handler.handle_reply("thread789", "maybe later")
+            handler.handle_reply(thread_id="thread789", reply_text="maybe later")
         mock_job.approve.assert_not_called()
         mock_job.reject.assert_not_called()
 
     def test_already_processed_reply(self, tmp_path):
-        handler, client, state, notify_state = self._make_handler(tmp_path)
+        handler, job_client, _, state, notify_state = self._make_handler(tmp_path)
 
         notify_state.store_thread_id("test.job", "thread_dup")
 
         mock_job = MagicMock()
         mock_job.name = "test.job"
         mock_job.status = "pending"
-        client.jobs = [mock_job]
+        job_client.jobs = [mock_job]
 
         # Process once
-        handler.handle_reply("thread_dup", "approve")
+        handler.handle_reply(thread_id="thread_dup", reply_text="approve")
         mock_job.approve.assert_called_once()
 
         # Process again — should be skipped
         mock_job.reset_mock()
-        handler.handle_reply("thread_dup", "approve")
+        handler.handle_reply(thread_id="thread_dup", reply_text="approve")
         mock_job.approve.assert_not_called()
 
     def test_job_not_pending(self, tmp_path):
-        handler, client, state, notify_state = self._make_handler(tmp_path)
+        handler, job_client, _, state, notify_state = self._make_handler(tmp_path)
 
         notify_state.store_thread_id("test.job", "thread_done")
 
         mock_job = MagicMock()
         mock_job.name = "test.job"
         mock_job.status = "approved"
-        client.jobs = [mock_job]
+        job_client.jobs = [mock_job]
 
         with pytest.raises(ValueError, match="is approved, not pending"):
-            handler.handle_reply("thread_done", "approve")
+            handler.handle_reply(thread_id="thread_done", reply_text="approve")
         mock_job.approve.assert_not_called()
 
 

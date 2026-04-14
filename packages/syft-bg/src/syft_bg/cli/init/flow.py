@@ -100,8 +100,10 @@ def _resolve_common_settings(config: UserPassedConfig, result: SyftBgConfig) -> 
             "Data Owner email address", default=default_email or None
         )
 
+    from syft_client.sync.syftbox_manager import get_jupyter_default_syftbox_folder
+
     default_syftbox = result.syftbox_root or str(
-        Path.home() / f"SyftBox_{result.do_email}"
+        get_jupyter_default_syftbox_folder(result.do_email)
     )
     if config.syftbox_root is not None:
         result.syftbox_root = config.syftbox_root
