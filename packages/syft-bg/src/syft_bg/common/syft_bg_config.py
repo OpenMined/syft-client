@@ -9,6 +9,7 @@ from syft_bg.approve.config import AutoApproveConfig
 from syft_bg.common.config import get_default_paths
 from syft_bg.email_approve.config import EmailApproveConfig
 from syft_bg.notify.config import NotifyConfig
+from syft_bg.sync.config import SyncConfig
 
 
 class SyftBgConfig(BaseModel):
@@ -28,10 +29,7 @@ class SyftBgConfig(BaseModel):
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     approve: AutoApproveConfig = Field(default_factory=AutoApproveConfig)
     email_approve: EmailApproveConfig = Field(default_factory=EmailApproveConfig)
-
-    @staticmethod
-    def _get_default_syftbox_root(email: str) -> str:
-        return str(Path.home() / f"SyftBox_{email}")
+    sync: SyncConfig = Field(default_factory=SyncConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -40,13 +38,24 @@ class SyftBgConfig(BaseModel):
         if not isinstance(data, dict):
             return data
         if not data.get("syftbox_root") and data.get("do_email"):
+            from syft_client.sync.syftbox_manager import (
+                get_jupyter_default_syftbox_folder,
+            )
+
             data = dict(data)
-            data["syftbox_root"] = cls._get_default_syftbox_root(data["do_email"])
+            data["syftbox_root"] = str(
+                get_jupyter_default_syftbox_folder(data["do_email"])
+            )
         return data
 
     def _merge_common_into_services(self) -> None:
         """Propagate top-level fields into service configs where not already set."""
-        for service_config in (self.notify, self.approve, self.email_approve):
+        for service_config in (
+            self.notify,
+            self.approve,
+            self.email_approve,
+            self.sync,
+        ):
             if hasattr(service_config, "do_email") and service_config.do_email is None:
                 service_config.do_email = self.do_email
             if (
@@ -55,6 +64,11 @@ class SyftBgConfig(BaseModel):
             ):
                 if self.syftbox_root is not None:
                     service_config.syftbox_root = Path(self.syftbox_root)
+            for path_field in ("drive_token_path", "gmail_token_path"):
+                if hasattr(service_config, path_field):
+                    parent_val = getattr(self, path_field, None)
+                    if parent_val is not None:
+                        setattr(service_config, path_field, parent_val)
 
     def set_service_config(self, name: str, config: dict) -> None:
         subconfig = getattr(self, name)

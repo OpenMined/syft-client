@@ -268,3 +268,47 @@ def test_auto_approve_job_nested_directory():
             stored_content = Path(entry.path).read_text(encoding="utf-8")
             original = job.code_dir / entry.relative_path
             assert stored_content == original.read_text(encoding="utf-8")
+
+
+def test_auto_approve_job_default_no_special_treatment_for_non_params_json():
+    """Default behavior with non-params.json files: all are content-matched."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    project_dir = Path(tempfile.mkdtemp(prefix="test_auto_approve_job_"))
+    (project_dir / "main.py").write_text("print('hello')\n")
+    (project_dir / "somefile.json").write_text('{"k": "v"}')
+    job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
+
+    with _temp_config_paths():
+        result = auto_approve_job(job)
+        assert result.success is True
+
+        config = AutoApproveConfig.load()
+        obj = config.auto_approvals.objects[job.name]
+        content_names = {e.relative_path for e in obj.file_contents}
+        assert content_names == {"main.py", "somefile.json"}
+        assert obj.file_paths == []
+
+
+def test_auto_approve_job_default_params_json_is_name_only():
+    """Default behavior: params.json is automatically name-only."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    project_dir = Path(tempfile.mkdtemp(prefix="test_auto_approve_job_"))
+    (project_dir / "main.py").write_text("print('hello')\n")
+    (project_dir / "params.json").write_text('{"k": "v"}')
+    job = _submit_job_and_sync(ds_manager, do_manager, project_dir)
+
+    with _temp_config_paths():
+        result = auto_approve_job(job)
+        assert result.success is True
+
+        config = AutoApproveConfig.load()
+        obj = config.auto_approvals.objects[job.name]
+        content_names = {e.relative_path for e in obj.file_contents}
+        assert content_names == {"main.py"}
+        assert obj.file_paths == ["params.json"]

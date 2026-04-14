@@ -62,7 +62,40 @@ def status():
                     f"{name:<12} {'○ ' + status_text:<12} {pid_text:<10} {service.description}"
                 )
 
+    # Sync health
+    _print_sync_health()
+
     click.echo()
+
+
+def _print_sync_health():
+    """Print sync snapshot health if available."""
+    from syft_bg.common.config import get_default_paths
+    from syft_bg.common.state import JsonStateManager
+    from syft_bg.sync.snapshot import SyncSnapshot
+
+    paths = get_default_paths()
+    state = JsonStateManager(paths.sync_state)
+    data = state.get_data("snapshot")
+    if not data:
+        return
+    try:
+        snapshot = SyncSnapshot.model_validate(data)
+    except (ValueError, TypeError):
+        return
+
+    import time
+
+    age_s = time.time() - snapshot.sync_time
+
+    click.echo()
+    if snapshot.sync_error:
+        click.echo(f"  Sync: last error — {snapshot.sync_error}")
+    elif age_s > 120:
+        minutes = int(age_s / 60)
+        click.echo(f"  Sync: stale (last sync {minutes}m ago)")
+    else:
+        click.echo(f"  Sync: healthy ({snapshot.sync_duration_ms}ms)")
 
 
 @main.command()
@@ -314,7 +347,7 @@ def setup_status():
 @click.option(
     "--service",
     "-s",
-    type=click.Choice(["notify", "approve", "email_approve"]),
+    type=click.Choice(["notify", "approve", "email_approve", "sync"]),
     required=True,
     help="Service to run",
 )

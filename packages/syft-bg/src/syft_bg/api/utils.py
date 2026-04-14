@@ -14,6 +14,7 @@ from syft_bg.email_approve.pubsub_setup import get_project_id_from_credentials
 from syft_bg.common.setup_state import SetupState, SetupStatus
 
 PERMISSION_FILE_NAME = "syft.pub.yaml"
+DEFAULT_NAME_ONLY_FILES = {"params.json"}
 
 
 def get_setup_state_path(service: str) -> Path:
@@ -23,6 +24,7 @@ def get_setup_state_path(service: str) -> Path:
         "notify": paths.notify_setup_state,
         "approve": paths.approve_setup_state,
         "email_approve": paths.email_approve_setup_state,
+        "sync": paths.sync_setup_state,
     }
     return mapping[service]
 
@@ -58,6 +60,7 @@ def setup_orchestrator(service: str):
     from syft_bg.common.syft_bg_config import SyftBgConfig
     from syft_bg.email_approve import EmailApproveOrchestrator
     from syft_bg.notify import NotificationOrchestrator
+    from syft_bg.sync.orchestrator import SyncOrchestrator
 
     config = SyftBgConfig.from_path()
     state_path = get_setup_state_path(service)
@@ -70,6 +73,8 @@ def setup_orchestrator(service: str):
             orchestrator = ApprovalOrchestrator.from_config(config.approve)
         elif service == "email_approve":
             orchestrator = EmailApproveOrchestrator.from_config(config.email_approve)
+        elif service == "sync":
+            orchestrator = SyncOrchestrator.from_config(config.sync)
         else:
             raise ValueError(f"Unknown service: {service}")
         orchestrator.setup()
@@ -294,13 +299,16 @@ def resolve_auto_approve_file_args(
     Returns (content_rel_paths, name_only).
     """
     if contents is None and file_paths is None:
-        return list(user_files.keys()), []
+        all_files = set(user_files.keys())
+        name_only = all_files.intersection(DEFAULT_NAME_ONLY_FILES)
+        content_matched = all_files - name_only
+        return list(content_matched), list(name_only)
     elif contents is not None and file_paths is None:
         return list(contents), []
     elif contents is None and file_paths is not None:
         name_only = list(file_paths)
-        content_rel_paths = [rel for rel in user_files if rel not in set(file_paths)]
-        return content_rel_paths, name_only
+        content_rel_paths = set(user_files.keys()) - set(file_paths)
+        return list(content_rel_paths), name_only
     else:
         return list(contents), list(file_paths)  # type: ignore[arg-type]
 
@@ -328,14 +336,22 @@ def validate_auto_approve_job_inputs(
     return None
 
 
+_GENERATED_DIRS = {".venv", "outputs", "__pycache__"}
+
+
 def get_job_user_files(job) -> dict[str, Path]:
     """Get user files from a job's code directory as {relative_path: abs_path} mapping."""
     user_files: dict[str, Path] = {}
     code_dir = job.code_dir
     if code_dir.exists():
         for f in code_dir.rglob("*"):
-            if f.is_file() and f.name != PERMISSION_FILE_NAME:
-                user_files[str(f.relative_to(code_dir))] = f
+            if not f.is_file() or f.name == PERMISSION_FILE_NAME:
+                continue
+            # Skip files inside directories generated during job execution
+            rel = f.relative_to(code_dir)
+            if rel.parts[0] in _GENERATED_DIRS:
+                continue
+            user_files[str(rel)] = f
     return user_files
 
 

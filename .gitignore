@@ -151,6 +151,7 @@ credentials.json
 client_secret*.json
 token.pickle
 token.json
+*creds.json
 
 # SyftBox related
 ~/SyftBox/
@@ -175,4 +176,5 @@ test_suite_output.log
 # Notebooks
 notebooks/e2e/sales_mock.csv
 notebooks/e2e/sales_private.csv
-notebooks/e2e/readme.md
+notebooks/e2e/readme.mdpackages/syft-bg/docs/sync-service.md
+packages/syft-bg/docs/sync-review-notes.md

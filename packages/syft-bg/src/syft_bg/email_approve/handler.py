@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING, Optional
 from syft_bg.common.state import JsonStateManager
 
 if TYPE_CHECKING:
-    from syft_client.sync.syftbox_manager import SyftboxManager
+    from syft_job.client import JobClient
+    from syft_job.job_runner import SyftJobRunner
 
 
 class EmailAction(Enum):
     APPROVE = "approve"
+    AUTO_APPROVE = "auto_approve"
     DENY = "deny"
     UNKNOWN = "unknown"
 
@@ -37,6 +39,9 @@ def parse_reply(text: str) -> EmailApprovalResponse:
             continue
 
         lower = line.lower()
+        if lower.startswith(("auto-approve", "auto approve", "autoapprove")):
+            return EmailApprovalResponse(action=EmailAction.AUTO_APPROVE)
+
         if lower.startswith("approve") or lower.startswith("aprove"):
             return EmailApprovalResponse(action=EmailAction.APPROVE)
 
@@ -64,12 +69,14 @@ class EmailApproveHandler:
 
     def __init__(
         self,
-        client: SyftboxManager,
+        job_client: JobClient,
+        job_runner: SyftJobRunner,
         state: JsonStateManager,
         notify_state: JsonStateManager,
         do_email: str,
     ):
-        self.client = client
+        self.job_client = job_client
+        self.job_runner = job_runner
         self.state = state
         self.notify_state = notify_state
         self.do_email = do_email
@@ -97,26 +104,42 @@ class EmailApproveHandler:
 
         if response.action == EmailAction.APPROVE:
             self._approve_job(job, job_name, state_key)
+        elif response.action == EmailAction.AUTO_APPROVE:
+            self._auto_approve_job(job, job_name, state_key)
         elif response.action == EmailAction.DENY:
             self._reject_job(job, job_name, response.reason or "", state_key)
 
     def _find_job(self, job_name: str):
         """Find a job by name in the client's job list."""
-        for job in self.client.jobs:
+        for job in self.job_client.jobs:
             if job.name == job_name:
                 return job
         raise ValueError(f"Job not found: {job_name}")
 
     def _approve_job(self, job, job_name: str, state_key: str) -> None:
-        """Approve a job, execute it, share results, and sync."""
+        """Approve a job, execute it, and share results."""
         job.approve()
         self.state.mark_notified(state_key, "processed")
-        self.client.process_approved_jobs(
+
+        self.job_runner.process_approved_jobs(
             share_outputs_with_submitter=True,
             share_logs_with_submitter=True,
         )
-        self.client.sync()
         print(f"[EmailApproveHandler] Approved job: {job_name}")
+
+    def _auto_approve_job(self, job, job_name: str, state_key: str) -> None:
+        """Approve a job and create an auto-approval object for future jobs."""
+        self._approve_job(job, job_name, state_key)
+
+        from syft_bg.api.api import auto_approve_job
+
+        result = auto_approve_job(job)
+        if result.success:
+            print(f"[EmailApproveHandler] Auto-approval created for: {job_name}")
+        else:
+            print(
+                f"[EmailApproveHandler] Failed to create auto-approval for {job_name}: {result.error}"
+            )
 
     def _reject_job(self, job, job_name: str, reason: str, state_key: str) -> None:
         """Reject a job with a reason."""
