@@ -107,6 +107,7 @@ From: {submitter}
         body_text += """
 To approve or deny this job, reply to this email with:
   approve
+  auto-approve
   deny <reason>
 """
         body_html = None
@@ -119,6 +120,7 @@ To approve or deny this job, reply to this email with:
                         "submitter": submitter,
                         "timestamp": timestamp or datetime.now(),
                         "job_url": job_url,
+                        "job_code": job_code,
                     },
                 )
             except Exception:
