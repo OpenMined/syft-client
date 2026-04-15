@@ -1,8 +1,10 @@
 from pathlib import Path
+import fcntl
 from syft_client.sync.peers.peer_store import PeerStore
 import logging
 import shutil
 import warnings
+from contextlib import contextmanager
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.utils import resolve_path
 from concurrent.futures import ThreadPoolExecutor
@@ -828,6 +830,21 @@ class SyftboxManager(BaseModel):
                 relative_file_path, process_now=last_file
             )
 
+    @contextmanager
+    def _sync_file_lock(self):
+        lock_path = self.syftbox_folder / ".sync.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.touch(exist_ok=True)
+        with open(lock_path, "r") as lock_handle:
+            logger.info(f"Acquiring sync lock for {self.email}...")
+            try:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+                logger.info(f"Sync lock acquired for {self.email}")
+                yield
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+                logger.info(f"Sync lock released for {self.email}")
+
     def sync(self, auto_checkpoint: bool = True, checkpoint_threshold: int = 50):
         """
         Sync local state with Google Drive.
@@ -837,20 +854,21 @@ class SyftboxManager(BaseModel):
                             event count exceeds threshold (DO only).
             checkpoint_threshold: Create checkpoint when events >= this value.
         """
-        self.load_peers()
-        if self.has_do_role:
-            peer_emails = [peer.email for peer in self.peer_manager.approved_peers]
-            compatible_emails = self.peer_manager.get_compatible_peer_emails(
-                peer_emails, warn_incompatible=True
-            )
-            self.datasite_owner_syncer.sync(compatible_emails)
-            if auto_checkpoint:
-                self.try_create_checkpoint(checkpoint_threshold)
+        with self._sync_file_lock():
+            self.load_peers()
+            if self.has_do_role:
+                peer_emails = [peer.email for peer in self.peer_manager.approved_peers]
+                compatible_emails = self.peer_manager.get_compatible_peer_emails(
+                    peer_emails, warn_incompatible=True
+                )
+                self.datasite_owner_syncer.sync(compatible_emails)
+                if auto_checkpoint:
+                    self.try_create_checkpoint(checkpoint_threshold)
 
-        if self.has_ds_role:
-            peer_emails = [peer.email for peer in self.peer_manager.syncable_peers]
-            self.peer_manager.warn_if_all_peers_incompatible(peer_emails)
-            self.datasite_watcher_syncer.sync_down(peer_emails)
+            if self.has_ds_role:
+                peer_emails = [peer.email for peer in self.peer_manager.syncable_peers]
+                self.peer_manager.warn_if_all_peers_incompatible(peer_emails)
+                self.datasite_watcher_syncer.sync_down(peer_emails)
 
     def load_peers(self):
         """Load peers from connection router. Delegates to PeerManager."""
@@ -1292,15 +1310,16 @@ class SyftboxManager(BaseModel):
         if not self.has_do_role:
             raise ValueError("Only data owners can share private datasets")
 
-        files = self.dataset_manager.get_private_dataset_files(tag)
-        events_message = self.datasite_owner_syncer.event_cache.create_events_for_files(
-            files
-        )
-        self.datasite_owner_syncer.queue_event_for_syftbox(
-            recipients=[enclave_email],
-            file_change_events_message=events_message,
-        )
-        self.datasite_owner_syncer.process_syftbox_events_queue()
+        with self._sync_file_lock():
+            files = self.dataset_manager.get_private_dataset_files(tag)
+            events_message = (
+                self.datasite_owner_syncer.event_cache.create_events_for_files(files)
+            )
+            self.datasite_owner_syncer.queue_event_for_syftbox(
+                recipients=[enclave_email],
+                file_change_events_message=events_message,
+            )
+            self.datasite_owner_syncer.process_syftbox_events_queue()
 
     @property
     def datasets(self) -> SyftDatasetManager:
