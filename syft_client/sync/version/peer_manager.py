@@ -5,6 +5,7 @@ PeerManager for managing peers, version information, and compatibility checks.
 import json
 import warnings
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
@@ -26,6 +27,7 @@ from syft_client.sync.version.version_info import VersionInfo
 class PeerManagerConfig(BaseModel):
     """Configuration for PeerManager."""
 
+    syftbox_folder: Path
     connection_configs: List[ConnectionConfig] = []
     ignore_protocol_version: bool = False
     ignore_client_version: bool = False
@@ -41,6 +43,7 @@ class PeerManager(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    syftbox_folder: Path
     connection_router: ConnectionRouter
     peer_store: PeerStore
     ignore_protocol_version: bool = False
@@ -84,6 +87,7 @@ class PeerManager(BaseModel):
         )
         connection_router.peer_store = peer_store
         return cls(
+            syftbox_folder=config.syftbox_folder,
             connection_router=connection_router,
             peer_store=peer_store,
             ignore_protocol_version=config.ignore_protocol_version,
@@ -109,9 +113,12 @@ class PeerManager(BaseModel):
         return self.connection_router.read_own_version_file()
 
     def write_own_version(self) -> None:
-        """Write version file to own SyftBox folder."""
+        """Write version file to own SyftBox folder (remote) and local disk."""
+        from syft_client.sync.version.local_version import write_local_version
+
         version_info = self.get_own_version()
         self.connection_router.write_version_file(version_info)
+        write_local_version(self.syftbox_folder)
 
     def share_version_with_peer(self, peer_email: str) -> None:
         """Share version file with a peer so they can read it."""
@@ -472,13 +479,6 @@ class PeerManager(BaseModel):
                     )
 
         self.peer_store.set_peers(peers)
-
-        # Ensure version subfolders exist in our P2P folders for approved peers.
-        # After a version upgrade, the P2P folders exist but the version subfolders
-        # inside them don't yet — create them eagerly so peers can communicate.
-        for peer in peers:
-            if peer.state in (PeerState.ACCEPTED, PeerState.REQUESTED_BY_ME):
-                self.connection_router.ensure_peer_version_subfolders(peer.email)
 
         # Try to read encryption bundles from GDrive for peers missing bundles
         if self.peer_store.use_encryption:

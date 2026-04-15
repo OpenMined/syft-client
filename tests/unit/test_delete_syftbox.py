@@ -1,16 +1,13 @@
 """Tests for version mismatch check and delete_syftbox utilities."""
 
-from unittest.mock import patch, MagicMock
+from pathlib import Path
+from unittest.mock import patch
 
-from syft_client.gdrive_utils import (
-    read_local_version,
-    write_local_version,
-)
 from syft_client.sync.version.version_info import VersionInfo
-from syft_client.version import VERSION_FILE_NAME, SYFT_CLIENT_VERSION
 
 
 EMAIL = "test@example.com"
+TOKEN_PATH = Path("/fake/token.json")
 
 
 def _old_version_info() -> VersionInfo:
@@ -22,76 +19,74 @@ def _old_version_info() -> VersionInfo:
     )
 
 
-def _make_client(tmp_path):
-    client = MagicMock()
-    client.email = EMAIL
-    client.syftbox_folder = tmp_path / f"SyftBox_{EMAIL}"
-    client.syftbox_folder.mkdir(parents=True, exist_ok=True)
-    client.peer_manager.connection_router.connections = [
-        MagicMock(token_path="/fake/token.json")
-    ]
-    return client
-
-
-class TestLocalVersionRoundTrip:
-    def test_read_returns_none_when_no_file(self, tmp_path):
-        assert read_local_version(tmp_path) is None
-
-    def test_write_then_read(self, tmp_path):
-        write_local_version(tmp_path)
-        version_info = read_local_version(tmp_path)
-        assert version_info is not None
-        assert version_info.syft_client_version == SYFT_CLIENT_VERSION
-
-
 class TestVersionMismatchCheck:
-    @patch("syft_client.sync.login.delete_remote_syftbox")
-    @patch("syft_client.sync.login.delete_local_syftbox")
-    @patch("builtins.input", return_value="2")
+    @patch("syft_client.sync.login_utils.delete_remote_syftbox")
+    @patch("syft_client.sync.login_utils.delete_local_syftbox")
+    @patch("syft_client.sync.login_utils._prompt_mismatch", return_value="2")
+    @patch("syft_client.sync.login_utils._read_remote_version")
+    @patch("syft_client.sync.login_utils.read_local_version")
     def test_delete_all(
-        self, mock_input, mock_delete_local, mock_delete_remote, tmp_path
+        self,
+        mock_read_local,
+        mock_read_remote,
+        mock_prompt,
+        mock_delete_local,
+        mock_delete_remote,
     ):
         """Mismatch + choice 2 (delete all) → local + remote deleted."""
-        from syft_client.sync.login import _check_existing_state_version
+        from syft_client.sync.login_utils import (
+            handle_potential_version_mismatches_on_login,
+        )
 
-        client = _make_client(tmp_path)
-        version_file = client.syftbox_folder / VERSION_FILE_NAME
-        version_file.write_text(_old_version_info().to_json())
-        client.read_own_version.return_value = _old_version_info()
+        mock_read_local.return_value = _old_version_info()
+        mock_read_remote.return_value = _old_version_info()
 
-        _check_existing_state_version(client)
+        handle_potential_version_mismatches_on_login(EMAIL, TOKEN_PATH)
 
         mock_delete_local.assert_called_once()
         mock_delete_remote.assert_called_once()
 
-    @patch("syft_client.sync.login.delete_remote_syftbox")
-    @patch("syft_client.sync.login.delete_local_syftbox")
-    @patch("builtins.input", return_value="1")
+    @patch("syft_client.sync.login_utils._delete_remote_unversioned_state")
+    @patch("syft_client.sync.login_utils.delete_remote_syftbox")
+    @patch("syft_client.sync.login_utils.delete_local_syftbox")
+    @patch("syft_client.sync.login_utils._prompt_mismatch", return_value="1")
+    @patch("syft_client.sync.login_utils._read_remote_version")
+    @patch("syft_client.sync.login_utils.read_local_version")
     def test_upgrade_deletes_local_only(
-        self, mock_input, mock_delete_local, mock_delete_remote, tmp_path
+        self,
+        mock_read_local,
+        mock_read_remote,
+        mock_prompt,
+        mock_delete_local,
+        mock_delete_remote,
+        mock_delete_unversioned,
     ):
-        """Mismatch + choice 1 (upgrade) → local deleted, remote preserved."""
-        from syft_client.sync.login import _check_existing_state_version
+        """Mismatch + choice 1 (upgrade) → local deleted, unversioned state deleted, full remote preserved."""
+        from syft_client.sync.login_utils import (
+            handle_potential_version_mismatches_on_login,
+        )
 
-        client = _make_client(tmp_path)
-        version_file = client.syftbox_folder / VERSION_FILE_NAME
-        version_file.write_text(_old_version_info().to_json())
-        client.read_own_version.return_value = _old_version_info()
+        mock_read_local.return_value = _old_version_info()
+        mock_read_remote.return_value = _old_version_info()
 
-        _check_existing_state_version(client)
+        handle_potential_version_mismatches_on_login(EMAIL, TOKEN_PATH)
 
         mock_delete_local.assert_called_once()
         mock_delete_remote.assert_not_called()
+        mock_delete_unversioned.assert_called_once()
 
-    def test_no_mismatch_no_prompt(self, tmp_path):
+    @patch("syft_client.sync.login_utils._read_remote_version")
+    @patch("syft_client.sync.login_utils.read_local_version")
+    def test_no_mismatch_no_prompt(self, mock_read_local, mock_read_remote):
         """Both versions match installed → no prompt."""
-        from syft_client.sync.login import _check_existing_state_version
+        from syft_client.sync.login_utils import (
+            handle_potential_version_mismatches_on_login,
+        )
 
-        client = _make_client(tmp_path)
-        write_local_version(client.syftbox_folder)
-        client.read_own_version.return_value = VersionInfo.current()
+        mock_read_local.return_value = VersionInfo.current()
+        mock_read_remote.return_value = VersionInfo.current()
 
-        _check_existing_state_version(client)
+        handle_potential_version_mismatches_on_login(EMAIL, TOKEN_PATH)
 
 
 class TestDeleteSyftboxImport:

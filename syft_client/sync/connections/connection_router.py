@@ -185,11 +185,6 @@ class ConnectionRouter(BaseModel):
             print_peer_added_to_platform(peer_email, platform.module_path)
         return Peer(email=peer_email, platforms=[platform])
 
-    def ensure_peer_version_subfolders(self, peer_email: str) -> None:
-        """Ensure version subfolders exist in P2P folders we own for this peer."""
-        connection = self.connection_for_receive_message()
-        connection.ensure_peer_version_subfolders(peer_email)
-
     def get_all_peers_from_json(self) -> List[Peer]:
         """Get all peers from SYFT_peers.json with their stored state."""
         connection = self.connection_for_send_message()

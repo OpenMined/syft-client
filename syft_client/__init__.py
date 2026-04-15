@@ -9,9 +9,11 @@ from syft_client.utils import resolve_path, resolve_dataset_file_path, bug_repor
 from syft_client.gdrive_utils import (  # noqa: F401
     download_from_gdrive,
     credentials_to_token,
+    delete_remote_syftbox,
+)
+from syft_client.sync.utils.syftbox_utils import (  # noqa: F401
     delete_syftbox,
     delete_local_syftbox,
-    delete_remote_syftbox,
 )
 
 SYFT_CLIENT_DIR = Path(__file__).parent.parent

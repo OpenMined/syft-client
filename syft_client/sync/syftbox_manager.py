@@ -1,4 +1,5 @@
 from pathlib import Path
+from syft_client.sync.peers.peer_store import PeerStore
 import logging
 import shutil
 import warnings
@@ -54,6 +55,8 @@ from syft_client.sync.version.peer_manager import (
     PeerManager,
     PeerManagerConfig,
 )
+from syft_client.sync.version.version_info import VersionInfo
+from syft_client.version import VERSION_FILE_NAME
 import os
 
 logger = logging.getLogger(__name__)
@@ -130,6 +133,7 @@ class SyftboxManagerConfig(BaseModel):
             email=email,
         )
         peer_manager_config = PeerManagerConfig(
+            syftbox_folder=syftbox_folder,
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
@@ -199,6 +203,7 @@ class SyftboxManagerConfig(BaseModel):
             current_user_email=email,
         )
         peer_manager_config = PeerManagerConfig(
+            syftbox_folder=syftbox_folder,
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
@@ -263,6 +268,7 @@ class SyftboxManagerConfig(BaseModel):
             current_user_email=email,
         )
         peer_manager_config = PeerManagerConfig(
+            syftbox_folder=syftbox_folder,
             connection_configs=[],  # Empty for in-memory, connections added later
             n_threads=2,  # Use fewer threads for testing
             ignore_protocol_version=not check_versions,
@@ -337,6 +343,7 @@ class SyftboxManagerConfig(BaseModel):
             current_user_email=email,
         )
         peer_manager_config = PeerManagerConfig(
+            syftbox_folder=syftbox_folder,
             connection_configs=connection_configs,
             ignore_protocol_version=not check_versions,
             ignore_client_version=not check_versions,
@@ -416,6 +423,22 @@ class SyftboxManager(BaseModel):
 
     def __dir__(self):
         return list(self._PUBLIC_API)
+
+    def read_local_version(self) -> VersionInfo | None:
+        """Read the local SYFT_version.json from the SyftBox directory."""
+        version_file = self.syftbox_folder / VERSION_FILE_NAME
+        if not version_file.exists():
+            return None
+        try:
+            return VersionInfo.from_json(version_file.read_text())
+        except Exception:
+            return None
+
+    def write_local_version(self) -> None:
+        """Write current version info to a local SYFT_version.json."""
+        self.syftbox_folder.mkdir(parents=True, exist_ok=True)
+        version_file = self.syftbox_folder / VERSION_FILE_NAME
+        version_file.write_text(VersionInfo.current().to_json())
 
     @property
     def peers(self) -> PeerList:
@@ -710,7 +733,6 @@ class SyftboxManager(BaseModel):
 
         # Add connections to managers
         do_manager._add_connection(do_connection)
-
         ds_manager._add_connection(ds_connection)
 
         # Set up callbacks for DS -> DO communication
@@ -731,15 +753,8 @@ class SyftboxManager(BaseModel):
 
         # Initialize encryption if requested
         if encryption:
-            from syft_client.sync.peers.peer_store import PeerStore
-
-            ds_ps = PeerStore(email=ds_manager.email, use_encryption=True)
-            ds_ps.generate_keys()
-            ds_manager._set_peer_store(ds_ps)
-
-            do_ps = PeerStore(email=do_manager.email, use_encryption=True)
-            do_ps.generate_keys()
-            do_manager._set_peer_store(do_ps)
+            ds_manager._init_encrypted_peer_store()
+            do_manager._init_encrypted_peer_store()
 
         if add_peers:
             # DS creates peer request
@@ -749,6 +764,12 @@ class SyftboxManager(BaseModel):
             do_manager.approve_peer_request(ds_manager.email)
 
         return ds_manager, do_manager
+
+    def _init_encrypted_peer_store(self) -> None:
+        """Initialize the encrypted peer store."""
+        peer_store = PeerStore(email=self.email, use_encryption=True)
+        peer_store.generate_keys()
+        self._set_peer_store(peer_store)
 
     def add_peer(self, peer_email: str, force: bool = False, verbose: bool = True):
         """Add a peer. Delegates to PeerManager."""
@@ -861,7 +882,7 @@ class SyftboxManager(BaseModel):
             self.job_client.setup_ds_job_folder_as_do(peer_email)
             self._share_any_datasets_with_peer(peer_email)
 
-    def ensure_local_peer_permissions(self) -> None:
+    def _ensure_local_peer_permissions(self) -> None:
         """Recreate local permission files for all approved peers.
 
         After an upgrade that deletes local state, permission files
@@ -1360,14 +1381,6 @@ class SyftboxManager(BaseModel):
                 )
             except Exception:
                 pass
-
-    def read_own_version(self):
-        """Read existing version file from own SyftBox folder on Drive."""
-        return self.peer_manager.read_own_version()
-
-    def write_own_version(self):
-        """Write current version file to own SyftBox folder on Drive."""
-        self.peer_manager.write_own_version()
 
     def delete_syftbox(
         self, verbose: bool = True, broadcast_delete_events: bool = True
