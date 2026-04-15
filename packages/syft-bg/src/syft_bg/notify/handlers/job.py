@@ -29,6 +29,33 @@ def _read_job_code(job_client: "JobClient", job_name: str) -> Optional[dict[str,
     return code_files if code_files else None
 
 
+def _read_job_stderr(
+    job_client: "JobClient", job_name: str
+) -> tuple[Optional[str], Optional[int]]:
+    """Read stderr and return code from a job's review directory."""
+    job = next((j for j in job_client.jobs if j.name == job_name), None)
+    if not job:
+        return None, None
+
+    stderr_text = None
+    stderr_file = job.job_review_path / "stderr.txt"
+    if stderr_file.exists():
+        try:
+            stderr_text = stderr_file.read_text(errors="replace").strip() or None
+        except Exception:
+            pass
+
+    return_code = None
+    rc_file = job.job_review_path / "returncode.txt"
+    if rc_file.exists():
+        try:
+            return_code = int(rc_file.read_text().strip())
+        except (ValueError, OSError):
+            pass
+
+    return stderr_text, return_code
+
+
 def _friendly_reason(reason: str, job_name: str) -> str:
     """Convert internal rejection reason to a DS-friendly message."""
     if "unknown peer" in reason:
@@ -191,6 +218,45 @@ class JobHandler:
             )
 
         return result.success
+
+    def on_job_failed(
+        self,
+        ds_email: str,
+        job_name: str,
+        duration: Optional[int] = None,
+    ) -> bool:
+        """Notify DO that a job failed during execution."""
+        if not self.notify_on_executed:
+            return False
+
+        if self.state.was_notified(job_name, "failed"):
+            print(f"[JobHandler] Skip {job_name}/failed: already notified")
+            return False
+
+        error_output, return_code = None, None
+        if self.job_client:
+            error_output, return_code = _read_job_stderr(self.job_client, job_name)
+
+        if self.do_email:
+            thread_id = self.state.get_thread_id(job_name)
+            result = self.sender.notify_job_failed_to_do(
+                self.do_email,
+                job_name,
+                ds_email,
+                error_output=error_output,
+                return_code=return_code,
+                duration=duration,
+                thread_id=thread_id,
+            )
+
+            if result.success:
+                self.state.mark_notified(job_name, "failed")
+            else:
+                print(f"[JobHandler] Failed to send failed notification for {job_name}")
+
+            return result.success
+
+        return False
 
     def on_job_rejected(
         self,
