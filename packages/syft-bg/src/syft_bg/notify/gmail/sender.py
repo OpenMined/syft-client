@@ -107,6 +107,7 @@ From: {submitter}
         body_text += """
 To approve or deny this job, reply to this email with:
   approve
+  auto-approve
   deny <reason>
 """
         body_html = None
@@ -119,6 +120,7 @@ To approve or deny this job, reply to this email with:
                         "submitter": submitter,
                         "timestamp": timestamp or datetime.now(),
                         "job_url": job_url,
+                        "job_code": job_code,
                     },
                 )
             except Exception:
@@ -390,6 +392,50 @@ The job has finished execution. Results are available.
                     {
                         "job_name": job_name,
                         "ds_email": ds_email,
+                        "duration": duration,
+                    },
+                )
+            except Exception:
+                pass
+
+        return self.send_email(do_email, subject, body_text, body_html, thread_id)
+
+    def notify_job_failed_to_do(
+        self,
+        do_email: str,
+        job_name: str,
+        ds_email: str,
+        error_output: Optional[str] = None,
+        return_code: Optional[int] = None,
+        duration: Optional[int] = None,
+        thread_id: Optional[str] = None,
+    ) -> SendResult:
+        """Notify DO that a job failed during execution."""
+        subject = f"Re: Job: {job_name}" if thread_id else f"Job Failed: {job_name}"
+        rc_text = f"\nReturn Code: {return_code}" if return_code is not None else ""
+        duration_text = f"\nDuration: {duration}s" if duration else ""
+        body_text = f"""Job failed!
+
+Job: {job_name}
+From: {ds_email}{rc_text}{duration_text}
+
+The job failed during execution.
+"""
+        if error_output:
+            body_text += (
+                f"\n--- Error Output ---\n{error_output}\n--- End Error Output ---\n"
+            )
+
+        body_html = None
+        if self.use_html and self.renderer:
+            try:
+                body_html = self.renderer.render(
+                    "emails/job_failed_do.html",
+                    {
+                        "job_name": job_name,
+                        "ds_email": ds_email,
+                        "error_output": error_output,
+                        "return_code": return_code,
                         "duration": duration,
                     },
                 )
