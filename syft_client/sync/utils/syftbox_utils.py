@@ -1,10 +1,12 @@
 import random
 import io
+import shutil
 import tarfile
 import time
-from syft_client.sync.environments.environment import Environment
 from hashlib import sha256
 from pathlib import Path
+
+from syft_client.sync.environments.environment import Environment
 
 
 def check_env() -> Environment:
@@ -75,3 +77,139 @@ def uncompress_data(data: bytes) -> bytes:
         info = tar.getmember("proposed_file_changes.json")
         data = tar.extractfile(info).read()
     return data
+
+
+def _get_default_syftbox_path(email: str) -> Path:
+    """Return the default local SyftBox directory for the current environment."""
+    env = check_env()
+    if env == Environment.COLAB:
+        return Path("/content") / f"SyftBox_{email}"
+    else:
+        return Path.home() / f"SyftBox_{email}"
+
+
+def _resolve_email(email: str | None) -> str:
+    """Resolve email, auto-detecting on Colab if not provided.
+
+    Raises:
+        ValueError: If email cannot be resolved.
+    """
+    env = check_env()
+    if env == Environment.COLAB and email is None:
+        email = get_email_colab()
+    if email is None:
+        raise ValueError(
+            "email is required when running locally. On Colab it can be auto-detected."
+        )
+    return email
+
+
+def _resolve_token_path(token_path: str | Path | None) -> Path | None:
+    """Resolve token_path from env var if not provided.
+
+    Raises:
+        ValueError: If token_path cannot be resolved outside Colab.
+    """
+    from syft_client.sync.config.config import settings
+
+    env = check_env()
+    if env != Environment.COLAB and token_path is None:
+        resolved = settings.token_path
+        if not resolved:
+            raise ValueError(
+                "token_path is required when running locally. "
+                "Set SYFTCLIENT_TOKEN_PATH env var or pass token_path explicitly."
+            )
+        token_path = resolved
+    return Path(token_path) if token_path is not None else None
+
+
+def _delete_local_syftbox_dirs(local_syftbox_path: Path, verbose: bool = True) -> None:
+    """Delete a local SyftBox directory and its companion cache directories."""
+    syftbox_name = local_syftbox_path.name
+    syftbox_parent = local_syftbox_path.parent
+    dirs_to_delete = [
+        local_syftbox_path,
+        syftbox_parent / f"{syftbox_name}-events",
+        syftbox_parent / f"{syftbox_name}-event-messages",
+    ]
+    for d in dirs_to_delete:
+        if d.exists():
+            shutil.rmtree(d)
+            if verbose:
+                print(f"Deleted local directory: {d}")
+
+
+def delete_local_syftbox(
+    email: str | None = None,
+    local_syftbox_path: str | Path | None = None,
+    verbose: bool = True,
+) -> None:
+    """Delete local SyftBox directories.
+
+    Deletes the SyftBox directory and its companion cache directories
+    (``<name>-events``, ``<name>-event-messages``).
+
+    Args:
+        email: Google account email. Used to resolve default path if
+            ``local_syftbox_path`` is not provided.
+        local_syftbox_path: Optional path to the local SyftBox directory.
+            If not provided, the default path for the current environment
+            is used automatically.
+        verbose: If True (default), print deletion progress.
+    """
+    if local_syftbox_path is not None:
+        resolved_path = Path(local_syftbox_path)
+    else:
+        if email is None:
+            env = check_env()
+            if env == Environment.COLAB:
+                email = get_email_colab()
+            if email is None:
+                raise ValueError(
+                    "email is required to resolve default local path. "
+                    "Provide email or local_syftbox_path explicitly."
+                )
+        resolved_path = _get_default_syftbox_path(email)
+
+    _delete_local_syftbox_dirs(resolved_path, verbose=verbose)
+
+
+def delete_syftbox(
+    token_path: str | Path | None = None,
+    email: str | None = None,
+    local_syftbox_path: str | Path | None = None,
+    verbose: bool = True,
+) -> None:
+    """Delete all SyftBox state from Google Drive and local directories.
+
+    Convenience wrapper that calls both ``delete_remote_syftbox`` and
+    ``delete_local_syftbox``.
+
+    Note: This function does NOT broadcast ``is_deleted`` events to peers.
+
+    Args:
+        token_path: Path to OAuth token JSON file. Required when running
+            locally. On Colab, pass ``None`` to use Colab's built-in auth.
+        email: Google account email. Required when running locally. On Colab,
+            this is auto-detected if not provided.
+        local_syftbox_path: Optional path to the local SyftBox directory.
+            If not provided, the default path for the current environment
+            is used automatically.
+        verbose: If True (default), print deletion progress.
+    """
+    from syft_client.gdrive_utils import delete_remote_syftbox
+
+    email_resolved = _resolve_email(email)
+    token_path_resolved = _resolve_token_path(token_path)
+
+    delete_remote_syftbox(
+        token_path=token_path_resolved,
+        email=email_resolved,
+        verbose=verbose,
+    )
+    delete_local_syftbox(
+        email=email_resolved,
+        local_syftbox_path=local_syftbox_path,
+        verbose=verbose,
+    )

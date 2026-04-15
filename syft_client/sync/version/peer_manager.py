@@ -5,6 +5,7 @@ PeerManager for managing peers, version information, and compatibility checks.
 import json
 import warnings
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
@@ -26,6 +27,7 @@ from syft_client.sync.version.version_info import VersionInfo
 class PeerManagerConfig(BaseModel):
     """Configuration for PeerManager."""
 
+    syftbox_folder: Path
     connection_configs: List[ConnectionConfig] = []
     ignore_protocol_version: bool = False
     ignore_client_version: bool = False
@@ -41,6 +43,7 @@ class PeerManager(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    syftbox_folder: Path
     connection_router: ConnectionRouter
     peer_store: PeerStore
     ignore_protocol_version: bool = False
@@ -84,6 +87,7 @@ class PeerManager(BaseModel):
         )
         connection_router.peer_store = peer_store
         return cls(
+            syftbox_folder=config.syftbox_folder,
             connection_router=connection_router,
             peer_store=peer_store,
             ignore_protocol_version=config.ignore_protocol_version,
@@ -104,10 +108,17 @@ class PeerManager(BaseModel):
             self._own_version = VersionInfo.current()
         return self._own_version
 
+    def read_own_version(self) -> Optional[VersionInfo]:
+        """Read existing version file from own SyftBox folder on Drive."""
+        return self.connection_router.read_own_version_file()
+
     def write_own_version(self) -> None:
-        """Write version file to own SyftBox folder."""
+        """Write version file to own SyftBox folder (remote) and local disk."""
+        from syft_client.sync.version.local_version import write_local_version
+
         version_info = self.get_own_version()
         self.connection_router.write_version_file(version_info)
+        write_local_version(self.syftbox_folder)
 
     def share_version_with_peer(self, peer_email: str) -> None:
         """Share version file with a peer so they can read it."""
