@@ -1,10 +1,51 @@
+from pathlib import Path
+
 from syft_client.sync.utils.syftbox_utils import check_env
 from syft_client.sync.environments.environment import Environment
 from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.utils.print_utils import print_client_connected
 from syft_client.sync.utils.syftbox_utils import get_email_colab
 from syft_client.sync.config.config import settings
-from pathlib import Path
+from syft_client.sync.login_utils import handle_potential_version_mismatches_on_login
+
+
+def _init_client_login(
+    client: SyftboxManager, sync: bool, load_peers: bool
+) -> SyftboxManager:
+    """Common post-creation initialization: write version, sync, load peers."""
+    client.write_local_version()
+
+    if sync:
+        client.sync()
+    if load_peers:
+        client.load_peers()
+    print_client_connected(client)
+    return client
+
+
+def _resolve_login_params(
+    email: str | None, token_path: str | Path | None
+) -> tuple[str, str | Path | None]:
+    """Resolve email and token_path based on environment."""
+    env = check_env()
+
+    if env == Environment.COLAB:
+        if email is None:
+            email = get_email_colab()
+        if email is None:
+            raise ValueError("Email is required for Colab login")
+    elif env == Environment.JUPYTER:
+        token_path = token_path or settings.token_path
+        if not token_path:
+            raise NotImplementedError(
+                "Jupyter login is only supported with a token path"
+            )
+        if email is None:
+            raise ValueError("Email is required for Jupyter login")
+    else:
+        raise ValueError(f"Environment {env} not supported")
+
+    return email, token_path
 
 
 def login(
@@ -13,7 +54,7 @@ def login(
     load_peers: bool = True,
     token_path: str | Path | None = None,
 ):
-    return login_ds(email, sync, load_peers)
+    return login_ds(email, sync, load_peers, token_path)
 
 
 def login_ds(
@@ -23,34 +64,18 @@ def login_ds(
     token_path: str | Path | None = None,
 ):
     env = check_env()
+    email, token_path = _resolve_login_params(email, token_path)
+
+    handle_potential_version_mismatches_on_login(email, token_path)
 
     if env == Environment.COLAB:
-        if email is None:
-            email = get_email_colab()
-        if email is None:
-            raise ValueError("Email is required for Colab login")
         client = SyftboxManager.for_colab(email=email, has_ds_role=True)
-    elif env == Environment.JUPYTER:
-        token_path = token_path or settings.token_path
-        if not token_path:
-            raise NotImplementedError(
-                "Jupyter login is only supported with a token path"
-            )
-        if email is None:
-            raise ValueError("Email is required for Jupyter login")
-
+    else:
         client = SyftboxManager.for_jupyter(
             email=email, has_ds_role=True, token_path=token_path
         )
-    else:
-        raise ValueError(f"Environment {env} not supported")
 
-    if sync:
-        client.sync()
-    if load_peers:
-        client.load_peers()
-    print_client_connected(client)
-    return client
+    return _init_client_login(client, sync, load_peers)
 
 
 def login_do(
@@ -60,30 +85,15 @@ def login_do(
     token_path: str | Path | None = None,
 ):
     env = check_env()
+    email, token_path = _resolve_login_params(email, token_path)
+
+    handle_potential_version_mismatches_on_login(email, token_path)
 
     if env == Environment.COLAB:
-        if email is None:
-            email = get_email_colab()
-        if email is None:
-            raise ValueError("Email is required for Colab login")
-        print("email", email)
         client = SyftboxManager.for_colab(email=email, has_do_role=True)
-
-    elif env == Environment.JUPYTER:
-        token_path = token_path or settings.token_path
-        if not token_path:
-            raise NotImplementedError(
-                "Jupyter login is only supported with a token path"
-            )
+    else:
         client = SyftboxManager.for_jupyter(
             email=email, has_do_role=True, token_path=token_path
         )
-    else:
-        raise ValueError(f"Environment {env} not supported")
 
-    if sync:
-        client.sync()
-    if load_peers:
-        client.load_peers()
-    print_client_connected(client)
-    return client
+    return _init_client_login(client, sync, load_peers)

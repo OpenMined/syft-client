@@ -361,6 +361,11 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_own_syftbox()
         connection.write_version_file(version_info)
 
+    def read_own_version_file(self) -> Optional["VersionInfo"]:
+        """Read version file from own SyftBox folder."""
+        connection = self.connection_for_own_syftbox()
+        return connection.read_own_version_file()
+
     def read_peer_version_file(self, peer_email: str) -> Optional["VersionInfo"]:
         """Read version file from a peer's SyftBox folder."""
         connection = self.connection_for_datasite_watcher()

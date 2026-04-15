@@ -2,6 +2,8 @@
 VersionInfo model for representing version information.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -26,9 +28,10 @@ class VersionInfo(BaseModel):
 
     def is_compatible_with(
         self,
-        other: "VersionInfo",
+        other: "VersionInfo" | None,
         check_client: bool = True,
         check_protocol: bool = True,
+        compatible_if_unknown: bool = False,
     ) -> bool:
         """
         Check if this version is compatible with another version.
@@ -44,6 +47,9 @@ class VersionInfo(BaseModel):
         Returns:
             True if versions are compatible, False otherwise
         """
+        if other is None:
+            return compatible_if_unknown
+
         if check_protocol:
             if self.protocol_version != other.protocol_version:
                 return False
