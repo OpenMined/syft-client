@@ -6,6 +6,7 @@ from typing import Optional
 
 from syft_job.config import SyftJobConfig
 from syft_job.models.config import JobSubmissionMetadata
+from syft_job.models.state import JobState, JobStatus
 
 from syft_bg.common.monitor import Monitor
 from syft_bg.common.state import JsonStateManager
@@ -78,10 +79,28 @@ class JobMonitor(Monitor):
             if success:
                 print(f"[JobMonitor] Sent job approved notification: {job_name}")
 
-        if (job_path / "done").exists():
+        review_state = self._load_review_state(ds_email, job_name)
+        if review_state and review_state.status == JobStatus.FAILED:
+            success = self.handler.on_job_failed(ds_email, job_name)
+            if success:
+                print(f"[JobMonitor] Sent job failed notification: {job_name}")
+        elif (job_path / "done").exists():
             success = self.handler.on_job_executed(ds_email, job_name)
             if success:
                 print(f"[JobMonitor] Sent job executed notification: {job_name}")
+
+    def _load_review_state(self, ds_email: str, job_name: str) -> Optional[JobState]:
+        """Load state.yaml from the job's review directory."""
+        review_dir = self.job_config.get_review_job_dir(
+            self.do_email, ds_email, job_name
+        )
+        state_file = review_dir / "state.yaml"
+        if not state_file.exists():
+            return None
+        try:
+            return JobState.load(state_file)
+        except Exception:
+            return None
 
     def _load_job_metadata(self, job_path: Path) -> Optional[JobSubmissionMetadata]:
         config_file = job_path / "config.yaml"
