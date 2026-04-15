@@ -89,6 +89,90 @@ class TestVersionMismatchCheck:
         handle_potential_version_mismatches_on_login(EMAIL, TOKEN_PATH)
 
 
+def _query_files(connection, name_contains):
+    """Query mock drive for files/folders whose name contains a substring."""
+    q = f"name contains '{name_contains}' and trashed=false"
+    results = (
+        connection.drive_service.files().list(q=q, fields="files(id, name)").execute()
+    )
+    return results.get("files", [])
+
+
+def test_delete_unversioned_state_removes_correct_folders():
+    """delete_unversioned_state removes exactly the right artifacts from mock drive."""
+    from syft_client.sync.connections.drive.gdrive_transport import (
+        GDRIVE_P2P_FOLDER_DATASITE_PREFIX,
+        SYFT_PEERS_FILE,
+        SYFT_VERSION_FILE,
+    )
+    from syft_datasets.dataset_manager import (
+        DATASET_COLLECTION_PREFIX,
+        PRIVATE_DATASET_COLLECTION_PREFIX,
+    )
+    from syft_client.sync.syftbox_manager import SyftboxManager
+
+    from tests.unit.utils import create_tmp_dataset_files
+
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+        encryption=True,
+    )
+
+    # Create dataset so collection folders exist
+    mock_path, private_path, readme_path = create_tmp_dataset_files()
+    do_manager.create_dataset(
+        name="my dataset",
+        mock_path=mock_path,
+        private_path=private_path,
+        summary="Test",
+        readme_path=readme_path,
+        users=[ds_manager.email],
+        upload_private=True,
+    )
+    do_manager.sync()
+
+    do_conn = do_manager.peer_manager.connection_router.connections[0]
+    do_email = do_manager.email
+
+    # Assert artifacts exist before deletion
+    do_enc_bundles = f"syft_encryption_bundles#{do_email}"
+    assert len(_query_files(do_conn, do_enc_bundles)) > 0
+    assert len(_query_files(do_conn, DATASET_COLLECTION_PREFIX)) > 0
+    assert len(_query_files(do_conn, PRIVATE_DATASET_COLLECTION_PREFIX)) > 0
+    assert len(_query_files(do_conn, SYFT_PEERS_FILE)) > 0
+    assert len(_query_files(do_conn, SYFT_VERSION_FILE)) > 0
+
+    # Assert versioned folders exist
+    p2p_before = _query_files(do_conn, GDRIVE_P2P_FOLDER_DATASITE_PREFIX)
+    assert len(p2p_before) > 0
+
+    # Delete unversioned state
+    do_conn.delete_unversioned_state()
+
+    # Assert unversioned artifacts are gone
+    assert len(_query_files(do_conn, do_enc_bundles)) == 0
+    assert len(_query_files(do_conn, DATASET_COLLECTION_PREFIX)) == 0
+    assert len(_query_files(do_conn, PRIVATE_DATASET_COLLECTION_PREFIX)) == 0
+    # peers/version files: DO's are gone, DS's may still exist
+    do_peers = [
+        f
+        for f in _query_files(do_conn, SYFT_PEERS_FILE)
+        if f["id"] == do_conn._get_peers_file_id()
+    ]
+    assert len(do_peers) == 0
+    do_version = [
+        f
+        for f in _query_files(do_conn, SYFT_VERSION_FILE)
+        if f["id"] == do_conn._get_version_file_id()
+    ]
+    assert len(do_version) == 0
+
+    # Assert versioned folders survive
+    p2p_after = _query_files(do_conn, GDRIVE_P2P_FOLDER_DATASITE_PREFIX)
+    assert len(p2p_after) == len(p2p_before)
+
+
 class TestDeleteSyftboxImport:
     def test_importable_from_top_level(self):
         from syft_client import (
