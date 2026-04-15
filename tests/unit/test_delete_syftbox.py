@@ -3,7 +3,19 @@
 from pathlib import Path
 from unittest.mock import patch
 
+from syft_client.sync.connections.drive.gdrive_transport import (
+    GDRIVE_P2P_FOLDER_DATASITE_PREFIX,
+    SYFT_PEERS_FILE,
+    SYFT_VERSION_FILE,
+)
+from syft_client.sync.login_utils import handle_potential_version_mismatches_on_login
+from syft_client.sync.syftbox_manager import SyftboxManager
 from syft_client.sync.version.version_info import VersionInfo
+from syft_datasets.dataset_manager import (
+    DATASET_COLLECTION_PREFIX,
+    PRIVATE_DATASET_COLLECTION_PREFIX,
+)
+from tests.unit.utils import create_tmp_dataset_files
 
 
 EMAIL = "test@example.com"
@@ -34,10 +46,6 @@ class TestVersionMismatchCheck:
         mock_delete_remote,
     ):
         """Mismatch + choice 2 (delete all) → local + remote deleted."""
-        from syft_client.sync.login_utils import (
-            handle_potential_version_mismatches_on_login,
-        )
-
         mock_read_local.return_value = _old_version_info()
         mock_read_remote.return_value = _old_version_info()
 
@@ -62,10 +70,6 @@ class TestVersionMismatchCheck:
         mock_delete_unversioned,
     ):
         """Mismatch + choice 1 (upgrade) → local deleted, unversioned state deleted, full remote preserved."""
-        from syft_client.sync.login_utils import (
-            handle_potential_version_mismatches_on_login,
-        )
-
         mock_read_local.return_value = _old_version_info()
         mock_read_remote.return_value = _old_version_info()
 
@@ -79,10 +83,6 @@ class TestVersionMismatchCheck:
     @patch("syft_client.sync.login_utils.read_local_version")
     def test_no_mismatch_no_prompt(self, mock_read_local, mock_read_remote):
         """Both versions match installed → no prompt."""
-        from syft_client.sync.login_utils import (
-            handle_potential_version_mismatches_on_login,
-        )
-
         mock_read_local.return_value = VersionInfo.current()
         mock_read_remote.return_value = VersionInfo.current()
 
@@ -100,19 +100,6 @@ def _query_files(connection, name_contains):
 
 def test_delete_unversioned_state_removes_correct_folders():
     """delete_unversioned_state removes exactly the right artifacts from mock drive."""
-    from syft_client.sync.connections.drive.gdrive_transport import (
-        GDRIVE_P2P_FOLDER_DATASITE_PREFIX,
-        SYFT_PEERS_FILE,
-        SYFT_VERSION_FILE,
-    )
-    from syft_datasets.dataset_manager import (
-        DATASET_COLLECTION_PREFIX,
-        PRIVATE_DATASET_COLLECTION_PREFIX,
-    )
-    from syft_client.sync.syftbox_manager import SyftboxManager
-
-    from tests.unit.utils import create_tmp_dataset_files
-
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False,
         sync_automatically=False,
