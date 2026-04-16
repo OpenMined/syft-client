@@ -3,7 +3,7 @@
 import shutil
 from pathlib import Path
 
-from syft_bg.api.results import AutoApproveResult, StatusResult
+from syft_bg.api.results import AutoApproveResult, InstallationResult, StatusResult
 from syft_bg.api.utils import (
     copy_and_hash_files,
     generate_unique_name,
@@ -20,6 +20,8 @@ from syft_bg.common.config import get_syftbg_dir, get_default_paths
 from syft_bg.common.drive import is_colab
 from syft_bg.common.syft_bg_config import SyftBgConfig
 from syft_bg.services import ServiceManager
+from syft_bg.services.base import ServiceStatus
+from syft_bg.systemd import install_service, is_installed, uninstall_service
 
 # This file should only contain user facing methods,
 # util functions should be in the utils.py file.
@@ -51,7 +53,9 @@ def init(
 
 
 def ensure_running(
-    services: dict[str, dict] | list[str], restart: bool = False
+    services: dict[str, dict] | list[str],
+    restart: bool = False,
+    install: bool = False,
 ) -> None:
     # store new settings
     try:
@@ -86,6 +90,14 @@ def ensure_running(
         else:
             manager.start_service(name)
             print(f"{name} started")
+
+    if install:
+        for name in services:
+            ok, msg = install_service(name)
+            if ok:
+                print(f"{name} installed: {msg}")
+            else:
+                print(f"{name} install failed: {msg}")
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +168,65 @@ def reset() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Systemd install
+# ---------------------------------------------------------------------------
+
+
+def install(service: str | None = None) -> list[InstallationResult]:
+    """Install syft-bg service(s) as systemd user units.
+
+    Args:
+        service: Name of a specific service to install.
+                 If None, installs all registered services.
+
+    Returns:
+        List of InstallationResult, one per service.
+    """
+    manager = ServiceManager()
+    names = [service] if service else manager.list_services()
+
+    results = []
+    for name in names:
+        if name not in manager.list_services():
+            results.append(
+                InstallationResult(
+                    success=False, service=name, message=f"Unknown service: {name}"
+                )
+            )
+            continue
+        ok, msg = install_service(name)
+        results.append(InstallationResult(success=ok, service=name, message=msg))
+    return results
+
+
+def uninstall(service: str | None = None) -> list[InstallationResult]:
+    """Uninstall syft-bg service(s) systemd user units.
+
+    Args:
+        service: Name of a specific service to uninstall.
+                 If None, uninstalls all registered services.
+
+    Returns:
+        List of InstallationResult, one per service.
+    """
+    manager = ServiceManager()
+    names = [service] if service else manager.list_services()
+
+    results = []
+    for name in names:
+        if name not in manager.list_services():
+            results.append(
+                InstallationResult(
+                    success=False, service=name, message=f"Unknown service: {name}"
+                )
+            )
+            continue
+        ok, msg = uninstall_service(name)
+        results.append(InstallationResult(success=ok, service=name, message=msg))
+    return results
+
+
 def logs(service: str, n: int = 50, as_list: bool = False) -> list[str]:
     """Get recent log lines for a service.
 
@@ -210,8 +281,6 @@ def status() -> StatusResult:
           gmail:       ready
         ...
     """
-    from syft_bg.services.base import ServiceStatus
-
     try:
         config = SyftBgConfig.from_path()
     except FileNotFoundError:
@@ -219,6 +288,7 @@ def status() -> StatusResult:
 
     manager = ServiceManager()
     services = {}
+    installed = {}
     for name, info in manager.get_all_status().items():
         svc = manager.get_service(name)
         if not svc.pid_file.parent.exists():
@@ -227,10 +297,12 @@ def status() -> StatusResult:
             services[name] = f"running (PID {info.pid})"
         else:
             services[name] = "stopped"
+        installed[name] = is_installed(name)
 
     return StatusResult(
         config=config,
         services=services,
+        installed=installed,
         is_colab=is_colab(),
     )
 

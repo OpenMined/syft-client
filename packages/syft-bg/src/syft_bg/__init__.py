@@ -4,22 +4,26 @@ from syft_bg.api import (
     AuthResult,
     AutoApproveResult,
     InitResult,
+    InstallationResult,
     StatusResult,
     auto_approve,
     auto_approve_job,
     ensure_running,
     init,
+    install,
     logs,
     restart,
     reset,
     start,
     stop,
+    uninstall,
 )
 from syft_bg.services import ServiceManager
 
 __all__ = [
     "ServiceManager",
     "InitResult",
+    "InstallationResult",
     "AuthResult",
     "auto_approve",
     "auto_approve_job",
@@ -32,7 +36,9 @@ __all__ = [
     "logs",
     "ensure_running",
     "init",
+    "install",
     "reset",
+    "uninstall",
 ]
 
 

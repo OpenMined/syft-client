@@ -97,23 +97,38 @@ class TokenStatus:
 class ServiceLine:
     """Displayable service status with text and HTML representations."""
 
-    def __init__(self, name: str, status: str, has_setup_error: bool):
+    def __init__(
+        self, name: str, status: str, has_setup_error: bool, installed: bool = False
+    ):
         self.name = name
         self.status = status
         self.has_setup_error = has_setup_error
+        self.installed = installed
+
+    def _installed_suffix(self, as_html: bool = False) -> str:
+        if self.installed:
+            if as_html:
+                return ' <span style="color:green">(installed)</span>'
+            return " (installed)"
+        if as_html:
+            return ' <span style="color:gray">(not installed)</span>'
+        return " (not installed)"
 
     def render(self, as_html: bool = False) -> str:
+        suffix = self._installed_suffix(as_html)
         if self.has_setup_error:
             if as_html:
-                return f'{self.name}: <span style="color:red">✗ setup error</span>'
-            return f"  {self.name:<16} ✗ setup error"
+                return (
+                    f'{self.name}: <span style="color:red">✗ setup error</span>{suffix}'
+                )
+            return f"  {self.name:<16} ✗ setup error{suffix}"
         if as_html:
             if "running" in self.status:
                 status = f'<span style="color:green">{self.status}</span>'
             else:
                 status = self.status
-            return f"{self.name}: {status}"
-        return f"  {self.name:<16} {self.status}"
+            return f"{self.name}: {status}{suffix}"
+        return f"  {self.name:<16} {self.status}{suffix}"
 
 
 class StatusResult(BaseModel):
@@ -123,6 +138,7 @@ class StatusResult(BaseModel):
 
     config: "SyftBgConfig"
     services: dict[str, str] = Field(default_factory=dict)
+    installed: dict[str, bool] = Field(default_factory=dict)
     is_colab: bool = False
 
     @property
@@ -168,7 +184,8 @@ class StatusResult(BaseModel):
         for name, s in self.services.items():
             setup = load_setup_state(name)
             has_error = bool(setup and setup.setup_status == SetupStatus.ERROR)
-            items.append(ServiceLine(name, s, has_error))
+            svc_installed = self.installed.get(name, False)
+            items.append(ServiceLine(name, s, has_error, installed=svc_installed))
         return items
 
     def _tokens_contents(self, as_html: bool = False) -> str:
@@ -244,6 +261,18 @@ class StatusResult(BaseModel):
         html += f"<b>tokens</b><br>{tokens_html}<br><br>"
         html += f"<b>services</b><br>{services_html}"
         return html
+
+
+class InstallationResult(BaseModel):
+    """Result of installing or uninstalling a single service."""
+
+    success: bool
+    service: str
+    message: str = ""
+
+    def __repr__(self) -> str:
+        status = "ok" if self.success else "failed"
+        return f"InstallationResult: {self.service} {status} — {self.message}"
 
 
 class AutoApproveResult(BaseModel):
