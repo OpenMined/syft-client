@@ -7,11 +7,13 @@ from click.testing import CliRunner
 from syft_bg.cli.commands import (
     auto_approve,
     init,
+    install,
     list_auto_approvals,
     main,
     remove_auto_approval,
     remove_peer,
     status,
+    uninstall,
 )
 
 
@@ -100,6 +102,112 @@ class TestMainCommand:
         assert "remove-auto-approval" in result.output
         assert "remove-peer" in result.output
         assert "list-auto-approvals" in result.output
+
+
+class TestInstallCommand:
+    """Tests for the install command."""
+
+    @patch("syft_bg.api.api.install")
+    def test_install_all_services(self, mock_install):
+        """Should call api.install with no service and show results."""
+        from syft_bg.api.results import InstallationResult
+
+        mock_install.return_value = [
+            InstallationResult(
+                success=True,
+                service="notify",
+                message="Service installed: /path/syft-bg-notify.service",
+            ),
+            InstallationResult(
+                success=True,
+                service="approve",
+                message="Service installed: /path/syft-bg-approve.service",
+            ),
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(install, [])
+
+        assert result.exit_code == 0
+        mock_install.assert_called_once_with(None)
+        assert "notify" in result.output
+        assert "approve" in result.output
+
+    @patch("syft_bg.api.api.install")
+    def test_install_single_service(self, mock_install):
+        """Should pass service name to api.install."""
+        from syft_bg.api.results import InstallationResult
+
+        mock_install.return_value = [
+            InstallationResult(
+                success=True,
+                service="notify",
+                message="Service installed: /path/syft-bg-notify.service",
+            ),
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(install, ["notify"])
+
+        assert result.exit_code == 0
+        mock_install.assert_called_once_with("notify")
+
+    @patch("syft_bg.api.api.install")
+    def test_install_failure(self, mock_install):
+        """Should exit 1 on install failure."""
+        from syft_bg.api.results import InstallationResult
+
+        mock_install.return_value = [
+            InstallationResult(
+                success=False, service="notify", message="systemctl not found"
+            ),
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(install, ["notify"])
+
+        assert result.exit_code == 1
+        assert "systemctl not found" in result.output
+
+
+class TestUninstallCommand:
+    """Tests for the uninstall command."""
+
+    @patch("syft_bg.api.api.uninstall")
+    def test_uninstall_all_services(self, mock_uninstall):
+        """Should call api.uninstall with no service and show results."""
+        from syft_bg.api.results import InstallationResult
+
+        mock_uninstall.return_value = [
+            InstallationResult(
+                success=True,
+                service="notify",
+                message="Service uninstalled: /path/syft-bg-notify.service",
+            ),
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(uninstall, [])
+
+        assert result.exit_code == 0
+        mock_uninstall.assert_called_once_with(None)
+
+    @patch("syft_bg.api.api.uninstall")
+    def test_uninstall_failure(self, mock_uninstall):
+        """Should exit 1 on uninstall failure."""
+        from syft_bg.api.results import InstallationResult
+
+        mock_uninstall.return_value = [
+            InstallationResult(
+                success=False, service="notify", message="systemctl not found"
+            ),
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(uninstall, ["notify"])
+
+        assert result.exit_code == 1
+        assert "systemctl not found" in result.output
 
 
 class TestAutoApproveCommand:
