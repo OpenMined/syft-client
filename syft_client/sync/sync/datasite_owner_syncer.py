@@ -993,3 +993,28 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
                 result = self.compact_checkpoints()
 
         return result
+
+    # =========================================================================
+    # CACHE PERSISTENCE METHODS
+    # =========================================================================
+
+    def load_cache(self, cache_dir: Path) -> None:
+        """Load rolling state from shared disk cache (cross-process consistency)."""
+        path = cache_dir / "rolling_state.json"
+        if not path.exists():
+            return
+        try:
+            self._rolling_state = RollingState.model_validate_json(path.read_text())
+            self._events_since_rolling_state_upload = 0
+        except Exception:
+            pass
+
+    def save_cache(self, cache_dir: Path) -> None:
+        """Save rolling state to shared disk cache (cross-process consistency)."""
+        if self._rolling_state is None:
+            return
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        path = cache_dir / "rolling_state.json"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(self._rolling_state.model_dump_json())
+        tmp.rename(path)

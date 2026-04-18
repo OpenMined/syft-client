@@ -845,6 +845,22 @@ class SyftboxManager(BaseModel):
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
                 logger.info(f"Sync lock released for {self.email}")
 
+    def _load_caches(self, cache_dir: Path):
+        """Load all persisted caches from shared disk."""
+        if self.has_do_role and self.datasite_owner_syncer:
+            self.datasite_owner_syncer.event_cache.load_cache(cache_dir)
+            self.datasite_owner_syncer.load_cache(cache_dir)
+        if self.has_ds_role and self.datasite_watcher_syncer:
+            self.datasite_watcher_syncer.datasite_watcher_cache.load_cache(cache_dir)
+
+    def _save_caches(self, cache_dir: Path):
+        """Save all persisted caches to shared disk."""
+        if self.has_do_role and self.datasite_owner_syncer:
+            self.datasite_owner_syncer.event_cache.save_cache(cache_dir)
+            self.datasite_owner_syncer.save_cache(cache_dir)
+        if self.has_ds_role and self.datasite_watcher_syncer:
+            self.datasite_watcher_syncer.datasite_watcher_cache.save_cache(cache_dir)
+
     def sync(self, auto_checkpoint: bool = True, checkpoint_threshold: int = 50):
         """
         Sync local state with Google Drive.
@@ -855,6 +871,9 @@ class SyftboxManager(BaseModel):
             checkpoint_threshold: Create checkpoint when events >= this value.
         """
         with self._sync_file_lock():
+            cache_dir = self.syftbox_folder / ".cache"
+            self._load_caches(cache_dir)
+
             self.load_peers()
             if self.has_do_role:
                 peer_emails = [peer.email for peer in self.peer_manager.approved_peers]
@@ -869,6 +888,8 @@ class SyftboxManager(BaseModel):
                 peer_emails = [peer.email for peer in self.peer_manager.syncable_peers]
                 self.peer_manager.warn_if_all_peers_incompatible(peer_emails)
                 self.datasite_watcher_syncer.sync_down(peer_emails)
+
+            self._save_caches(cache_dir)
 
     def load_peers(self):
         """Load peers from connection router. Delegates to PeerManager."""
@@ -1311,6 +1332,9 @@ class SyftboxManager(BaseModel):
             raise ValueError("Only data owners can share private datasets")
 
         with self._sync_file_lock():
+            cache_dir = self.syftbox_folder / ".cache"
+            self._load_caches(cache_dir)
+
             files = self.dataset_manager.get_private_dataset_files(tag)
             events_message = (
                 self.datasite_owner_syncer.event_cache.create_events_for_files(files)
@@ -1320,6 +1344,8 @@ class SyftboxManager(BaseModel):
                 file_change_events_message=events_message,
             )
             self.datasite_owner_syncer.process_syftbox_events_queue()
+
+            self._save_caches(cache_dir)
 
     @property
     def datasets(self) -> SyftDatasetManager:
@@ -1495,7 +1521,12 @@ class SyftboxManager(BaseModel):
         """
         if not self.has_do_role:
             raise ValueError("Checkpoints can only be created by Data Owners")
-        return self.datasite_owner_syncer.create_checkpoint()
+        with self._sync_file_lock():
+            cache_dir = self.syftbox_folder / ".cache"
+            self._load_caches(cache_dir)
+            result = self.datasite_owner_syncer.create_checkpoint()
+            self._save_caches(cache_dir)
+            return result
 
     def should_create_checkpoint(self, threshold: int = 50) -> bool:
         """
