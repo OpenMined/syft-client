@@ -59,13 +59,16 @@ def test_no_duplicate_events_across_processes():
 
 
 def test_rolling_state_not_overwritten_across_processes():
-    """Process B must build on Process A's rolling state, not overwrite it.
+    """Simulates the real scenario: syft-bg has been running for a while,
+    then the notebook syncs new events. syft-bg syncs again — its rolling
+    state must include the notebook's events, not overwrite them.
 
-    Without caching: Process B's rolling state is empty → adds only its own
-    events → uploads to GDrive → overwrites A's events → data loss.
+    Without caching: B's in-memory rolling state is stale (from its initial
+    sync hours ago). When B syncs again, it uploads its stale state to GDrive,
+    erasing A's new events. Data loss for new clients.
 
-    With caching: Process B loads A's rolling state → adds its events on top
-    → uploads the merged state → nothing lost.
+    With caching: B loads A's saved rolling state from .cache/ → builds on
+    top of it → uploads the merged state → nothing lost.
     """
     ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
         use_in_memory_cache=False
@@ -74,33 +77,36 @@ def test_rolling_state_not_overwritten_across_processes():
         ds_manager.email
     )
 
-    # Process A: peer sends events, A syncs → rolling state has them
+    # --- Step 1: Process B (syft-bg) starts first and does its initial sync ---
+    do_manager_b = do_manager._copy()
+    do_manager_b.sync(auto_checkpoint=False)
+    # B is now "running" — initial_sync_done = True, has its own rolling state
+
+    # --- Step 2: Process A (notebook) gets peer events and syncs ---
     ds_manager._send_file_change(f"{do_manager.email}/file1.txt", "content1")
     ds_manager._send_file_change(f"{do_manager.email}/file2.txt", "content2")
     do_manager.sync(auto_checkpoint=False)
 
+    # A's rolling state now has file1 and file2
     rs_after_a = do_manager.datasite_owner_syncer._rolling_state
     assert rs_after_a is not None
-    count_after_a = rs_after_a.event_count
-    assert count_after_a >= 2
+    assert rs_after_a.event_count >= 2
 
-    # Process B: peer sends more events, B syncs
+    # --- Step 3: Process B (syft-bg) syncs again ---
+    # In real life: B has been running, initial_sync_done=True,
+    # pull_initial_state is SKIPPED. B's rolling state is stale.
     ds_manager._send_file_change(f"{do_manager.email}/file3.txt", "content3")
-    do_manager_b = do_manager._copy()
     do_manager_b.sync(auto_checkpoint=False)
 
+    # B's rolling state must include A's events (file1, file2) + its own (file3)
     rs_after_b = do_manager_b.datasite_owner_syncer._rolling_state
     assert rs_after_b is not None
 
-    # B's rolling state must include A's events + its own
-    assert rs_after_b.event_count >= count_after_a + 1, (
-        f"Rolling state overwrite! A had {count_after_a} events, "
-        f"B should have >= {count_after_a + 1}, got {rs_after_b.event_count}. "
-        f"Process B overwrote A's rolling state instead of building on it."
-    )
-
-    # Verify A's specific files are still in the rolling state
     paths_in_rs = {str(e.path_in_datasite) for e in rs_after_b.events}
-    assert "file1.txt" in paths_in_rs, "file1.txt lost from rolling state"
-    assert "file2.txt" in paths_in_rs, "file2.txt lost from rolling state"
-    assert "file3.txt" in paths_in_rs, "file3.txt missing from rolling state"
+    assert "file1.txt" in paths_in_rs, (
+        "file1.txt lost! B overwrote A's rolling state instead of building on it."
+    )
+    assert "file2.txt" in paths_in_rs, (
+        "file2.txt lost! B overwrote A's rolling state instead of building on it."
+    )
+    assert "file3.txt" in paths_in_rs, "file3.txt missing from rolling state."
