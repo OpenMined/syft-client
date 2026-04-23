@@ -423,7 +423,10 @@ def init(email: str, syftbox_root: str | None, token_path: str | None):
 @click.option(
     "--restart", is_flag=True, help="Restart services even if already running"
 )
-def ensure_running(services: tuple[str, ...], restart: bool):
+@click.option(
+    "--install", is_flag=True, help="Install systemd service units for autostart"
+)
+def ensure_running(services: tuple[str, ...], restart: bool, install: bool):
     """Start services if they aren't already running.
 
     Examples:
@@ -431,10 +434,12 @@ def ensure_running(services: tuple[str, ...], restart: bool):
       syft-bg ensure-running notify approve
 
       syft-bg ensure-running notify --restart
+
+      syft-bg ensure-running notify approve --install
     """
     from syft_bg.api.api import ensure_running as api_ensure_running
 
-    api_ensure_running(list(services), restart=restart)
+    api_ensure_running(list(services), restart=restart, install=install)
 
 
 @main.command("auto-approve")
@@ -643,58 +648,64 @@ def list_auto_approvals(name: str | None):
 
 
 @main.command()
-def install():
-    """Install syft-bg as a systemd user service.
+@click.argument("service", required=False)
+def install(service: Optional[str]):
+    """Install syft-bg systemd user service(s).
 
-    This enables syft-bg to start automatically on login.
+    If SERVICE is given, install only that service. Otherwise install all.
 
     Examples:
 
       syft-bg install
 
-    After installation:
-
-      systemctl --user start syft-bg    # Start now
-      systemctl --user status syft-bg   # Check status
-      systemctl --user stop syft-bg     # Stop
+      syft-bg install notify
     """
-    from syft_bg.systemd import install_service
+    from syft_bg.api.api import install as api_install
 
-    click.echo("Installing syft-bg systemd user service...")
-    success, msg = install_service()
+    label = service or "all services"
+    click.echo(f"Installing {label}...")
+    results = api_install(service)
 
-    if success:
-        click.echo(f"✅ {msg}")
-        click.echo()
-        click.echo("To start the service now:")
-        click.echo("  systemctl --user start syft-bg")
-        click.echo()
-        click.echo("To check status:")
-        click.echo("  systemctl --user status syft-bg")
-    else:
-        click.echo(f"❌ {msg}", err=True)
+    failed = False
+    for r in results:
+        if r.success:
+            click.echo(f"  ✅ {r.service}: {r.message}")
+        else:
+            click.echo(f"  ❌ {r.service}: {r.message}", err=True)
+            failed = True
+
+    if failed:
         raise SystemExit(1)
 
 
 @main.command()
-def uninstall():
-    """Uninstall syft-bg systemd user service.
+@click.argument("service", required=False)
+def uninstall(service: Optional[str]):
+    """Uninstall syft-bg systemd user service(s).
 
-    This stops the service and removes it from systemd.
+    If SERVICE is given, uninstall only that service. Otherwise uninstall all.
 
-    Example:
+    Examples:
 
       syft-bg uninstall
+
+      syft-bg uninstall notify
     """
-    from syft_bg.systemd import uninstall_service
+    from syft_bg.api.api import uninstall as api_uninstall
 
-    click.echo("Uninstalling syft-bg systemd user service...")
-    success, msg = uninstall_service()
+    label = service or "all services"
+    click.echo(f"Uninstalling {label}...")
+    results = api_uninstall(service)
 
-    if success:
-        click.echo(f"✅ {msg}")
-    else:
-        click.echo(f"❌ {msg}", err=True)
+    failed = False
+    for r in results:
+        if r.success:
+            click.echo(f"  ✅ {r.service}: {r.message}")
+        else:
+            click.echo(f"  ❌ {r.service}: {r.message}", err=True)
+            failed = True
+
+    if failed:
         raise SystemExit(1)
 
 
