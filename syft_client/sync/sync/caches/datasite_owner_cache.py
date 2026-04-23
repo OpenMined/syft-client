@@ -1,4 +1,5 @@
 from typing import List, Dict
+import json
 from pydantic import Field
 from syft_client.sync.events.file_change_event import FileChangeEventsMessage
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
@@ -390,3 +391,23 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 latest_timestamp = events_message.timestamp
 
         return latest_timestamp
+
+    def load_cache(self, cache_dir: Path) -> None:
+        """Load file_hashes from shared disk cache (cross-process consistency)."""
+        path = cache_dir / "owner_file_hashes.json"
+        if not path.exists():
+            return
+        try:
+            with open(path, "r") as f:
+                self.file_hashes = {Path(k): v for k, v in json.load(f).items()}
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    def save_cache(self, cache_dir: Path) -> None:
+        """Save file_hashes to shared disk cache (cross-process consistency)."""
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        path = cache_dir / "owner_file_hashes.json"
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump({str(k): v for k, v in self.file_hashes.items()}, f)
+        tmp.rename(path)

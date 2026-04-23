@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List
+import json
 from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConnection
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -395,3 +396,35 @@ class DataSiteWatcherCache(BaseModel):
                 self.dataset_collection_hashes[collection_path] = collection[
                     "content_hash"
                 ]
+
+    def load_cache(self, cache_dir: Path) -> None:
+        """Load watcher state from shared disk cache (cross-process consistency)."""
+        path = cache_dir / "watcher_state.json"
+        if not path.exists():
+            return
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            self.file_hashes = {
+                Path(k): v for k, v in data.get("file_hashes", {}).items()
+            }
+            self.last_event_timestamp_per_peer = data.get(
+                "last_event_timestamp_per_peer", {}
+            )
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    def save_cache(self, cache_dir: Path) -> None:
+        """Save watcher state to shared disk cache (cross-process consistency)."""
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        path = cache_dir / "watcher_state.json"
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(
+                {
+                    "file_hashes": {str(k): v for k, v in self.file_hashes.items()},
+                    "last_event_timestamp_per_peer": self.last_event_timestamp_per_peer,
+                },
+                f,
+            )
+        tmp.rename(path)
