@@ -74,17 +74,23 @@ class JobMonitor(Monitor):
             if success:
                 print(f"[JobMonitor] Sent new job notification: {job_name}")
 
-        if (job_path / "approved").exists():
+        review_state = self._load_review_state(ds_email, job_name)
+
+        if review_state and review_state.status in (
+            JobStatus.APPROVED,
+            JobStatus.RUNNING,
+            JobStatus.DONE,
+            JobStatus.FAILED,
+        ):
             success = self.handler.on_job_approved(ds_email, job_name)
             if success:
                 print(f"[JobMonitor] Sent job approved notification: {job_name}")
 
-        review_state = self._load_review_state(ds_email, job_name)
         if review_state and review_state.status == JobStatus.FAILED:
             success = self.handler.on_job_failed(ds_email, job_name)
             if success:
                 print(f"[JobMonitor] Sent job failed notification: {job_name}")
-        elif (job_path / "done").exists():
+        elif review_state and review_state.status == JobStatus.DONE:
             success = self.handler.on_job_executed(ds_email, job_name)
             if success:
                 print(f"[JobMonitor] Sent job executed notification: {job_name}")
