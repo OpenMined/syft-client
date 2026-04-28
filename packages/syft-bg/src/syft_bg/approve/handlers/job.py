@@ -39,6 +39,7 @@ class JobApprovalHandler:
         self.state = state
         self.on_approve = on_approve
         self.verbose = verbose
+        self._skipped_jobs: set[str] = set()
 
     def _get_approved_peers(self) -> list[str]:
         """Get list of approved peer emails."""
@@ -90,7 +91,8 @@ class JobApprovalHandler:
             result = self.evaluate_auto_approval(job)
 
             if not result.match:
-                if job.status == "pending":
+                if job.status == "pending" and job.name not in self._skipped_jobs:
+                    self._skipped_jobs.add(job.name)
                     if self.verbose:
                         print(f"Skipped: {job.name} ({result.reason})")
                 continue
