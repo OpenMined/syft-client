@@ -191,18 +191,9 @@ def test_email_auto_approve_creates_object_and_approves_future_jobs():
         monitor._process_history(history_id)
         msg.ack()
 
-        # -- Step 4: Verify first job done and DS gets results --
-        assert do_manager.jobs[0].status == "done"
-
-        do_manager.sync()
-        ds_manager.sync()
-        ds_job = [j for j in ds_manager.jobs if j.name == job_name][0]
-        assert len(ds_job.output_paths) > 0
-
-        result = json.loads(ds_job.output_paths[0].read_text())
-        assert result["params"]["run"] == 1
-
-        # -- Step 5: Verify auto-approve object was created correctly --
+        # -- Step 4: Verify auto-approve object was created correctly --
+        # The email handler only creates the AutoApprovalObj; approve service
+        # picks up the trigger job on its next tick.
         config = AutoApproveConfig.load()
         obj = config.auto_approvals.objects[job_name]
         content_names = {e.relative_path for e in obj.file_contents}
@@ -210,7 +201,10 @@ def test_email_auto_approve_creates_object_and_approves_future_jobs():
         assert obj.file_paths == ["params.json"]
         assert obj.peers == [ds_manager.email]
 
-        # -- Step 6: Submit second job with same main.py, different params --
+        # Trigger job is still pending — approve service hasn't run yet.
+        assert do_manager.jobs[0].status == "pending"
+
+        # -- Step 5: Submit second job with same main.py, different params --
         project_dir_2 = _create_project_code_files_with_json_contents({"run": 2})
         ds_manager.submit_python_job(
             user=do_manager.email,
@@ -225,7 +219,7 @@ def test_email_auto_approve_creates_object_and_approves_future_jobs():
         ][0]
         assert second_job.status == "pending"
 
-        # -- Step 7: Run approval orchestrator — should auto-approve --
+        # -- Step 6: Run approval orchestrator — should auto-approve both jobs --
         approve_config = AutoApproveConfig.load()
         approve_config.do_email = do_manager.email
         approve_config.syftbox_root = do_manager.syftbox_folder
@@ -234,7 +228,10 @@ def test_email_auto_approve_creates_object_and_approves_future_jobs():
         orchestrator = ApprovalOrchestrator(client=do_manager, config=approve_config)
         orchestrator.run_once(monitor_type="jobs")
 
-        # -- Step 8: Verify second job auto-approved and DS gets results --
+        # -- Step 7: Verify trigger job and second job both done; DS sees both --
+        trigger_job = [j for j in do_manager.jobs if j.name == job_name][0]
+        assert trigger_job.status == "done"
+
         second_job = [
             j for j in do_manager.jobs if j.name == "auto_approve_test_2.job"
         ][0]
@@ -242,10 +239,15 @@ def test_email_auto_approve_creates_object_and_approves_future_jobs():
 
         do_manager.sync()
         ds_manager.sync()
+
+        ds_job = [j for j in ds_manager.jobs if j.name == job_name][0]
+        assert len(ds_job.output_paths) > 0
+        result = json.loads(ds_job.output_paths[0].read_text())
+        assert result["params"]["run"] == 1
+
         ds_job_2 = [j for j in ds_manager.jobs if j.name == "auto_approve_test_2.job"][
             0
         ]
         assert len(ds_job_2.output_paths) > 0
-
         result_2 = json.loads(ds_job_2.output_paths[0].read_text())
         assert result_2["params"]["run"] == 2
