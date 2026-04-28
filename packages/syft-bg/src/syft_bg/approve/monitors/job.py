@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Optional
 
-from syft_job.job import JobInfo
-
 from syft_bg.approve.handlers.job import JobApprovalHandler, StateManager
 from syft_bg.common.monitor import Monitor
 
 if TYPE_CHECKING:
+    from syft_job.job import JobInfo
+
     from syft_bg.approve.config import AutoApprovalsConfig
     from syft_client.sync.syftbox_manager import SyftboxManager
 
@@ -23,7 +23,6 @@ class JobMonitor(Monitor):
         config: AutoApprovalsConfig,
         state: Optional[StateManager] = None,
         on_approve: Optional[Callable[[JobInfo], None]] = None,
-        on_reject: Optional[Callable[[JobInfo, str], None]] = None,
         verbose: bool = True,
     ):
         super().__init__()
@@ -32,7 +31,6 @@ class JobMonitor(Monitor):
             config=config,
             state=state,
             on_approve=on_approve,
-            on_reject=on_reject,
             verbose=verbose,
         )
 

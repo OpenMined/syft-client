@@ -102,9 +102,22 @@ class TestJobMonitorLocalStatusChanges:
             "do@test.com", "test_job", "ds@t.com"
         )
 
+    def _write_review_state(self, temp_dir, ds_email, job_name, status):
+        review_dir = (
+            temp_dir
+            / "do@test.com"
+            / "app_data"
+            / "job"
+            / "review"
+            / ds_email
+            / job_name
+        )
+        review_dir.mkdir(parents=True, exist_ok=True)
+        (review_dir / "state.yaml").write_text(f"status: {status}\n")
+
     def test_detects_approved_status(self, temp_dir):
-        _, inbox_job = self._setup_job(temp_dir)
-        (inbox_job / "approved").touch()
+        self._setup_job(temp_dir)
+        self._write_review_state(temp_dir, "ds@t.com", "test_job", "approved")
         handler = MagicMock()
         handler.on_new_job.return_value = True
         handler.on_job_approved.return_value = True
@@ -121,9 +134,8 @@ class TestJobMonitorLocalStatusChanges:
         handler.on_job_approved.assert_called_once_with("ds@t.com", "test_job")
 
     def test_detects_executed_status(self, temp_dir):
-        _, inbox_job = self._setup_job(temp_dir)
-        (inbox_job / "approved").touch()
-        (inbox_job / "done").touch()
+        self._setup_job(temp_dir)
+        self._write_review_state(temp_dir, "ds@t.com", "test_job", "done")
         handler = MagicMock()
         handler.on_new_job.return_value = True
         handler.on_job_approved.return_value = True
@@ -138,6 +150,7 @@ class TestJobMonitorLocalStatusChanges:
             state=state,
         )
         monitor.process_local_status_changes()
+        handler.on_job_approved.assert_called_once_with("ds@t.com", "test_job")
         handler.on_job_executed.assert_called_once_with("ds@t.com", "test_job")
 
     def test_skips_old_jobs_on_fresh_state(self, temp_dir):

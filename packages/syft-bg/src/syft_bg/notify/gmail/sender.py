@@ -128,6 +128,37 @@ To approve or deny this job, reply to this email with:
 
         return self.send_email(do_email, subject, body_text, body_html)
 
+    def notify_job_submitted_to_ds(
+        self,
+        ds_email: str,
+        job_name: str,
+        do_email: str,
+    ) -> SendResult:
+        """Notify DS that their job was submitted and is pending review."""
+        subject = f"Job Submitted: {job_name}"
+        body_text = f"""Your job has been submitted!
+
+Job: {job_name}
+Submitted To: {do_email}
+
+Your job is now pending review by the data owner.
+You'll receive follow-up emails when the job is reviewed and executed.
+"""
+        body_html = None
+        if self.use_html and self.renderer:
+            try:
+                body_html = self.renderer.render(
+                    "emails/job_submitted_ds.html",
+                    {
+                        "job_name": job_name,
+                        "do_email": do_email,
+                    },
+                )
+            except Exception:
+                pass
+
+        return self.send_email(ds_email, subject, body_text, body_html)
+
     def notify_job_approved(
         self,
         ds_email: str,
