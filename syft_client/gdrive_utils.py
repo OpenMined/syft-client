@@ -47,6 +47,7 @@ def credentials_to_token(
     output_path: str | Path | None = None,
     store: bool = False,
     do_scopes: bool = False,
+    force_browserless=False,
 ) -> Path:
     """Convert a Google OAuth credentials.json to an authorized token file.
 
@@ -68,21 +69,25 @@ def credentials_to_token(
     flow = InstalledAppFlow.from_client_secrets_file(
         str(credentials_path.absolute()), scopes
     )
-    try:
-        creds = flow.run_local_server(port=0)
-    except Exception:
+
+    def run_browserless():
         flow.redirect_uri = "http://localhost:1"
         auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
-
         print("Visit this URL to authorize Google Drive access:\n")
         print(f"  {auth_url}\n")
         print("After authorizing, you'll see a page that won't load.")
-        print("Copy the 'code' value from the URL in your browser's address bar.")
-        print("(The URL looks like: http://localhost:1/?code=XXXXX&scope=...)\n")
-
         code = input("Paste the authorization code here: ").strip()
         flow.fetch_token(code=code)
         creds = flow.credentials
+        return creds
+
+    if force_browserless:
+        creds = run_browserless()
+    else:
+        try:
+            creds = flow.run_local_server(port=0)
+        except Exception:
+            creds = run_browserless()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(creds.to_json())
