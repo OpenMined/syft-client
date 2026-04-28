@@ -128,10 +128,10 @@ class EmailApproveHandler:
         print(f"[EmailApproveHandler] Approved job: {job_name}")
 
     def _auto_approve_job(self, job, job_name: str, state_key: str) -> None:
-        """Approve a job and create an auto-approval object for future jobs."""
-        self._approve_job(job, job_name, state_key)
-
+        """Create an auto-approval object; the approve service will pick up the trigger job."""
         from syft_bg.api.api import auto_approve_job
+
+        self.state.mark_notified(state_key, "processed")
 
         result = auto_approve_job(job)
         if result.success:

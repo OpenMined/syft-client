@@ -238,8 +238,8 @@ class TestEmailApproveHandler:
         ) as mock_auto:
             handler.handle_reply(thread_id="thread_auto", reply_text="auto-approve")
 
-        mock_job.approve.assert_called_once()
-        job_runner.process_approved_jobs.assert_called_once()
+        mock_job.approve.assert_not_called()
+        job_runner.process_approved_jobs.assert_not_called()
         mock_auto.assert_called_once_with(mock_job)
 
     def test_job_not_pending(self, tmp_path):
