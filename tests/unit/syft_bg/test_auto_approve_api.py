@@ -102,7 +102,7 @@ class TestRemoveAutoApprove:
 class TestHandlerReloadsConfig:
     """The approve service must pick up YAML changes without a restart."""
 
-    def _make_job(self, code_dir: Path, submitted_by: str = "alice@test.com"):
+    def _make_test_job(self, code_dir: Path, submitted_by: str = "alice@test.com"):
         job = MagicMock()
         job.name = "test-job"
         job.status = "pending"
@@ -111,7 +111,9 @@ class TestHandlerReloadsConfig:
         job.files = []
         return job
 
-    def _matching_obj(self, code_dir: Path, peer: str) -> AutoApprovalObj:
+    def _create_matching_autoapprove_obj_from_dir(
+        self, code_dir: Path, peer: str
+    ) -> AutoApprovalObj:
         entries = [
             FileEntry.from_file(str(f.relative_to(code_dir)), f)
             for f in sorted(code_dir.rglob("*"))
@@ -126,7 +128,7 @@ class TestHandlerReloadsConfig:
         config_path = _seed_config(temp_dir, {})
 
         handler = JobApprovalHandler(client=MagicMock(), config_path=config_path)
-        job = self._make_job(code_dir)
+        job = self._make_test_job(code_dir)
 
         # No object yet — should not match.
         first = handler.evaluate_auto_approval(job)
@@ -135,7 +137,11 @@ class TestHandlerReloadsConfig:
         # Add a matching object directly to the YAML on disk (no restart).
         AutoApproveConfig(
             auto_approvals=AutoApprovalsConfig(
-                objects={"r1": self._matching_obj(code_dir, "alice@test.com")}
+                objects={
+                    "r1": self._create_matching_autoapprove_obj_from_dir(
+                        code_dir, "alice@test.com"
+                    )
+                }
             )
         ).save(config_path)
 
@@ -149,11 +155,16 @@ class TestHandlerReloadsConfig:
         (code_dir / "main.py").write_text("print('hello')\n")
 
         config_path = _seed_config(
-            temp_dir, {"r1": self._matching_obj(code_dir, "alice@test.com")}
+            temp_dir,
+            {
+                "r1": self._create_matching_autoapprove_obj_from_dir(
+                    code_dir, "alice@test.com"
+                )
+            },
         )
 
         handler = JobApprovalHandler(client=MagicMock(), config_path=config_path)
-        job = self._make_job(code_dir)
+        job = self._make_test_job(code_dir)
 
         first = handler.evaluate_auto_approval(job)
         assert first.match is True
