@@ -105,13 +105,31 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         )
 
     @property
-    def _cache_dir(self) -> Path:
-        return self.syftbox_folder / ".cache"
+    def _rolling_state_path(self) -> Path:
+        return self.syftbox_folder / ".cache" / "rolling_state.json"
+
+    def _load_rolling_state(self) -> None:
+        """Load rolling state from disk for cross-process consistency."""
+        path = self._rolling_state_path
+        if not path.exists():
+            return
+        try:
+            self._rolling_state = RollingState.model_validate_json(path.read_text())
+        except Exception:
+            pass
+
+    def _save_rolling_state(self) -> None:
+        """Save rolling state to disk for cross-process consistency."""
+        if self._rolling_state is None:
+            return
+        path = self._rolling_state_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(self._rolling_state.model_dump_json())
+        tmp.rename(path)
 
     def sync(self, peer_emails: list[str], recompute_hashes: bool = True):
-        # Load rolling state from shared disk for cross-process consistency.
-        # file_hashes uses PersistedDict and self-persists per operation.
-        self.load_cache(self._cache_dir)
+        self._load_rolling_state()
         try:
             if not self.initial_sync_done:
                 self.pull_initial_state()
@@ -130,7 +148,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
                         break
                 self.process_syftbox_events_queue()
         finally:
-            self.save_cache(self._cache_dir)
+            self._save_rolling_state()
 
     def download_events_message_by_id_with_connection(
         self, events_message_id: str
@@ -728,7 +746,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         upload_threshold: int = DEFAULT_ROLLING_STATE_UPLOAD_THRESHOLD,
     ) -> None:
         """
-        Add events to the in-memory rolling state and upload if threshold is reached.
+        Add events to the rolling state and upload if threshold is reached.
 
         Args:
             events_message: The events to add.
@@ -745,7 +763,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             self._upload_rolling_state()
 
     def _upload_rolling_state(self) -> None:
-        """Upload the in-memory rolling state to GDrive."""
+        """Upload the rolling state to GDrive."""
         if self._rolling_state is None or self._rolling_state.event_count == 0:
             return
 
@@ -826,9 +844,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         Returns:
             The created Checkpoint object.
         """
-        # Rolling state is mutated here; load/save for cross-process consistency.
-        # file_hashes uses PersistedDict and self-persists.
-        self.load_cache(self._cache_dir)
+        self._load_rolling_state()
         try:
             last_event_timestamp = self.event_cache.get_latest_event_timestamp()
             checkpoint = self.event_cache.create_checkpoint(
@@ -848,7 +864,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
 
             return checkpoint
         finally:
-            self.save_cache(self._cache_dir)
+            self._save_rolling_state()
 
     def should_create_checkpoint(
         self, threshold: int = DEFAULT_CHECKPOINT_EVENT_THRESHOLD
@@ -998,9 +1014,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         Returns:
             The created checkpoint (incremental or compacted), or None.
         """
-        # Rolling state is mutated here (reset on checkpoint creation).
-        # file_hashes uses PersistedDict and self-persists.
-        self.load_cache(self._cache_dir)
+        self._load_rolling_state()
         try:
             result = None
 
@@ -1014,29 +1028,4 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
 
             return result
         finally:
-            self.save_cache(self._cache_dir)
-
-    # =========================================================================
-    # CACHE PERSISTENCE METHODS
-    # =========================================================================
-
-    def load_cache(self, cache_dir: Path) -> None:
-        """Load rolling state from shared disk cache (cross-process consistency)."""
-        path = cache_dir / "rolling_state.json"
-        if not path.exists():
-            return
-        try:
-            self._rolling_state = RollingState.model_validate_json(path.read_text())
-            self._events_since_rolling_state_upload = 0
-        except Exception:
-            pass
-
-    def save_cache(self, cache_dir: Path) -> None:
-        """Save rolling state to shared disk cache (cross-process consistency)."""
-        if self._rolling_state is None:
-            return
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        path = cache_dir / "rolling_state.json"
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(self._rolling_state.model_dump_json())
-        tmp.rename(path)
+            self._save_rolling_state()
