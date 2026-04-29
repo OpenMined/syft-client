@@ -746,7 +746,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         upload_threshold: int = DEFAULT_ROLLING_STATE_UPLOAD_THRESHOLD,
     ) -> None:
         """
-        Add events to the rolling state and upload if threshold is reached.
+        Add events to the in-memory rolling state and upload if threshold is reached.
 
         Args:
             events_message: The events to add.
@@ -763,7 +763,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             self._upload_rolling_state()
 
     def _upload_rolling_state(self) -> None:
-        """Upload the rolling state to GDrive."""
+        """Upload the in-memory rolling state to GDrive."""
         if self._rolling_state is None or self._rolling_state.event_count == 0:
             return
 
