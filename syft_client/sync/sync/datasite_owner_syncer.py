@@ -104,23 +104,33 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             collections_folder=config.collections_folder,
         )
 
+    @property
+    def _cache_dir(self) -> Path:
+        return self.syftbox_folder / ".cache"
+
     def sync(self, peer_emails: list[str], recompute_hashes: bool = True):
-        if not self.initial_sync_done:
-            self.pull_initial_state()
+        # Load rolling state from shared disk for cross-process consistency.
+        # file_hashes uses PersistedDict and self-persists per operation.
+        self.load_cache(self._cache_dir)
+        try:
+            if not self.initial_sync_done:
+                self.pull_initial_state()
 
-        if recompute_hashes:
-            self.process_local_changes(recipients=peer_emails)
+            if recompute_hashes:
+                self.process_local_changes(recipients=peer_emails)
 
-        # first, pull existing state
-        for peer_email in peer_emails:
-            while True:
-                msg = self.pull_and_process_next_proposed_filechange(
-                    peer_email, raise_on_none=False
-                )
-                if msg is None:
-                    # no new message, we are done
-                    break
-            self.process_syftbox_events_queue()
+            # first, pull existing state
+            for peer_email in peer_emails:
+                while True:
+                    msg = self.pull_and_process_next_proposed_filechange(
+                        peer_email, raise_on_none=False
+                    )
+                    if msg is None:
+                        # no new message, we are done
+                        break
+                self.process_syftbox_events_queue()
+        finally:
+            self.save_cache(self._cache_dir)
 
     def download_events_message_by_id_with_connection(
         self, events_message_id: str
@@ -666,6 +676,19 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         for recipient in recipients:
             self.outbox_queue.put((recipient, file_change_events_message))
 
+    def share_files_with_recipient(self, files: dict, recipient_email: str) -> None:
+        """Create events for the given files and send them to a recipient's outbox.
+
+        Used for sharing private datasets with enclaves. file_hashes is auto-
+        persisted via PersistedDict; rolling state is not mutated here.
+        """
+        events_message = self.event_cache.create_events_for_files(files)
+        self.queue_event_for_syftbox(
+            recipients=[recipient_email],
+            file_change_events_message=events_message,
+        )
+        self.process_syftbox_events_queue()
+
     def process_syftbox_events_queue(self):
         # TODO: make this atomic
         while not self.syftbox_events_queue.empty():
@@ -816,23 +839,29 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         Returns:
             The created Checkpoint object.
         """
-        last_event_timestamp = self.event_cache.get_latest_event_timestamp()
-        checkpoint = self.event_cache.create_checkpoint(
-            last_event_timestamp=last_event_timestamp
-        )
-        print(f"Creating full checkpoint with {len(checkpoint.files)} files...")
-        self.connection_router.upload_checkpoint(checkpoint)
+        # Rolling state is mutated here; load/save for cross-process consistency.
+        # file_hashes uses PersistedDict and self-persists.
+        self.load_cache(self._cache_dir)
+        try:
+            last_event_timestamp = self.event_cache.get_latest_event_timestamp()
+            checkpoint = self.event_cache.create_checkpoint(
+                last_event_timestamp=last_event_timestamp
+            )
+            print(f"Creating full checkpoint with {len(checkpoint.files)} files...")
+            self.connection_router.upload_checkpoint(checkpoint)
 
-        # Reset rolling state after checkpoint creation
-        self.connection_router.delete_rolling_state()
-        base_timestamp = last_event_timestamp or checkpoint.timestamp
-        self._rolling_state = RollingState(
-            email=self.email,
-            base_checkpoint_timestamp=base_timestamp,
-        )
-        self._events_since_rolling_state_upload = 0
+            # Reset rolling state after checkpoint creation
+            self.connection_router.delete_rolling_state()
+            base_timestamp = last_event_timestamp or checkpoint.timestamp
+            self._rolling_state = RollingState(
+                email=self.email,
+                base_checkpoint_timestamp=base_timestamp,
+            )
+            self._events_since_rolling_state_upload = 0
 
-        return checkpoint
+            return checkpoint
+        finally:
+            self.save_cache(self._cache_dir)
 
     def should_create_checkpoint(
         self, threshold: int = DEFAULT_CHECKPOINT_EVENT_THRESHOLD
@@ -982,17 +1011,23 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         Returns:
             The created checkpoint (incremental or compacted), or None.
         """
-        result = None
+        # Rolling state is mutated here (reset on checkpoint creation).
+        # file_hashes uses PersistedDict and self-persists.
+        self.load_cache(self._cache_dir)
+        try:
+            result = None
 
-        # First, check if we should create an incremental checkpoint
-        if self.should_create_checkpoint(threshold):
-            result = self.create_incremental_checkpoint()
+            # First, check if we should create an incremental checkpoint
+            if self.should_create_checkpoint(threshold):
+                result = self.create_incremental_checkpoint()
 
-            # After creating, check if we should compact
-            if self.should_compact_checkpoints(compacting_threshold):
-                result = self.compact_checkpoints()
+                # After creating, check if we should compact
+                if self.should_compact_checkpoints(compacting_threshold):
+                    result = self.compact_checkpoints()
 
-        return result
+            return result
+        finally:
+            self.save_cache(self._cache_dir)
 
     # =========================================================================
     # CACHE PERSISTENCE METHODS

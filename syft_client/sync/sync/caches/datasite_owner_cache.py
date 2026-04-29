@@ -1,6 +1,5 @@
 from typing import List, Dict
-import json
-from pydantic import Field
+from pydantic import ConfigDict, Field
 from syft_client.sync.events.file_change_event import FileChangeEventsMessage
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from uuid import uuid4
@@ -9,6 +8,7 @@ from syft_client.sync.utils.syftbox_utils import create_event_timestamp
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from pydantic import BaseModel
 from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConnection
+from syft_client.sync.sync.caches.persisted_dict import PersistedDict
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.sync.caches.cache_file_writer_connection import (
@@ -37,6 +37,7 @@ class DataSiteOwnerEventCacheConfig(BaseModel):
 
 class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     # we keep a list of heads, which are the latest events for each path
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     events_messages_connection: CacheFileConnection = Field(
         default_factory=InMemoryCacheFileConnection
@@ -45,13 +46,28 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         default_factory=InMemoryCacheFileConnection
     )
 
-    # file path to the hash of the filecontent
-    file_hashes: Dict[str, int] = {}
+    # When set, file_hashes auto-persists to {syftbox_folder}/.cache/owner_file_hashes.json
+    syftbox_folder: Path | None = None
+
+    # file path to the hash of the filecontent.
+    # Auto-wired in model_post_init: persisted-to-disk when syftbox_folder is set,
+    # plain in-memory dict otherwise.
+    file_hashes: PersistedDict = Field(default_factory=PersistedDict)
     email: str
     # Full path to collections (datasets) folder
     collections_folder: Path | None = None
     # Cache of collection hashes: "tag" -> content_hash
     collection_hashes: Dict[str, str] = {}
+
+    def model_post_init(self, _context) -> None:
+        super().model_post_init(_context)
+        # Wire up file_hashes as a persisted dict when running in disk-backed mode
+        if self.syftbox_folder is not None and self.file_hashes._path is None:
+            self.file_hashes = PersistedDict(
+                path=self.syftbox_folder / ".cache" / "owner_file_hashes.json",
+                key_serializer=str,
+                key_deserializer=Path,
+            )
 
     @classmethod
     def from_config(cls, config: DataSiteOwnerEventCacheConfig):
@@ -80,6 +96,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                     base_dir=events_folder, dtype=FileChangeEventsMessage
                 ),
                 file_connection=FSFileConnection(base_dir=my_datasite_folder),
+                syftbox_folder=config.syftbox_folder,
                 email=config.email,
                 collections_folder=config.collections_folder,
             )
@@ -235,7 +252,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     def clear_cache(self):
         self.events_messages_connection.clear_cache()
         self.file_connection.clear_cache()
-        self.file_hashes = {}
+        self.file_hashes.clear()
 
     def has_conflict(self, proposed_event: ProposedFileChange) -> bool:
         if proposed_event.path_in_datasite not in self.file_hashes:
@@ -368,7 +385,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                         in-memory file_connection is always updated).
         """
         # Clear current state
-        self.file_hashes = {}
+        self.file_hashes.clear()
 
         # Restore from checkpoint
         # Always write to file_connection to maintain consistent state for
@@ -391,23 +408,3 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 latest_timestamp = events_message.timestamp
 
         return latest_timestamp
-
-    def load_cache(self, cache_dir: Path) -> None:
-        """Load file_hashes from shared disk cache (cross-process consistency)."""
-        path = cache_dir / "owner_file_hashes.json"
-        if not path.exists():
-            return
-        try:
-            with open(path, "r") as f:
-                self.file_hashes = {Path(k): v for k, v in json.load(f).items()}
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    def save_cache(self, cache_dir: Path) -> None:
-        """Save file_hashes to shared disk cache (cross-process consistency)."""
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        path = cache_dir / "owner_file_hashes.json"
-        tmp = path.with_suffix(".tmp")
-        with open(tmp, "w") as f:
-            json.dump({str(k): v for k, v in self.file_hashes.items()}, f)
-        tmp.rename(path)
