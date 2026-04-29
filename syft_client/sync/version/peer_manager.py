@@ -58,6 +58,10 @@ class PeerManager(BaseModel):
 
     # ========== Peer List Properties ==========
 
+    def clear_caches(self) -> None:
+        """Clear the caches."""
+        self.peer_store.clear_caches()
+
     @property
     def approved_peers(self) -> List[Peer]:
         """Get all approved peers (DO side)."""

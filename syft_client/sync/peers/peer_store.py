@@ -27,6 +27,10 @@ class PeerStore(BaseModel):
 
     # ========== Peer list methods ==========
 
+    def clear_caches(self) -> None:
+        """Clear the caches."""
+        self._peers = []
+
     @property
     def approved_peers(self) -> List[Peer]:
         return [p for p in self._peers if p.is_approved]

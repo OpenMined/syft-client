@@ -1362,6 +1362,7 @@ class SyftboxManager(BaseModel):
             self.datasite_owner_syncer.event_cache.clear_cache()
         if self.datasite_watcher_syncer is not None:
             self.datasite_watcher_syncer.datasite_watcher_cache.clear_cache()
+        self.peer_manager.clear_caches()
 
     def _broadcast_delete_events(
         self,
