@@ -68,7 +68,11 @@ def _find_syft_client_info() -> tuple[dict | None, str | None]:
     version = None
 
     for dist in distributions():
-        if dist.name != PACKAGE_NAME:
+        # try except because some distributions may not have a name and it raises
+        try:
+            if dist.name != PACKAGE_NAME:
+                continue
+        except Exception:
             continue
 
         # Always capture the version
