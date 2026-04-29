@@ -1,5 +1,5 @@
 from typing import List, Dict
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 from syft_client.sync.events.file_change_event import FileChangeEventsMessage
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from uuid import uuid4
@@ -50,8 +50,8 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     syftbox_folder: Path | None = None
 
     # file path to the hash of the filecontent.
-    # Auto-wired in model_post_init: persisted-to-disk when syftbox_folder is set,
-    # plain in-memory dict otherwise.
+    # Wired in pre-init validator: persisted-to-disk when syftbox_folder is set,
+    # plain in-memory PersistedDict otherwise.
     file_hashes: PersistedDict = Field(default_factory=PersistedDict)
     email: str
     # Full path to collections (datasets) folder
@@ -59,15 +59,18 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     # Cache of collection hashes: "tag" -> content_hash
     collection_hashes: Dict[str, str] = {}
 
-    def model_post_init(self, _context) -> None:
-        super().model_post_init(_context)
-        # Wire up file_hashes as a persisted dict when running in disk-backed mode
-        if self.syftbox_folder is not None and self.file_hashes._path is None:
-            self.file_hashes = PersistedDict(
-                path=self.syftbox_folder / ".cache" / "owner_file_hashes.json",
-                key_serializer=str,
-                key_deserializer=Path,
-            )
+    @model_validator(mode="before")
+    @classmethod
+    def _build_file_hashes(cls, data):
+        if isinstance(data, dict) and "file_hashes" not in data:
+            folder = data.get("syftbox_folder")
+            if folder is not None:
+                data["file_hashes"] = PersistedDict(
+                    path=Path(folder) / ".cache" / "owner_file_hashes.json",
+                    key_serializer=str,
+                    key_deserializer=Path,
+                )
+        return data
 
     @classmethod
     def from_config(cls, config: DataSiteOwnerEventCacheConfig):
