@@ -35,12 +35,11 @@ def create_readme():
     """Create readme.md with usage instructions."""
     readme_path = DATA_DIR / "readme.md"
     readme_path.write_text(
-        f'20 PDFs created for testing. Use the dataset as:\n'
-        f'\n'
-        f'dataset_path = sc.resolve_path("syft://private/syft_datasets/{DATASET_NAME}")\n'
-        f'dataset_dir = Path(dataset_path).parent\n'
-        f'\n'
-        f'pdf_files = sorted(dataset_dir.glob("*.pdf"))\n'
+        "20 PDFs created for testing. Use the dataset as:\n"
+        "\n"
+        'dataset_path = sc.resolve_dataset_file_path("pdfdata")\n'
+        "dataset_dir = Path(dataset_path).parent\n"
+        'pdf_files = sorted(dataset_dir.glob("*.pdf"))\n'
     )
     print(f"Created {readme_path}")
 
