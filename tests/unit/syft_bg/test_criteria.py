@@ -4,7 +4,12 @@ import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from syft_bg.approve.config import AutoApprovalObj, AutoApprovalsConfig, FileEntry
+from syft_bg.approve.config import (
+    AutoApprovalObj,
+    AutoApprovalsConfig,
+    AutoApproveConfig,
+    FileEntry,
+)
 from syft_bg.approve.criteria import (
     _compute_file_hash,
     _content_matches,
@@ -203,22 +208,28 @@ class TestValidateAgainstObject:
         assert "content mismatch" in result.reason
 
 
-def _make_handler(config: AutoApprovalsConfig) -> JobApprovalHandler:
-    """Create a JobApprovalHandler with a mock client for testing evaluate_auto_approval."""
-    return JobApprovalHandler(client=MagicMock(), config=config)
+def _make_handler(config: AutoApprovalsConfig, tmp_dir: Path) -> JobApprovalHandler:
+    """Create a JobApprovalHandler with a mock client for testing evaluate_auto_approval.
+
+    Persists `config` to a YAML file under `tmp_dir` so the handler can re-read
+    it via its config_path-backed property.
+    """
+    config_path = tmp_dir / "config.yaml"
+    AutoApproveConfig(auto_approvals=config).save(config_path)
+    return JobApprovalHandler(client=MagicMock(), config_path=config_path)
 
 
 class TestEvaluateAutoApproval:
     """Tests for JobApprovalHandler.evaluate_auto_approval."""
 
-    def test_non_pending_rejected(self):
+    def test_non_pending_rejected(self, temp_dir):
         job = create_mock_job(status="approved")
-        handler = _make_handler(AutoApprovalsConfig())
+        handler = _make_handler(AutoApprovalsConfig(), temp_dir)
         result = handler.evaluate_auto_approval(job)
         assert result.match is False
         assert "status" in result.reason
 
-    def test_no_matching_objects(self):
+    def test_no_matching_objects(self, temp_dir):
         job = create_mock_job(submitted_by="unknown@test.com")
         config = AutoApprovalsConfig(
             objects={
@@ -227,7 +238,7 @@ class TestEvaluateAutoApproval:
                 ),
             }
         )
-        handler = _make_handler(config)
+        handler = _make_handler(config, temp_dir)
         result = handler.evaluate_auto_approval(job)
         assert result.match is False
         assert "no auto-approval objects match peer" in result.reason
@@ -239,7 +250,7 @@ class TestEvaluateAutoApproval:
         config = AutoApprovalsConfig(objects={"analysis": obj})
         job = create_mock_job(submitted_by="alice@test.com", code_dir=code_dir)
 
-        handler = _make_handler(config)
+        handler = _make_handler(config, temp_dir)
         result = handler.evaluate_auto_approval(job)
         assert result.match is True
 
@@ -249,7 +260,7 @@ class TestEvaluateAutoApproval:
         config = AutoApprovalsConfig(objects={"open": obj})
         job = create_mock_job(submitted_by="anyone@test.com", code_dir=code_dir)
 
-        handler = _make_handler(config)
+        handler = _make_handler(config, temp_dir)
         result = handler.evaluate_auto_approval(job)
         assert result.match is True
 
@@ -263,6 +274,6 @@ class TestEvaluateAutoApproval:
         config = AutoApprovalsConfig(objects={"obj": obj})
         job = create_mock_job(submitted_by="alice@test.com", code_dir=code_dir)
 
-        handler = _make_handler(config)
+        handler = _make_handler(config, temp_dir)
         result = handler.evaluate_auto_approval(job)
         assert result.match is False
