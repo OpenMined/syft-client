@@ -145,6 +145,7 @@ class JobHandler:
             self.state.mark_notified(job_name, "new")
             if result.thread_id:
                 self.state.store_thread_id(job_name, result.thread_id)
+            self.sender.notify_job_submitted_to_ds(submitter, job_name, do_email)
         else:
             import traceback
 
