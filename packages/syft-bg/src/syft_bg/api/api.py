@@ -11,7 +11,6 @@ from syft_bg.api.utils import (
     move_token_to_syftbg_dir,
     resolve_auto_approve_file_args,
     resolve_content_files,
-    restart_approve_service,
     setup_orchestrator,
     validate_auto_approve_job_inputs,
 )
@@ -363,8 +362,6 @@ def auto_approve(
     config.auto_approvals.objects[name] = obj
     config.save()
 
-    restart_approve_service()
-
     return AutoApproveResult(
         success=True,
         name=name,
@@ -421,3 +418,41 @@ def auto_approve_job(
         name=name,
         base_dir=job.code_dir,
     )
+
+
+def list_auto_approvals() -> dict[str, AutoApprovalObj]:
+    """Return all configured auto-approval objects.
+
+    Returns:
+        Mapping of name → AutoApprovalObj.
+    """
+    return AutoApproveConfig.load().auto_approvals.objects
+
+
+def remove_auto_approve(name: str) -> AutoApproveResult:
+    """Remove an auto-approval object by name.
+
+    Deletes the object from config and removes its copied files from the
+    auto-approvals directory. The running approve service will pick up
+    the change on its next poll iteration (no restart required).
+
+    Args:
+        name: Name of the auto-approval object to remove.
+
+    Returns:
+        AutoApproveResult with success/error status.
+    """
+    config = AutoApproveConfig.load()
+    if name not in config.auto_approvals.objects:
+        return AutoApproveResult(
+            success=False, error=f"Auto-approval object '{name}' not found"
+        )
+
+    del config.auto_approvals.objects[name]
+    config.save()
+
+    obj_dir = get_default_paths().auto_approvals_dir / name
+    if obj_dir.exists():
+        shutil.rmtree(obj_dir, ignore_errors=True)
+
+    return AutoApproveResult(success=True, name=name)

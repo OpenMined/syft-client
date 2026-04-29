@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional, Protocol
 
 from syft_job.job import JobInfo
 
-from syft_bg.approve.config import AutoApprovalObj, AutoApprovalsConfig
+from syft_bg.approve.config import (
+    AutoApprovalObj,
+    AutoApprovalsConfig,
+    AutoApproveConfig,
+)
 from syft_bg.approve.criteria import (
     AutoApprovalValidationResult,
     _validate_job_against_object,
@@ -29,18 +34,23 @@ class JobApprovalHandler:
     def __init__(
         self,
         client: SyftboxManager,
-        config: AutoApprovalsConfig,
+        config_path: Optional[Path] = None,
         state: Optional[StateManager] = None,
         on_approve: Optional[Callable[[JobInfo], None]] = None,
         on_reject: Optional[Callable[[JobInfo, str], None]] = None,
         verbose: bool = True,
     ):
         self.client = client
-        self.config = config
+        self._config_path = config_path
         self.state = state
         self.on_approve = on_approve
         self.on_reject = on_reject
         self.verbose = verbose
+
+    @property
+    def config(self) -> AutoApprovalsConfig:
+        """Always-fresh auto-approvals config, re-read from disk on every access."""
+        return AutoApproveConfig.load(self._config_path).auto_approvals
 
     def _get_approved_peers(self) -> list[str]:
         """Get list of approved peer emails."""

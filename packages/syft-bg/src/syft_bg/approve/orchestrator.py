@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 from syft_bg.approve.config import AutoApproveConfig
 from syft_bg.approve.monitors.job import JobMonitor
@@ -21,11 +22,13 @@ class ApprovalOrchestrator(BaseOrchestrator):
         self,
         client: SyftboxManager,
         config: AutoApproveConfig,
+        config_path: Optional[Path] = None,
     ):
         super().__init__()
         self.client = client
         self.config = config
         self.interval = config.interval
+        self._config_path = config_path
 
         self._state = JsonStateManager(config.approve_state_path)
         self._monitors_initialized = False
@@ -140,7 +143,7 @@ class ApprovalOrchestrator(BaseOrchestrator):
             on_reject = self._build_reject_callback()
             self._job_monitor = JobMonitor(
                 client=self.client,
-                config=self.config.auto_approvals,
+                config_path=self._config_path,
                 state=self._state,
                 on_reject=on_reject,
                 verbose=True,

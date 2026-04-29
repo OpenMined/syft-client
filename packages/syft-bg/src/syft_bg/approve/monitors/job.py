@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
 from syft_job.job import JobInfo
@@ -10,7 +11,6 @@ from syft_bg.approve.handlers.job import JobApprovalHandler, StateManager
 from syft_bg.common.monitor import Monitor
 
 if TYPE_CHECKING:
-    from syft_bg.approve.config import AutoApprovalsConfig
     from syft_client.sync.syftbox_manager import SyftboxManager
 
 
@@ -20,7 +20,7 @@ class JobMonitor(Monitor):
     def __init__(
         self,
         client: SyftboxManager,
-        config: AutoApprovalsConfig,
+        config_path: Optional[Path] = None,
         state: Optional[StateManager] = None,
         on_approve: Optional[Callable[[JobInfo], None]] = None,
         on_reject: Optional[Callable[[JobInfo, str], None]] = None,
@@ -29,7 +29,7 @@ class JobMonitor(Monitor):
         super().__init__()
         self.handler = JobApprovalHandler(
             client=client,
-            config=config,
+            config_path=config_path,
             state=state,
             on_approve=on_approve,
             on_reject=on_reject,
