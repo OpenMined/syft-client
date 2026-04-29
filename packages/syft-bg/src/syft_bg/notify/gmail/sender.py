@@ -78,7 +78,7 @@ class GmailSender:
                 success=True,
                 thread_id=result.get("threadId"),
             )
-        except Exception as e:
+        except Exception:
             import traceback
 
             print(
