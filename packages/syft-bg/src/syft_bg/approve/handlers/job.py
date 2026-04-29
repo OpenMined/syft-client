@@ -37,15 +37,14 @@ class JobApprovalHandler:
         config_path: Optional[Path] = None,
         state: Optional[StateManager] = None,
         on_approve: Optional[Callable[[JobInfo], None]] = None,
-        on_reject: Optional[Callable[[JobInfo, str], None]] = None,
         verbose: bool = True,
     ):
         self.client = client
         self._config_path = config_path
         self.state = state
         self.on_approve = on_approve
-        self.on_reject = on_reject
         self.verbose = verbose
+        self._skipped_jobs: set[str] = set()
 
     @property
     def config(self) -> AutoApprovalsConfig:
@@ -102,11 +101,10 @@ class JobApprovalHandler:
             result = self.evaluate_auto_approval(job)
 
             if not result.match:
-                if job.status == "pending":
+                if job.status == "pending" and job.name not in self._skipped_jobs:
+                    self._skipped_jobs.add(job.name)
                     if self.verbose:
                         print(f"Skipped: {job.name} ({result.reason})")
-                    if self.on_reject:
-                        self.on_reject(job, result.reason)
                 continue
 
             try:

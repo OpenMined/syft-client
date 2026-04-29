@@ -86,46 +86,6 @@ class ApprovalOrchestrator(BaseOrchestrator):
 
         return cls(client=client, config=config)
 
-    def _build_reject_callback(self):
-        """Build rejection callback that notifies DS via Gmail, if available."""
-        gmail_token_path = self.config.gmail_token_path
-
-        if not gmail_token_path.exists():
-            print(
-                "[ApprovalOrchestrator] Gmail token not found, skipping DS rejection notifications"
-            )
-            return None
-
-        try:
-            from google.oauth2.credentials import Credentials
-
-            from syft_bg.notify.gmail.sender import GmailSender
-            from syft_bg.notify.handlers.job import JobHandler
-
-            creds = Credentials.from_authorized_user_file(str(gmail_token_path))
-            sender = GmailSender(creds)
-            notify_state = JsonStateManager(self.config.notify_state_path)
-            notify_handler = JobHandler(
-                sender=sender,
-                state=notify_state,
-                do_email=self.config.do_email or "",
-            )
-
-            def _on_reject(job, reason):
-                notify_handler.on_job_rejected(
-                    do_email=self.config.do_email or "",
-                    job_name=job.name,
-                    ds_email=job.submitted_by,
-                    reason=reason,
-                )
-
-            return _on_reject
-        except Exception as e:
-            print(
-                f"[ApprovalOrchestrator] Could not set up rejection notifications: {e}"
-            )
-            return None
-
     def _collect_auto_approve_emails(self) -> set[str]:
         """Collect peer emails from all auto-approval objects."""
         emails: set[str] = set()
@@ -138,14 +98,11 @@ class ApprovalOrchestrator(BaseOrchestrator):
         if self._monitors_initialized:
             return
 
-        on_reject = None
         if self.config.auto_approvals.enabled:
-            on_reject = self._build_reject_callback()
             self._job_monitor = JobMonitor(
                 client=self.client,
                 config_path=self._config_path,
                 state=self._state,
-                on_reject=on_reject,
                 verbose=True,
             )
 
