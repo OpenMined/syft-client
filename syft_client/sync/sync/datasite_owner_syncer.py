@@ -29,6 +29,7 @@ from syft_client.sync.checkpoints.checkpoint import (
 )
 from syft_client.sync.checkpoints.rolling_state import RollingState
 from syft_perms import SyftPermContext
+from syft_client.sync.sync.constants import CACHE_DIR, ROLLING_STATE_FILENAME
 
 # Default threshold for creating incremental checkpoint from rolling state
 DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50
@@ -106,7 +107,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
 
     @property
     def _rolling_state_path(self) -> Path:
-        return self.syftbox_folder / ".cache" / "rolling_state.json"
+        return self.syftbox_folder / CACHE_DIR / ROLLING_STATE_FILENAME
 
     def _load_rolling_state(self) -> None:
         """Load rolling state from disk for cross-process consistency."""

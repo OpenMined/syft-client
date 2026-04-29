@@ -17,6 +17,7 @@ from syft_client.sync.sync.caches.cache_file_writer_connection import (
 )
 from syft_client.sync.utils.syftbox_utils import get_event_hash_from_content
 from syft_client.sync.checkpoints.checkpoint import Checkpoint
+from syft_client.sync.sync.constants import CACHE_DIR, OWNER_FILE_HASHES_FILENAME
 
 
 class ProposedEventFileOutdatedException(Exception):
@@ -46,7 +47,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         default_factory=InMemoryCacheFileConnection
     )
 
-    # When set, file_hashes auto-persists to {syftbox_folder}/.cache/owner_file_hashes.json
+    # When set, file_hashes auto-persists to {syftbox_folder}/CACHE_DIR/ OWNER_FILE_HASHES_FILENAME
     syftbox_folder: Path | None = None
 
     # file path to the hash of the filecontent.
@@ -66,7 +67,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             folder = data.get("syftbox_folder")
             if folder is not None:
                 data["file_hashes"] = PersistedDict(
-                    path=Path(folder) / ".cache" / "owner_file_hashes.json",
+                    path=Path(folder) / CACHE_DIR / OWNER_FILE_HASHES_FILENAME,
                     key_serializer=str,
                     key_deserializer=Path,
                 )

@@ -4,6 +4,11 @@ If the cache persistence feature is removed or broken, these tests fail.
 """
 
 from syft_client.sync.syftbox_manager import SyftboxManager
+from syft_client.sync.sync.constants import (
+    CACHE_DIR,
+    OWNER_FILE_HASHES_FILENAME,
+    ROLLING_STATE_FILENAME,
+)
 
 
 def test_no_duplicate_events_across_processes():
@@ -44,12 +49,12 @@ def test_no_duplicate_events_across_processes():
     )
 
     # Verify cache files were created
-    cache_dir = do_manager.syftbox_folder / ".cache"
-    assert (cache_dir / "owner_file_hashes.json").exists(), (
-        "owner_file_hashes.json not created after sync"
+    cache_dir = do_manager.syftbox_folder / CACHE_DIR
+    assert (cache_dir / OWNER_FILE_HASHES_FILENAME).exists(), (
+        f"{OWNER_FILE_HASHES_FILENAME} not created after sync"
     )
-    assert (cache_dir / "rolling_state.json").exists(), (
-        "rolling_state.json not created after sync"
+    assert (cache_dir / ROLLING_STATE_FILENAME).exists(), (
+        f"{ROLLING_STATE_FILENAME} not created after sync"
     )
 
     assert events_after_b == events_after_a, (
