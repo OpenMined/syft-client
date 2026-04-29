@@ -18,6 +18,7 @@ class SendResult:
     """Result of sending an email."""
 
     success: bool
+    error_message: str | None = None
     thread_id: str | None = None
 
 
@@ -77,9 +78,13 @@ class GmailSender:
                 success=True,
                 thread_id=result.get("threadId"),
             )
-        except Exception as e:
-            print(f"[GmailSender] Failed to send to {to_email}: {e}")
-            return SendResult(success=False)
+        except Exception:
+            import traceback
+
+            print(
+                f"[GmailSender] Failed to send to {to_email}: {traceback.format_exc()}"
+            )
+            return SendResult(success=False, error_message=str(traceback.format_exc()))
 
     def notify_new_job(
         self,
