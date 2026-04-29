@@ -30,6 +30,7 @@ class JobState(BaseModel):
     # Local job approval
     approved_by: Optional[str] = None
     approved_at: Optional[datetime] = None
+    approval_method: Optional[str] = None  # "manual" or "auto"
 
     # Rejection
     rejected_by: Optional[str] = None

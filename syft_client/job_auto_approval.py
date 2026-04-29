@@ -208,7 +208,7 @@ def auto_approve_and_run_jobs(
             approved_peers=approved_peers,
         ):
             try:
-                job.approve()
+                job.approve(approval_method="auto")
                 approved_jobs.append(job)
 
                 if on_approve is not None:
