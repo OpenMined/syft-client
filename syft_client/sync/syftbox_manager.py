@@ -1312,12 +1312,14 @@ class SyftboxManager(BaseModel):
 
         with self._sync_file_lock():
             files = self.dataset_manager.get_private_dataset_files(tag)
-            events_message = self.event_cache.create_events_for_files(files)
-            self.queue_event_for_syftbox(
+            events_message = (
+                self.datasite_owner_syncer.event_cache.create_events_for_files(files)
+            )
+            self.datasite_owner_syncer.queue_event_for_syftbox(
                 recipients=[enclave_email],
                 file_change_events_message=events_message,
             )
-            self.process_syftbox_events_queue()
+            self.datasite_owner_syncer.process_syftbox_events_queue()
 
     @property
     def datasets(self) -> SyftDatasetManager:
