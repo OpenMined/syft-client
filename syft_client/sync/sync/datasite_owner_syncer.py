@@ -676,19 +676,6 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         for recipient in recipients:
             self.outbox_queue.put((recipient, file_change_events_message))
 
-    def share_files_with_recipient(self, files: dict, recipient_email: str) -> None:
-        """Create events for the given files and send them to a recipient's outbox.
-
-        Used for sharing private datasets with enclaves. file_hashes is auto-
-        persisted via PersistedDict; rolling state is not mutated here.
-        """
-        events_message = self.event_cache.create_events_for_files(files)
-        self.queue_event_for_syftbox(
-            recipients=[recipient_email],
-            file_change_events_message=events_message,
-        )
-        self.process_syftbox_events_queue()
-
     def process_syftbox_events_queue(self):
         # TODO: make this atomic
         while not self.syftbox_events_queue.empty():
