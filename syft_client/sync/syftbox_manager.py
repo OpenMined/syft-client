@@ -1496,7 +1496,8 @@ class SyftboxManager(BaseModel):
         """
         if not self.has_do_role:
             raise ValueError("Checkpoints can only be created by Data Owners")
-        return self.datasite_owner_syncer.create_checkpoint()
+        with self._sync_file_lock():
+            return self.datasite_owner_syncer.create_checkpoint()
 
     def should_create_checkpoint(self, threshold: int = 50) -> bool:
         """

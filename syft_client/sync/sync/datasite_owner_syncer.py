@@ -29,6 +29,7 @@ from syft_client.sync.checkpoints.checkpoint import (
 )
 from syft_client.sync.checkpoints.rolling_state import RollingState
 from syft_perms import SyftPermContext
+from syft_client.sync.sync.constants import CACHE_DIR, ROLLING_STATE_FILENAME
 
 # Default threshold for creating incremental checkpoint from rolling state
 DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50
@@ -104,23 +105,51 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             collections_folder=config.collections_folder,
         )
 
+    @property
+    def _rolling_state_path(self) -> Path:
+        return self.syftbox_folder / CACHE_DIR / ROLLING_STATE_FILENAME
+
+    def _load_rolling_state(self) -> None:
+        """Load rolling state from disk for cross-process consistency."""
+        path = self._rolling_state_path
+        if not path.exists():
+            return
+        try:
+            self._rolling_state = RollingState.model_validate_json(path.read_text())
+        except Exception:
+            pass
+
+    def _save_rolling_state(self) -> None:
+        """Save rolling state to disk for cross-process consistency."""
+        if self._rolling_state is None:
+            return
+        path = self._rolling_state_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(self._rolling_state.model_dump_json())
+        tmp.rename(path)
+
     def sync(self, peer_emails: list[str], recompute_hashes: bool = True):
-        if not self.initial_sync_done:
-            self.pull_initial_state()
+        self._load_rolling_state()
+        try:
+            if not self.initial_sync_done:
+                self.pull_initial_state()
 
-        if recompute_hashes:
-            self.process_local_changes(recipients=peer_emails)
+            if recompute_hashes:
+                self.process_local_changes(recipients=peer_emails)
 
-        # first, pull existing state
-        for peer_email in peer_emails:
-            while True:
-                msg = self.pull_and_process_next_proposed_filechange(
-                    peer_email, raise_on_none=False
-                )
-                if msg is None:
-                    # no new message, we are done
-                    break
-            self.process_syftbox_events_queue()
+            # first, pull existing state
+            for peer_email in peer_emails:
+                while True:
+                    msg = self.pull_and_process_next_proposed_filechange(
+                        peer_email, raise_on_none=False
+                    )
+                    if msg is None:
+                        # no new message, we are done
+                        break
+                self.process_syftbox_events_queue()
+        finally:
+            self._save_rolling_state()
 
     def download_events_message_by_id_with_connection(
         self, events_message_id: str
@@ -816,23 +845,27 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         Returns:
             The created Checkpoint object.
         """
-        last_event_timestamp = self.event_cache.get_latest_event_timestamp()
-        checkpoint = self.event_cache.create_checkpoint(
-            last_event_timestamp=last_event_timestamp
-        )
-        print(f"Creating full checkpoint with {len(checkpoint.files)} files...")
-        self.connection_router.upload_checkpoint(checkpoint)
+        self._load_rolling_state()
+        try:
+            last_event_timestamp = self.event_cache.get_latest_event_timestamp()
+            checkpoint = self.event_cache.create_checkpoint(
+                last_event_timestamp=last_event_timestamp
+            )
+            print(f"Creating full checkpoint with {len(checkpoint.files)} files...")
+            self.connection_router.upload_checkpoint(checkpoint)
 
-        # Reset rolling state after checkpoint creation
-        self.connection_router.delete_rolling_state()
-        base_timestamp = last_event_timestamp or checkpoint.timestamp
-        self._rolling_state = RollingState(
-            email=self.email,
-            base_checkpoint_timestamp=base_timestamp,
-        )
-        self._events_since_rolling_state_upload = 0
+            # Reset rolling state after checkpoint creation
+            self.connection_router.delete_rolling_state()
+            base_timestamp = last_event_timestamp or checkpoint.timestamp
+            self._rolling_state = RollingState(
+                email=self.email,
+                base_checkpoint_timestamp=base_timestamp,
+            )
+            self._events_since_rolling_state_upload = 0
 
-        return checkpoint
+            return checkpoint
+        finally:
+            self._save_rolling_state()
 
     def should_create_checkpoint(
         self, threshold: int = DEFAULT_CHECKPOINT_EVENT_THRESHOLD
@@ -982,14 +1015,18 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         Returns:
             The created checkpoint (incremental or compacted), or None.
         """
-        result = None
+        self._load_rolling_state()
+        try:
+            result = None
 
-        # First, check if we should create an incremental checkpoint
-        if self.should_create_checkpoint(threshold):
-            result = self.create_incremental_checkpoint()
+            # First, check if we should create an incremental checkpoint
+            if self.should_create_checkpoint(threshold):
+                result = self.create_incremental_checkpoint()
 
-            # After creating, check if we should compact
-            if self.should_compact_checkpoints(compacting_threshold):
-                result = self.compact_checkpoints()
+                # After creating, check if we should compact
+                if self.should_compact_checkpoints(compacting_threshold):
+                    result = self.compact_checkpoints()
 
-        return result
+            return result
+        finally:
+            self._save_rolling_state()
