@@ -31,3 +31,31 @@ def print_peer_added(peer: Peer):
     )
     for platform in peer.platforms:
         print(f"• {platform.module_path}")
+
+
+def print_peer_request_sending(peer_email: str) -> None:
+    print(f"🤝 Sending peer request to {peer_email}...")
+
+
+def print_peer_request_resending(peer_email: str) -> None:
+    print(f"♻️  Resending peer request to {peer_email}...")
+
+
+def print_peer_request_accepting(peer_email: str) -> None:
+    print(f"🤝 Accepting peer request from {peer_email}...")
+
+
+def print_peer_request_sent(peer_email: str) -> None:
+    print(f"\n✅ Peer request sent to {peer_email}!")
+    print("   ⏳ Next step: ask them to approve your request.")
+    print("   Once approved, run client.sync() to confirm the connection.")
+
+
+def print_peer_connection_established(peer_email: str) -> None:
+    print(f"\n✅ Connection with {peer_email} established!")
+    print("   Run client.sync() to start syncing.")
+
+
+def print_peer_already_connected(peer_email: str, state: str) -> None:
+    print(f"ℹ️  Already have a connection with {peer_email} (state: {state}).")
+    print("   Use force=True to resend the request.")
