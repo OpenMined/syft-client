@@ -803,8 +803,8 @@ class SyftboxManager(BaseModel):
         sync=True,
         force_submission: bool = False,
     ):
-        approved_emails = {p.email for p in self.peer_manager.approved_peers}
-        if user not in approved_emails:
+        peer_emails = {p.email for p in self.peer_manager.syncable_peers}
+        if user not in peer_emails:
             print(f"⚠️  {user} is not in your peer list.")
             print(f"   Add them first with: client.add_peer('{user}')")
             return
