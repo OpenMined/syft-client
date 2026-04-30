@@ -34,6 +34,7 @@ from syft_client.sync.events.file_change_event import (
     FileChangeEvent,
     FileChangeEventsMessage,
 )
+from syft_client.sync.utils.pre_submit_scan import run_pre_submit_check
 from syft_client.sync.utils.syftbox_utils import (
     random_email,
     random_syftbox_folder_for_testing,
@@ -808,6 +809,11 @@ class SyftboxManager(BaseModel):
             print(f"⚠️  {user} is not in your peer list.")
             print(f"   Add them first with: client.add_peer('{user}')")
             return
+
+        if not force_submission:
+            if not run_pre_submit_check(Path(code_path)):
+                print("Submission aborted.")
+                return
 
         print(f"📤 Submitting '{code_path}' to {user}...")
         if job_name:
