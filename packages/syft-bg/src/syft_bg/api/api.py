@@ -161,6 +161,14 @@ def reset() -> None:
     """Stop all services, uninstall systemd units, and clear all state."""
     manager = ServiceManager()
 
+    # Clean sync-ready marker before wiping config
+    try:
+        config = SyftBgConfig.from_path()
+        if config.syftbox_root:
+            (Path(config.syftbox_root) / ".sync_ready").unlink(missing_ok=True)
+    except FileNotFoundError:
+        pass
+
     for name in manager.list_services():
         if is_installed(name):
             ok, msg = uninstall_service(name)

@@ -37,6 +37,8 @@ class NotificationOrchestrator(BaseOrchestrator):
         self._job_monitor.handler.sender.verify()
         if self._job_monitor.state.is_empty():
             self._job_monitor.seed_existing_jobs()
+            if self._peer_monitor:
+                self._seed_existing_peers()
 
     @classmethod
     def from_config(
@@ -94,6 +96,19 @@ class NotificationOrchestrator(BaseOrchestrator):
         if self._peer_monitor:
             return self._peer_monitor.notify_peer_granted(ds_email)
         return False
+
+    def _seed_existing_peers(self):
+        snapshot = self._peer_monitor._read_snapshot()
+        if not snapshot or not snapshot.peer_emails:
+            return
+        state = self._peer_monitor.state
+        state.set_data("peer_snapshot", snapshot.peer_emails)
+        for peer_email in snapshot.approved_peer_emails:
+            state_key = f"peer_granted_{peer_email}"
+            state.mark_notified(state_key, "peer_granted")
+        print(
+            f"[PeerMonitor] Seeded {len(snapshot.peer_emails)} existing peers on fresh state"
+        )
 
     def _wait_for_sync_ready(self, timeout=120):
         marker = self.config.syftbox_root / ".sync_ready"
