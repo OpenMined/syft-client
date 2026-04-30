@@ -7,6 +7,7 @@ from queue import Queue
 from typing import List, Tuple
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessage,
+    FileChangeEventsMessageFileName,
     FileChangeEvent,
 )
 from syft_client.sync.connections.base_connection import (
@@ -36,6 +37,10 @@ DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50
 
 # Default: upload rolling state to GDrive after this many events
 DEFAULT_ROLLING_STATE_UPLOAD_THRESHOLD = 1
+
+# Minimum number of message files in a peer's outbox before compact_outbox()
+# will merge them into a single message.
+MIN_MESSAGES_COMPACT = 10
 
 
 class DatasiteOwnerSyncerConfig(BaseModel):
@@ -707,6 +712,62 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             self.connection_router.owner_write_event_messages_to_outbox(
                 recipient, file_change_events_message
             )
+
+    def compact_outbox(
+        self,
+        recipient_email: str,
+        min_messages: int = MIN_MESSAGES_COMPACT,
+    ) -> int:
+        """Merge accumulated event-message files in a recipient's outbox into one.
+
+        Compaction downloads them, concatenates their events into one fresh message, and
+        deletes the originals.
+
+        Returns the number of source messages compacted (0 if below threshold,
+        if no outbox folder, or if peer encryption is on — DO can't read
+        peer-encrypted bytes back to merge).
+        """
+        if self.connection_router.peer_store.peer_uses_encryption(recipient_email):
+            return 0
+
+        conn = self.connection_router.connection_for_outbox()
+        folder_id = conn._get_own_datasite_outbox_id(recipient_email)
+        if folder_id is None:
+            return 0
+
+        metas = conn.get_file_metadatas_from_folder(folder_id, since_timestamp=None)
+
+        # Keep only well-formed events-message filenames; track timestamps so
+        # we apply events in order in the merged message.
+        parsed: list[tuple[float, str]] = []
+        for m in metas:
+            try:
+                fname = FileChangeEventsMessageFileName.from_string(m["name"])
+            except ValueError:
+                continue
+            parsed.append((fname.timestamp, m["id"]))
+
+        if len(parsed) < min_messages:
+            return 0
+
+        parsed.sort(key=lambda x: x[0])
+
+        merged_events: list[FileChangeEvent] = []
+        for _, fid in parsed:
+            raw = conn.download_file(fid)
+            msg = FileChangeEventsMessage.from_compressed_data(raw)
+            merged_events.extend(msg.events)
+
+        merged = FileChangeEventsMessage(events=merged_events)
+
+        # Write the merged message FIRST. A DS that pulls between this and
+        # the delete sees `merged ∪ some originals`; its file_hashes cache
+        # makes duplicate events no-op writes.
+        self.connection_router.owner_write_event_messages_to_outbox(
+            recipient_email, merged
+        )
+        conn.delete_multiple_files_by_ids([fid for _, fid in parsed])
+        return len(parsed)
 
     def write_file_filesystem(self, path: str, content: str):
         if self.write_files:
