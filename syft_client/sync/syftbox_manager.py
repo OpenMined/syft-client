@@ -803,6 +803,18 @@ class SyftboxManager(BaseModel):
         sync=True,
         force_submission: bool = False,
     ):
+        peer_emails = {p.email for p in self.peer_manager.syncable_peers}
+        if user not in peer_emails:
+            print(f"⚠️  {user} is not in your peer list.")
+            print(f"   Add them first with: client.add_peer('{user}')")
+            return
+
+        print(f"📤 Submitting '{code_path}' to {user}...")
+        if job_name:
+            print(f"   Job name     : {job_name}")
+        if dependencies:
+            print(f"   Dependencies : {', '.join(dependencies)}")
+
         # Check version compatibility before submission (uses cached versions)
         if not force_submission:
             self.peer_manager.check_version_for_submission(user, force=False)
@@ -814,7 +826,11 @@ class SyftboxManager(BaseModel):
             entrypoint=entrypoint,
         )
         self.push_job_files(job_dir)
-        print(f"Submitted python job, job files are in {job_dir}")
+
+        print("\n✅ Job submitted successfully!")
+        print("   Status : inbox (waiting for DO to review)")
+        print(f"\n⏳ Next step: wait for {user} to approve and run it.")
+        print("   Check progress with: client.jobs")
 
     def push_job_files(self, job_dir: Path):
         file_paths = [Path(p) for p in job_dir.rglob("*") if p.is_file()]
