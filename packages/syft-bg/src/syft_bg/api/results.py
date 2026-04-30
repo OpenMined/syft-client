@@ -114,21 +114,32 @@ class ServiceLine:
             return ' <span style="color:gray">(not installed)</span>'
         return " (not installed)"
 
+    def _status_icon(self) -> str:
+        if self.has_setup_error:
+            return "🔴"
+        if "running" in self.status:
+            return "🟢"
+        if "starting" in self.status:
+            return "🟡"
+        return "🔴"
+
     def render(self, as_html: bool = False) -> str:
         suffix = self._installed_suffix(as_html)
+        icon = self._status_icon()
         if self.has_setup_error:
             if as_html:
-                return (
-                    f'{self.name}: <span style="color:red">✗ setup error</span>{suffix}'
-                )
-            return f"  {self.name:<16} ✗ setup error{suffix}"
+                return f'{self.name}: <span style="color:red">{icon} setup error</span>{suffix}'
+            return f"  {self.name:<16} {icon} setup error{suffix}"
         if as_html:
             if "running" in self.status:
-                status = f'<span style="color:green">{self.status}</span>'
+                color = "green"
+            elif "starting" in self.status:
+                color = "orange"
             else:
-                status = self.status
+                color = "red"
+            status = f'<span style="color:{color}">{icon} {self.status}</span>'
             return f"{self.name}: {status}{suffix}"
-        return f"  {self.name:<16} {self.status}{suffix}"
+        return f"  {self.name:<16} {icon} {self.status}{suffix}"
 
 
 class StatusResult(BaseModel):

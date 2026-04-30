@@ -65,6 +65,7 @@ def setup_orchestrator(service: str):
     config = SyftBgConfig.from_path()
     state_path = get_setup_state_path(service)
     clear_setup_state(state_path)
+    write_setup_state(service, state_path, SetupStatus.STARTING)
 
     try:
         if service == "notify":

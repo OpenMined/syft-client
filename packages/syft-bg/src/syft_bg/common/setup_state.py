@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class SetupStatus(str, Enum):
+    STARTING = "starting"
     SUCCESS = "success"
     ERROR = "error"
 

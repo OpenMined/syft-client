@@ -49,17 +49,22 @@ def status():
         pid_text = str(info.pid) if info.pid else "-"
 
         if info.status == ServiceStatus.RUNNING:
-            click.echo(
-                f"{name:<12} {'● Running':<12} {pid_text:<10} {service.description}"
-            )
+            setup = load_setup_state(name)
+            if setup and setup.setup_status == SStatus.STARTING:
+                click.echo(
+                    f"{name:<12} {'🟡 Starting':<12} {pid_text:<10} {service.description}"
+                )
+            else:
+                click.echo(
+                    f"{name:<12} {'🟢 Running':<12} {pid_text:<10} {service.description}"
+                )
         else:
             setup = load_setup_state(name)
             if setup and setup.setup_status == SStatus.ERROR:
-                click.echo(f"{name:<12} {'✗ Error':<12} {pid_text:<10} {setup.error}")
+                click.echo(f"{name:<12} {'🔴 Error':<12} {pid_text:<10} {setup.error}")
             else:
-                status_text = get_status_text(info.status)
                 click.echo(
-                    f"{name:<12} {'○ ' + status_text:<12} {pid_text:<10} {service.description}"
+                    f"{name:<12} {'🔴 Stopped':<12} {pid_text:<10} {service.description}"
                 )
 
     # Sync health
