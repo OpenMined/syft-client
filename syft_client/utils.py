@@ -17,7 +17,10 @@ if TYPE_CHECKING:
 
 
 def resolve_dataset_file_path(*args, **kwargs):
-    return resolve_dataset_files_path(*args, **kwargs)[0]
+    files = resolve_dataset_files_path(*args, **kwargs)
+    if len(files) == 1:
+        return files[0]
+    return Path(os.path.commonpath(files))
 
 
 def get_syftbox_folder_if_not_passed(
