@@ -302,15 +302,47 @@ class GDriveConnection(SyftboxPlatformConnection):
         self._is_setup = True
 
     def copy(self) -> "GDriveConnection":
-        # if is mock
+        """Return a thread-safe clone for parallel use.
+
+        For real GDrive we build a fresh authed `drive_service` (so the clone
+        can run requests concurrently with the original) but carry over every
+        folder/file id this instance has already resolved. That skips the
+        Drive `files.list()` round-trip that `setup()` would otherwise issue
+        via `get_personal_syftbox_folder_id()` — saving one API call per
+        clone, which adds up fast on the parallel-download path.
+        """
         from syft_client.sync.connections.drive.mock_drive_service import (
             MockDriveService,
         )
 
         if isinstance(self.drive_service, MockDriveService):
             return GDriveConnection.from_service(self.email, self.drive_service)
-        else:
-            return GDriveConnection.from_token_path(self.email, self.token_path)
+
+        new = GDriveConnection(email=self.email, token_path=self.token_path)
+        new.credentials = self.credentials
+        new.drive_service = build_drive_service(
+            self.credentials, environment=self.environment
+        )
+
+        # Resolved folder/file ids — copied so the clone's first lookup is a
+        # cache hit rather than a Drive search.
+        new._syftbox_folder_id = self._syftbox_folder_id
+        new._personal_syftbox_folder_id = self._personal_syftbox_folder_id
+        new._rolling_state_folder_id = self._rolling_state_folder_id
+        new._rolling_state_file_id = self._rolling_state_file_id
+        new._encryption_bundles_folder_id = self._encryption_bundles_folder_id
+        new.peer_datasite_inbox_cache = dict(self.peer_datasite_inbox_cache)
+        new.peer_datasite_outbox_cache = dict(self.peer_datasite_outbox_cache)
+        new.own_datasite_inbox_cache = dict(self.own_datasite_inbox_cache)
+        new.own_datasite_outbox_cache = dict(self.own_datasite_outbox_cache)
+        new.archive_folder_id_cache = dict(self.archive_folder_id_cache)
+        new.personal_syftbox_event_id_cache = dict(self.personal_syftbox_event_id_cache)
+        new.dataset_collection_folder_id_cache = dict(
+            self.dataset_collection_folder_id_cache
+        )
+
+        new._is_setup = True
+        return new
 
     @property
     def environment(self) -> Environment:
