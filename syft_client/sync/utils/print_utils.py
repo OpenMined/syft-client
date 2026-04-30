@@ -1,4 +1,7 @@
 from syft_client.sync.peers.peer import Peer
+from syft_client.sync.utils.syftbox_utils import check_env
+from syft_client.sync.environments.environment import Environment
+from syft_client.version import SYFT_CLIENT_VERSION
 from typing import TYPE_CHECKING
 
 
@@ -6,15 +9,24 @@ if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
 
 
+def print_client_connecting(email: str):
+    is_colab = check_env() == Environment.COLAB
+    print(f"🔑 Logging in as {email}...")
+    print(f"   Environment: {'Colab' if is_colab else 'Python'}")
+
+
 def print_client_connected(client: "SyftboxManager"):
-    platforms_str = ", ".join(
-        [platform.name for platform in client._get_all_peer_platforms()]
-    )
-    n_peers = len(client.peers)
-    if n_peers > 0:
-        print(f"✅ Connected peer-to-peer to {n_peers} peers via: {platforms_str}")
+    print("\n✅ Logged in successfully!")
+    print(f"   SyftBox folder : {client.syftbox_folder}")
+    print(f"   Version        : {SYFT_CLIENT_VERSION}")
+
+    peers = client.peer_manager.approved_peers
+    if peers:
+        print(f"\n👥 {len(peers)} peer(s) restored from previous session.")
+        print("   Run client.sync() to pull the latest updates.")
     else:
-        print(f"✅ Connected to {n_peers} peers")
+        print("\n💡 No peers yet. Add a Data Owner with:")
+        print("   client.add_peer('do@org.com')")
 
 
 def print_peer_adding_to_platform(peer_email: str, platform_str: str):

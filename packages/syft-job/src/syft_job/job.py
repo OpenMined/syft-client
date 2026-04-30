@@ -185,7 +185,10 @@ class JobInfo:
         self._state.approved_at = datetime.now(timezone.utc)
         self._state.approval_method = approval_method
         self._state.save(self.job_review_path / "state.yaml")
-        print(f"Job '{self.name}' approved successfully!")
+        print(f"✅ Job '{self.name}' approved successfully!")
+        print("   Status    : approved → will run on next process cycle")
+        print("\n⏳ Next step: run process_approved_jobs() to execute it.")
+        print("   client.process_approved_jobs(share_outputs_with_submitter=True)")
 
     def reject(self, reason: str = "") -> None:
         """
