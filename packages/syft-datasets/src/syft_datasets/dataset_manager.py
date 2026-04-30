@@ -307,7 +307,22 @@ class SyftDatasetManager:
         )
 
         if not mock_dir.exists():
-            raise FileNotFoundError(f"Dataset {name} not found in {mock_dir}")
+            available = self.get_all()
+            if available:
+                listing = "\n".join(
+                    f"   • {d.name} (from {d.owner})" for d in available
+                )
+            else:
+                listing = "   (none found — check your peer connections)"
+            raise FileNotFoundError(
+                f"❌ Dataset '{name}' not found in {datasite}'s datasite.\n\n"
+                f"   Possible reasons:\n"
+                f"   1. The DO hasn't created this dataset yet.\n"
+                f"   2. You're not connected to them as a peer.\n"
+                f"   3. You need to sync first — try: client.sync()\n\n"
+                f"   Available datasets:\n"
+                f"{listing}"
+            )
         return self._load_dataset_from_dir(mock_dir)
 
     def __getitem__(self, key: str | int) -> Dataset:

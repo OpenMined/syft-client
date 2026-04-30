@@ -226,7 +226,12 @@ class Dataset(DatasetBase, PydanticFormatterMixin):
             display_paths=paths_to_include,
         )
 
-        return description
+        hint = (
+            '<div style="margin-top: 8px; font-size: 0.9em; color: #666;">'
+            "💡 Use <code>.mock_files</code> to access mock data"
+            "</div>"
+        )
+        return description + hint
 
     def describe(self) -> None:
         from IPython.display import HTML, display

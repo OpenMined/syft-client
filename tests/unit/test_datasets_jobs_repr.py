@@ -69,6 +69,34 @@ def test_dataset_manager_repr_html():
     assert html is not None
 
 
+def test_dataset_manager_get_missing_lists_available():
+    _, do_manager, _ = _create_manager_with_dataset()
+    with pytest.raises(FileNotFoundError) as excinfo:
+        do_manager.datasets.get("nope")
+    msg = str(excinfo.value)
+    assert "❌" in msg
+    assert "'nope'" in msg
+    assert "client.sync()" in msg
+    assert "Available datasets:" in msg
+    assert "test-dataset" in msg
+
+
+def test_dataset_manager_get_missing_no_datasets():
+    _, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    with pytest.raises(FileNotFoundError) as excinfo:
+        do_manager.datasets.get("nope")
+    assert "(none found — check your peer connections)" in str(excinfo.value)
+
+
+def test_dataset_repr_html_mentions_mock_files():
+    _, _, dataset = _create_manager_with_dataset()
+    html = dataset._repr_html_()
+    assert ".mock_files" in html
+
+
 # --- JobsList tests ---
 
 
