@@ -67,6 +67,40 @@ def test_dataset_manager_repr_html():
     _, do_manager, _ = _create_manager_with_dataset()
     html = do_manager.datasets._repr_html_()
     assert html is not None
+    assert "📦 Available datasets (1)" in html
+    assert "test-dataset" in html
+    assert f"from: {do_manager.email}" in html
+    assert "1 mock file" in html
+    assert 'client.datasets.get("test-dataset"' in html
+    assert "dataset.mock_files[0].read_text()" in html
+
+
+def test_dataset_manager_repr_html_with_tags():
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    mock_path, private_path, _ = create_tmp_dataset_files()
+    do_manager.create_dataset(
+        name="tagged-dataset",
+        mock_path=mock_path,
+        private_path=private_path,
+        tags=["beach", "water-quality"],
+    )
+    html = do_manager.datasets._repr_html_()
+    assert "[beach, water-quality]" in html
+
+
+def test_dataset_manager_repr_html_empty():
+    _, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    html = do_manager.datasets._repr_html_()
+    assert "📦 No datasets available yet." in html
+    assert "client.sync()" in html
+    assert "haven't created any datasets yet" in html
+    assert "not connected to any peers yet" in html
 
 
 def test_dataset_manager_get_missing_lists_available():

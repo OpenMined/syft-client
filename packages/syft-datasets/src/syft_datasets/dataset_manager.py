@@ -341,7 +341,9 @@ class SyftDatasetManager:
         return f"SyftDatasetManager({len(datasets)} datasets)"
 
     def _repr_html_(self) -> str:
-        return self.get_all()._repr_html_()
+        from .dataset_manager_repr import dataset_manager_repr_html
+
+        return dataset_manager_repr_html(self.get_all())
 
     def get_all(
         self,
