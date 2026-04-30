@@ -562,3 +562,44 @@ def test_try_create_checkpoint_triggers_compacting():
     assert do_manager._connection_router.get_incremental_checkpoint_count() == 0
     assert do_manager._connection_router.get_latest_checkpoint() is not None
     assert len(result.files) == 9  # 3 batches × 3 files
+
+
+def test_local_do_changes_end_up_in_incremental_checkpoint():
+    """Regression test: local DO file changes must flow into rolling state
+    and then into incremental checkpoints.
+
+    Without the fix in process_local_changes, local events only went to the
+    GDrive event log but never reached rolling state → never in checkpoints.
+    A new client doing initial sync would miss them permanently.
+    """
+    _, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False
+    )
+
+    # Make local DO changes (direct filesystem writes, not via _send_file_change)
+    for i in range(3):
+        f = do_manager.syftbox_folder / do_manager.email / f"local_{i}.txt"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(f"local content {i}")
+
+    # Force checkpoint with threshold=1
+    do_manager.sync(auto_checkpoint=True, checkpoint_threshold=1)
+
+    # An incremental checkpoint should have been created from local changes
+    incremental_cps = do_manager._connection_router.get_all_incremental_checkpoints()
+    assert len(incremental_cps) >= 1, (
+        "No incremental checkpoint created. Local DO events never reached "
+        "rolling state, so should_create_checkpoint never fired."
+    )
+
+    # Local file paths must appear in at least one incremental checkpoint
+    paths_in_checkpoints = set()
+    for cp in incremental_cps:
+        for event in cp.events:
+            paths_in_checkpoints.add(str(event.path_in_datasite))
+
+    for i in range(3):
+        assert f"local_{i}.txt" in paths_in_checkpoints, (
+            f"local_{i}.txt missing from incremental checkpoints. "
+            f"process_local_changes did not add it to rolling state."
+        )

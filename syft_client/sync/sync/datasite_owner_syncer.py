@@ -557,6 +557,9 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             perm_events, recipients, events_by_recipient, data_event_sent_to
         )
         self._queue_events_for_outbox(events_by_recipient)
+        # Feed local events into rolling state so they flow through
+        # incremental/full checkpoints.
+        self._add_events_to_rolling_state(file_change_events_message)
         self.process_syftbox_events_queue()
 
     def _split_events(
