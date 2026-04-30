@@ -108,7 +108,7 @@ class JobApprovalHandler:
                 continue
 
             try:
-                job.approve()
+                job.approve(approval_method="auto")
                 approved_jobs.append(job)
 
                 if self.state:

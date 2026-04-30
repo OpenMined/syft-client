@@ -1,5 +1,5 @@
 from typing import List, Dict
-from pydantic import Field
+from pydantic import ConfigDict, Field, model_validator
 from syft_client.sync.events.file_change_event import FileChangeEventsMessage
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
 from uuid import uuid4
@@ -8,6 +8,7 @@ from syft_client.sync.utils.syftbox_utils import create_event_timestamp
 from syft_client.sync.messages.proposed_filechange import ProposedFileChange
 from pydantic import BaseModel
 from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConnection
+from syft_client.sync.sync.caches.persisted_dict import PersistedDict
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.sync.caches.cache_file_writer_connection import (
@@ -16,6 +17,7 @@ from syft_client.sync.sync.caches.cache_file_writer_connection import (
 )
 from syft_client.sync.utils.syftbox_utils import get_event_hash_from_content
 from syft_client.sync.checkpoints.checkpoint import Checkpoint
+from syft_client.sync.sync.constants import CACHE_DIR, OWNER_FILE_HASHES_FILENAME
 
 
 class ProposedEventFileOutdatedException(Exception):
@@ -36,6 +38,7 @@ class DataSiteOwnerEventCacheConfig(BaseModel):
 
 class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     # we keep a list of heads, which are the latest events for each path
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     events_messages_connection: CacheFileConnection = Field(
         default_factory=InMemoryCacheFileConnection
@@ -44,13 +47,31 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         default_factory=InMemoryCacheFileConnection
     )
 
-    # file path to the hash of the filecontent
-    file_hashes: Dict[str, int] = {}
+    # When set, file_hashes auto-persists to {syftbox_folder}/CACHE_DIR/ OWNER_FILE_HASHES_FILENAME
+    syftbox_folder: Path | None = None
+
+    # file path to the hash of the filecontent.
+    # Wired in pre-init validator: persisted-to-disk when syftbox_folder is set,
+    # plain in-memory PersistedDict otherwise.
+    file_hashes: PersistedDict = Field(default_factory=PersistedDict)
     email: str
     # Full path to collections (datasets) folder
     collections_folder: Path | None = None
     # Cache of collection hashes: "tag" -> content_hash
     collection_hashes: Dict[str, str] = {}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _build_file_hashes(cls, data):
+        if isinstance(data, dict) and "file_hashes" not in data:
+            folder = data.get("syftbox_folder")
+            if folder is not None:
+                data["file_hashes"] = PersistedDict(
+                    path=Path(folder) / CACHE_DIR / OWNER_FILE_HASHES_FILENAME,
+                    key_serializer=str,
+                    key_deserializer=Path,
+                )
+        return data
 
     @classmethod
     def from_config(cls, config: DataSiteOwnerEventCacheConfig):
@@ -79,6 +100,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                     base_dir=events_folder, dtype=FileChangeEventsMessage
                 ),
                 file_connection=FSFileConnection(base_dir=my_datasite_folder),
+                syftbox_folder=config.syftbox_folder,
                 email=config.email,
                 collections_folder=config.collections_folder,
             )
@@ -234,7 +256,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
     def clear_cache(self):
         self.events_messages_connection.clear_cache()
         self.file_connection.clear_cache()
-        self.file_hashes = {}
+        self.file_hashes.clear()
 
     def has_conflict(self, proposed_event: ProposedFileChange) -> bool:
         if proposed_event.path_in_datasite not in self.file_hashes:
@@ -367,7 +389,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                         in-memory file_connection is always updated).
         """
         # Clear current state
-        self.file_hashes = {}
+        self.file_hashes.clear()
 
         # Restore from checkpoint
         # Always write to file_connection to maintain consistent state for

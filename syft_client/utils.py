@@ -61,6 +61,31 @@ def resolve_dataset_files_path(
     owner_email: Optional[str] = None,
     client: Optional["SyftBoxManager"] = None,
 ) -> Path:
+    in_job = os.environ.get("SYFT_IS_IN_JOB", "false").lower() == "true"
+    syftbox_folder_known = (
+        syftbox_folder is not None or os.environ.get("SYFTBOX_FOLDER") is not None
+    )
+    owner_email_known = (
+        owner_email is not None or os.environ.get("SYFTBOX_EMAIL") is not None
+    )
+    can_create_client = syftbox_folder_known and owner_email_known
+
+    if client is None and not in_job and not can_create_client:
+        raise ValueError(
+            f"Cannot resolve dataset files for '{dataset_name}' — no client provided.\n\n"
+            f"💡 For local testing, pass client=client:\n"
+            f"    sc.resolve_dataset_file_path('{dataset_name}', client=client)\n\n"
+            f"⚠️  Remove client=client before submitting your job — "
+            f"it will be automatically resolved on the DO machine."
+        )
+
+    if client is not None and not in_job:
+        print(f"📋 Resolving MOCK files for '{dataset_name}' (local test mode)...")
+        print(
+            "\n💡 Remove client=client before submitting — "
+            "the real job, it will automatically be resolved on the DO machine"
+        )
+
     if syftbox_folder is None and client is not None:
         syftbox_folder = client.dataset_manager.syftbox_config.syftbox_folder
 
@@ -75,12 +100,10 @@ def resolve_dataset_files_path(
             "Owner email not provided and SYFTBOX_EMAIL environment variable not set. Please provide the owner_email parameter or set the SYFT_EMAIL environment variable."
         )
 
-    use_private = os.environ.get("SYFT_IS_IN_JOB", "false").lower() == "true"
-
     # we dont use the email so we can use ""
     manager = SyftDatasetManager(syftbox_folder_path=syftbox_folder, email=owner)
     dataset = manager.get(name=dataset_name, datasite=owner)
-    if use_private:
+    if in_job:
         return dataset.private_files
     else:
         return dataset.mock_files
