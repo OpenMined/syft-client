@@ -106,21 +106,42 @@ class JobInfo:
     @property
     def output_paths(self) -> List[Path]:
         """Get list of all file paths in the outputs directory."""
-        if self._state.status not in (JobStatus.DONE, JobStatus.FAILED):
+        status = self._state.status
+
+        def _list_output_files() -> List[Path]:
+            outputs_dir = self.job_review_path / "outputs"
+            if not outputs_dir.exists():
+                return []
+            try:
+                return [
+                    item
+                    for item in outputs_dir.iterdir()
+                    if item.name != PERMISSION_FILE_NAME
+                ]
+            except Exception:
+                return []
+
+        if status == JobStatus.FAILED:
+            partial = _list_output_files()
+            print(f"❌ Job '{self.name}' failed (status: {self.status}).")
+            print(
+                f"   Returning {len(partial)} partial output file(s). "
+                "Check stderr for details: job.stderr"
+            )
+            return partial
+
+        if status != JobStatus.DONE:
+            print(f"⏳ Job '{self.name}' is not done yet (status: {self.status}).")
+            print("   Sync and check again: client.sync()")
             return []
 
-        outputs_dir = self.job_review_path / "outputs"
-        if not outputs_dir.exists():
+        output_files = _list_output_files()
+        if not output_files:
+            print(f"⚠️  Job '{self.name}' is done but no output files were found.")
+            print("   The job script may not have written to the outputs/ folder.")
             return []
 
-        try:
-            return [
-                item
-                for item in outputs_dir.iterdir()
-                if item.name != PERMISSION_FILE_NAME
-            ]
-        except Exception:
-            return []
+        return output_files
 
     @property
     def stdout(self) -> StdoutViewer:
