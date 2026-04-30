@@ -15,7 +15,12 @@ from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.peers.peer import Peer, PeerState
 from syft_client.sync.peers.peer_store import PeerStore
 from syft_client.sync.utils.print_utils import (
-    print_peer_added,
+    print_peer_already_connected,
+    print_peer_connection_established,
+    print_peer_request_accepting,
+    print_peer_request_resending,
+    print_peer_request_sending,
+    print_peer_request_sent,
 )
 from syft_client.sync.version.exceptions import (
     VersionMismatchError,
@@ -382,23 +387,35 @@ class PeerManager(BaseModel):
         """
         existing_peer_obj = self.get_cached_peer(peer_email)
         if existing_peer_obj and not force:
-            if existing_peer_obj.state == PeerState.REQUESTED_BY_PEER:
-                pass  # Fall through to create our folders and accept
-            elif existing_peer_obj.state == PeerState.REQUESTED_BY_ME:
+            if existing_peer_obj.state == PeerState.REQUESTED_BY_ME:
                 if verbose:
-                    print(f"Peer {peer_email} already requested, skipping")
+                    print_peer_already_connected(
+                        peer_email, PeerState.REQUESTED_BY_ME.value
+                    )
                 return
-            elif existing_peer_obj.state == PeerState.ACCEPTED:
+            if existing_peer_obj.state == PeerState.ACCEPTED:
                 if verbose:
-                    print(f"Peer {peer_email} already accepted, skipping")
+                    print_peer_already_connected(peer_email, PeerState.ACCEPTED.value)
                 return
+            # REQUESTED_BY_PEER falls through to accept the incoming request
 
         is_accepting = (
             existing_peer_obj and existing_peer_obj.state == PeerState.REQUESTED_BY_PEER
         )
+
+        if verbose:
+            if force:
+                print_peer_request_resending(peer_email)
+            elif is_accepting:
+                print_peer_request_accepting(peer_email)
+            else:
+                print_peer_request_sending(peer_email)
+
         new_state = PeerState.ACCEPTED if is_accepting else PeerState.REQUESTED_BY_ME
 
-        new_peer_obj = self.connection_router.add_peer(peer_email=peer_email)
+        new_peer_obj = self.connection_router.add_peer(
+            peer_email=peer_email, verbose=False
+        )
 
         if existing_peer_obj:
             new_peer_obj = existing_peer_obj
@@ -423,7 +440,10 @@ class PeerManager(BaseModel):
         self.peer_store.set_peer(new_peer_obj)
 
         if verbose:
-            print_peer_added(new_peer_obj)
+            if is_accepting:
+                print_peer_connection_established(peer_email)
+            else:
+                print_peer_request_sent(peer_email)
 
     def _write_encryption_bundle_for_peer(self, peer_email: str) -> dict | None:
         """Write own encryption bundle for a peer if encryption is enabled."""
