@@ -156,14 +156,22 @@ def restart(service: str | None = None) -> dict[str, tuple[bool, str]]:
 
 
 def reset() -> None:
-    """Stop all services and clear all state, config, logs, and PID files."""
+    """Stop all services, uninstall systemd units, and clear all state."""
     manager = ServiceManager()
+
+    for name in manager.list_services():
+        if is_installed(name):
+            ok, msg = uninstall_service(name)
+            if not ok:
+                print(f"Warning: failed to uninstall {name}: {msg}")
+
     manager.stop_all()
 
     syftbg_dir = get_syftbg_dir()
     shutil.rmtree(syftbg_dir, ignore_errors=True)
     print(
-        "Reset complete: stopped services, cleared state, config, logs, and PID files."
+        "Reset complete: uninstalled systemd units, stopped services, "
+        "cleared state, config, logs, and PID files."
     )
 
 

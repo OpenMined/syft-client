@@ -116,9 +116,11 @@ class EmailApproveHandler:
                 return job
         raise ValueError(f"Job not found: {job_name}")
 
-    def _approve_job(self, job, job_name: str, state_key: str) -> None:
+    def _approve_job(
+        self, job, job_name: str, state_key: str, approval_method: str = "manual"
+    ) -> None:
         """Approve a job, execute it, and share results."""
-        job.approve()
+        job.approve(approval_method=approval_method)
         self.state.mark_notified(state_key, "processed")
 
         self.job_runner.process_approved_jobs(
@@ -129,7 +131,7 @@ class EmailApproveHandler:
 
     def _auto_approve_job(self, job, job_name: str, state_key: str) -> None:
         """Approve a job and create an auto-approval object for future jobs."""
-        self._approve_job(job, job_name, state_key)
+        self._approve_job(job, job_name, state_key, approval_method="auto")
 
         from syft_bg.api.api import auto_approve_job
 

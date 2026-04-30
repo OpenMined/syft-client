@@ -34,6 +34,7 @@ from syft_client.sync.events.file_change_event import (
     FileChangeEvent,
     FileChangeEventsMessage,
 )
+from syft_client.sync.utils.pre_submit_scan import run_pre_submit_check
 from syft_client.sync.utils.syftbox_utils import (
     random_email,
     random_syftbox_folder_for_testing,
@@ -803,6 +804,23 @@ class SyftboxManager(BaseModel):
         sync=True,
         force_submission: bool = False,
     ):
+        peer_emails = {p.email for p in self.peer_manager.syncable_peers}
+        if user not in peer_emails:
+            print(f"⚠️  {user} is not in your peer list.")
+            print(f"   Add them first with: client.add_peer('{user}')")
+            return
+
+        if not force_submission:
+            if not run_pre_submit_check(Path(code_path)):
+                print("Submission aborted.")
+                return
+
+        print(f"📤 Submitting '{code_path}' to {user}...")
+        if job_name:
+            print(f"   Job name     : {job_name}")
+        if dependencies:
+            print(f"   Dependencies : {', '.join(dependencies)}")
+
         # Check version compatibility before submission (uses cached versions)
         if not force_submission:
             self.peer_manager.check_version_for_submission(user, force=False)
@@ -814,7 +832,11 @@ class SyftboxManager(BaseModel):
             entrypoint=entrypoint,
         )
         self.push_job_files(job_dir)
-        print(f"Submitted python job, job files are in {job_dir}")
+
+        print("\n✅ Job submitted successfully!")
+        print("   Status : inbox (waiting for DO to review)")
+        print(f"\n⏳ Next step: wait for {user} to approve and run it.")
+        print("   Check progress with: client.jobs")
 
     def push_job_files(self, job_dir: Path):
         file_paths = [Path(p) for p in job_dir.rglob("*") if p.is_file()]
@@ -1362,6 +1384,7 @@ class SyftboxManager(BaseModel):
             self.datasite_owner_syncer.event_cache.clear_cache()
         if self.datasite_watcher_syncer is not None:
             self.datasite_watcher_syncer.datasite_watcher_cache.clear_cache()
+        self.peer_manager.clear_caches()
 
     def _broadcast_delete_events(
         self,
@@ -1495,7 +1518,8 @@ class SyftboxManager(BaseModel):
         """
         if not self.has_do_role:
             raise ValueError("Checkpoints can only be created by Data Owners")
-        return self.datasite_owner_syncer.create_checkpoint()
+        with self._sync_file_lock():
+            return self.datasite_owner_syncer.create_checkpoint()
 
     def should_create_checkpoint(self, threshold: int = 50) -> bool:
         """

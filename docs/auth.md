@@ -63,7 +63,7 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
 
 ## Step 5: Publish the App
 
-If your app is not published (i.e., remains in "Testing" mode), OAuth tokens expire every 7 days and users will need to re-authenticate. Publishing the app removes this limitation.
+**If your app is Interal (see step 3.4) you can skip this step. **If your app is external and not published (i.e., remains in "Testing" mode), OAuth tokens expire every 7 days and users will need to re-authenticate. Publishing the app removes this limitation.
 
 1. Go to **APIs & Services** > **OAuth consent screen**
 2. navigate to the **Audience** section

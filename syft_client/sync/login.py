@@ -3,7 +3,10 @@ from pathlib import Path
 from syft_client.sync.utils.syftbox_utils import check_env
 from syft_client.sync.environments.environment import Environment
 from syft_client.sync.syftbox_manager import SyftboxManager
-from syft_client.sync.utils.print_utils import print_client_connected
+from syft_client.sync.utils.print_utils import (
+    print_client_connected,
+    print_client_connecting,
+)
 from syft_client.sync.utils.syftbox_utils import get_email_colab
 from syft_client.sync.config.config import settings
 from syft_client.sync.login_utils import handle_potential_version_mismatches_on_login
@@ -13,6 +16,7 @@ def _init_client_login(
     client: SyftboxManager, sync: bool, load_peers: bool
 ) -> SyftboxManager:
     """Common post-creation initialization: write version, sync, load peers."""
+    print_client_connecting(client.email)
     client.write_local_version()
 
     if sync:

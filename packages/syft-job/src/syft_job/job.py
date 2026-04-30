@@ -106,21 +106,42 @@ class JobInfo:
     @property
     def output_paths(self) -> List[Path]:
         """Get list of all file paths in the outputs directory."""
-        if self._state.status not in (JobStatus.DONE, JobStatus.FAILED):
+        status = self._state.status
+
+        def _list_output_files() -> List[Path]:
+            outputs_dir = self.job_review_path / "outputs"
+            if not outputs_dir.exists():
+                return []
+            try:
+                return [
+                    item
+                    for item in outputs_dir.iterdir()
+                    if item.name != PERMISSION_FILE_NAME
+                ]
+            except Exception:
+                return []
+
+        if status == JobStatus.FAILED:
+            partial = _list_output_files()
+            print(f"❌ Job '{self.name}' failed (status: {self.status}).")
+            print(
+                f"   Returning {len(partial)} partial output file(s). "
+                "Check stderr for details: job.stderr"
+            )
+            return partial
+
+        if status != JobStatus.DONE:
+            print(f"⏳ Job '{self.name}' is not done yet (status: {self.status}).")
+            print("   Sync and check again: client.sync()")
             return []
 
-        outputs_dir = self.job_review_path / "outputs"
-        if not outputs_dir.exists():
+        output_files = _list_output_files()
+        if not output_files:
+            print(f"⚠️  Job '{self.name}' is done but no output files were found.")
+            print("   The job script may not have written to the outputs/ folder.")
             return []
 
-        try:
-            return [
-                item
-                for item in outputs_dir.iterdir()
-                if item.name != PERMISSION_FILE_NAME
-            ]
-        except Exception:
-            return []
+        return output_files
 
     @property
     def stdout(self) -> StdoutViewer:
@@ -153,10 +174,17 @@ class JobInfo:
     # Actions (write to review/)
     # ──────────────────────────────────────────────
 
-    def approve(self) -> None:
+    @property
+    def approval_method(self) -> Optional[str]:
+        return self._state.approval_method
+
+    def approve(self, approval_method: str = "manual") -> None:
         """
         Approve a job by updating state.yaml in review/.
         Only the datasite owner can approve jobs.
+
+        Args:
+            approval_method: How the job was approved ("manual" or "auto")
 
         Raises:
             ValueError: If job is not in pending status
@@ -176,8 +204,12 @@ class JobInfo:
         self._state.status = JobStatus.APPROVED
         self._state.approved_by = self.current_user_email
         self._state.approved_at = datetime.now(timezone.utc)
+        self._state.approval_method = approval_method
         self._state.save(self.job_review_path / "state.yaml")
-        print(f"Job '{self.name}' approved successfully!")
+        print(f"✅ Job '{self.name}' approved successfully!")
+        print("   Status    : approved → will run on next process cycle")
+        print("\n⏳ Next step: run process_approved_jobs() to execute it.")
+        print("   client.process_approved_jobs(share_outputs_with_submitter=True)")
 
     def reject(self, reason: str = "") -> None:
         """
@@ -349,10 +381,18 @@ class JobInfo:
             "failed": "💥",
         }
         emoji = status_emojis.get(self.status, "❓")
-        return f"{emoji} {self.name} ({self.status}) -> {self.datasite_owner_email}"
+        approval_info = ""
+        if self.approval_method:
+            approval_info = f" [approved: {self.approval_method}]"
+        return f"{emoji} {self.name} ({self.status}{approval_info}) -> {self.datasite_owner_email}"
 
     def __repr__(self) -> str:
-        return f"JobInfo(name='{self.name}', submitted_by='{self.submitted_by}', current_user_email='{self.current_user_email}', status='{self.status}')"
+        approval = (
+            f", approval_method='{self.approval_method}'"
+            if self.approval_method
+            else ""
+        )
+        return f"JobInfo(name='{self.name}', submitted_by='{self.submitted_by}', current_user_email='{self.current_user_email}', status='{self.status}'{approval})"
 
     def _repr_html_(self) -> str:
         return job_info_repr_html(self)

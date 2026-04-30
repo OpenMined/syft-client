@@ -145,8 +145,13 @@ class JobHandler:
             self.state.mark_notified(job_name, "new")
             if result.thread_id:
                 self.state.store_thread_id(job_name, result.thread_id)
+            self.sender.notify_job_submitted_to_ds(submitter, job_name, do_email)
         else:
-            print(f"[JobHandler] Failed to send new job notification for {job_name}")
+            import traceback
+
+            print(
+                f"[JobHandler] Failed to send new job notification for {job_name}: {traceback.format_exc()}"
+            )
 
         return result.success
 
