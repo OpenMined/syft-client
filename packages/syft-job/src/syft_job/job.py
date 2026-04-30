@@ -153,10 +153,17 @@ class JobInfo:
     # Actions (write to review/)
     # ──────────────────────────────────────────────
 
-    def approve(self) -> None:
+    @property
+    def approval_method(self) -> Optional[str]:
+        return self._state.approval_method
+
+    def approve(self, approval_method: str = "manual") -> None:
         """
         Approve a job by updating state.yaml in review/.
         Only the datasite owner can approve jobs.
+
+        Args:
+            approval_method: How the job was approved ("manual" or "auto")
 
         Raises:
             ValueError: If job is not in pending status
@@ -176,6 +183,7 @@ class JobInfo:
         self._state.status = JobStatus.APPROVED
         self._state.approved_by = self.current_user_email
         self._state.approved_at = datetime.now(timezone.utc)
+        self._state.approval_method = approval_method
         self._state.save(self.job_review_path / "state.yaml")
         print(f"Job '{self.name}' approved successfully!")
 
@@ -349,10 +357,18 @@ class JobInfo:
             "failed": "💥",
         }
         emoji = status_emojis.get(self.status, "❓")
-        return f"{emoji} {self.name} ({self.status}) -> {self.datasite_owner_email}"
+        approval_info = ""
+        if self.approval_method:
+            approval_info = f" [approved: {self.approval_method}]"
+        return f"{emoji} {self.name} ({self.status}{approval_info}) -> {self.datasite_owner_email}"
 
     def __repr__(self) -> str:
-        return f"JobInfo(name='{self.name}', submitted_by='{self.submitted_by}', current_user_email='{self.current_user_email}', status='{self.status}')"
+        approval = (
+            f", approval_method='{self.approval_method}'"
+            if self.approval_method
+            else ""
+        )
+        return f"JobInfo(name='{self.name}', submitted_by='{self.submitted_by}', current_user_email='{self.current_user_email}', status='{self.status}'{approval})"
 
     def _repr_html_(self) -> str:
         return job_info_repr_html(self)
