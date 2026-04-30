@@ -30,8 +30,6 @@ class JobMonitor(Monitor):
         self.job_config = SyftJobConfig.from_syftbox_folder(
             str(self.syftbox_root), do_email
         )
-        if self.state.is_empty():
-            self._seed_existing_jobs()
 
     def _check_all_entities(self):
         self.process_local_status_changes()
@@ -86,7 +84,7 @@ class JobMonitor(Monitor):
             if success:
                 print(f"[JobMonitor] Sent job executed notification: {job_name}")
 
-    def _seed_existing_jobs(self):
+    def seed_existing_jobs(self):
         """On fresh state, mark all existing jobs so we don't re-notify old jobs."""
         inbox_dir = self.job_config.get_all_submissions_dir(self.do_email)
         if not inbox_dir.exists():

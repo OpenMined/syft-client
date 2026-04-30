@@ -164,6 +164,7 @@ class TestJobMonitorLocalStatusChanges:
             handler=handler,
             state=state,
         )
+        monitor.seed_existing_jobs()
         monitor.process_local_status_changes()
         handler.on_new_job.assert_not_called()
 

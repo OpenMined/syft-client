@@ -1,5 +1,6 @@
 """Notification orchestrator for email notifications."""
 
+import time
 from typing import Optional
 
 from syft_bg.common.orchestrator import BaseOrchestrator
@@ -91,6 +92,23 @@ class NotificationOrchestrator(BaseOrchestrator):
         if self._peer_monitor:
             return self._peer_monitor.notify_peer_granted(ds_email)
         return False
+
+    def run_loop(self, monitor_type=None):
+        self._wait_for_sync_ready()
+        if self._job_monitor.state.is_empty():
+            self._job_monitor.seed_existing_jobs()
+        super().run_loop(monitor_type)
+
+    def _wait_for_sync_ready(self, timeout=120):
+        marker = self.config.syftbox_root / ".sync_ready"
+        waited = 0
+        while not marker.exists() and waited < timeout:
+            if waited % 10 == 0:
+                print("[Notify] Waiting for sync service...")
+            time.sleep(1)
+            waited += 1
+        if waited >= timeout:
+            print("[Notify] Timed out waiting for sync, starting anyway")
 
     def _print_startup_info(self):
         """Print startup info for notify service."""

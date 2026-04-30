@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from syft_bg.common.orchestrator import BaseOrchestrator
@@ -69,6 +70,7 @@ class SyncOrchestrator(BaseOrchestrator):
         self.client.sync()
 
     def run_loop(self, monitor_type=None) -> None:
+        self._sync_ready_path().unlink(missing_ok=True)
         self._print_startup_info()
         try:
             while not self._stop_event.is_set():
@@ -101,6 +103,8 @@ class SyncOrchestrator(BaseOrchestrator):
                 f"[SyncOrchestrator] Cycle {count} failed in {duration_ms}ms: {sync_error}"
             )
         else:
+            if self._sync_count == 1 and self.config.syftbox_root:
+                self._sync_ready_path().touch()
             job_count = len(snapshot.job_names)
             peer_count = len(snapshot.approved_peer_emails)
             print(
@@ -165,6 +169,9 @@ class SyncOrchestrator(BaseOrchestrator):
             own_version=own_version,
             peer_versions=peer_versions,
         )
+
+    def _sync_ready_path(self) -> Path:
+        return self.config.syftbox_root / ".sync_ready"
 
     def _print_startup_info(self) -> None:
         print("Starting sync daemon...")
