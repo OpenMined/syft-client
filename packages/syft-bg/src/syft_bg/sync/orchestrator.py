@@ -110,7 +110,9 @@ class SyncOrchestrator(BaseOrchestrator):
             )
         else:
             if self._sync_count == 1:
-                self._sync_ready_path().touch()
+                marker = self._sync_ready_path()
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.touch()
             job_count = len(snapshot.job_names)
             peer_count = len(snapshot.approved_peer_emails)
             print(
