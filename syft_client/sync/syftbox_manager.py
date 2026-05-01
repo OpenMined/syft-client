@@ -49,6 +49,7 @@ from syft_client.sync.connections.drive import mock_drive_service
 from syft_client.sync.sync.datasite_owner_syncer import (
     DatasiteOwnerSyncer,
     DatasiteOwnerSyncerConfig,
+    MIN_MESSAGES_COMPACT,
 )
 from syft_client.sync.sync.datasite_watcher_syncer import (
     DatasiteWatcherSyncer,
@@ -867,7 +868,13 @@ class SyftboxManager(BaseModel):
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
                 logger.info(f"Sync lock released for {self.email}")
 
-    def sync(self, auto_checkpoint: bool = True, checkpoint_threshold: int = 50):
+    def sync(
+        self,
+        auto_checkpoint: bool = True,
+        checkpoint_threshold: int = 50,
+        auto_compact: bool = True,
+        compact_threshold: int = MIN_MESSAGES_COMPACT,
+    ):
         """
         Sync local state with Google Drive.
 
@@ -875,6 +882,11 @@ class SyftboxManager(BaseModel):
             auto_checkpoint: If True, automatically create checkpoint when
                             event count exceeds threshold (DO only).
             checkpoint_threshold: Create checkpoint when events >= this value.
+            auto_compact: If True, after each DO sync, compact each peer's
+                          outbox if it holds at least `compact_threshold`
+                          message files (DO only).
+            compact_threshold: Compact a peer's outbox when message-file
+                          count >= this value.
         """
         with self._sync_file_lock():
             self.load_peers()
@@ -884,6 +896,11 @@ class SyftboxManager(BaseModel):
                     peer_emails, warn_incompatible=True
                 )
                 self.datasite_owner_syncer.sync(compatible_emails)
+                if auto_compact:
+                    for peer_email in compatible_emails:
+                        self.datasite_owner_syncer.compact_outbox_if_needed(
+                            peer_email, min_messages=compact_threshold
+                        )
                 if auto_checkpoint:
                     self.try_create_checkpoint(checkpoint_threshold)
 
@@ -1520,6 +1537,28 @@ class SyftboxManager(BaseModel):
             raise ValueError("Checkpoints can only be created by Data Owners")
         with self._sync_file_lock():
             return self.datasite_owner_syncer.create_checkpoint()
+
+    def compact_outboxes_if_needed(
+        self, min_messages: int = MIN_MESSAGES_COMPACT
+    ) -> dict[str, int]:
+        """Merge accumulated event messages in each approved peer's outbox.
+
+        This compacts each peer's outbox into a
+        single message when it has at least `min_messages` files.
+
+        Returns a mapping of recipient_email -> number of source messages
+        compacted (0 if that peer was below threshold or skipped).
+        Only available for Data Owners.
+        """
+        if not self.has_do_role:
+            return {}
+        with self._sync_file_lock():
+            return {
+                peer.email: self.datasite_owner_syncer.compact_outbox_if_needed(
+                    peer.email, min_messages=min_messages
+                )
+                for peer in self.peer_manager.approved_peers
+            }
 
     def should_create_checkpoint(self, threshold: int = 50) -> bool:
         """
