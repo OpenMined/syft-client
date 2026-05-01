@@ -713,6 +713,14 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
                 recipient, file_change_events_message
             )
 
+    def _download_outbox_message_with_new_connection(
+        self, file_id: str
+    ) -> FileChangeEventsMessage:
+        """Download and decompress one outbox events-message file."""
+        connection = self.connection_router.connection_for_parallel_download()
+        raw = connection.download_file(file_id)
+        return FileChangeEventsMessage.from_compressed_data(raw)
+
     def compact_outbox(
         self,
         recipient_email: str,
@@ -752,10 +760,18 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
 
         parsed.sort(key=lambda x: x[0])
 
+        # Parallel download. executor.map preserves input order, so messages[i]
+        # corresponds to parsed[i] — no re-zip-and-sort needed since `parsed`
+        # is already timestamp-sorted.
+        file_ids = [fid for _, fid in parsed]
+        messages = list(
+            self._executor.map(
+                self._download_outbox_message_with_new_connection, file_ids
+            )
+        )
+
         merged_events: list[FileChangeEvent] = []
-        for _, fid in parsed:
-            raw = conn.download_file(fid)
-            msg = FileChangeEventsMessage.from_compressed_data(raw)
+        for msg in messages:
             merged_events.extend(msg.events)
 
         merged = FileChangeEventsMessage(events=merged_events)
@@ -766,7 +782,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         self.connection_router.owner_write_event_messages_to_outbox(
             recipient_email, merged
         )
-        conn.delete_multiple_files_by_ids([fid for _, fid in parsed])
+        conn.delete_multiple_files_by_ids(file_ids)
         return len(parsed)
 
     def write_file_filesystem(self, path: str, content: str):
