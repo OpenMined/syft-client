@@ -868,7 +868,13 @@ class SyftboxManager(BaseModel):
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
                 logger.info(f"Sync lock released for {self.email}")
 
-    def sync(self, auto_checkpoint: bool = True, checkpoint_threshold: int = 50):
+    def sync(
+        self,
+        auto_checkpoint: bool = True,
+        checkpoint_threshold: int = 50,
+        auto_compact: bool = True,
+        compact_threshold: int = MIN_MESSAGES_COMPACT,
+    ):
         """
         Sync local state with Google Drive.
 
@@ -876,6 +882,11 @@ class SyftboxManager(BaseModel):
             auto_checkpoint: If True, automatically create checkpoint when
                             event count exceeds threshold (DO only).
             checkpoint_threshold: Create checkpoint when events >= this value.
+            auto_compact: If True, after each DO sync, compact each peer's
+                          outbox if it holds at least `compact_threshold`
+                          message files (DO only).
+            compact_threshold: Compact a peer's outbox when message-file
+                          count >= this value.
         """
         with self._sync_file_lock():
             self.load_peers()
@@ -885,6 +896,11 @@ class SyftboxManager(BaseModel):
                     peer_emails, warn_incompatible=True
                 )
                 self.datasite_owner_syncer.sync(compatible_emails)
+                if auto_compact:
+                    for peer_email in compatible_emails:
+                        self.datasite_owner_syncer.compact_outbox(
+                            peer_email, min_messages=compact_threshold
+                        )
                 if auto_checkpoint:
                     self.try_create_checkpoint(checkpoint_threshold)
 
