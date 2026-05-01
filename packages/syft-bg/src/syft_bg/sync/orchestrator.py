@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from syft_bg.common.config import get_default_paths
 from syft_bg.common.orchestrator import BaseOrchestrator
 from syft_bg.common.state import JsonStateManager
 from syft_bg.sync.config import SyncConfig
@@ -13,6 +14,11 @@ from syft_bg.sync.snapshot import PeerVersionInfo, SyncSnapshot
 
 if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
+
+
+def sync_ready_path() -> Path:
+    """Marker file that sync writes once it has completed at least one cycle."""
+    return get_default_paths().sync_state.parent / ".sync_ready"
 
 
 class SyncOrchestrator(BaseOrchestrator):
@@ -103,7 +109,7 @@ class SyncOrchestrator(BaseOrchestrator):
                 f"[SyncOrchestrator] Cycle {count} failed in {duration_ms}ms: {sync_error}"
             )
         else:
-            if self._sync_count == 1 and self.config.syftbox_root:
+            if self._sync_count == 1:
                 self._sync_ready_path().touch()
             job_count = len(snapshot.job_names)
             peer_count = len(snapshot.approved_peer_emails)
@@ -171,7 +177,7 @@ class SyncOrchestrator(BaseOrchestrator):
         )
 
     def _sync_ready_path(self) -> Path:
-        return self.config.syftbox_root / ".sync_ready"
+        return sync_ready_path()
 
     def _print_startup_info(self) -> None:
         print("Starting sync daemon...")

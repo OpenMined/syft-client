@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from syft_bg.common.syft_bg_config import SyftBgConfig
+from syft_bg.services.base import ServiceInfo, ServiceStatus
 from typing import Optional
 
 if TYPE_CHECKING:
@@ -66,21 +67,25 @@ class AuthResult(BaseModel):
         return "\n".join(lines)
 
 
-class TokenStatus:
+class TokenStatus(BaseModel):
     """Displayable token status with text and HTML representations."""
 
-    def __init__(self, label: str, path: Optional[Path]):
-        self.label = label
-        self.path = path
-        if path is None:
-            self.status = "not configured"
-            self.ok = False
-        elif path.exists():
-            self.status = "ready"
-            self.ok = True
-        else:
-            self.status = f"missing ({path})"
-            self.ok = False
+    label: str
+    path: Optional[Path]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def ok(self) -> bool:
+        return self.path is not None and self.path.exists()
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def status(self) -> str:
+        if self.path is None:
+            return "not configured"
+        if self.path.exists():
+            return "ready"
+        return f"missing ({self.path})"
 
     def render(self, as_html: bool = False) -> str:
         if as_html:
@@ -94,19 +99,13 @@ class TokenStatus:
         return f"  {self.label:<35} {self.status}"
 
 
-class ServiceLine:
+class ServiceSatusLineRepr(BaseModel):
     """Displayable service status with text and HTML representations."""
 
-    def __init__(
-        self, name: str, status: str, has_setup_error: bool, installed: bool = False
-    ):
-        self.name = name
-        self.status = status
-        self.has_setup_error = has_setup_error
-        self.installed = installed
+    info: ServiceInfo
 
     def _installed_suffix(self, as_html: bool = False) -> str:
-        if self.installed:
+        if self.info.installed:
             if as_html:
                 return ' <span style="color:green">(installed)</span>'
             return " (installed)"
@@ -115,31 +114,38 @@ class ServiceLine:
         return " (not installed)"
 
     def _status_icon(self) -> str:
-        if self.has_setup_error:
+        if self.info.status == ServiceStatus.ERROR:
             return "🔴"
-        if "running" in self.status:
-            return "🟢"
-        if "starting" in self.status:
+        if self.info.status == ServiceStatus.STARTING:
             return "🟡"
-        return "🔴"
+        if self.info.status == ServiceStatus.RUNNING:
+            return "🟢"
+        if self.info.status == ServiceStatus.STOPPED:
+            return "⚪"
+        if self.info.status == ServiceStatus.UNKNOWN:
+            return "?"
 
     def render(self, as_html: bool = False) -> str:
+        name = self.info.name
         suffix = self._installed_suffix(as_html)
         icon = self._status_icon()
-        if self.has_setup_error:
+        status_str = self.info.status_str
+        if self.info.status == ServiceStatus.ERROR:
             if as_html:
-                return f'{self.name}: <span style="color:red">{icon} setup error</span>{suffix}'
-            return f"  {self.name:<16} {icon} setup error{suffix}"
+                return (
+                    f'{name}: <span style="color:red">{icon} setup error</span>{suffix}'
+                )
+            return f"  {name:<16} {icon} setup error{suffix}"
         if as_html:
-            if "running" in self.status:
-                color = "green"
-            elif "starting" in self.status:
+            if self.info.status == ServiceStatus.STARTING:
                 color = "orange"
+            elif self.info.status == ServiceStatus.RUNNING:
+                color = "green"
             else:
                 color = "red"
-            status = f'<span style="color:{color}">{icon} {self.status}</span>'
-            return f"{self.name}: {status}{suffix}"
-        return f"  {self.name:<16} {icon} {self.status}{suffix}"
+            status = f'<span style="color:{color}">{icon} {status_str}</span>'
+            return f"{name}: {status}{suffix}"
+        return f"  {name:<16} {icon} {status_str}{suffix}"
 
 
 class StatusResult(BaseModel):
@@ -148,8 +154,7 @@ class StatusResult(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
     config: "SyftBgConfig"
-    services: dict[str, str] = Field(default_factory=dict)
-    installed: dict[str, bool] = Field(default_factory=dict)
+    service_infos: dict[str, ServiceInfo] = Field(default_factory=dict)
     is_colab: bool = False
 
     @property
@@ -169,35 +174,34 @@ class StatusResult(BaseModel):
         return self.config.approve.peers.approved_domains
 
     def _token_items(self) -> list[TokenStatus]:
-        active = self.services
+        active = self.service_infos
         items: list[TokenStatus] = []
 
         if "notify" in active:
             n = self.config.notify
-            items.append(TokenStatus("notify.gmail_token_path", n.gmail_token_path))
-            items.append(TokenStatus("notify.drive_token_path", n.drive_token_path))
+            items.append(
+                TokenStatus(label="notify.gmail_token_path", path=n.gmail_token_path)
+            )
+            items.append(
+                TokenStatus(label="notify.drive_token_path", path=n.drive_token_path)
+            )
         if "approve" in active:
             a = self.config.approve
-            items.append(TokenStatus("approve.drive_token_path", a.drive_token_path))
+            items.append(
+                TokenStatus(label="approve.drive_token_path", path=a.drive_token_path)
+            )
         if "email_approve" in active:
             e = self.config.email_approve
             items.append(
-                TokenStatus("email_approve.gmail_token_path", e.gmail_token_path)
+                TokenStatus(
+                    label="email_approve.gmail_token_path", path=e.gmail_token_path
+                )
             )
 
         return items
 
-    def _service_items(self) -> list[ServiceLine]:
-        from syft_bg.api.utils import load_setup_state
-        from syft_bg.common.setup_state import SetupStatus
-
-        items: list[ServiceLine] = []
-        for name, s in self.services.items():
-            setup = load_setup_state(name)
-            has_error = bool(setup and setup.setup_status == SetupStatus.ERROR)
-            svc_installed = self.installed.get(name, False)
-            items.append(ServiceLine(name, s, has_error, installed=svc_installed))
-        return items
+    def _service_repr_lines(self) -> list[ServiceSatusLineRepr]:
+        return [ServiceSatusLineRepr(info=info) for info in self.service_infos.values()]
 
     def _tokens_contents(self, as_html: bool = False) -> str:
         items = self._token_items()
@@ -208,7 +212,7 @@ class StatusResult(BaseModel):
 
     def _services_contents(self, as_html: bool = False) -> str:
         sep = "<br>" if as_html else "\n"
-        return sep.join(s.render(as_html) for s in self._service_items())
+        return sep.join(s.render(as_html) for s in self._service_repr_lines())
 
     def _auto_approval_obj_contents(self, name: str, obj: AutoApprovalObj) -> str:
         contents = "\n".join(

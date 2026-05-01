@@ -8,7 +8,6 @@ from syft_bg.api.utils import (
     copy_and_hash_files,
     generate_unique_name,
     get_job_user_files,
-    load_setup_state,
     move_token_to_syftbg_dir,
     resolve_auto_approve_file_args,
     resolve_content_files,
@@ -20,8 +19,6 @@ from syft_bg.common.config import get_syftbg_dir, get_default_paths
 from syft_bg.common.drive import is_colab
 from syft_bg.common.syft_bg_config import SyftBgConfig
 from syft_bg.services import ServiceManager
-from syft_bg.common.setup_state import SetupStatus
-from syft_bg.services.base import ServiceStatus
 from syft_bg.systemd import install_service, is_installed, uninstall_service
 
 # This file should only contain user facing methods,
@@ -161,14 +158,6 @@ def reset() -> None:
     """Stop all services, uninstall systemd units, and clear all state."""
     manager = ServiceManager()
 
-    # Clean sync-ready marker before wiping config
-    try:
-        config = SyftBgConfig.from_path()
-        if config.syftbox_root:
-            (Path(config.syftbox_root) / ".sync_ready").unlink(missing_ok=True)
-    except FileNotFoundError:
-        pass
-
     for name in manager.list_services():
         if is_installed(name):
             ok, msg = uninstall_service(name)
@@ -304,26 +293,10 @@ def status() -> StatusResult:
         config = SyftBgConfig()
 
     manager = ServiceManager()
-    services = {}
-    installed = {}
-    for name, info in manager.get_all_status().items():
-        svc = manager.get_service(name)
-        if not svc.pid_file.parent.exists():
-            continue
-        if info.status == ServiceStatus.RUNNING:
-            setup = load_setup_state(name)
-            if setup and setup.setup_status == SetupStatus.STARTING:
-                services[name] = f"starting (PID {info.pid})"
-            else:
-                services[name] = f"running (PID {info.pid})"
-        else:
-            services[name] = "stopped"
-        installed[name] = is_installed(name)
 
     return StatusResult(
         config=config,
-        services=services,
-        installed=installed,
+        service_infos=manager.get_service_infos(),
         is_colab=is_colab(),
     )
 

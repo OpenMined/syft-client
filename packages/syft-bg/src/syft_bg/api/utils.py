@@ -11,7 +11,7 @@ from syft_bg.common.syft_bg_config import SyftBgConfig
 from syft_bg.email_approve.pubsub_setup import get_project_id_from_credentials
 
 
-from syft_bg.common.setup_state import SetupState, SetupStatus
+from syft_bg.services.base import ServiceInfo, ServiceStatus
 
 PERMISSION_FILE_NAME = "syft.pub.yaml"
 DEFAULT_NAME_ONLY_FILES = {"params.json"}
@@ -36,15 +36,10 @@ def clear_setup_state(path: Path) -> None:
 
 
 def write_setup_state(
-    service: str, path: Path, status: SetupStatus, error: str | None = None
+    service: str, path: Path, status: ServiceStatus, error: str | None = None
 ) -> None:
-    """Write a SetupState to disk."""
-    state = SetupState(
-        service_name=service,
-        setup_status=status,
-        error=error,
-    )
-    state.save(path)
+    """Persist a ServiceInfo snapshot to disk."""
+    ServiceInfo(name=service, status=status, error=error).save(path)
 
 
 def setup_orchestrator(service: str):
@@ -65,7 +60,7 @@ def setup_orchestrator(service: str):
     config = SyftBgConfig.from_path()
     state_path = get_setup_state_path(service)
     clear_setup_state(state_path)
-    write_setup_state(service, state_path, SetupStatus.STARTING)
+    write_setup_state(service, state_path, ServiceStatus.STARTING)
 
     try:
         if service == "notify":
@@ -81,18 +76,18 @@ def setup_orchestrator(service: str):
         orchestrator.setup()
     except Exception:
         write_setup_state(
-            service, state_path, SetupStatus.ERROR, traceback.format_exc()
+            service, state_path, ServiceStatus.ERROR, traceback.format_exc()
         )
         raise
 
-    write_setup_state(service, state_path, SetupStatus.SUCCESS)
+    write_setup_state(service, state_path, ServiceStatus.RUNNING)
     return orchestrator
 
 
-def load_setup_state(service: str) -> SetupState | None:
-    """Load setup state for a service, or None if not found."""
+def load_setup_state(service: str) -> ServiceInfo | None:
+    """Load persisted ServiceInfo for a service, or None if not found."""
     path = get_setup_state_path(service)
-    return SetupState.load(path)
+    return ServiceInfo.load(path)
 
 
 def move_token_to_syftbg_dir(token_path: Path) -> Path:
@@ -272,22 +267,6 @@ def copy_and_hash_files(
             FileEntry(relative_path=rel_path, path=str(dest), hash=file_hash)
         )
     return entries
-
-
-def restart_approve_service() -> None:
-    """Restart the approve service if it is currently running."""
-    try:
-        from syft_bg.services import ServiceManager
-        from syft_bg.services.base import ServiceStatus
-
-        manager = ServiceManager()
-        approve_svc = manager.get_service("approve")
-        if approve_svc:
-            svc_status = approve_svc.get_status()
-            if svc_status and svc_status.status == ServiceStatus.RUNNING:
-                manager.restart_service("approve")
-    except Exception:
-        pass
 
 
 def resolve_auto_approve_file_args(

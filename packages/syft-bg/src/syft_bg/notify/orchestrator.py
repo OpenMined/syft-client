@@ -12,6 +12,7 @@ from syft_bg.notify.handlers.job import JobHandler
 from syft_bg.notify.handlers.peer import PeerHandler
 from syft_bg.notify.monitors.job import JobMonitor
 from syft_bg.notify.monitors.peer import PeerMonitor
+from syft_bg.sync.orchestrator import sync_ready_path
 
 
 class NotificationOrchestrator(BaseOrchestrator):
@@ -111,7 +112,7 @@ class NotificationOrchestrator(BaseOrchestrator):
         )
 
     def _wait_for_sync_ready(self, timeout=120):
-        marker = self.config.syftbox_root / ".sync_ready"
+        marker = sync_ready_path()
         waited = 0
         while not marker.exists() and waited < timeout:
             if waited % 10 == 0:
