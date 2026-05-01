@@ -898,7 +898,7 @@ class SyftboxManager(BaseModel):
                 self.datasite_owner_syncer.sync(compatible_emails)
                 if auto_compact:
                     for peer_email in compatible_emails:
-                        self.datasite_owner_syncer.compact_outbox(
+                        self.datasite_owner_syncer.compact_outbox_if_needed(
                             peer_email, min_messages=compact_threshold
                         )
                 if auto_checkpoint:
@@ -1538,7 +1538,7 @@ class SyftboxManager(BaseModel):
         with self._sync_file_lock():
             return self.datasite_owner_syncer.create_checkpoint()
 
-    def compact_outboxes(
+    def compact_outboxes_if_needed(
         self, min_messages: int = MIN_MESSAGES_COMPACT
     ) -> dict[str, int]:
         """Merge accumulated event messages in each approved peer's outbox.
@@ -1554,7 +1554,7 @@ class SyftboxManager(BaseModel):
             return {}
         with self._sync_file_lock():
             return {
-                peer.email: self.datasite_owner_syncer.compact_outbox(
+                peer.email: self.datasite_owner_syncer.compact_outbox_if_needed(
                     peer.email, min_messages=min_messages
                 )
                 for peer in self.peer_manager.approved_peers

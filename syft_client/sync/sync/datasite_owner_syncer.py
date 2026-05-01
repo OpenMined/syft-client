@@ -38,9 +38,9 @@ DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50
 # Default: upload rolling state to GDrive after this many events
 DEFAULT_ROLLING_STATE_UPLOAD_THRESHOLD = 1
 
-# Minimum number of message files in a peer's outbox before compact_outbox()
-# will merge them into a single message.
-MIN_MESSAGES_COMPACT = 10
+# Minimum number of message files in a peer's outbox before
+# compact_outbox_if_needed() will merge them into a single message.
+MIN_MESSAGES_COMPACT = 20
 
 
 class DatasiteOwnerSyncerConfig(BaseModel):
@@ -724,7 +724,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         raw = connection.download_file(file_id)
         return FileChangeEventsMessage.from_compressed_data(raw)
 
-    def compact_outbox(
+    def compact_outbox_if_needed(
         self,
         recipient_email: str,
         min_messages: int = MIN_MESSAGES_COMPACT,
@@ -739,11 +739,19 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         peer-encrypted bytes back to merge).
         """
         if self.connection_router.peer_store.peer_uses_encryption(recipient_email):
+            print(
+                f"WARNING: outbox compaction for {recipient_email} skipped — "
+                f"peer encryption is not supported yet"
+            )
             return 0
 
         conn = self.connection_router.connection_for_outbox()
         folder_id = conn._get_own_datasite_outbox_id(recipient_email)
         if folder_id is None:
+            print(
+                f"WARNING: outbox compaction for {recipient_email} skipped — "
+                f"could not resolve outbox folder id"
+            )
             return 0
 
         metas = conn.get_file_metadatas_from_folder(folder_id, since_timestamp=None)
