@@ -5,19 +5,6 @@ from typing import Optional
 
 import click
 
-from syft_bg.services import ServiceManager, ServiceStatus
-
-
-def get_status_text(status: ServiceStatus) -> str:
-    """Get human-readable status text."""
-    if status == ServiceStatus.RUNNING:
-        return "Running"
-    elif status == ServiceStatus.STOPPED:
-        return "Stopped"
-    elif status == ServiceStatus.ERROR:
-        return "Error"
-    return "Unknown"
-
 
 @click.group(invoke_without_command=True)
 @click.pass_context
@@ -31,155 +18,37 @@ def main(ctx):
 @main.command()
 def status():
     """Show status of all services."""
-    manager = ServiceManager()
-    all_status = manager.get_all_status()
+    from syft_bg.api.api import status as api_status
 
-    click.echo()
-    click.echo("SYFT BACKGROUND SERVICES")
-    click.echo("=" * 50)
-    click.echo()
-    click.echo(f"{'SERVICE':<12} {'STATUS':<12} {'PID':<10} {'DESCRIPTION'}")
-    click.echo("-" * 50)
-
-    from syft_bg.api.utils import load_setup_state
-    from syft_bg.common.setup_state import SetupStatus as SStatus
-
-    for name, info in all_status.items():
-        service = manager.get_service(name)
-        pid_text = str(info.pid) if info.pid else "-"
-
-        if info.status == ServiceStatus.RUNNING:
-            click.echo(
-                f"{name:<12} {'● Running':<12} {pid_text:<10} {service.description}"
-            )
-        else:
-            setup = load_setup_state(name)
-            if setup and setup.setup_status == SStatus.ERROR:
-                click.echo(f"{name:<12} {'✗ Error':<12} {pid_text:<10} {setup.error}")
-            else:
-                status_text = get_status_text(info.status)
-                click.echo(
-                    f"{name:<12} {'○ ' + status_text:<12} {pid_text:<10} {service.description}"
-                )
-
-    # Sync health
-    _print_sync_health()
-
-    click.echo()
-
-
-def _print_sync_health():
-    """Print sync snapshot health if available."""
-    from syft_bg.common.config import get_default_paths
-    from syft_bg.common.state import JsonStateManager
-    from syft_bg.sync.snapshot import SyncSnapshot
-
-    paths = get_default_paths()
-    state = JsonStateManager(paths.sync_state)
-    data = state.get_data("snapshot")
-    if not data:
-        return
-    try:
-        snapshot = SyncSnapshot.model_validate(data)
-    except (ValueError, TypeError):
-        return
-
-    import time
-
-    age_s = time.time() - snapshot.sync_time
-
-    click.echo()
-    if snapshot.sync_error:
-        click.echo(f"  Sync: last error — {snapshot.sync_error}")
-    elif age_s > 120:
-        minutes = int(age_s / 60)
-        click.echo(f"  Sync: stale (last sync {minutes}m ago)")
-    else:
-        click.echo(f"  Sync: healthy ({snapshot.sync_duration_ms}ms)")
+    status = api_status()
+    return status.render(as_html=False)
 
 
 @main.command()
 @click.argument("service", required=False)
 def start(service: Optional[str]):
     """Start services. If SERVICE specified, start only that service."""
-    manager = ServiceManager()
+    from syft_bg.api.api import start as api_start
 
-    if service:
-        if service not in manager.list_services():
-            click.echo(f"Unknown service: {service}", err=True)
-            click.echo(f"Available: {', '.join(manager.list_services())}")
-            return
-
-        click.echo(f"Starting {service}...")
-        success, msg = manager.start_service(service)
-        if success:
-            click.echo(f"✅ {msg}")
-        else:
-            click.echo(f"❌ {msg}", err=True)
-    else:
-        click.echo("Starting all services...")
-        results = manager.start_all()
-        for name, (success, msg) in results.items():
-            if success:
-                click.echo(f"✅ {name}: {msg}")
-            else:
-                click.echo(f"❌ {name}: {msg}")
+    api_start(service=service)
 
 
 @main.command()
 @click.argument("service", required=False)
 def stop(service: Optional[str]):
     """Stop services. If SERVICE specified, stop only that service."""
-    manager = ServiceManager()
+    from syft_bg.api.api import stop as api_stop
 
-    if service:
-        if service not in manager.list_services():
-            click.echo(f"Unknown service: {service}", err=True)
-            click.echo(f"Available: {', '.join(manager.list_services())}")
-            return
-
-        click.echo(f"Stopping {service}...")
-        success, msg = manager.stop_service(service)
-        if success:
-            click.echo(f"✅ {msg}")
-        else:
-            click.echo(f"❌ {msg}", err=True)
-    else:
-        click.echo("Stopping all services...")
-        results = manager.stop_all()
-        for name, (success, msg) in results.items():
-            if success:
-                click.echo(f"✅ {name}: {msg}")
-            else:
-                click.echo(f"❌ {name}: {msg}")
+    api_stop(service=service)
 
 
 @main.command()
 @click.argument("service", required=False)
 def restart(service: Optional[str]):
     """Restart services. If SERVICE specified, restart only that service."""
-    manager = ServiceManager()
+    from syft_bg.api.api import restart as api_restart
 
-    if service:
-        if service not in manager.list_services():
-            click.echo(f"Unknown service: {service}", err=True)
-            click.echo(f"Available: {', '.join(manager.list_services())}")
-            return
-
-        click.echo(f"Restarting {service}...")
-        success, msg = manager.restart_service(service)
-        if success:
-            click.echo(f"✅ {msg}")
-        else:
-            click.echo(f"❌ {msg}", err=True)
-    else:
-        click.echo("Restarting all services...")
-        for name in manager.list_services():
-            success, msg = manager.restart_service(name)
-            if success:
-                click.echo(f"✅ {name}: {msg}")
-            else:
-                click.echo(f"❌ {name}: {msg}")
+    api_restart(service=service)
 
 
 @main.command()
@@ -188,36 +57,9 @@ def restart(service: Optional[str]):
 @click.option("--lines", "-n", type=int, default=50, help="Number of lines to show")
 def logs(service: str, follow: bool, lines: int):
     """View logs for a service."""
-    import subprocess
+    from syft_bg.api.api import logs as api_logs
 
-    manager = ServiceManager()
-
-    if service not in manager.list_services():
-        click.echo(f"Unknown service: {service}", err=True)
-        click.echo(f"Available: {', '.join(manager.list_services())}")
-        return
-
-    svc = manager.get_service(service)
-
-    if not svc.log_file.exists():
-        click.echo(f"Log file not found: {svc.log_file}")
-        return
-
-    if follow:
-        click.echo(f"Following {svc.log_file} (Ctrl+C to stop)...")
-        try:
-            subprocess.run(["tail", "-f", str(svc.log_file)])
-        except KeyboardInterrupt:
-            click.echo("\nStopped")
-    else:
-        log_lines = manager.get_logs(service, lines)
-        if log_lines:
-            click.echo(f"Last {len(log_lines)} lines from {service}:")
-            click.echo("-" * 50)
-            for line in log_lines:
-                click.echo(line)
-        else:
-            click.echo("No logs available")
+    api_logs(service=service, follow=follow, lines=lines)
 
 
 @main.command()

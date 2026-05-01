@@ -19,7 +19,6 @@ from syft_bg.common.config import get_syftbg_dir, get_default_paths
 from syft_bg.common.drive import is_colab
 from syft_bg.common.syft_bg_config import SyftBgConfig
 from syft_bg.services import ServiceManager
-from syft_bg.services.base import ServiceStatus
 from syft_bg.systemd import install_service, is_installed, uninstall_service
 
 # This file should only contain user facing methods,
@@ -294,22 +293,10 @@ def status() -> StatusResult:
         config = SyftBgConfig()
 
     manager = ServiceManager()
-    services = {}
-    installed = {}
-    for name, info in manager.get_all_status().items():
-        svc = manager.get_service(name)
-        if not svc.pid_file.parent.exists():
-            continue
-        if info.status == ServiceStatus.RUNNING:
-            services[name] = f"running (PID {info.pid})"
-        else:
-            services[name] = "stopped"
-        installed[name] = is_installed(name)
 
     return StatusResult(
         config=config,
-        services=services,
-        installed=installed,
+        service_infos=manager.get_service_infos(),
         is_colab=is_colab(),
     )
 

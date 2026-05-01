@@ -52,8 +52,6 @@ def _make_notify_orchestrator(
         handler=job_handler,
         state=notify_state,
     )
-    job_monitor._is_fresh_state = False
-
     notify_config = NotifyConfig(
         do_email=do_manager.email,
         syftbox_root=Path(do_manager.syftbox_folder),

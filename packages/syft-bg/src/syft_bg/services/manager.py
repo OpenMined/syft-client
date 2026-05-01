@@ -14,8 +14,8 @@ class ServiceManager:
     def get_service(self, name: str) -> Optional[Service]:
         return self.services.get(name)
 
-    def get_all_status(self) -> dict[str, ServiceInfo]:
-        return {name: svc.get_status() for name, svc in self.services.items()}
+    def get_service_infos(self) -> dict[str, ServiceInfo]:
+        return {name: svc.info() for name, svc in self.services.items()}
 
     def start_service(self, name: str) -> tuple[bool, str]:
         service = self.get_service(name)
@@ -57,8 +57,7 @@ class ServiceManager:
 
     def any_running(self) -> bool:
         return any(
-            svc.get_status().status == ServiceStatus.RUNNING
-            for svc in self.services.values()
+            svc.info().status == ServiceStatus.RUNNING for svc in self.services.values()
         )
 
     def is_running(self, name: str) -> bool:
@@ -69,6 +68,5 @@ class ServiceManager:
 
     def all_running(self) -> bool:
         return all(
-            svc.get_status().status == ServiceStatus.RUNNING
-            for svc in self.services.values()
+            svc.info().status == ServiceStatus.RUNNING for svc in self.services.values()
         )

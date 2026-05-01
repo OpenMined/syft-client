@@ -4,25 +4,54 @@ import os
 import signal
 import subprocess
 import sys
-from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from pydantic import BaseModel, Field
 
-class ServiceStatus(Enum):
+
+class ServiceStatus(str, Enum):
+    STARTING = "starting"
     RUNNING = "running"
     STOPPED = "stopped"
     ERROR = "error"
     UNKNOWN = "unknown"
 
 
-@dataclass
-class ServiceInfo:
+class ServiceInfo(BaseModel):
+    name: str
     status: ServiceStatus
     pid: Optional[int] = None
-    uptime: Optional[str] = None
-    last_activity: Optional[str] = None
+    error: Optional[str] = None
+    timestamp: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    installed: bool = False
+
+    @property
+    def status_str(self) -> str:
+        if self.status == ServiceStatus.STARTING:
+            return f"starting (PID {self.pid})"
+        if self.status == ServiceStatus.RUNNING:
+            return f"running (PID {self.pid})"
+        if self.status == ServiceStatus.ERROR:
+            return "setup error"
+        return "stopped"
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.model_dump_json(exclude={"pid", "installed"}, indent=2))
+
+    @classmethod
+    def load(cls, path: Path) -> Optional["ServiceInfo"]:
+        if not path.exists():
+            return None
+        try:
+            return cls.model_validate_json(path.read_text())
+        except Exception:
+            return None
 
 
 class Service:
@@ -60,15 +89,36 @@ class Service:
         except OSError:
             return False
 
-    def get_status(self) -> ServiceInfo:
+    def info(self) -> ServiceInfo:
         """Get the current service status."""
+        from syft_bg.api.utils import load_setup_state
+        from syft_bg.systemd import is_installed
+
+        persisted = load_setup_state(self.name)
         pid = self.get_pid()
-        if pid and self.is_running():
-            return ServiceInfo(
-                status=ServiceStatus.RUNNING,
-                pid=pid,
-            )
-        return ServiceInfo(status=ServiceStatus.STOPPED)
+        process_running = bool(pid and self.is_running())
+
+        if persisted and persisted.status == ServiceStatus.ERROR:
+            status = ServiceStatus.ERROR
+        elif not process_running:
+            status = ServiceStatus.STOPPED
+        elif persisted and persisted.status == ServiceStatus.STARTING:
+            status = ServiceStatus.STARTING
+        else:
+            status = ServiceStatus.RUNNING
+
+        return ServiceInfo(
+            name=self.name,
+            status=status,
+            pid=pid if process_running else None,
+            error=persisted.error if persisted else None,
+            timestamp=(
+                persisted.timestamp
+                if persisted
+                else datetime.now(timezone.utc).isoformat()
+            ),
+            installed=is_installed(self.name),
+        )
 
     def start(self) -> tuple[bool, str]:
         """Start the service as a background subprocess."""

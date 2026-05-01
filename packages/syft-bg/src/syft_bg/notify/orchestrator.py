@@ -1,5 +1,6 @@
 """Notification orchestrator for email notifications."""
 
+import time
 from typing import Optional
 
 from syft_bg.common.orchestrator import BaseOrchestrator
@@ -11,6 +12,7 @@ from syft_bg.notify.handlers.job import JobHandler
 from syft_bg.notify.handlers.peer import PeerHandler
 from syft_bg.notify.monitors.job import JobMonitor
 from syft_bg.notify.monitors.peer import PeerMonitor
+from syft_bg.sync.orchestrator import sync_ready_path
 
 
 class NotificationOrchestrator(BaseOrchestrator):
@@ -32,8 +34,12 @@ class NotificationOrchestrator(BaseOrchestrator):
         pass
 
     def setup(self) -> None:
-        """Verify Gmail credentials are valid."""
+        self._wait_for_sync_ready()
         self._job_monitor.handler.sender.verify()
+        if self._job_monitor.state.is_empty():
+            self._job_monitor.seed_existing_jobs()
+            if self._peer_monitor:
+                self._seed_existing_peers()
 
     @classmethod
     def from_config(
@@ -91,6 +97,30 @@ class NotificationOrchestrator(BaseOrchestrator):
         if self._peer_monitor:
             return self._peer_monitor.notify_peer_granted(ds_email)
         return False
+
+    def _seed_existing_peers(self):
+        snapshot = self._peer_monitor._read_snapshot()
+        if not snapshot or not snapshot.peer_emails:
+            return
+        state = self._peer_monitor.state
+        state.set_data("peer_snapshot", snapshot.peer_emails)
+        for peer_email in snapshot.approved_peer_emails:
+            state_key = f"peer_granted_{peer_email}"
+            state.mark_notified(state_key, "peer_granted")
+        print(
+            f"[PeerMonitor] Seeded {len(snapshot.peer_emails)} existing peers on fresh state"
+        )
+
+    def _wait_for_sync_ready(self, timeout=120):
+        marker = sync_ready_path()
+        waited = 0
+        while not marker.exists() and waited < timeout:
+            if waited % 10 == 0:
+                print("[Notify] Waiting for sync service...")
+            time.sleep(1)
+            waited += 1
+        if waited >= timeout:
+            print("[Notify] Timed out waiting for sync, starting anyway")
 
     def _print_startup_info(self):
         """Print startup info for notify service."""
