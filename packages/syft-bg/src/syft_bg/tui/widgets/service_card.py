@@ -4,8 +4,8 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Static
-
-from syft_bg.services import ServiceManager, ServiceStatus
+from syft_bg.services.base import ServiceStatus
+from syft_bg.services import ServiceManager
 
 
 class ServiceCard(Static):
@@ -88,7 +88,7 @@ class ServiceCard(Static):
 
     def compose(self) -> ComposeResult:
         service = self.manager.get_service(self.service_name)
-        info = service.get_status()
+        info = service.info()
 
         status_text = self._get_status_text(info.status)
         status_class = self._get_status_class(info.status)
@@ -124,7 +124,7 @@ class ServiceCard(Static):
     def refresh_status(self):
         """Update the service status display."""
         service = self.manager.get_service(self.service_name)
-        info = service.get_status()
+        info = service.info()
 
         status_text = self._get_status_text(info.status)
         status_class = self._get_status_class(info.status)
@@ -145,7 +145,7 @@ class ServiceCard(Static):
     def action_toggle(self):
         """Toggle service start/stop."""
         service = self.manager.get_service(self.service_name)
-        info = service.get_status()
+        info = service.info()
 
         if info.status == ServiceStatus.RUNNING:
             success, msg = service.stop()

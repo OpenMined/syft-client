@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from syft_bg.common.config import get_default_paths
 from syft_bg.common.orchestrator import BaseOrchestrator
 from syft_bg.common.state import JsonStateManager
 from syft_bg.sync.config import SyncConfig
@@ -12,6 +14,11 @@ from syft_bg.sync.snapshot import PeerVersionInfo, SyncSnapshot
 
 if TYPE_CHECKING:
     from syft_client.sync.syftbox_manager import SyftboxManager
+
+
+def sync_ready_path() -> Path:
+    """Marker file that sync writes once it has completed at least one cycle."""
+    return get_default_paths().sync_state.parent / ".sync_ready"
 
 
 class SyncOrchestrator(BaseOrchestrator):
@@ -69,6 +76,7 @@ class SyncOrchestrator(BaseOrchestrator):
         self.client.sync()
 
     def run_loop(self, monitor_type=None) -> None:
+        self._sync_ready_path().unlink(missing_ok=True)
         self._print_startup_info()
         try:
             while not self._stop_event.is_set():
@@ -101,6 +109,10 @@ class SyncOrchestrator(BaseOrchestrator):
                 f"[SyncOrchestrator] Cycle {count} failed in {duration_ms}ms: {sync_error}"
             )
         else:
+            if self._sync_count == 1:
+                marker = self._sync_ready_path()
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.touch()
             job_count = len(snapshot.job_names)
             peer_count = len(snapshot.approved_peer_emails)
             print(
@@ -165,6 +177,9 @@ class SyncOrchestrator(BaseOrchestrator):
             own_version=own_version,
             peer_versions=peer_versions,
         )
+
+    def _sync_ready_path(self) -> Path:
+        return sync_ready_path()
 
     def _print_startup_info(self) -> None:
         print("Starting sync daemon...")

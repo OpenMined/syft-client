@@ -178,3 +178,7 @@ notebooks/e2e/sales_mock.csv
 notebooks/e2e/sales_private.csv
 notebooks/e2e/readme.mdpackages/syft-bg/docs/sync-service.md
 packages/syft-bg/docs/sync-review-notes.md
+notebooks/beach/internal/data/pdfs
+notebooks/beach/internal/data/manifest.csv
+notebooks/beach/internal/data/readme.md
+
