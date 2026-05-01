@@ -5,19 +5,18 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR / "data"
-PDF_DIR = DATA_DIR / "PDFs"
+PDF_DATASET_OUT_DIR = DATA_DIR / "PDFs"
 SOURCE_PDF = DATA_DIR / "sample.pdf"
-DATASET_NAME = "test_pdfs"
 
 
 def create_pdfs():
     """Copy source PDF to 0000.pdf-0020.pdf (21 files)."""
-    PDF_DIR.mkdir(parents=True, exist_ok=True)
+    PDF_DATASET_OUT_DIR.mkdir(parents=True, exist_ok=True)
     for i in range(21):
-        dest = PDF_DIR / f"{i:04d}.pdf"
+        dest = PDF_DATASET_OUT_DIR / f"{i:04d}.pdf"
         if not dest.exists():
             shutil.copy2(SOURCE_PDF, dest)
-    return sorted(PDF_DIR.glob("*.pdf"))
+    return sorted(PDF_DATASET_OUT_DIR.glob("*.pdf"))
 
 
 def create_manifest(pdf_files: list[Path]):
@@ -44,12 +43,8 @@ def create_readme():
     print(f"Created {readme_path}")
 
 
-def main():
+if __name__ == "__main__":
     pdf_files = create_pdfs()
-    print(f"Created {len(pdf_files)} PDFs in {PDF_DIR}")
+    print(f"Created {len(pdf_files)} PDFs in {PDF_DATASET_OUT_DIR}")
     create_manifest(pdf_files)
     create_readme()
-
-
-if __name__ == "__main__":
-    main()
