@@ -36,9 +36,8 @@ def create_readme():
     readme_path.write_text(
         "20 PDFs created for testing. Use the dataset as:\n"
         "\n"
-        'dataset_path = sc.resolve_dataset_files_path("pdfdata")\n'
-        "dataset_dir = Path(dataset_path)\n"
-        'pdf_files = sorted(dataset_dir.glob("*.pdf"))\n'
+        'dataset_files = sc.resolve_dataset_files_path("pdfdata")\n'
+        'print(len(dataset_files))\n'
     )
     print(f"Created {readme_path}")
 
