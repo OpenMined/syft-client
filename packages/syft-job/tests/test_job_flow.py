@@ -6,6 +6,7 @@ from syft_job.client import JobClient
 from syft_job.config import SyftJobConfig
 from syft_job.job_runner import SyftJobRunner
 from syft_perms import SyftPermContext
+from syft_job.models.state import JobState
 
 
 DO_EMAIL = "do@test.org"
@@ -186,6 +187,7 @@ def test_job_reject(tmp_path: Path):
 
     job.reject(reason="Not approved")
     assert job.status == "rejected"
+    assert job.reason == "Not approved"
 
 
 def test_submission_validation(tmp_path: Path):
@@ -212,8 +214,6 @@ def test_submission_validation(tmp_path: Path):
     )
     assert review_state.exists()
 
-    from syft_job.models.state import JobState
-
     state = JobState.load(review_state)
     assert state.status.value == "rejected"
-    assert state.rejection_reason is not None
+    assert state.reason is not None
