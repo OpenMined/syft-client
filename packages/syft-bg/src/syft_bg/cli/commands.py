@@ -20,8 +20,7 @@ def status():
     """Show status of all services."""
     from syft_bg.api.api import status as api_status
 
-    status = api_status()
-    return status.render(as_html=False)
+    click.echo(api_status().render(as_html=False))
 
 
 @main.command()
