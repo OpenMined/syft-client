@@ -113,18 +113,30 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         self._load_collection_hashes_from_disk()
 
     def _load_file_hashes_from_disk(self) -> float | None:
-        """Load existing events from disk and populate file_hashes."""
+        """Load existing events from disk and populate file_hashes.
+
+        Hold a single exclusive lock for the entire replay and persist once
+        at the end, instead of acquiring the lock and rewriting the cache
+        file on every event.
+        """
         cached_messages = self.events_messages_connection.get_all()
 
         sorted_messages = sorted(cached_messages, key=lambda m: m.timestamp)
 
-        for events_message in sorted_messages:
-            for event in events_message.events:
-                if event.is_deleted:
-                    if event.path_in_datasite in self.file_hashes:
-                        del self.file_hashes[event.path_in_datasite]
-                else:
-                    self.file_hashes[event.path_in_datasite] = event.new_hash
+        with self.file_hashes.exclusive_lock():
+            for events_message in sorted_messages:
+                for event in events_message.events:
+                    if event.is_deleted:
+                        # Bypass __contains__/__delitem__ overrides: we hold
+                        # the exclusive lock, so no concurrent writer can
+                        # invalidate the in-memory state.
+                        if dict.__contains__(self.file_hashes, event.path_in_datasite):
+                            dict.__delitem__(self.file_hashes, event.path_in_datasite)
+                    else:
+                        self.file_hashes.set_without_write(
+                            event.path_in_datasite, event.new_hash
+                        )
+            self.file_hashes._write_to_file()
 
     def _load_collection_hashes_from_disk(self):
         """Scan local dataset directories and compute hashes to populate collection_hashes."""
