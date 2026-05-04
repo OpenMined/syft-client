@@ -35,9 +35,7 @@ class JobState(BaseModel):
     # Rejection
     rejected_by: Optional[str] = None
     rejected_at: Optional[datetime] = None
-
-    # Reason for approval or rejection
-    reason: Optional[str] = None
+    rejection_reason: Optional[str] = None
 
     # Completion
     completed_at: Optional[datetime] = None

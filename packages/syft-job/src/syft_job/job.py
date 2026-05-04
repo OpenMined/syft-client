@@ -179,19 +179,16 @@ class JobInfo:
         return self._state.approval_method
 
     @property
-    def reason(self) -> Optional[str]:
-        """Reason set when the job was approved or rejected."""
-        return self._state.reason
+    def rejection_reason(self) -> Optional[str]:
+        """Reason recorded when the job was rejected."""
+        return self._state.rejection_reason
 
-    def approve(
-        self, reason: Optional[str] = None, approval_method: str = "manual"
-    ) -> None:
+    def approve(self, approval_method: str = "manual") -> None:
         """
         Approve a job by updating state.yaml in review/.
         Only the datasite owner can approve jobs.
 
         Args:
-            reason: Optional reason for approval.
             approval_method: How the job was approved ("manual" or "auto")
 
         Raises:
@@ -213,7 +210,6 @@ class JobInfo:
         self._state.approved_by = self.current_user_email
         self._state.approved_at = datetime.now(timezone.utc)
         self._state.approval_method = approval_method
-        self._state.reason = reason
         self._state.save(self.job_review_path / "state.yaml")
         print(f"✅ Job '{self.name}' approved successfully!")
         print("   Status    : approved → will run on next process cycle")
@@ -244,7 +240,7 @@ class JobInfo:
         self._state.status = JobStatus.REJECTED
         self._state.rejected_by = self.current_user_email
         self._state.rejected_at = datetime.now(timezone.utc)
-        self._state.reason = reason
+        self._state.rejection_reason = reason
         self._state.save(self.job_review_path / "state.yaml")
         print(f"Job '{self.name}' rejected.")
 
@@ -390,13 +386,13 @@ class JobInfo:
             "failed": "💥",
         }
         emoji = status_emojis.get(self.status, "❓")
-        extras = []
+        approval_info = ""
         if self.approval_method:
-            extras.append(f"approved: {self.approval_method}")
-        if self.reason:
-            extras.append(f"reason: {self.reason}")
-        suffix = f" [{'; '.join(extras)}]" if extras else ""
-        return f"{emoji} {self.name} ({self.status}{suffix}) -> {self.datasite_owner_email}"
+            approval_info = f" [approved: {self.approval_method}]"
+        base = f"{emoji} {self.name} ({self.status}{approval_info}) -> {self.datasite_owner_email}"
+        if self.status == JobStatus.REJECTED.value and self.rejection_reason:
+            base += f" | Reason: {self.rejection_reason}"
+        return base
 
     def __repr__(self) -> str:
         parts = [
@@ -407,8 +403,8 @@ class JobInfo:
         ]
         if self.approval_method:
             parts.append(f"approval_method='{self.approval_method}'")
-        if self.reason:
-            parts.append(f"reason='{self.reason}'")
+        if self.status == JobStatus.REJECTED.value and self.rejection_reason:
+            parts.append(f"rejection_reason='{self.rejection_reason}'")
         return f"JobInfo({', '.join(parts)})"
 
     def _repr_html_(self) -> str:

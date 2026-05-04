@@ -483,7 +483,7 @@ python {entrypoint_path}
                 received_at=now,
                 rejected_by=self.current_user_email,
                 rejected_at=now,
-                reason=reason,
+                rejection_reason=reason,
             )
         else:
             state = JobState(status=JobStatus.PENDING, received_at=now)
