@@ -1,6 +1,7 @@
 """Base orchestrator for managing service monitors."""
 
 import threading
+import time
 from typing import Literal, Optional
 
 from syft_bg.common.monitor import Monitor
@@ -29,6 +30,28 @@ class BaseOrchestrator:
 
         Raises on failure so the error message and traceback are captured.
         """
+
+    @staticmethod
+    def _wait_for_sync_ready(timeout: int = 120, label: str = "") -> None:
+        """Block until the sync service has completed at least one cycle.
+
+        The sync service touches a marker file after its first successful cycle;
+        services that read or write the SyftBox cache must wait for that marker
+        to avoid racing sync's initial event-replay storm.
+        """
+        # Local import: sync.orchestrator depends on common.orchestrator.
+        from syft_bg.sync.orchestrator import sync_ready_path
+
+        marker = sync_ready_path()
+        waited = 0
+        prefix = f"[{label}] " if label else ""
+        while not marker.exists() and waited < timeout:
+            if waited % 10 == 0:
+                print(f"{prefix}Waiting for sync service...")
+            time.sleep(1)
+            waited += 1
+        if waited >= timeout:
+            print(f"{prefix}Timed out waiting for sync, starting anyway")
 
     def _init_monitors(self):
         """Initialize job and peer monitors. Override in subclass."""

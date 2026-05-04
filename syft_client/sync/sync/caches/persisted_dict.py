@@ -15,8 +15,10 @@ Usage:
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 
 class PersistedDict(dict):
@@ -52,10 +54,15 @@ class PersistedDict(dict):
         if self._path is None:
             return  # in-memory mode
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".tmp")
+        # Per-process unique tmp path: two writers must never share a tmp file,
+        # otherwise one process's rename moves the other's tmp away mid-flight.
+        tmp = self._path.with_suffix(f".tmp.{os.getpid()}.{uuid4().hex}")
         serialized = {self._key_serializer(k): v for k, v in super().items()}
-        tmp.write_text(json.dumps(serialized))
-        tmp.rename(self._path)
+        try:
+            tmp.write_text(json.dumps(serialized))
+            tmp.replace(self._path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     # --- read overrides: reload from disk before returning ---
 

@@ -67,6 +67,11 @@ class ApprovalOrchestrator(BaseOrchestrator):
         if not config.syftbox_root:
             raise ValueError("Config missing 'syftbox_root' field")
 
+        # Wait for sync to seed the cache before building SyftboxManager —
+        # SyftboxManager.from_config triggers _load_file_hashes_from_disk,
+        # which races sync's identical replay if both run cold-start.
+        cls._wait_for_sync_ready(label="Approve")
+
         from syft_client.sync.environments.environment import Environment
         from syft_client.sync.syftbox_manager import SyftboxManager
         from syft_client.sync.utils.syftbox_utils import check_env
