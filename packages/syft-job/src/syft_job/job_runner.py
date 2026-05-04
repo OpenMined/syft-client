@@ -1,11 +1,12 @@
 import os
 import shutil
-import signal
 import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Set
+
+import psutil
 
 from .client import JobClient
 from .job import JobInfo
@@ -31,12 +32,20 @@ def get_job_timeout_seconds() -> int:
 IS_IN_JOB_ENV_VAR = "SYFT_IS_IN_JOB"
 
 
-def _kill_process_group(pid: int) -> None:
-    """SIGKILL the entire process group led by `pid`."""
+def _kill_process_tree(pid: int, timeout: float = 2.0) -> None:
+    """Kill `pid` and every descendant. Cross-platform via psutil."""
     try:
-        os.killpg(os.getpgid(pid), signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+        parent = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return
+
+    procs = parent.children(recursive=True) + [parent]
+    for p in procs:
+        try:
+            p.kill()
+        except psutil.NoSuchProcess:
+            pass
+    psutil.wait_procs(procs, timeout=timeout)
 
 
 class SyftJobRunner:
@@ -318,7 +327,6 @@ class SyftJobRunner:
                 stderr=subprocess.PIPE,
                 text=True,
                 env=env,
-                start_new_session=True,
             )
 
             sel = selectors.DefaultSelector()
@@ -331,7 +339,7 @@ class SyftJobRunner:
             # Stream output while process is running
             while process.poll() is None:
                 if time.time() - start_time > timeout:
-                    _kill_process_group(process.pid)
+                    _kill_process_tree(process.pid)
                     process.wait()
                     timed_out = True
                     print(f" Job {job_name} timed out after {timeout // 60} minutes")
@@ -390,8 +398,6 @@ class SyftJobRunner:
         env[IS_IN_JOB_ENV_VAR] = "true"
         env["PYTHONUNBUFFERED"] = "1"
 
-        # start_new_session puts bash and any descendants into their own
-        # process group so timeout cleanup can SIGKILL the whole group.
         process = subprocess.Popen(
             ["bash", str(run_script)],
             cwd=submission_dir,
@@ -399,14 +405,13 @@ class SyftJobRunner:
             stderr=subprocess.PIPE,
             text=True,
             env=env,
-            start_new_session=True,
         )
 
         try:
             stdout, stderr = process.communicate(timeout=timeout)
             returncode = process.returncode
         except subprocess.TimeoutExpired:
-            _kill_process_group(process.pid)
+            _kill_process_tree(process.pid)
             stdout, stderr = process.communicate()
             returncode = -1
             stdout = (stdout or "") + "\n--- PROCESS TIMED OUT ---\n"
