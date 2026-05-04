@@ -74,9 +74,9 @@ class TestStatusCommand:
         runner = CliRunner()
         result = runner.invoke(status)
 
-        assert "SYFT BACKGROUND SERVICES" in result.output
-        assert "SERVICE" in result.output
-        assert "STATUS" in result.output
+        assert "syft-bg status" in result.output
+        assert "services" in result.output
+        assert "tokens" in result.output
 
 
 class TestMainCommand:

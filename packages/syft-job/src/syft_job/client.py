@@ -64,6 +64,7 @@ class JobClient(BaseJobClient):
         self.target_datasite_owner_email = (
             target_datasite_owner_email or config.current_user_email
         )  # The email of the datasite owner of the jobs
+        self.has_do_role = config.has_do_role
 
         # Validate that user_email exists in SyftBox root
         self._validate_user_email()
@@ -647,7 +648,11 @@ python {entrypoint_path}
             )
 
         sorted_jobs = sorted(current_jobs, key=job_sort_key)
-        return JobsList(sorted_jobs, self.target_datasite_owner_email)
+        return JobsList(
+            sorted_jobs,
+            self.target_datasite_owner_email,
+            has_do_role=self.has_do_role,
+        )
 
 
 def get_client(
