@@ -107,9 +107,18 @@ def _print_dataset_files_warning() -> None:
     )
 
 
+def _is_interactive() -> bool:
+    """Check if we're in an interactive environment (terminal or Jupyter)."""
+    try:
+        get_ipython()  # type: ignore[name-defined]
+        return True
+    except NameError:
+        return sys.stdin.isatty()
+
+
 def _confirm_continue() -> bool:
-    if not sys.stdin.isatty():
+    if not _is_interactive():
         print("(non-interactive environment; continuing without prompt)")
         return True
-    print("\nContinue with submission anyway? (y/N): ", end="", flush=True)
-    return input().strip().lower() in ("y", "yes")
+    response = input("\nContinue with submission anyway? (y/N): ")
+    return response.strip().lower() in ("y", "yes")
