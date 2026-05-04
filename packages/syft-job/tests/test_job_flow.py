@@ -187,7 +187,7 @@ def test_job_reject(tmp_path: Path):
 
     job.reject(reason="Not approved")
     assert job.status == "rejected"
-    assert job.rejection_reason == "Not approved"
+    assert job.review_reason == "Not approved"
 
 
 def test_submission_validation(tmp_path: Path):
@@ -216,4 +216,4 @@ def test_submission_validation(tmp_path: Path):
 
     state = JobState.load(review_state)
     assert state.status.value == "rejected"
-    assert state.rejection_reason is not None
+    assert state.review_reason is not None

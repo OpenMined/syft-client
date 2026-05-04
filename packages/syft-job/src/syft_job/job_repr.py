@@ -438,14 +438,6 @@ def job_info_repr_html(job: "JobInfo") -> str:
     }
     status_emoji = status_emoji_map.get(job.status, "❓")
 
-    rejection_reason_section = ""
-    if job.status == "rejected" and job.rejection_reason:
-        rejection_reason_section = f"""
-                    <div class="syftjob-single-detail">
-                        <div class="syftjob-single-detail-label">Reason:</div>
-                        <div class="syftjob-single-detail-value">{job.rejection_reason}</div>
-                    </div>"""
-
     outputs_section = ""
     if job.status in ("done", "failed"):
         output_files = job.output_paths
@@ -724,7 +716,11 @@ def job_info_repr_html(job: "JobInfo") -> str:
                     <div class="syftjob-single-detail">
                         <div class="syftjob-single-detail-label">Approval:</div>
                         <div class="syftjob-single-detail-value">{job.approval_method or "—"}</div>
-                    </div>{rejection_reason_section}
+                    </div>
+                    <div class="syftjob-single-detail">
+                        <div class="syftjob-single-detail-label">Review reason:</div>
+                        <div class="syftjob-single-detail-value">{job.review_reason or ""}</div>
+                    </div>
                 </div>
                 <div class="syftjob-single-section">
                     <h4>📜 Script</h4>
