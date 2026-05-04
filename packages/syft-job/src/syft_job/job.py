@@ -178,12 +178,20 @@ class JobInfo:
     def approval_method(self) -> Optional[str]:
         return self._state.approval_method
 
-    def approve(self, approval_method: str = "manual") -> None:
+    @property
+    def review_reason(self) -> Optional[str]:
+        """Reason recorded at review time (approval or rejection)."""
+        return self._state.review_reason
+
+    def approve(
+        self, reason: Optional[str] = None, approval_method: str = "manual"
+    ) -> None:
         """
         Approve a job by updating state.yaml in review/.
         Only the datasite owner can approve jobs.
 
         Args:
+            reason: Optional reason for approval (recorded as review_reason).
             approval_method: How the job was approved ("manual" or "auto")
 
         Raises:
@@ -205,18 +213,19 @@ class JobInfo:
         self._state.approved_by = self.current_user_email
         self._state.approved_at = datetime.now(timezone.utc)
         self._state.approval_method = approval_method
+        self._state.review_reason = reason
         self._state.save(self.job_review_path / "state.yaml")
         print(f"✅ Job '{self.name}' approved successfully!")
         print("   Status    : approved → will run on next process cycle")
         print("\n⏳ Next step: run process_approved_jobs() to execute it.")
         print("   client.process_approved_jobs(share_outputs_with_submitter=True)")
 
-    def reject(self, reason: str = "") -> None:
+    def reject(self, reason: Optional[str] = None) -> None:
         """
         Reject a job by updating state.yaml in review/.
 
         Args:
-            reason: Optional reason for rejection.
+            reason: Optional reason for rejection (recorded as review_reason).
 
         Raises:
             ValueError: If job is not in pending status
@@ -235,7 +244,7 @@ class JobInfo:
         self._state.status = JobStatus.REJECTED
         self._state.rejected_by = self.current_user_email
         self._state.rejected_at = datetime.now(timezone.utc)
-        self._state.rejection_reason = reason
+        self._state.review_reason = reason
         self._state.save(self.job_review_path / "state.yaml")
         print(f"Job '{self.name}' rejected.")
 
@@ -384,15 +393,23 @@ class JobInfo:
         approval_info = ""
         if self.approval_method:
             approval_info = f" [approved: {self.approval_method}]"
-        return f"{emoji} {self.name} ({self.status}{approval_info}) -> {self.datasite_owner_email}"
+        base = f"{emoji} {self.name} ({self.status}{approval_info}) -> {self.datasite_owner_email}"
+        if self.review_reason:
+            base += f" | Review reason: {self.review_reason}"
+        return base
 
     def __repr__(self) -> str:
-        approval = (
-            f", approval_method='{self.approval_method}'"
-            if self.approval_method
-            else ""
-        )
-        return f"JobInfo(name='{self.name}', submitted_by='{self.submitted_by}', current_user_email='{self.current_user_email}', status='{self.status}'{approval})"
+        parts = [
+            f"name='{self.name}'",
+            f"submitted_by='{self.submitted_by}'",
+            f"current_user_email='{self.current_user_email}'",
+            f"status='{self.status}'",
+        ]
+        if self.approval_method:
+            parts.append(f"approval_method='{self.approval_method}'")
+        if self.review_reason:
+            parts.append(f"review_reason='{self.review_reason}'")
+        return f"JobInfo({', '.join(parts)})"
 
     def _repr_html_(self) -> str:
         return job_info_repr_html(self)

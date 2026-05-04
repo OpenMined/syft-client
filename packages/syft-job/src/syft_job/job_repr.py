@@ -717,6 +717,10 @@ def job_info_repr_html(job: "JobInfo") -> str:
                         <div class="syftjob-single-detail-label">Approval:</div>
                         <div class="syftjob-single-detail-value">{job.approval_method or "—"}</div>
                     </div>
+                    <div class="syftjob-single-detail">
+                        <div class="syftjob-single-detail-label">Review reason:</div>
+                        <div class="syftjob-single-detail-value">{job.review_reason or ""}</div>
+                    </div>
                 </div>
                 <div class="syftjob-single-section">
                     <h4>📜 Script</h4>
