@@ -182,3 +182,5 @@ notebooks/beach/internal/data/pdfs
 notebooks/beach/internal/data/manifest.csv
 notebooks/beach/internal/data/readme.md
 
+.agents/
+AGENTS.md
