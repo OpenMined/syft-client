@@ -234,6 +234,11 @@ class StatusResult(BaseModel):
     def _approved_domains_contents(self) -> str:
         return "\n".join(f"  {d}" for d in self.approved_domains)
 
+    def render(self, as_html: bool = False) -> str:
+        if as_html:
+            return self._repr_html_()
+        return self.__repr__()
+
     def __repr__(self) -> str:
         from syft_bg.api.templates import (
             APPROVED_DOMAINS_SECTION,
