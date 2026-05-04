@@ -53,7 +53,7 @@ class JobApprovalHandler:
 
     def _get_approved_peers(self) -> list[str]:
         """Get list of approved peer emails."""
-        self.client.load_peers()
+        self.client.load_peers(force_download=True)
         return [p.email for p in self.client.peer_manager.approved_peers]
 
     def evaluate_auto_approval(self, job: JobInfo) -> AutoApprovalValidationResult:
