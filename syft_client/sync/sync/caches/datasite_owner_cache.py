@@ -127,11 +127,10 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             for events_message in sorted_messages:
                 for event in events_message.events:
                     if event.is_deleted:
-                        # Bypass __contains__/__delitem__ overrides: we hold
-                        # the exclusive lock, so no concurrent writer can
-                        # invalidate the in-memory state.
-                        if dict.__contains__(self.file_hashes, event.path_in_datasite):
-                            dict.__delitem__(self.file_hashes, event.path_in_datasite)
+                        if self.file_hashes.contains_without_read(
+                            event.path_in_datasite
+                        ):
+                            self.file_hashes.del_without_write(event.path_in_datasite)
                     else:
                         self.file_hashes.set_without_write(
                             event.path_in_datasite, event.new_hash

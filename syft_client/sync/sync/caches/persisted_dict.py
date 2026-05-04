@@ -137,6 +137,23 @@ class PersistedDict(dict):
         """
         super().__setitem__(key, value)
 
+    def del_without_write(self, key: Any) -> None:
+        """Delete a key from the in-memory dict without persisting.
+
+        Symmetric counterpart of `set_without_write`. Caller must hold an
+        exclusive lock and persist via `_write_to_file` at the end.
+        """
+        super().__delitem__(key)
+
+    def contains_without_read(self, key: Any) -> bool:
+        """Check membership against the in-memory state without reloading.
+
+        The locked `__contains__` reloads from disk, which deadlocks when
+        called from inside an outer `exclusive_lock`. Use this variant
+        within a batch where the caller already holds the exclusive lock.
+        """
+        return super().__contains__(key)
+
     # --- read overrides: shared lock for the whole read ---
 
     def __getitem__(self, key):
