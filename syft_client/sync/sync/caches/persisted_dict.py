@@ -18,7 +18,7 @@ Usage:
 Batch writes (avoid one rename per item):
     with file_hashes.exclusive_lock():
         for k, v in many_items:
-            file_hashes.set_without_write(k, v)
+            file_hashes.set(k, v, write=False)
         file_hashes._write_to_file()
 """
 
@@ -71,8 +71,8 @@ class PersistedDict(dict):
         """Acquire a cross-process exclusive lock on this dict's file.
 
         Inside this block, no other process can read or write the dict via
-        the locked APIs. Use it to batch multiple `set_without_write` calls
-        followed by a single `_write_to_file`.
+        the locked APIs. Use it to batch multiple `set(..., write=False)`
+        calls followed by a single `_write_to_file`.
         """
         return self._locked(exclusive=True)
 
@@ -127,31 +127,28 @@ class PersistedDict(dict):
         with self.exclusive_lock():
             self._write_to_file()
 
-    # --- batch helpers ---
+    # --- explicit-control mutation helpers ---
+    #
+    # `read=False` skips the disk reload (use when caller already holds the
+    # exclusive lock so in-memory state is current).
+    # `write=False` skips persistence (use to batch many mutations under one
+    # exclusive_lock and call `_write_to_file` once at the end).
 
-    def set_without_write(self, key: Any, value: Any) -> None:
-        """Mutate the in-memory dict without persisting.
+    def set(self, key: Any, value: Any, write: bool = True) -> None:
+        if write:
+            self[key] = value
+        else:
+            super().__setitem__(key, value)
 
-        Caller is responsible for persisting (e.g. by holding `exclusive_lock`
-        for a series of these calls and finishing with `_write_to_file`).
-        """
-        super().__setitem__(key, value)
+    def delete(self, key: Any, write: bool = True) -> None:
+        if write:
+            del self[key]
+        else:
+            super().__delitem__(key)
 
-    def del_without_write(self, key: Any) -> None:
-        """Delete a key from the in-memory dict without persisting.
-
-        Symmetric counterpart of `set_without_write`. Caller must hold an
-        exclusive lock and persist via `_write_to_file` at the end.
-        """
-        super().__delitem__(key)
-
-    def contains_without_read(self, key: Any) -> bool:
-        """Check membership against the in-memory state without reloading.
-
-        The locked `__contains__` reloads from disk, which deadlocks when
-        called from inside an outer `exclusive_lock`. Use this variant
-        within a batch where the caller already holds the exclusive lock.
-        """
+    def contains(self, key: Any, read: bool = True) -> bool:
+        if read:
+            return key in self
         return super().__contains__(key)
 
     # --- read overrides: shared lock for the whole read ---

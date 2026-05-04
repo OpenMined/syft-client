@@ -47,14 +47,14 @@ def test_concurrent_writes_no_rename_race(tmp_path: Path):
     assert leftover == [], f"Stale tmp files: {leftover}"
 
 
-def test_set_without_write_does_not_persist(tmp_path: Path):
-    """set_without_write mutates memory but leaves disk untouched until
+def test_set_with_write_false_does_not_persist(tmp_path: Path):
+    """set(..., write=False) mutates memory but leaves disk untouched until
     the caller explicitly persists.
     """
     target = tmp_path / "batch.json"
     d = PersistedDict(path=target)
 
-    d.set_without_write("k", "v")
+    d.set("k", "v", write=False)
     assert dict.__getitem__(d, "k") == "v"
     assert not target.exists()
 
@@ -65,8 +65,8 @@ def test_set_without_write_does_not_persist(tmp_path: Path):
 
 def test_batch_write_with_exclusive_lock(tmp_path: Path):
     """The documented batch pattern: hold the exclusive lock, mutate via
-    set_without_write, persist once at the end. Concurrent batch writers
-    must serialize and produce a consistent merged state.
+    write=False, persist once at the end. Concurrent batch writers must
+    serialize and produce a consistent merged state.
     """
     target = tmp_path / "batch_concurrent.json"
     a = PersistedDict(path=target)
@@ -76,7 +76,7 @@ def test_batch_write_with_exclusive_lock(tmp_path: Path):
         with d.exclusive_lock():
             d._read_from_file()
             for i in range(n):
-                d.set_without_write(f"{prefix}-{i}", i)
+                d.set(f"{prefix}-{i}", i, write=False)
             d._write_to_file()
 
     t1 = threading.Thread(target=batch_write, args=(a, "a", 50))
@@ -89,3 +89,23 @@ def test_batch_write_with_exclusive_lock(tmp_path: Path):
     final = json.loads(target.read_text())
     expected = {f"a-{i}": i for i in range(50)} | {f"b-{i}": i for i in range(50)}
     assert final == expected
+
+
+def test_contains_and_delete_with_flags(tmp_path: Path):
+    """contains(read=False) and delete(write=False) bypass the lock-acquiring
+    overrides; with default flags they behave like the dunder ops."""
+    target = tmp_path / "flags.json"
+    d = PersistedDict(path=target)
+
+    d.set("k", "v")  # default write=True
+    assert d.contains("k")  # default read=True
+    assert d.contains("k", read=False)
+
+    with d.exclusive_lock():
+        assert d.contains("k", read=False)
+        d.delete("k", write=False)
+        assert not d.contains("k", read=False)
+        d._write_to_file()
+
+    # After the batch, on-disk state reflects the in-memory delete.
+    assert json.loads(target.read_text()) == {}
