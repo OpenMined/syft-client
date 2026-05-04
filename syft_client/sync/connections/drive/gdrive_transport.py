@@ -424,10 +424,10 @@ class GDriveConnection(SyftboxPlatformConnection):
             return {}
 
     def _get_peers_json(
-        self, force_redownload: bool = False
+        self, force_download: bool = False
     ) -> Dict[str, Dict[str, str]]:
         """Return peers JSON, using the in-memory cache when available."""
-        if self._peers_json_cache is not None and not force_redownload:
+        if self._peers_json_cache is not None and not force_download:
             return self._peers_json_cache
         self._peers_json_cache = self._download_peers_json()
         return self._peers_json_cache
