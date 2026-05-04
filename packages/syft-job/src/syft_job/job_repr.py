@@ -727,7 +727,9 @@ def job_info_repr_html(job: "JobInfo") -> str:
         """
 
 
-def jobs_list_str(jobs: List["JobInfo"], root_email: str) -> str:
+def jobs_list_str(
+    jobs: List["JobInfo"], root_email: str, has_do_role: bool = False
+) -> str:
     """Format jobs list as separate tables grouped by user."""
     if not jobs:
         return "📭 No jobs found.\n"
@@ -828,15 +830,18 @@ def jobs_list_str(jobs: List["JobInfo"], root_email: str) -> str:
     if global_summary_parts:
         lines.append("📋 Global: " + " | ".join(global_summary_parts))
 
-    lines.append("")
-    lines.append(
-        "💡 Use job_client.jobs[0].approve() to approve jobs or job_client.jobs[0].accept_by_depositing_result('file_or_folder') to complete jobs"
-    )
+    if has_do_role:
+        lines.append("")
+        lines.append(
+            "💡 Use job_client.jobs[0].approve() to approve jobs or job_client.jobs[0].accept_by_depositing_result('file_or_folder') to complete jobs"
+        )
 
     return "\n".join(lines)
 
 
-def jobs_list_repr_html(jobs: List["JobInfo"], root_email: str) -> str:
+def jobs_list_repr_html(
+    jobs: List["JobInfo"], root_email: str, has_do_role: bool = False
+) -> str:
     """HTML representation for Jupyter notebooks with enhanced visual appeal."""
     if not jobs:
         return """
@@ -1304,9 +1309,14 @@ def jobs_list_repr_html(jobs: List["JobInfo"], root_email: str) -> str:
 
     html += """
                 </div>
+        """
+    if has_do_role:
+        html += """
                 <div class="syftjob-hint">
                     💡 Use <code class="syftjob-code">jobs[0].approve()</code> to approve jobs or <code class="syftjob-code">jobs[0].accept_by_depositing_result('file_or_folder')</code> to complete jobs
                 </div>
+        """
+    html += """
             </div>
         </div>
         """
