@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Set
 
+import psutil
+
 from .client import JobClient
 from .job import JobInfo
 from . import __version__
@@ -28,6 +30,22 @@ def get_job_timeout_seconds() -> int:
 
 
 IS_IN_JOB_ENV_VAR = "SYFT_IS_IN_JOB"
+
+
+def _kill_process_tree(pid: int, timeout: float = 2.0) -> None:
+    """Kill `pid` and every descendant. Cross-platform via psutil."""
+    try:
+        parent = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return
+
+    procs = parent.children(recursive=True) + [parent]
+    for p in procs:
+        try:
+            p.kill()
+        except psutil.NoSuchProcess:
+            pass
+    psutil.wait_procs(procs, timeout=timeout)
 
 
 class SyftJobRunner:
@@ -321,7 +339,7 @@ class SyftJobRunner:
             # Stream output while process is running
             while process.poll() is None:
                 if time.time() - start_time > timeout:
-                    process.kill()
+                    _kill_process_tree(process.pid)
                     process.wait()
                     timed_out = True
                     print(f" Job {job_name} timed out after {timeout // 60} minutes")
@@ -380,26 +398,35 @@ class SyftJobRunner:
         env[IS_IN_JOB_ENV_VAR] = "true"
         env["PYTHONUNBUFFERED"] = "1"
 
-        # Execute run.sh with cwd=inbox/ where code/ lives
-        result = subprocess.run(
+        process = subprocess.Popen(
             ["bash", str(run_script)],
             cwd=submission_dir,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
             env=env,
         )
 
-        # Write stdout/stderr to review/
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            returncode = process.returncode
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(process.pid)
+            stdout, stderr = process.communicate()
+            returncode = -1
+            stdout = (stdout or "") + "\n--- PROCESS TIMED OUT ---\n"
+            stderr = (stderr or "") + "\n--- PROCESS TIMED OUT ---\n"
+            print(f" Job {job_name} timed out after {timeout // 60} minutes")
+
         stdout_file = review_dir / "stdout.txt"
         with open(stdout_file, "w") as f:
-            f.write(result.stdout)
+            f.write(stdout)
 
         stderr_file = review_dir / "stderr.txt"
         with open(stderr_file, "w") as f:
-            f.write(result.stderr)
+            f.write(stderr)
 
-        return result.returncode
+        return returncode
 
     def _execute_job(
         self,
