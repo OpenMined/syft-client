@@ -1,5 +1,6 @@
 import os
 import shutil
+import signal
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -28,6 +29,14 @@ def get_job_timeout_seconds() -> int:
 
 
 IS_IN_JOB_ENV_VAR = "SYFT_IS_IN_JOB"
+
+
+def _kill_process_group(pid: int) -> None:
+    """SIGKILL the entire process group led by `pid`."""
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    except ProcessLookupError:
+        pass
 
 
 class SyftJobRunner:
@@ -309,6 +318,7 @@ class SyftJobRunner:
                 stderr=subprocess.PIPE,
                 text=True,
                 env=env,
+                start_new_session=True,
             )
 
             sel = selectors.DefaultSelector()
@@ -321,7 +331,7 @@ class SyftJobRunner:
             # Stream output while process is running
             while process.poll() is None:
                 if time.time() - start_time > timeout:
-                    process.kill()
+                    _kill_process_group(process.pid)
                     process.wait()
                     timed_out = True
                     print(f" Job {job_name} timed out after {timeout // 60} minutes")
@@ -380,26 +390,38 @@ class SyftJobRunner:
         env[IS_IN_JOB_ENV_VAR] = "true"
         env["PYTHONUNBUFFERED"] = "1"
 
-        # Execute run.sh with cwd=inbox/ where code/ lives
-        result = subprocess.run(
+        # start_new_session puts bash and any descendants into their own
+        # process group so timeout cleanup can SIGKILL the whole group.
+        process = subprocess.Popen(
             ["bash", str(run_script)],
             cwd=submission_dir,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
             env=env,
+            start_new_session=True,
         )
 
-        # Write stdout/stderr to review/
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            returncode = process.returncode
+        except subprocess.TimeoutExpired:
+            _kill_process_group(process.pid)
+            stdout, stderr = process.communicate()
+            returncode = -1
+            stdout = (stdout or "") + "\n--- PROCESS TIMED OUT ---\n"
+            stderr = (stderr or "") + "\n--- PROCESS TIMED OUT ---\n"
+            print(f" Job {job_name} timed out after {timeout // 60} minutes")
+
         stdout_file = review_dir / "stdout.txt"
         with open(stdout_file, "w") as f:
-            f.write(result.stdout)
+            f.write(stdout)
 
         stderr_file = review_dir / "stderr.txt"
         with open(stderr_file, "w") as f:
-            f.write(result.stderr)
+            f.write(stderr)
 
-        return result.returncode
+        return returncode
 
     def _execute_job(
         self,
