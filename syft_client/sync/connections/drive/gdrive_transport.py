@@ -242,12 +242,20 @@ class GDriveConnection(SyftboxPlatformConnection):
     # Encryption bundles folder cache
     _encryption_bundles_folder_id: str | None = None
 
+    # Cached SYFT_peers.json contents (None = not loaded yet).
+    _peers_json_cache: Dict[str, Dict[str, str]] | None = None
+
     @classmethod
     def from_config(cls, config: "GdriveConnectionConfig") -> "GDriveConnection":
         return cls.from_token_path(config.email, config.token_path)
 
     @classmethod
-    def from_token_path(cls, email: str, token_path: Path | None) -> "GDriveConnection":
+    def from_token_path(
+        cls,
+        email: str,
+        token_path: Path | None,
+        warm_syftbox_folder_id_cache: bool = True,
+    ) -> "GDriveConnection":
         res = cls(email=email, token_path=token_path)
         if token_path:
             credentials = GoogleCredentials.from_authorized_user_file(
@@ -255,7 +263,10 @@ class GDriveConnection(SyftboxPlatformConnection):
             )
         else:
             credentials = None
-        res.setup(credentials=credentials)
+        res.setup(
+            credentials=credentials,
+            warm_syftbox_folder_id_cache=warm_syftbox_folder_id_cache,
+        )
         return res
 
     @classmethod
@@ -283,12 +294,16 @@ class GDriveConnection(SyftboxPlatformConnection):
         self,
         credentials: GoogleCredentials | None = None,
         drive_service: Any | None = None,
+        warm_syftbox_folder_id_cache: bool = True,
     ):
         """Setup Drive transport with OAuth2 credentials, Colab auth, or mock service.
 
         Args:
             credentials: OAuth2 credentials for real API access
             drive_service: Drive service instance (e.g., mock for testing)
+            warm_syftbox_folder_id_cache: If True, eagerly resolve the personal
+                SyftBox folder id (2-3 API calls). Pass False when caches are
+                seeded by the caller (e.g. ``copy()``).
         """
         self.credentials = credentials
         if drive_service is not None:
@@ -298,7 +313,8 @@ class GDriveConnection(SyftboxPlatformConnection):
                 self.credentials, environment=self.environment
             )
 
-        self.get_personal_syftbox_folder_id()
+        if warm_syftbox_folder_id_cache:
+            self.get_personal_syftbox_folder_id()
         self._is_setup = True
 
     def copy(self) -> "GDriveConnection":
@@ -308,9 +324,36 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
 
         if isinstance(self.drive_service, MockDriveService):
-            return GDriveConnection.from_service(self.email, self.drive_service)
+            new_conn = GDriveConnection.from_service(self.email, self.drive_service)
         else:
-            return GDriveConnection.from_token_path(self.email, self.token_path)
+            new_conn = GDriveConnection.from_token_path(
+                self.email, self.token_path, warm_syftbox_folder_id_cache=False
+            )
+        self._copy_caches_to(new_conn)
+        return new_conn
+
+    def _copy_caches_to(self, other: "GDriveConnection") -> None:
+        """Seed all in-memory caches on `other` from `self`, so a freshly-built
+        copy doesn't re-discover folder ids via Drive search on first use."""
+        other._syftbox_folder_id = self._syftbox_folder_id
+        other._personal_syftbox_folder_id = self._personal_syftbox_folder_id
+        other._rolling_state_folder_id = self._rolling_state_folder_id
+        other._rolling_state_file_id = self._rolling_state_file_id
+        other._encryption_bundles_folder_id = self._encryption_bundles_folder_id
+        other._peers_json_cache = (
+            dict(self._peers_json_cache) if self._peers_json_cache is not None else None
+        )
+        other.peer_datasite_inbox_cache = dict(self.peer_datasite_inbox_cache)
+        other.peer_datasite_outbox_cache = dict(self.peer_datasite_outbox_cache)
+        other.own_datasite_inbox_cache = dict(self.own_datasite_inbox_cache)
+        other.own_datasite_outbox_cache = dict(self.own_datasite_outbox_cache)
+        other.archive_folder_id_cache = dict(self.archive_folder_id_cache)
+        other.personal_syftbox_event_id_cache = dict(
+            self.personal_syftbox_event_id_cache
+        )
+        other.dataset_collection_folder_id_cache = dict(
+            self.dataset_collection_folder_id_cache
+        )
 
     @property
     def environment(self) -> Environment:
@@ -367,8 +410,8 @@ class GDriveConnection(SyftboxPlatformConnection):
         items = results.get("files", [])
         return items[0]["id"] if items else None
 
-    def _read_peers_json(self) -> Dict[str, Dict[str, str]]:
-        """Read peers JSON from GDrive. Returns empty dict if not found."""
+    def _download_peers_json(self) -> Dict[str, Dict[str, str]]:
+        """Fetch peers JSON from GDrive. Returns empty dict if not found."""
         file_id = self._get_peers_file_id()
         if file_id is None:
             return {}
@@ -379,6 +422,15 @@ class GDriveConnection(SyftboxPlatformConnection):
         except Exception as e:
             print(f"Warning: Error reading peers file: {e}")
             return {}
+
+    def _get_peers_json(
+        self, force_redownload: bool = False
+    ) -> Dict[str, Dict[str, str]]:
+        """Return peers JSON, using the in-memory cache when available."""
+        if self._peers_json_cache is not None and not force_redownload:
+            return self._peers_json_cache
+        self._peers_json_cache = self._download_peers_json()
+        return self._peers_json_cache
 
     def _write_peers_json(self, peers_data: Dict[str, Dict[str, str]]):
         """Write peers JSON to GDrive. Creates or updates the file."""
@@ -400,6 +452,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                     body=file_metadata, media_body=file_payload, fields="id"
                 )
             )
+            self._peers_json_cache = peers_data
             return result.get("id")
         else:
             # Update existing file
@@ -408,6 +461,7 @@ class GDriveConnection(SyftboxPlatformConnection):
                     fileId=file_id, media_body=file_payload
                 )
             )
+            self._peers_json_cache = peers_data
             return file_id
 
     def _update_peer_state(
@@ -420,7 +474,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         Preserves existing fields when updating state.
         """
-        peers_data = self._read_peers_json()
+        peers_data = self._get_peers_json()
         existing = peers_data.get(peer_email, {})
         existing["state"] = state
         if public_encryption_bundle is not None:
@@ -454,7 +508,7 @@ class GDriveConnection(SyftboxPlatformConnection):
             except (ValueError, Exception):
                 continue
 
-        peers_data = self._read_peers_json()
+        peers_data = self._get_peers_json()
         pending_peers = []
         for peer_email in all_folder_peers:
             if peer_email not in peers_data:
@@ -1035,6 +1089,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         self._rolling_state_folder_id = None
         self._rolling_state_file_id = None
         self._encryption_bundles_folder_id = None
+        self._peers_json_cache = None
 
     def gather_all_file_and_folder_ids(self) -> List[str]:
         syftbox_folder_id = self.get_syftbox_folder_id()

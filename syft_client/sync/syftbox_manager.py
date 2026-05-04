@@ -913,9 +913,16 @@ class SyftboxManager(BaseModel):
                 self.peer_manager.warn_if_all_peers_incompatible(peer_emails)
                 self.datasite_watcher_syncer.sync_down(peer_emails)
 
-    def load_peers(self):
-        """Load peers from connection router. Delegates to PeerManager."""
-        cast(PeerManager, self.peer_manager).load_peers()
+    def load_peers(self, force_redownload: bool = False):
+        """Load peers from connection router. Delegates to PeerManager.
+
+        Args:
+            force_redownload: If True, re-fetch SYFT_peers.json from Drive
+                instead of using the cached copy.
+        """
+        cast(PeerManager, self.peer_manager).load_peers(
+            force_redownload=force_redownload
+        )
 
     def _check_peer_request_exists(self, email: str) -> bool:
         """Check if a peer request exists. Delegates to PeerManager."""
