@@ -3357,7 +3357,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "pandas" },
-    { name = "psutil", specifier = ">=5.9" },
+    { name = "psutil" },
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "syft-perms", editable = "packages/syft-perms" },
