@@ -42,6 +42,9 @@ class ConnectionRouter(BaseModel):
     def add_connection(self, connection: SyftboxPlatformConnection):
         self.connections.append(connection)
 
+    def get_authenticated_email(self) -> str:
+        return self.connections[0].get_authenticated_email()
+
     def connection_for_send_message(self) -> SyftboxPlatformConnection:
         return self.connections[0]
 
@@ -185,10 +188,10 @@ class ConnectionRouter(BaseModel):
             print_peer_added_to_platform(peer_email, platform.module_path)
         return Peer(email=peer_email, platforms=[platform])
 
-    def get_all_peers_from_json(self) -> List[Peer]:
+    def get_all_peers_from_json(self, force_download: bool = False) -> List[Peer]:
         """Get all peers from SYFT_peers.json with their stored state."""
         connection = self.connection_for_send_message()
-        peers_data = connection._read_peers_json()
+        peers_data = connection._get_peers_json(force_download=force_download)
         peers = []
         for email, data in peers_data.items():
             try:

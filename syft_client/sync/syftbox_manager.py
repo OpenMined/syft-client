@@ -878,6 +878,7 @@ class SyftboxManager(BaseModel):
         checkpoint_threshold: int = 50,
         auto_compact: bool = True,
         compact_threshold: int = MIN_MESSAGES_COMPACT,
+        force_download_peer_state: bool = False,
     ):
         """
         Sync local state with Google Drive.
@@ -891,9 +892,13 @@ class SyftboxManager(BaseModel):
                           message files (DO only).
             compact_threshold: Compact a peer's outbox when message-file
                           count >= this value.
+            force_download_peer_state: If True, re-fetch SYFT_peers.json
+                          from Drive instead of using the cached copy. Use
+                          from background daemons (e.g. syft-bg) where a
+                          separate process may have updated the file.
         """
         with self._sync_file_lock():
-            self.load_peers()
+            self.load_peers(force_download=force_download_peer_state)
             if self.has_do_role:
                 peer_emails = [peer.email for peer in self.peer_manager.approved_peers]
                 compatible_emails = self.peer_manager.get_compatible_peer_emails(
@@ -913,9 +918,14 @@ class SyftboxManager(BaseModel):
                 self.peer_manager.warn_if_all_peers_incompatible(peer_emails)
                 self.datasite_watcher_syncer.sync_down(peer_emails)
 
-    def load_peers(self):
-        """Load peers from connection router. Delegates to PeerManager."""
-        cast(PeerManager, self.peer_manager).load_peers()
+    def load_peers(self, force_download: bool = False):
+        """Load peers from connection router. Delegates to PeerManager.
+
+        Args:
+            force_download: If True, re-fetch SYFT_peers.json from Drive
+                instead of using the cached copy.
+        """
+        cast(PeerManager, self.peer_manager).load_peers(force_download=force_download)
 
     def _check_peer_request_exists(self, email: str) -> bool:
         """Check if a peer request exists. Delegates to PeerManager."""
@@ -1502,6 +1512,9 @@ class SyftboxManager(BaseModel):
 
         # Delete local syftbox folder and cache directories
         self._delete_local_dirs()
+        print(
+            "Done, if you are also running syft-bg, make sure to call syft-bg.reset() before delete_syftbox()."
+        )
 
     def _delete_local_dirs(self):
         """Delete local syftbox folder and cache directories."""

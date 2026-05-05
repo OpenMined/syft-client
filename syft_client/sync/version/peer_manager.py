@@ -463,12 +463,20 @@ class PeerManager(BaseModel):
         data = json.loads(bundle_json)
         return data.get("public_encryption_bundle")
 
-    def load_peers(self):
-        """Load peers: from JSON (accepted + requested_by_me) + new requests from folder scan."""
+    def load_peers(self, force_download: bool = False):
+        """Load peers: from JSON (accepted + requested_by_me) + new requests from folder scan.
+
+        Args:
+            force_download: If True, re-fetch SYFT_peers.json from Drive instead
+                of using the cached copy. Use when an external writer (e.g. another
+                process) may have modified the file.
+        """
         if not self.has_do_role and not self.has_ds_role:
             raise ValueError("Client has no role. Set has_do_role or has_ds_role.")
 
-        json_peers = self.connection_router.get_all_peers_from_json()
+        json_peers = self.connection_router.get_all_peers_from_json(
+            force_download=force_download
+        )
         peers = [
             p
             for p in json_peers

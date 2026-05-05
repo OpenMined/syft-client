@@ -73,7 +73,7 @@ class SyncOrchestrator(BaseOrchestrator):
 
     def setup(self) -> None:
         """Verify Drive credentials by running a single sync."""
-        self.client.sync()
+        self.client.sync(force_download_peer_state=True)
 
     def run_loop(self, monitor_type=None) -> None:
         self._sync_ready_path().unlink(missing_ok=True)
@@ -123,7 +123,7 @@ class SyncOrchestrator(BaseOrchestrator):
     def _sync_with_retry(self) -> None:
         for attempt in range(self.config.max_retries):
             try:
-                self.client.sync()
+                self.client.sync(force_download_peer_state=True)
                 return
             except Exception as e:
                 if attempt == self.config.max_retries - 1:
