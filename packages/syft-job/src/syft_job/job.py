@@ -155,17 +155,23 @@ class JobInfo:
 
     @property
     def files(self) -> List[Path]:
-        """Get list of all files across both inbox and review."""
+        """Get list of relevant files across both inbox and review."""
         all_files = []
         try:
-            if self.job_submission_path.exists():
-                all_files.extend(
-                    f for f in self.job_submission_path.rglob("*") if f.is_file()
-                )
-            if self.job_review_path.exists():
-                all_files.extend(
-                    f for f in self.job_review_path.rglob("*") if f.is_file()
-                )
+            for root in (self.job_submission_path, self.job_review_path):
+                if not root.exists():
+                    continue
+                for f in root.rglob("*"):
+                    if not f.is_file():
+                        continue
+                    if f.name.startswith("."):
+                        continue
+                    if any(
+                        d in f.parts
+                        for d in (".venv", "__pycache__", ".git", "node_modules")
+                    ):
+                        continue
+                    all_files.append(f)
         except Exception:
             pass
         return all_files
