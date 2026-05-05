@@ -46,6 +46,11 @@ To use Syft Client outside of Google Colab, you need to set up a Google Cloud pr
      - Search for and select `https://www.googleapis.com/auth/gmail.modify`
      - Scroll down and click **Update**
      - Scroll down and click **Save**
+   - Cloud Pub/Sub (data owner only, required for email approval):
+     - Click **Add or Remove Scopes**
+     - Search for and select `https://www.googleapis.com/auth/pubsub`
+     - Scroll down and click **Update**
+     - Scroll down and click **Save**
 8. On the **Audience** section for the oauth consent screen under **Test users**:
    - Click **Add Users**
    - Add you email adress
