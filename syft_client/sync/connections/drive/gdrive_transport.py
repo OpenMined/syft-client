@@ -360,18 +360,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         return check_env()
 
     def get_authenticated_email(self) -> str:
-        """Return the email of the Google account behind drive_service.
-
-        For mock-backed services (tests), the mock advertises its own email so
-        the same code path works without any Drive API call.
-        """
-        from syft_client.sync.connections.drive.mock_drive_service import (
-            MockDriveService,
-        )
-
-        if isinstance(self.drive_service, MockDriveService):
-            return self.drive_service.get_authenticated_email()
-
+        """Return the email of the Google account behind drive_service."""
         about = execute_with_retries(
             self.drive_service.about().get(fields="user(emailAddress)")
         )
