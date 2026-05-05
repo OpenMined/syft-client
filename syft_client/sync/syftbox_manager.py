@@ -1512,6 +1512,9 @@ class SyftboxManager(BaseModel):
 
         # Delete local syftbox folder and cache directories
         self._delete_local_dirs()
+        print(
+            "Done, if you are also running syft-bg, make sure to call syft-bg.reset() before delete_syftbox()."
+        )
 
     def _delete_local_dirs(self):
         """Delete local syftbox folder and cache directories."""

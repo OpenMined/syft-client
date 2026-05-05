@@ -359,6 +359,13 @@ class GDriveConnection(SyftboxPlatformConnection):
     def environment(self) -> Environment:
         return check_env()
 
+    def get_authenticated_email(self) -> str:
+        """Return the email of the Google account behind drive_service."""
+        about = execute_with_retries(
+            self.drive_service.about().get(fields="user(emailAddress)")
+        )
+        return about["user"]["emailAddress"]
+
     def create_personal_syftbox_folder(self) -> str:
         """Creates /SyftBox/{version}#{email}"""
         syftbox_folder_id = self.get_syftbox_folder_id()
