@@ -12,10 +12,22 @@ from syft_client.sync.config.config import settings
 from syft_client.sync.login_utils import handle_potential_version_mismatches_on_login
 
 
+def _verify_token_matches_email(client: SyftboxManager) -> None:
+    """Raise if the email login was called with doesn't match the token's account."""
+    actual = client._connection_router.get_authenticated_email()
+    if actual.lower() != client.email.lower():
+        raise ValueError(
+            f"Token/email mismatch: login was called with email={client.email!r} "
+            f"but the provided token authenticates as {actual!r}. "
+            f"Check that the token file matches the email."
+        )
+
+
 def _init_client_login(
     client: SyftboxManager, sync: bool, load_peers: bool
 ) -> SyftboxManager:
     """Common post-creation initialization: write version, sync, load peers."""
+    _verify_token_matches_email(client)
     print_client_connecting(client.email)
     client.write_local_version()
 

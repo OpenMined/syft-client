@@ -42,6 +42,9 @@ class ConnectionRouter(BaseModel):
     def add_connection(self, connection: SyftboxPlatformConnection):
         self.connections.append(connection)
 
+    def get_authenticated_email(self) -> str:
+        return self.connections[0].get_authenticated_email()
+
     def connection_for_send_message(self) -> SyftboxPlatformConnection:
         return self.connections[0]
 

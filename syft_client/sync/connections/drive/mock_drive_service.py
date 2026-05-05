@@ -844,6 +844,10 @@ class MockDriveService:
             backing_store, current_user
         )
 
+    def get_authenticated_email(self) -> str:
+        """Email of the user this mock service acts as (used by GDriveConnection.get_authenticated_email)."""
+        return self._current_user
+
     def files(self) -> MockFilesResource:
         """Get the files resource."""
         return self._files_resource
