@@ -10,9 +10,9 @@ SOURCE_PDF = DATA_DIR / "sample.pdf"
 
 
 def create_pdfs():
-    """Copy source PDF to 0000.pdf-0020.pdf (21 files)."""
+    """Copy source PDF to 0000.pdf-0010.pdf (11 files)."""
     PDF_DATASET_OUT_DIR.mkdir(parents=True, exist_ok=True)
-    for i in range(21):
+    for i in range(11):
         dest = PDF_DATASET_OUT_DIR / f"{i:04d}.pdf"
         if not dest.exists():
             shutil.copy2(SOURCE_PDF, dest)
@@ -34,7 +34,7 @@ def create_readme():
     """Create readme.md with usage instructions."""
     readme_path = DATA_DIR / "readme.md"
     readme_path.write_text(
-        "20 PDFs created for testing. Use the dataset as:\n"
+        "10 PDFs created for testing. Use the dataset as:\n"
         "\n"
         'dataset_files = sc.resolve_dataset_files_path("pdfdata")\n'
         "print(len(dataset_files))\n"
