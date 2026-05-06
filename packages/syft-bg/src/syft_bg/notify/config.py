@@ -31,3 +31,5 @@ class NotifyConfig(BaseModel):
     interval: int = 30
     monitor_jobs: bool = True
     monitor_peers: bool = True
+    heartbeat_enabled: bool = True
+    heartbeat_interval: int = 86400

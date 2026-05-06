@@ -2,13 +2,14 @@
 
 from typing import Optional
 
-from syft_bg.common.orchestrator import BaseOrchestrator
+from syft_bg.common.orchestrator import BaseOrchestrator, MonitorType
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.config import NotifyConfig
 from syft_bg.notify.gmail.auth import GmailAuth
 from syft_bg.notify.gmail.sender import GmailSender
 from syft_bg.notify.handlers.job import JobHandler
 from syft_bg.notify.handlers.peer import PeerHandler
+from syft_bg.notify.heartbeat import Heartbeat
 from syft_bg.notify.monitors.job import JobMonitor
 from syft_bg.notify.monitors.peer import PeerMonitor
 
@@ -21,11 +22,13 @@ class NotificationOrchestrator(BaseOrchestrator):
         config: NotifyConfig,
         job_monitor: JobMonitor,
         peer_monitor: Optional[PeerMonitor] = None,
+        heartbeat: Optional[Heartbeat] = None,
     ):
         super().__init__()
         self.config = config
         self._job_monitor = job_monitor
         self._peer_monitor: Optional[PeerMonitor] = peer_monitor
+        self._heartbeat: Optional[Heartbeat] = heartbeat
 
     def _init_monitors(self):
         """No-op: monitors are created in from_config."""
@@ -84,10 +87,19 @@ class NotificationOrchestrator(BaseOrchestrator):
             sync_state=sync_state,
         )
 
+        heartbeat: Optional[Heartbeat] = None
+        if config.heartbeat_enabled:
+            heartbeat = Heartbeat(
+                sender=sender,
+                do_email=config.do_email,
+                interval=config.heartbeat_interval,
+            )
+
         return cls(
             config=config,
             job_monitor=job_monitor,
             peer_monitor=peer_monitor,
+            heartbeat=heartbeat,
         )
 
     def notify_peer_granted(self, ds_email: str) -> bool:
@@ -109,10 +121,38 @@ class NotificationOrchestrator(BaseOrchestrator):
             f"[PeerMonitor] Seeded {len(snapshot.peer_emails)} existing peers on fresh state"
         )
 
+    def start(self, monitor_type: Optional[MonitorType] = None) -> "BaseOrchestrator":
+        result = super().start(monitor_type)
+        self._start_heartbeat()
+        return result
+
+    def run_loop(self, monitor_type: Optional[MonitorType] = None) -> None:
+        # Share the orchestrator's stop event with heartbeat so a single
+        # KeyboardInterrupt / stop() takes the heartbeat down too.
+        self._stop_event.clear()
+        self._start_heartbeat()
+        super().run_loop(monitor_type)
+
+    def stop(self) -> None:
+        if self._heartbeat is not None:
+            self._heartbeat.stop()
+        super().stop()
+
+    def _start_heartbeat(self) -> None:
+        if self._heartbeat is None:
+            return
+        # Wire the orchestrator's shared stop_event into heartbeat so stop()
+        # / run_loop() exit interrupts the heartbeat sleep.
+        self._heartbeat._stop_event = self._stop_event
+        thread = self._heartbeat.start()
+        self._threads.append(thread)
+
     def _print_startup_info(self):
         """Print startup info for notify service."""
         print("Starting notification daemon...")
         print(f"  DO: {self.config.do_email}")
         print(f"  SyftBox: {self.config.syftbox_root}")
         print(f"  Interval: {self.config.interval}s")
+        if self.config.heartbeat_enabled:
+            print(f"  Heartbeat: every {self.config.heartbeat_interval}s")
         print()

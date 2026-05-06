@@ -13,6 +13,17 @@ from googleapiclient.discovery import build
 from syft_bg.notify.email_templates import TemplateRenderer
 
 
+def _format_interval(seconds: int) -> str:
+    """Render an interval as a short human string (e.g. '60s', '5m', '24h')."""
+    if seconds % 86400 == 0 and seconds >= 86400:
+        return f"{seconds // 86400}d"
+    if seconds % 3600 == 0 and seconds >= 3600:
+        return f"{seconds // 3600}h"
+    if seconds % 60 == 0 and seconds >= 60:
+        return f"{seconds // 60}m"
+    return f"{seconds}s"
+
+
 @dataclass
 class SendResult:
     """Result of sending an email."""
@@ -85,6 +96,41 @@ class GmailSender:
                 f"[GmailSender] Failed to send to {to_email}: {traceback.format_exc()}"
             )
             return SendResult(success=False, error_message=str(traceback.format_exc()))
+
+    def notify_heartbeat(
+        self,
+        do_email: str,
+        interval_seconds: int,
+        timestamp: Optional[datetime] = None,
+    ) -> SendResult:
+        """Send a heartbeat email confirming the service is still running."""
+        subject = "heartbeat: syft-bg still running, token is active"
+        ts = timestamp or datetime.now()
+        interval_human = _format_interval(interval_seconds)
+        body_text = (
+            "syft-bg is still running.\n\n"
+            f"Account: {do_email}\n"
+            f"Sent: {ts:%Y-%m-%d %H:%M:%S}\n"
+            f"Heartbeat interval: {interval_human}\n\n"
+            "Receiving this email confirms the notify service is up and the "
+            "Gmail token is still valid. If these stop arriving, check "
+            "`syft-bg status`.\n"
+        )
+        body_html = None
+        if self.use_html and self.renderer:
+            try:
+                body_html = self.renderer.render(
+                    "emails/heartbeat.html",
+                    {
+                        "do_email": do_email,
+                        "timestamp": ts,
+                        "interval_human": interval_human,
+                    },
+                )
+            except Exception:
+                pass
+
+        return self.send_email(do_email, subject, body_text, body_html)
 
     def notify_new_job(
         self,
