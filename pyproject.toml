@@ -39,7 +39,7 @@ dependencies = [
     "portalocker>=2.8.0",
     "python-daemon>=3.0.0",
     "syft-bg==0.3.6",
-    "syft-job==0.1.34", # TODO: move to optional-dependencies after adding lazy imports
+    "syft-job==0.1.35", # TODO: move to optional-dependencies after adding lazy imports
     "syft-dataset==0.1.16", # TODO: move to optional-dependencies after adding lazy imports
     "syft-permissions==0.1.10",
     "syft-perms==0.1.10",
@@ -51,7 +51,7 @@ datasets = [
     "syft-dataset==0.1.16",
 ]
 job = [
-    "syft-job==0.1.34",
+    "syft-job==0.1.35",
 ]
 all = [
     "syft-client[datasets,job]",
