@@ -664,7 +664,7 @@ class SyftboxManager(BaseModel):
 
         if add_peers:
             # DS creates peer request
-            sender_manager.add_peer(receiver_manager.email)
+            sender_manager.add_peer(receiver_manager.email, sync=False)
             # unfortunately, we need this because of delays in gdrive
             # DO approves the peer request automatically (for backward compatibility)
             receiver_manager.load_peers()
@@ -766,7 +766,7 @@ class SyftboxManager(BaseModel):
 
         if add_peers:
             # DS creates peer request
-            ds_manager.add_peer(do_manager.email)
+            ds_manager.add_peer(do_manager.email, sync=False)
             # DO approves the peer request
             do_manager.load_peers()
             do_manager.approve_peer_request(ds_manager.email)
@@ -779,11 +779,13 @@ class SyftboxManager(BaseModel):
         peer_store.generate_keys()
         self._set_peer_store(peer_store)
 
-    def add_peer(self, peer_email: str, force: bool = False, verbose: bool = True):
+    def add_peer(self, peer_email: str, force: bool = False, verbose: bool = True, sync: bool = True):
         """Add a peer. Delegates to PeerManager."""
         self.peer_manager.add_peer(peer_email, force=force, verbose=verbose)
         if self.has_do_role:
             self._post_approve_peer_do(peer_email)
+        if sync:
+            self.sync()
 
     def submit_bash_job(
         self,

@@ -289,7 +289,8 @@ class PeerManager(BaseModel):
                 peer_version = self.get_peer_version(email)
                 if peer_version is None:
                     warnings.warn(
-                        f"Skipping peer {email}: version information not available."
+                        f"Skipping peer {email}: version information not available. "
+                        "If you are unsure if the version information is up to date, call client.sync()."
                     )
                 else:
                     own_version = self.get_own_version()
