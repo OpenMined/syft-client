@@ -75,6 +75,9 @@ class SyftBgConfig(BaseModel):
         for key, value in config.items():
             if key not in subconfig.model_fields:
                 raise ValueError(f"Unknown config key: {key}")
+            field_type = subconfig.model_fields[key].annotation
+            if isinstance(value, dict) and isinstance(field_type, type) and issubclass(field_type, BaseModel):
+                value = field_type.model_validate(value)
             setattr(subconfig, key, value)
 
     def _repr_html_(self) -> str:
