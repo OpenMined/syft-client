@@ -779,7 +779,13 @@ class SyftboxManager(BaseModel):
         peer_store.generate_keys()
         self._set_peer_store(peer_store)
 
-    def add_peer(self, peer_email: str, force: bool = False, verbose: bool = True, sync: bool = True):
+    def add_peer(
+        self,
+        peer_email: str,
+        force: bool = False,
+        verbose: bool = True,
+        sync: bool = True,
+    ):
         """Add a peer. Delegates to PeerManager."""
         self.peer_manager.add_peer(peer_email, force=force, verbose=verbose)
         if self.has_do_role:
