@@ -26,7 +26,7 @@ from syft_client.sync.version.exceptions import (
     VersionMismatchError,
     VersionUnknownError,
 )
-from syft_client.sync.version.version_info import VersionInfo
+from syft_client.sync.version.version_info import CompatibilityStatus, VersionInfo
 
 
 class PeerManagerConfig(BaseModel):
@@ -34,8 +34,7 @@ class PeerManagerConfig(BaseModel):
 
     syftbox_folder: Path
     connection_configs: List[ConnectionConfig] = []
-    ignore_protocol_version: bool = False
-    ignore_client_version: bool = False
+    force_allow_incompatible_peers: bool = False
     suppress_version_warnings: bool = False
     n_threads: int = 10
     has_do_role: bool = False
@@ -51,8 +50,7 @@ class PeerManager(BaseModel):
     syftbox_folder: Path
     connection_router: ConnectionRouter
     peer_store: PeerStore
-    ignore_protocol_version: bool = False
-    ignore_client_version: bool = False
+    force_allow_incompatible_peers: bool = False
     suppress_version_warnings: bool = False
     n_threads: int = 10
     has_do_role: bool = False
@@ -99,8 +97,7 @@ class PeerManager(BaseModel):
             syftbox_folder=config.syftbox_folder,
             connection_router=connection_router,
             peer_store=peer_store,
-            ignore_protocol_version=config.ignore_protocol_version,
-            ignore_client_version=config.ignore_client_version,
+            force_allow_incompatible_peers=config.force_allow_incompatible_peers,
             suppress_version_warnings=config.suppress_version_warnings,
             n_threads=config.n_threads,
             has_do_role=config.has_do_role,
@@ -166,9 +163,6 @@ class PeerManager(BaseModel):
     ) -> Dict[str, Optional[VersionInfo]]:
         """Load versions for multiple peers in parallel using internal executor."""
 
-        if self.ignore_protocol_version and self.ignore_client_version and not force:
-            return {}
-
         if not peer_emails:
             return {}
 
@@ -194,181 +188,160 @@ class PeerManager(BaseModel):
         if peer:
             peer.version = None
 
+    def peer_compatibility_status(self, peer_email: str) -> CompatibilityStatus:
+        """Get the CompatibilityStatus for a peer (UNKNOWN if version not loaded)."""
+        peer_version = self.get_peer_version(peer_email)
+        return self.get_own_version().compatibility_status_with(peer_version)
+
     def is_peer_version_compatible(self, peer_email: str) -> bool:
-        """
-        Check if peer version is compatible with current client.
+        """True for SAME and PATCH_DIFF; False for INCOMPATIBLE and UNKNOWN."""
+        status = self.peer_compatibility_status(peer_email)
+        return status in (CompatibilityStatus.SAME, CompatibilityStatus.PATCH_DIFF)
 
-        Returns True if:
-        - Both version checks are ignored
-        - Peer version is known and compatible
-        """
-        if self.ignore_protocol_version and self.ignore_client_version:
-            return True
-
+    def _emit_patch_warning(self, peer_email: str) -> None:
+        if self.suppress_version_warnings:
+            return
         peer_version = self.get_peer_version(peer_email)
         if peer_version is None:
-            return False
+            return
+        text = self.get_own_version().get_patch_warning_text(peer_version)
+        if text:
+            warnings.warn(f"Peer {peer_email}: {text}")
 
-        return self.get_own_version().is_compatible_with(
-            peer_version,
-            check_client=not self.ignore_client_version,
-            check_protocol=not self.ignore_protocol_version,
-        )
-
-    def check_version_compatibility(
-        self,
-        peer_email: str,
-        operation: Optional[str] = None,
-        raise_on_mismatch: bool = True,
-        raise_on_unknown: bool = True,
-    ) -> bool:
-        """
-        Check if peer version is compatible.
-
-        Args:
-            peer_email: The peer to check
-            operation: Description of the operation for error messages
-            raise_on_mismatch: Raise VersionMismatchError if incompatible
-            raise_on_unknown: Raise VersionUnknownError if peer version unknown
-
-        Returns:
-            True if compatible, False otherwise
-
-        Raises:
-            VersionUnknownError: If peer version is unknown and raise_on_unknown=True
-            VersionMismatchError: If versions don't match and raise_on_mismatch=True
-        """
-        if self.ignore_protocol_version and self.ignore_client_version:
-            return True
-
+    def _incompatibility_message(
+        self, peer_email: str, action: str = "Skipping peer"
+    ) -> str:
         peer_version = self.get_peer_version(peer_email)
-
         if peer_version is None:
-            if raise_on_unknown:
-                raise VersionUnknownError(peer_email, operation)
-            return False
-
-        own_version = self.get_own_version()
-        is_compatible = own_version.is_compatible_with(
-            peer_version,
-            check_client=not self.ignore_client_version,
-            check_protocol=not self.ignore_protocol_version,
-        )
-
-        if not is_compatible and raise_on_mismatch:
-            reason = own_version.get_incompatibility_reason(
-                peer_version,
-                check_client=not self.ignore_client_version,
-                check_protocol=not self.ignore_protocol_version,
-            )
-            raise VersionMismatchError(peer_email, own_version, peer_version, reason)
-
-        return is_compatible
+            return f"{action} {peer_email}: version information not available."
+        reason = self.get_own_version().get_incompatibility_reason(peer_version)
+        return f"{action} {peer_email}: {reason}"
 
     def get_compatible_peer_emails(
-        self, peer_emails: List[str], warn_incompatible: bool = True
+        self,
+        peer_emails: List[str],
+        warn_incompatible: bool = True,
+        allow_incompatible: bool = False,
     ) -> List[str]:
+        """Filter peer emails to those compatible enough to proceed.
+
+        SAME peers are included silently. PATCH_DIFF peers are included with a
+        patch warning. INCOMPATIBLE / UNKNOWN peers are skipped (with a warning)
+        unless effective `force_allow_incompatible_peers or allow_incompatible`,
+        in which case they are included with a "proceeding anyway" warning.
         """
-        Filter peer emails to only those with compatible versions.
-
-        Args:
-            peer_emails: List of peer emails to filter
-            warn_incompatible: Whether to warn about incompatible peers
-
-        Returns:
-            List of peer emails with compatible versions
-        """
-        if self.ignore_protocol_version and self.ignore_client_version:
-            return peer_emails
-
-        compatible = []
+        effective_allow = self.force_allow_incompatible_peers or allow_incompatible
+        compatible: List[str] = []
         for email in peer_emails:
-            if self.is_peer_version_compatible(email):
+            status = self.peer_compatibility_status(email)
+            if status == CompatibilityStatus.SAME:
                 compatible.append(email)
-            elif warn_incompatible and not self.suppress_version_warnings:
-                peer_version = self.get_peer_version(email)
-                if peer_version is None:
-                    warnings.warn(
-                        f"Skipping peer {email}: version information not available."
-                    )
-                else:
-                    own_version = self.get_own_version()
-                    reason = own_version.get_incompatibility_reason(
-                        peer_version,
-                        check_client=not self.ignore_client_version,
-                        check_protocol=not self.ignore_protocol_version,
-                    )
-                    warnings.warn(f"Skipping peer {email}: {reason}")
-
+            elif status == CompatibilityStatus.PATCH_DIFF:
+                compatible.append(email)
+                self._emit_patch_warning(email)
+            else:
+                if effective_allow:
+                    compatible.append(email)
+                    if warn_incompatible and not self.suppress_version_warnings:
+                        warnings.warn(
+                            self._incompatibility_message(
+                                email, action="Proceeding anyway with peer"
+                            )
+                        )
+                elif warn_incompatible and not self.suppress_version_warnings:
+                    warnings.warn(self._incompatibility_message(email))
         return compatible
 
     def warn_if_all_peers_incompatible(self, peer_emails: List[str]) -> None:
-        """
-        Warn if all connected peers are incompatible (used by DS during sync).
-        """
+        """Warn if all connected peers are incompatible (used by DS during sync)."""
         if self.suppress_version_warnings:
             return
-
-        if self.ignore_protocol_version and self.ignore_client_version:
+        if self.force_allow_incompatible_peers:
             return
-
         if not peer_emails:
             return
 
-        compatible = self.get_compatible_peer_emails(
-            peer_emails, warn_incompatible=False
+        any_compatible = any(
+            self.peer_compatibility_status(email)
+            in (CompatibilityStatus.SAME, CompatibilityStatus.PATCH_DIFF)
+            for email in peer_emails
         )
-        if not compatible:
+        if not any_compatible:
             warnings.warn(
                 f"All connected peers ({len(peer_emails)}) have incompatible versions. "
                 "You may not be able to submit jobs or load datasets until versions match."
             )
 
     def check_version_for_submission(
-        self, peer_email: str, force: bool = False
+        self,
+        peer_email: str,
+        force: bool = False,
+        allow_incompatible: bool = False,
     ) -> None:
-        """
-        Check version before job submission (DS side).
+        """Check version before job submission (DS side).
+
+        SAME → return. PATCH_DIFF → warn, return. INCOMPATIBLE → raise unless
+        effective allow. UNKNOWN → raise unless effective allow.
 
         Args:
             peer_email: The DO peer email
-            force: If True, skip version check
+            force: If True, skip version check entirely (hard bypass)
+            allow_incompatible: Per-call override; ORed with
+                `self.force_allow_incompatible_peers`
 
         Raises:
-            VersionUnknownError: If DO version is unknown
-            VersionMismatchError: If versions don't match
+            VersionUnknownError: If DO version is unknown and not allowed
+            VersionMismatchError: If versions don't match and not allowed
         """
         if force:
             return
 
-        # Load the peer version if not already cached
         if self.get_peer_version(peer_email) is None:
             self.load_peer_version(peer_email)
 
-        self.check_version_compatibility(
-            peer_email,
-            operation="submit job",
-            raise_on_mismatch=True,
-            raise_on_unknown=True,
-        )
+        self._check_version(peer_email, "submit job", allow_incompatible)
 
-    def check_version_for_job_execution(self, submitter_email: str) -> None:
-        """
-        Check version before job execution (DO side).
+    def check_version_for_job_execution(
+        self, submitter_email: str, allow_incompatible: bool = False
+    ) -> None:
+        """Check version before job execution (DO side)."""
+        self._check_version(submitter_email, "execute job", allow_incompatible)
 
-        Args:
-            submitter_email: The DS who submitted the job
+    def _check_version(
+        self, peer_email: str, operation: str, allow_incompatible: bool
+    ) -> None:
+        effective_allow = self.force_allow_incompatible_peers or allow_incompatible
+        status = self.peer_compatibility_status(peer_email)
 
-        Raises:
-            VersionUnknownError: If DS version is unknown
-            VersionMismatchError: If versions don't match
-        """
-        self.check_version_compatibility(
-            submitter_email,
-            operation="execute job",
-            raise_on_mismatch=True,
-            raise_on_unknown=True,
-        )
+        if status == CompatibilityStatus.SAME:
+            return
+        if status == CompatibilityStatus.PATCH_DIFF:
+            self._emit_patch_warning(peer_email)
+            return
+
+        if status == CompatibilityStatus.UNKNOWN:
+            if effective_allow:
+                if not self.suppress_version_warnings:
+                    warnings.warn(
+                        f"Proceeding to {operation} for {peer_email} "
+                        "despite unknown peer version."
+                    )
+                return
+            raise VersionUnknownError(peer_email, operation)
+
+        # INCOMPATIBLE
+        if effective_allow:
+            if not self.suppress_version_warnings:
+                warnings.warn(
+                    self._incompatibility_message(
+                        peer_email, action=f"Proceeding to {operation} for"
+                    )
+                )
+            return
+        own_version = self.get_own_version()
+        peer_version = self.get_peer_version(peer_email)
+        reason = own_version.get_incompatibility_reason(peer_version)
+        raise VersionMismatchError(peer_email, own_version, peer_version, reason)
 
     def shutdown(self) -> None:
         """Shutdown the thread pool executor."""

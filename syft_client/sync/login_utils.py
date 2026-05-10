@@ -92,11 +92,11 @@ def handle_potential_version_mismatches_on_login(
     remote_version = _read_remote_version(resolved_email, resolved_token_path)
 
     current_version = VersionInfo.current()
-    local_compatible = current_version.is_compatible_with(
-        local_version, compatible_if_unknown=True
+    local_compatible = local_version is None or current_version.is_compatible_with(
+        local_version
     )
-    remote_compatible = current_version.is_compatible_with(
-        remote_version, compatible_if_unknown=True
+    remote_compatible = remote_version is None or current_version.is_compatible_with(
+        remote_version
     )
 
     if not (local_compatible and remote_compatible):
