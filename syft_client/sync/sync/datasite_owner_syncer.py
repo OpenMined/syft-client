@@ -21,6 +21,7 @@ from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.sync.caches.datasite_owner_cache import DataSiteOwnerEventCache
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
+from syft_client.sync.utils.path_filters import is_excluded_path
 from syft_client.sync.checkpoints.checkpoint import (
     Checkpoint,
     CheckpointFile,
@@ -512,7 +513,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         for file_path in parent_dir.rglob("*"):
             if file_path.is_file():
                 rel = str(file_path.relative_to(datasite))
-                if not rel.startswith("private") and ".venv" not in rel:
+                if not rel.startswith("private") and not is_excluded_path(rel):
                     paths.append(rel)
         return paths
 

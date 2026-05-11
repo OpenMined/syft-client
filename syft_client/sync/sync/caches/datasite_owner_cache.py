@@ -11,6 +11,7 @@ from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConn
 from syft_client.sync.sync.caches.persisted_dict import PersistedDict
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
+from syft_client.sync.utils.path_filters import is_excluded_path
 from syft_client.sync.sync.caches.cache_file_writer_connection import (
     CacheFileConnection,
     InMemoryCacheFileConnection,
@@ -182,7 +183,7 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             path = Path(path)  # Normalize to Path
             if str(path).startswith("private"):
                 continue
-            if ".venv" in str(path):
+            if is_excluded_path(path):
                 continue
             if self._is_collections_path(path):
                 continue
@@ -378,8 +379,8 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         file_contents = {}
         for path, content in self.file_connection.get_items():
             path_str = str(path)
-            # Skip private and venv folders
-            if path_str.startswith("private") or ".venv" in path_str:
+            # Skip private and excluded folders
+            if path_str.startswith("private") or is_excluded_path(path_str):
                 continue
             file_contents[path_str] = content
 
