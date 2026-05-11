@@ -42,6 +42,18 @@ DO_SCOPES = [
 ]
 
 
+def _extract_auth_code(response: str) -> str:
+    """Extract the OAuth authorization code from a raw code or full redirect URL."""
+    if response.startswith(("http://", "https://")):
+        query_code = parse_qs(urlparse(response).query).get("code")
+        if not query_code:
+            raise ValueError(
+                f"Could not find 'code' query parameter in URL: {response}"
+            )
+        return query_code[0]
+    return response
+
+
 def credentials_to_token(
     credentials_path: str | Path,
     output_path: str | Path | None = None,
@@ -76,7 +88,10 @@ def credentials_to_token(
         print("Visit this URL to authorize Google Drive access:\n")
         print(f"  {auth_url}\n")
         print("After authorizing, you'll see a page that won't load.")
-        code = input("Paste the authorization code here: ").strip()
+        response = input(
+            "Paste the authorization code OR the full redirect URL here: "
+        ).strip()
+        code = _extract_auth_code(response)
         flow.fetch_token(code=code)
         creds = flow.credentials
         return creds
