@@ -202,8 +202,8 @@ class DataSiteWatcherCache(BaseModel):
         peer_email: str,
         executor: ThreadPoolExecutor,
         download_fn: Callable[[str], FileChangeEventsMessage],
-    ):
-        """Sync with parallel file downloads."""
+    ) -> int:
+        """Sync with parallel file downloads. Returns the number of events applied."""
         peer_timestamp = self.last_event_timestamp_per_peer.get(peer_email)
 
         # Get file metadata (no download yet)
@@ -215,18 +215,21 @@ class DataSiteWatcherCache(BaseModel):
         if not file_metadatas:
             # No new messages to download
             self.last_sync = datetime.now()
-            return
+            return 0
 
         # Download all files in parallel
         file_ids = [m["file_id"] for m in file_metadatas]
         downloaded_messages = list(executor.map(download_fn, file_ids))
 
         # Apply in timestamp order
+        event_count = 0
         for event_message in sorted(downloaded_messages, key=lambda x: x.timestamp):
             self.apply_event_message(event_message)
             self.last_event_timestamp_per_peer[peer_email] = event_message.timestamp
+            event_count += len(event_message.events)
 
         self.last_sync = datetime.now()
+        return event_count
 
     def apply_event_message(self, event_message: FileChangeEventsMessage):
         self.events_connection.write_file(
