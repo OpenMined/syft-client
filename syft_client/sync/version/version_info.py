@@ -5,6 +5,7 @@ VersionInfo model for representing version information.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -17,6 +18,23 @@ from syft_client.version import (
 )
 
 
+class CompatibilityStatus(str, Enum):
+    """Outcome of comparing two VersionInfo objects."""
+
+    SAME = "same"
+    PATCH_DIFF = "patch_diff"
+    INCOMPATIBLE = "incompatible"
+    UNKNOWN = "unknown"
+
+
+def _parse_semver(version_str: str) -> tuple[int, int, int]:
+    """Parse 'X.Y.Z' into (major, minor, patch). Raise ValueError if not parseable."""
+    parts = version_str.split(".")
+    if len(parts) < 3:
+        raise ValueError(f"Invalid semver: {version_str!r} (expected 'X.Y.Z')")
+    return (int(parts[0]), int(parts[1]), int(parts[2]))
+
+
 class VersionInfo(BaseModel):
     """Model representing version information for a syft client."""
 
@@ -26,74 +44,58 @@ class VersionInfo(BaseModel):
     min_supported_protocol_version: str
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+    def compatibility_status_with(
+        self, other: "VersionInfo" | None
+    ) -> CompatibilityStatus:
+        """Compare syft_client_version against another VersionInfo."""
+        if other is None:
+            return CompatibilityStatus.UNKNOWN
+
+        if self.syft_client_version == other.syft_client_version:
+            return CompatibilityStatus.SAME
+
+        local = _parse_semver(self.syft_client_version)
+        peer = _parse_semver(other.syft_client_version)
+
+        if local[0] == peer[0] and local[1] == peer[1]:
+            return CompatibilityStatus.PATCH_DIFF
+
+        return CompatibilityStatus.INCOMPATIBLE
+
     def is_compatible_with(
         self,
         other: "VersionInfo" | None,
-        check_client: bool = True,
-        check_protocol: bool = True,
         compatible_if_unknown: bool = False,
     ) -> bool:
+        """True if SAME or PATCH_DIFF (patch differences are non-blocking).
+
+        If `other` is None, returns `compatible_if_unknown`.
         """
-        Check if this version is compatible with another version.
-
-        Currently requires exact match for both client and protocol versions.
-        Future: can support range-based compatibility using min_supported_* fields.
-
-        Args:
-            other: The other VersionInfo to check compatibility with
-            check_client: Whether to check client version compatibility
-            check_protocol: Whether to check protocol version compatibility
-
-        Returns:
-            True if versions are compatible, False otherwise
-        """
-        if other is None:
+        status = self.compatibility_status_with(other)
+        if status == CompatibilityStatus.UNKNOWN:
             return compatible_if_unknown
+        return status in (CompatibilityStatus.SAME, CompatibilityStatus.PATCH_DIFF)
 
-        if check_protocol:
-            if self.protocol_version != other.protocol_version:
-                return False
+    def get_incompatibility_reason(self, other: "VersionInfo") -> Optional[str]:
+        """Reason string when minor/major mismatch; None for SAME or PATCH_DIFF."""
+        status = self.compatibility_status_with(other)
+        if status in (CompatibilityStatus.SAME, CompatibilityStatus.PATCH_DIFF):
+            return None
+        return (
+            f"Client version mismatch (minor or major): "
+            f"local={self.syft_client_version}, peer={other.syft_client_version}"
+        )
 
-        if check_client:
-            if self.syft_client_version != other.syft_client_version:
-                return False
-
-        return True
-
-    def get_incompatibility_reason(
-        self,
-        other: "VersionInfo",
-        check_client: bool = True,
-        check_protocol: bool = True,
-    ) -> Optional[str]:
-        """
-        Get the reason why two versions are incompatible.
-
-        Args:
-            other: The other VersionInfo to check compatibility with
-            check_client: Whether to check client version compatibility
-            check_protocol: Whether to check protocol version compatibility
-
-        Returns:
-            A string describing the incompatibility, or None if compatible
-        """
-        reasons = []
-
-        if check_protocol and self.protocol_version != other.protocol_version:
-            reasons.append(
-                f"Protocol version mismatch: local={self.protocol_version}, "
-                f"peer={other.protocol_version}"
-            )
-
-        if check_client and self.syft_client_version != other.syft_client_version:
-            reasons.append(
-                f"Client version mismatch: local={self.syft_client_version}, "
-                f"peer={other.syft_client_version}"
-            )
-
-        if reasons:
-            return "; ".join(reasons)
-        return None
+    def get_patch_warning_text(self, other: "VersionInfo") -> Optional[str]:
+        """Warning string when only patch versions differ."""
+        status = self.compatibility_status_with(other)
+        if status != CompatibilityStatus.PATCH_DIFF:
+            return None
+        return (
+            f"Client version differs by patch only: "
+            f"local={self.syft_client_version}, peer={other.syft_client_version} "
+            f"— proceeding"
+        )
 
     @classmethod
     def current(cls) -> "VersionInfo":
