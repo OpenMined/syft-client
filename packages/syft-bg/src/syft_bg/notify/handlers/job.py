@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Optional
 
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.gmail.sender import GmailSender
+from syft_client.sync.utils.path_filters import is_excluded_path
 
 if TYPE_CHECKING:
     from syft_job.client import JobClient
@@ -21,6 +22,8 @@ def _read_job_code(job_client: "JobClient", job_name: str) -> Optional[dict[str,
         if not f.is_file():
             continue
         rel = str(f.relative_to(job.code_dir))
+        if is_excluded_path(rel):
+            continue
         try:
             code_files[rel] = f.read_text(errors="replace")
         except Exception as e:

@@ -1,6 +1,7 @@
 from pathlib import Path
 import fcntl
 from syft_client.sync.peers.peer_store import PeerStore
+from syft_client.sync.utils.path_filters import is_excluded_path
 import logging
 import shutil
 from contextlib import contextmanager
@@ -863,7 +864,11 @@ class SyftboxManager(BaseModel):
         print("   Check progress with: client.jobs")
 
     def push_job_files(self, job_dir: Path):
-        file_paths = [Path(p) for p in job_dir.rglob("*") if p.is_file()]
+        file_paths = [
+            Path(p)
+            for p in job_dir.rglob("*")
+            if p.is_file() and not is_excluded_path(p.relative_to(job_dir))
+        ]
         relative_file_paths = [p.relative_to(self.syftbox_folder) for p in file_paths]
 
         last_file = False
