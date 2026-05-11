@@ -8,10 +8,11 @@ from syft_client.sync.version.exceptions import (
     VersionMismatchError,
     VersionUnknownError,
 )
+from syft_client.sync.version.peer_manager import CompatAction
 from syft_client.sync.version.version_info import CompatibilityStatus, VersionInfo
 
 
-def _v(client_version: str) -> VersionInfo:
+def build_client_version(client_version: str) -> VersionInfo:
     """Build a VersionInfo for a given client version, leaving other fields as-current."""
     base = VersionInfo.current()
     return VersionInfo(
@@ -57,8 +58,8 @@ class TestVersionInfo:
         assert v2.is_compatible_with(v1) is True
 
     def test_minor_version_mismatch_is_incompatible(self):
-        v1 = _v("0.1.113")
-        v2 = _v("0.0.1")
+        v1 = build_client_version("0.1.113")
+        v2 = build_client_version("0.0.1")
         assert v1.is_compatible_with(v2) is False
 
     def test_protocol_only_diff_is_compatible_now(self):
@@ -74,8 +75,8 @@ class TestVersionInfo:
         assert base.is_compatible_with(v_diff_protocol) is True
 
     def test_get_incompatibility_reason_client(self):
-        v1 = _v("0.1.113")
-        v2 = _v("0.0.1")
+        v1 = build_client_version("0.1.113")
+        v2 = build_client_version("0.0.1")
         reason = v1.get_incompatibility_reason(v2)
         assert reason is not None
         assert "client" in reason.lower()
@@ -85,41 +86,63 @@ class TestCompatibilityStatus:
     """Tests for CompatibilityStatus enum and compatibility_status_with."""
 
     def test_same_version(self):
-        assert _v("0.1.113").compatibility_status_with(_v("0.1.113")) == (
-            CompatibilityStatus.SAME
-        )
+        assert build_client_version("0.1.113").compatibility_status_with(
+            build_client_version("0.1.113")
+        ) == (CompatibilityStatus.SAME)
 
     def test_patch_diff(self):
-        assert _v("0.1.113").compatibility_status_with(_v("0.1.114")) == (
-            CompatibilityStatus.PATCH_DIFF
-        )
+        assert build_client_version("0.1.113").compatibility_status_with(
+            build_client_version("0.1.114")
+        ) == (CompatibilityStatus.PATCH_DIFF)
 
     def test_minor_diff_is_incompatible(self):
-        assert _v("0.1.113").compatibility_status_with(_v("0.2.0")) == (
-            CompatibilityStatus.INCOMPATIBLE
-        )
+        assert build_client_version("0.1.113").compatibility_status_with(
+            build_client_version("0.2.0")
+        ) == (CompatibilityStatus.INCOMPATIBLE)
 
     def test_major_diff_is_incompatible(self):
-        assert _v("0.1.113").compatibility_status_with(_v("1.0.0")) == (
-            CompatibilityStatus.INCOMPATIBLE
-        )
+        assert build_client_version("0.1.113").compatibility_status_with(
+            build_client_version("1.0.0")
+        ) == (CompatibilityStatus.INCOMPATIBLE)
 
     def test_unknown_when_other_none(self):
-        assert _v("0.1.113").compatibility_status_with(None) == (
+        assert build_client_version("0.1.113").compatibility_status_with(None) == (
             CompatibilityStatus.UNKNOWN
         )
 
     def test_patch_warning_text_only_for_patch_diff(self):
-        assert _v("0.1.113").get_patch_warning_text(_v("0.1.113")) is None
-        assert _v("0.1.113").get_patch_warning_text(_v("0.2.0")) is None
-        warning = _v("0.1.113").get_patch_warning_text(_v("0.1.114"))
+        assert (
+            build_client_version("0.1.113").get_patch_warning_text(
+                build_client_version("0.1.113")
+            )
+            is None
+        )
+        assert (
+            build_client_version("0.1.113").get_patch_warning_text(
+                build_client_version("0.2.0")
+            )
+            is None
+        )
+        warning = build_client_version("0.1.113").get_patch_warning_text(
+            build_client_version("0.1.114")
+        )
         assert warning is not None
         assert "0.1.113" in warning and "0.1.114" in warning
 
     def test_is_compatible_with_includes_patch_diff(self):
-        assert _v("0.1.113").is_compatible_with(_v("0.1.114")) is True
-        assert _v("0.1.113").is_compatible_with(_v("0.2.0")) is False
-        assert _v("0.1.113").is_compatible_with(None) is False
+        assert (
+            build_client_version("0.1.113").is_compatible_with(
+                build_client_version("0.1.114")
+            )
+            is True
+        )
+        assert (
+            build_client_version("0.1.113").is_compatible_with(
+                build_client_version("0.2.0")
+            )
+            is False
+        )
+        assert build_client_version("0.1.113").is_compatible_with(None) is False
 
 
 class TestPeerManager:
@@ -316,12 +339,12 @@ class TestPatchTolerance:
             int(current.syft_client_version.split(".")[1]),
             int(current.syft_client_version.split(".")[2]),
         )
-        patch_diff_version = _v(f"{major}.{minor}.{patch + 1}")
+        patch_diff_version = build_client_version(f"{major}.{minor}.{patch + 1}")
         _set_peer_version(do_manager, ds_manager.email, patch_diff_version)
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            compatible = do_manager.peer_manager.get_compatible_peer_emails(
+            compatible = do_manager.peer_manager.get_compatible_peer_emails_for_syncing(
                 [ds_manager.email]
             )
         assert ds_manager.email in compatible
@@ -334,26 +357,32 @@ class TestPatchTolerance:
 
         current = VersionInfo.current()
         parts = current.syft_client_version.split(".")
-        patch_diff_version = _v(f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}")
+        patch_diff_version = build_client_version(
+            f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}"
+        )
         _set_peer_version(ds_manager, do_manager.email, patch_diff_version)
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            ds_manager.peer_manager.check_version_for_submission(do_manager.email)
+            result = ds_manager.peer_manager.get_peer_compatibility_status(
+                do_manager.email, action=CompatAction.SUBMIT
+            )
+            result.raise_on_skip(operation="submit job")
+            result.maybe_warn()
         assert any("patch" in str(w.message).lower() for w in caught)
 
 
 class TestForceAllowIncompatiblePeers:
-    """Tests for force_allow_incompatible_peers and per-call allow_incompatible."""
+    """Tests for force_ignore_peer_version and per-call ignore_peer_version."""
 
     def test_incompatible_peer_skipped_by_default(self):
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
-        _set_peer_version(do_manager, ds_manager.email, _v("99.0.0"))
+        _set_peer_version(do_manager, ds_manager.email, build_client_version("99.0.0"))
 
         do_manager.peer_manager.suppress_version_warnings = True
-        compatible = do_manager.peer_manager.get_compatible_peer_emails(
+        compatible = do_manager.peer_manager.get_compatible_peer_emails_for_syncing(
             [ds_manager.email]
         )
         assert ds_manager.email not in compatible
@@ -362,51 +391,60 @@ class TestForceAllowIncompatiblePeers:
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
-        _set_peer_version(do_manager, ds_manager.email, _v("99.0.0"))
+        _set_peer_version(do_manager, ds_manager.email, build_client_version("99.0.0"))
 
-        do_manager.peer_manager.force_allow_incompatible_peers = True
+        do_manager.peer_manager.force_ignore_peer_version = True
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            compatible = do_manager.peer_manager.get_compatible_peer_emails(
+            compatible = do_manager.peer_manager.get_compatible_peer_emails_for_syncing(
                 [ds_manager.email]
             )
         assert ds_manager.email in compatible
         assert any("proceeding anyway" in str(w.message).lower() for w in caught)
 
-    def test_per_call_allow_incompatible_includes_peer(self):
+    def test_per_call_ignore_peer_version_includes_peer(self):
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
-        _set_peer_version(do_manager, ds_manager.email, _v("99.0.0"))
+        _set_peer_version(do_manager, ds_manager.email, build_client_version("99.0.0"))
 
-        compatible = do_manager.peer_manager.get_compatible_peer_emails(
-            [ds_manager.email], allow_incompatible=True
+        compatible = do_manager.peer_manager.get_compatible_peer_emails_for_syncing(
+            [ds_manager.email], ignore_peer_version=True
         )
         assert ds_manager.email in compatible
 
-    def test_per_call_allow_incompatible_in_submit(self):
+    def test_per_call_ignore_peer_version_in_submit(self):
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
-        _set_peer_version(ds_manager, do_manager.email, _v("99.0.0"))
+        _set_peer_version(ds_manager, do_manager.email, build_client_version("99.0.0"))
 
         with pytest.raises(VersionMismatchError):
-            ds_manager.peer_manager.check_version_for_submission(do_manager.email)
+            result = ds_manager.peer_manager.get_peer_compatibility_status(
+                do_manager.email, action=CompatAction.SUBMIT
+            )
+            result.raise_on_skip(operation="submit job")
 
         # With per-call override, should not raise
-        ds_manager.peer_manager.check_version_for_submission(
-            do_manager.email, allow_incompatible=True
+        result = ds_manager.peer_manager.get_peer_compatibility_status(
+            do_manager.email,
+            action=CompatAction.SUBMIT,
+            ignore_peer_version=True,
         )
+        result.raise_on_skip(operation="submit job")
 
     def test_force_allow_in_submit(self):
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
-        _set_peer_version(ds_manager, do_manager.email, _v("99.0.0"))
+        _set_peer_version(ds_manager, do_manager.email, build_client_version("99.0.0"))
 
-        ds_manager.peer_manager.force_allow_incompatible_peers = True
+        ds_manager.peer_manager.force_ignore_peer_version = True
         # Should not raise
-        ds_manager.peer_manager.check_version_for_submission(do_manager.email)
+        result = ds_manager.peer_manager.get_peer_compatibility_status(
+            do_manager.email, action=CompatAction.SUBMIT
+        )
+        result.raise_on_skip(operation="submit job")
 
 
 class TestVersionMismatchBehavior:
@@ -416,11 +454,13 @@ class TestVersionMismatchBehavior:
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
-        _set_peer_version(do_manager, ds_manager.email, _v("0.0.1"))
+        _set_peer_version(do_manager, ds_manager.email, build_client_version("0.0.1"))
 
         do_manager.peer_manager.suppress_version_warnings = True
-        compatible_peers = do_manager.peer_manager.get_compatible_peer_emails(
-            [ds_manager.email], warn_incompatible=False
+        compatible_peers = (
+            do_manager.peer_manager.get_compatible_peer_emails_for_syncing(
+                [ds_manager.email]
+            )
         )
         assert ds_manager.email not in compatible_peers
 
@@ -445,7 +485,7 @@ class TestVersionMismatchBehavior:
         job = do_manager.job_client.jobs[0]
         job.approve()
 
-        _set_peer_version(do_manager, ds_manager.email, _v("0.0.1"))
+        _set_peer_version(do_manager, ds_manager.email, build_client_version("0.0.1"))
 
         executed_jobs = []
 
@@ -473,6 +513,6 @@ class TestVersionMismatchBehavior:
         assert ds_manager.peer_manager.is_peer_version_compatible(do_manager.email)
         assert do_manager.peer_manager.is_peer_version_compatible(ds_manager.email)
 
-        _set_peer_version(do_manager, ds_manager.email, _v("99.0.0"))
+        _set_peer_version(do_manager, ds_manager.email, build_client_version("99.0.0"))
 
         assert not do_manager.peer_manager.is_peer_version_compatible(ds_manager.email)
