@@ -26,6 +26,7 @@ class NotificationOrchestrator(BaseOrchestrator):
     ):
         super().__init__()
         self.config = config
+        self.interval = config.interval
         self._job_monitor = job_monitor
         self._peer_monitor: Optional[PeerMonitor] = peer_monitor
         self._heartbeat: Optional[Heartbeat] = heartbeat
