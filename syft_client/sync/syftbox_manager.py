@@ -70,6 +70,10 @@ COLAB_DEFAULT_SYFTBOX_FOLDER = Path("/")
 JUPYTER_DEFAULT_SYFTBOX_FOLDER = Path.home() / "SyftBox"
 COLLECTION_SUBPATH = Path("public/syft_datasets")
 
+# ANSI codes for highlighting important warnings in terminals / notebooks.
+_ANSI_RED = "\033[1;91m"
+_ANSI_RESET = "\033[0m"
+
 
 def get_jupyter_default_syftbox_folder(email: str):
     return Path.home() / f"SyftBox_{email}"
@@ -1528,8 +1532,10 @@ class SyftboxManager(BaseModel):
 
         # Delete local syftbox folder and cache directories
         self._delete_local_dirs()
+
         print(
-            "Done, if you are also running syft-bg, make sure to call syft-bg.reset() before delete_syftbox()."
+            f"{_ANSI_RED}Done. If you are also running syft-bg, make sure to call "
+            f"syft_bg.reset() before delete_syftbox().{_ANSI_RESET}"
         )
 
     def _delete_local_dirs(self):

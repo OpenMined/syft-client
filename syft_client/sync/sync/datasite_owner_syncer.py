@@ -146,6 +146,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
 
             # first, pull existing state
             for peer_email in peer_emails:
+                proposed_count = 0
                 while True:
                     msg = self.pull_and_process_next_proposed_filechange(
                         peer_email, raise_on_none=False
@@ -153,6 +154,12 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
                     if msg is None:
                         # no new message, we are done
                         break
+                    proposed_count += len(msg.proposed_file_changes)
+                if proposed_count:
+                    print(
+                        f"Received {proposed_count} proposed change(s) "
+                        f"from {peer_email}"
+                    )
                 self.process_syftbox_events_queue()
         finally:
             self._save_rolling_state()
@@ -857,9 +864,6 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         if self._rolling_state is None or self._rolling_state.event_count == 0:
             return
 
-        print(
-            f"Uploading rolling state with {self._rolling_state.event_count} events..."
-        )
         self.connection_router.upload_rolling_state(self._rolling_state)
         self._events_since_rolling_state_upload = 0
 
