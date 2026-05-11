@@ -27,15 +27,12 @@ class CompatibilityStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
-def _parse_semver(version_str: str) -> Optional[tuple[int, int, int]]:
-    """Parse 'X.Y.Z' into (major, minor, patch). Return None if not parseable."""
+def _parse_semver(version_str: str) -> tuple[int, int, int]:
+    """Parse 'X.Y.Z' into (major, minor, patch). Raise ValueError if not parseable."""
     parts = version_str.split(".")
     if len(parts) < 3:
-        return None
-    try:
-        return (int(parts[0]), int(parts[1]), int(parts[2]))
-    except ValueError:
-        return None
+        raise ValueError(f"Invalid semver: {version_str!r} (expected 'X.Y.Z')")
+    return (int(parts[0]), int(parts[1]), int(parts[2]))
 
 
 class VersionInfo(BaseModel):
@@ -59,17 +56,24 @@ class VersionInfo(BaseModel):
 
         local = _parse_semver(self.syft_client_version)
         peer = _parse_semver(other.syft_client_version)
-        if local is None or peer is None:
-            return CompatibilityStatus.INCOMPATIBLE
 
         if local[0] == peer[0] and local[1] == peer[1]:
             return CompatibilityStatus.PATCH_DIFF
 
         return CompatibilityStatus.INCOMPATIBLE
 
-    def is_compatible_with(self, other: "VersionInfo" | None) -> bool:
-        """True if SAME or PATCH_DIFF (patch differences are non-blocking)."""
+    def is_compatible_with(
+        self,
+        other: "VersionInfo" | None,
+        compatible_if_unknown: bool = False,
+    ) -> bool:
+        """True if SAME or PATCH_DIFF (patch differences are non-blocking).
+
+        If `other` is None, returns `compatible_if_unknown`.
+        """
         status = self.compatibility_status_with(other)
+        if status == CompatibilityStatus.UNKNOWN:
+            return compatible_if_unknown
         return status in (CompatibilityStatus.SAME, CompatibilityStatus.PATCH_DIFF)
 
     def get_incompatibility_reason(self, other: "VersionInfo") -> Optional[str]:

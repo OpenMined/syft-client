@@ -662,7 +662,7 @@ class SyftboxManager(BaseModel):
 
         if add_peers:
             # DS creates peer request
-            sender_manager.add_peer(receiver_manager.email)
+            sender_manager.add_peer(receiver_manager.email, sync=False)
             # unfortunately, we need this because of delays in gdrive
             # DO approves the peer request automatically (for backward compatibility)
             receiver_manager.load_peers()
@@ -764,7 +764,7 @@ class SyftboxManager(BaseModel):
 
         if add_peers:
             # DS creates peer request
-            ds_manager.add_peer(do_manager.email)
+            ds_manager.add_peer(do_manager.email, sync=False)
             # DO approves the peer request
             do_manager.load_peers()
             do_manager.approve_peer_request(ds_manager.email)
@@ -777,11 +777,19 @@ class SyftboxManager(BaseModel):
         peer_store.generate_keys()
         self._set_peer_store(peer_store)
 
-    def add_peer(self, peer_email: str, force: bool = False, verbose: bool = True):
+    def add_peer(
+        self,
+        peer_email: str,
+        force: bool = False,
+        verbose: bool = True,
+        sync: bool = True,
+    ):
         """Add a peer. Delegates to PeerManager."""
         self.peer_manager.add_peer(peer_email, force=force, verbose=verbose)
         if self.has_do_role:
             self._post_approve_peer_do(peer_email)
+        if sync:
+            self.sync()
 
     def submit_bash_job(
         self,
@@ -790,12 +798,12 @@ class SyftboxManager(BaseModel):
         job_name: str = "",
         sync=True,
         force_submission: bool = False,
-        allow_incompatible: bool = False,
+        allow_incompatible_peer: bool = False,
     ):
         # Check version compatibility before submission (uses cached versions)
         if not force_submission:
             self.peer_manager.check_version_for_submission(
-                user, force=False, allow_incompatible=allow_incompatible
+                user, force=False, allow_incompatible=allow_incompatible_peer
             )
         job_dir = self.job_client.submit_bash_job(user, script, job_name=job_name)
         self.push_job_files(job_dir)
@@ -809,7 +817,7 @@ class SyftboxManager(BaseModel):
         entrypoint: str | None = None,
         sync=True,
         force_submission: bool = False,
-        allow_incompatible: bool = False,
+        allow_incompatible_peer: bool = False,
     ):
         peer_emails = {p.email for p in self.peer_manager.syncable_peers}
         if user not in peer_emails:
@@ -831,7 +839,7 @@ class SyftboxManager(BaseModel):
         # Check version compatibility before submission (uses cached versions)
         if not force_submission:
             self.peer_manager.check_version_for_submission(
-                user, force=False, allow_incompatible=allow_incompatible
+                user, force=False, allow_incompatible=allow_incompatible_peer
             )
         job_dir = self.job_client.submit_python_job(
             user,
@@ -883,7 +891,7 @@ class SyftboxManager(BaseModel):
         auto_compact: bool = True,
         compact_threshold: int = MIN_MESSAGES_COMPACT,
         force_download_peer_state: bool = False,
-        allow_incompatible: bool = False,
+        allow_incompatible_peers: bool = False,
     ):
         """
         Sync local state with Google Drive.
@@ -909,7 +917,7 @@ class SyftboxManager(BaseModel):
                 compatible_emails = self.peer_manager.get_compatible_peer_emails(
                     peer_emails,
                     warn_incompatible=True,
-                    allow_incompatible=allow_incompatible,
+                    allow_incompatible=allow_incompatible_peers,
                 )
                 self.datasite_owner_syncer.sync(compatible_emails)
                 if auto_compact:
@@ -1014,7 +1022,7 @@ class SyftboxManager(BaseModel):
         force_execution: bool = False,
         share_outputs_with_submitter: bool = False,
         share_logs_with_submitter: bool = False,
-        allow_incompatible: bool = False,
+        allow_incompatible_peer: bool = False,
     ) -> None:
         """
         Process approved jobs. Automatically calls sync() after processing
@@ -1036,46 +1044,19 @@ class SyftboxManager(BaseModel):
         skip_job_names = []
 
         if not force_execution:
-            from syft_client.sync.version.version_info import CompatibilityStatus
-
-            effective_allow = (
-                self.peer_manager.force_allow_incompatible_peers or allow_incompatible
-            )
             approved_jobs = [
                 job for job in self.job_client.jobs if job.status == "approved"
             ]
-
             for job in approved_jobs:
-                if job.submitted_by == "unknown":
-                    continue
-
-                status = self.peer_manager.peer_compatibility_status(job.submitted_by)
-                if status == CompatibilityStatus.SAME:
-                    continue
-                if status == CompatibilityStatus.PATCH_DIFF:
-                    self.peer_manager._emit_patch_warning(job.submitted_by)
-                    continue
-
-                # INCOMPATIBLE or UNKNOWN
-                peer_version = self.peer_manager.get_peer_version(job.submitted_by)
-                if peer_version is None:
-                    detail = "version unknown"
-                else:
-                    own_version = self.peer_manager.get_own_version()
-                    detail = own_version.get_incompatibility_reason(peer_version)
-
-                if effective_allow:
-                    warnings.warn(
-                        f"Proceeding with job '{job.name}' from {job.submitted_by} "
-                        f"despite {detail}."
-                    )
-                    continue
-
-                warnings.warn(
-                    f"Skipping job '{job.name}' from {job.submitted_by}: {detail}. "
-                    "Use force_execution=True or allow_incompatible=True to override."
+                result = self.peer_manager.should_skip_job_for_processing(
+                    job.submitted_by,
+                    job.name,
+                    allow_incompatible_peer=allow_incompatible_peer,
                 )
-                skip_job_names.append(job.name)
+                if result.warning_message:
+                    warnings.warn(result.warning_message)
+                if result.should_skip:
+                    skip_job_names.append(job.name)
 
         self.job_runner.process_approved_jobs(
             stream_output=stream_output,

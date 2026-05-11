@@ -29,6 +29,13 @@ from syft_client.sync.version.exceptions import (
 from syft_client.sync.version.version_info import CompatibilityStatus, VersionInfo
 
 
+class JobCompatibilityResult(BaseModel):
+    """Outcome of checking whether an approved job is safe to process."""
+
+    should_skip: bool
+    warning_message: Optional[str] = None
+
+
 class PeerManagerConfig(BaseModel):
     """Configuration for PeerManager."""
 
@@ -213,9 +220,89 @@ class PeerManager(BaseModel):
     ) -> str:
         peer_version = self.get_peer_version(peer_email)
         if peer_version is None:
-            return f"{action} {peer_email}: version information not available."
+            return (
+                f"{action} {peer_email}: version information not available. "
+                "If you are unsure if the version information is up to date, "
+                "call client.sync()."
+            )
         reason = self.get_own_version().get_incompatibility_reason(peer_version)
         return f"{action} {peer_email}: {reason}"
+
+    def should_skip_job_for_processing(
+        self,
+        submitted_by: str,
+        job_name: str,
+        allow_incompatible_peer: bool = False,
+    ) -> JobCompatibilityResult:
+        """Decide whether an approved job should be skipped due to version mismatch.
+
+        SAME / unknown-submitter → process silently. PATCH_DIFF → process with a
+        patch warning (unless `suppress_version_warnings`). INCOMPATIBLE / UNKNOWN
+        → skip with warning unless `force_allow_incompatible_peers or
+        allow_incompatible_peer`, in which case process with a "proceeding"
+        warning.
+        """
+        if submitted_by == "unknown":
+            return JobCompatibilityResult(should_skip=False)
+
+        status = self.peer_compatibility_status(submitted_by)
+        if status == CompatibilityStatus.SAME:
+            return JobCompatibilityResult(should_skip=False)
+
+        if status == CompatibilityStatus.PATCH_DIFF:
+            warning: Optional[str] = None
+            if not self.suppress_version_warnings:
+                peer_version = self.get_peer_version(submitted_by)
+                if peer_version is not None:
+                    text = self.get_own_version().get_patch_warning_text(peer_version)
+                    if text:
+                        warning = f"Peer {submitted_by}: {text}"
+            return JobCompatibilityResult(should_skip=False, warning_message=warning)
+
+        effective_allow_incompatible_peers = (
+            self.force_allow_incompatible_peers or allow_incompatible_peer
+        )
+        override_hint = (
+            "Use force_execution=True or allow_incompatible_peer=True to override."
+        )
+
+        if status == CompatibilityStatus.UNKNOWN:
+            if effective_allow_incompatible_peers:
+                return JobCompatibilityResult(
+                    should_skip=False,
+                    warning_message=(
+                        f"Proceeding with job '{job_name}' from {submitted_by} "
+                        "despite version unknown."
+                    ),
+                )
+            return JobCompatibilityResult(
+                should_skip=True,
+                warning_message=(
+                    f"Skipping job '{job_name}' from {submitted_by}: "
+                    f"version unknown. {override_hint}"
+                ),
+            )
+
+        # INCOMPATIBLE
+        reason = self.get_own_version().get_incompatibility_reason(
+            self.get_peer_version(submitted_by)
+        )
+        if effective_allow_incompatible_peers:
+            return JobCompatibilityResult(
+                should_skip=False,
+                warning_message=(
+                    f"Proceeding with job '{job_name}' from {submitted_by} "
+                    f"despite {reason}."
+                ),
+            )
+        else:
+            return JobCompatibilityResult(
+                should_skip=True,
+                warning_message=(
+                    f"Skipping job '{job_name}' from {submitted_by}: {reason}. "
+                    f"{override_hint}"
+                ),
+            )
 
     def get_compatible_peer_emails(
         self,
@@ -230,7 +317,9 @@ class PeerManager(BaseModel):
         unless effective `force_allow_incompatible_peers or allow_incompatible`,
         in which case they are included with a "proceeding anyway" warning.
         """
-        effective_allow = self.force_allow_incompatible_peers or allow_incompatible
+        effective_allow_incompatible_peers = (
+            self.force_allow_incompatible_peers or allow_incompatible
+        )
         compatible: List[str] = []
         for email in peer_emails:
             status = self.peer_compatibility_status(email)
@@ -240,7 +329,7 @@ class PeerManager(BaseModel):
                 compatible.append(email)
                 self._emit_patch_warning(email)
             else:
-                if effective_allow:
+                if effective_allow_incompatible_peers:
                     compatible.append(email)
                     if warn_incompatible and not self.suppress_version_warnings:
                         warnings.warn(
@@ -310,7 +399,9 @@ class PeerManager(BaseModel):
     def _check_version(
         self, peer_email: str, operation: str, allow_incompatible: bool
     ) -> None:
-        effective_allow = self.force_allow_incompatible_peers or allow_incompatible
+        effective_allow_incompatible_peers = (
+            self.force_allow_incompatible_peers or allow_incompatible
+        )
         status = self.peer_compatibility_status(peer_email)
 
         if status == CompatibilityStatus.SAME:
@@ -320,7 +411,7 @@ class PeerManager(BaseModel):
             return
 
         if status == CompatibilityStatus.UNKNOWN:
-            if effective_allow:
+            if effective_allow_incompatible_peers:
                 if not self.suppress_version_warnings:
                     warnings.warn(
                         f"Proceeding to {operation} for {peer_email} "
@@ -330,7 +421,7 @@ class PeerManager(BaseModel):
             raise VersionUnknownError(peer_email, operation)
 
         # INCOMPATIBLE
-        if effective_allow:
+        if effective_allow_incompatible_peers:
             if not self.suppress_version_warnings:
                 warnings.warn(
                     self._incompatibility_message(
