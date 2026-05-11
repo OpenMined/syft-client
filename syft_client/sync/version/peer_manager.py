@@ -90,6 +90,7 @@ class PeerManagerConfig(BaseModel):
     syftbox_folder: Path
     connection_configs: List[ConnectionConfig] = []
     force_ignore_peer_version: bool = False
+    force_ignore_protocol_version: bool = True
     suppress_version_warnings: bool = False
     n_threads: int = 10
     has_do_role: bool = False
@@ -106,6 +107,7 @@ class PeerManager(BaseModel):
     connection_router: ConnectionRouter
     peer_store: PeerStore
     force_ignore_peer_version: bool = False
+    force_ignore_protocol_version: bool = True
     suppress_version_warnings: bool = False
     n_threads: int = 10
     has_do_role: bool = False
@@ -153,6 +155,7 @@ class PeerManager(BaseModel):
             connection_router=connection_router,
             peer_store=peer_store,
             force_ignore_peer_version=config.force_ignore_peer_version,
+            force_ignore_protocol_version=config.force_ignore_protocol_version,
             suppress_version_warnings=config.suppress_version_warnings,
             n_threads=config.n_threads,
             has_do_role=config.has_do_role,
