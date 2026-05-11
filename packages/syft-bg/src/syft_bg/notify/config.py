@@ -28,7 +28,7 @@ class NotifyConfig(BaseModel):
     sync_state_path: Path = Field(
         default_factory=lambda: get_default_paths().sync_state
     )
-    interval: int = 30
+    interval: int = 5
     monitor_jobs: bool = True
     monitor_peers: bool = True
     heartbeat_enabled: bool = True
