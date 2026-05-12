@@ -10,6 +10,10 @@ from syft_client.sync.utils.path_filters import is_excluded_path
 if TYPE_CHECKING:
     from syft_job.client import JobClient
 
+_MAX_FILE_SIZE = 50 * 1024  # 50 KB per file
+_MAX_TOTAL_CODE_SIZE = 500 * 1024  # 500 KB total code in email
+_MAX_STDERR_SIZE = 50 * 1024  # 50 KB stderr
+
 
 def _read_job_code(job_client: "JobClient", job_name: str) -> Optional[dict[str, str]]:
     """Read job code contents as a dict of filename -> file contents."""
@@ -18,16 +22,35 @@ def _read_job_code(job_client: "JobClient", job_name: str) -> Optional[dict[str,
         return None
 
     code_files: dict[str, str] = {}
-    for f in sorted(job.code_dir.rglob("*")):
-        if not f.is_file():
-            continue
+    total_size = 0
+    all_files = sorted(f for f in job.code_dir.rglob("*") if f.is_file())
+
+    for f in all_files:
         rel = str(f.relative_to(job.code_dir))
         if is_excluded_path(rel):
             continue
         try:
-            code_files[rel] = f.read_text(errors="replace")
+            content = f.read_text(errors="replace")
         except Exception as e:
             code_files[rel] = f"[unable to read file: {e}]"
+            continue
+
+        file_size = len(content.encode("utf-8"))
+
+        if file_size > _MAX_FILE_SIZE:
+            truncated = content[:_MAX_FILE_SIZE]
+            content = (
+                f"{truncated}\n\n[... truncated, full file is {file_size // 1024} KB]"
+            )
+            file_size = _MAX_FILE_SIZE
+
+        if total_size + file_size > _MAX_TOTAL_CODE_SIZE:
+            remaining = len(all_files) - len(code_files)
+            code_files["..."] = f"[... {remaining} more files not shown]"
+            break
+
+        code_files[rel] = content
+        total_size += file_size
 
     return code_files if code_files else None
 
@@ -44,7 +67,17 @@ def _read_job_stderr(
     stderr_file = job.job_review_path / "stderr.txt"
     if stderr_file.exists():
         try:
-            stderr_text = stderr_file.read_text(errors="replace").strip() or None
+            file_size = stderr_file.stat().st_size
+            if file_size > _MAX_STDERR_SIZE:
+                with open(stderr_file, "rb") as fh:
+                    fh.seek(-_MAX_STDERR_SIZE, 2)
+                    tail = fh.read().decode("utf-8", errors="replace")
+                stderr_text = (
+                    f"[... truncated, showing last {_MAX_STDERR_SIZE // 1024} KB "
+                    f"of {file_size // 1024} KB total]\n\n{tail}"
+                )
+            else:
+                stderr_text = stderr_file.read_text(errors="replace").strip() or None
         except Exception:
             pass
 
