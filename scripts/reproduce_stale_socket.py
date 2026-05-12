@@ -55,9 +55,7 @@ def build_service(side: str):
     token_path = os.environ.get(token_key)
     email = os.environ.get(email_key)
     if not token_path or not email:
-        raise SystemExit(
-            f"{token_key} and/or {email_key} not set after loading .env."
-        )
+        raise SystemExit(f"{token_key} and/or {email_key} not set after loading .env.")
     if not Path(token_path).exists():
         raise SystemExit(f"Token file not found: {token_path}")
     creds = Credentials.from_authorized_user_file(token_path, SCOPES)
@@ -129,7 +127,9 @@ def main():
     print("      ok.")
 
     killed = kill_cached_sockets(service)
-    print(f"[2/3] Closed {killed} cached socket(s) -- next call will hit a dead socket.")
+    print(
+        f"[2/3] Closed {killed} cached socket(s) -- next call will hit a dead socket."
+    )
 
     print(f"[3/3] Second call (mode={args.mode})...")
     try:

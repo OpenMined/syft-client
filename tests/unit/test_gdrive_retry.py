@@ -127,9 +127,7 @@ def test_execute_with_retries_mixed_error_types():
         {"ok": True},
     ]
 
-    result = execute_with_retries(
-        request, max_retries=5, initial_delay=0, max_delay=0
-    )
+    result = execute_with_retries(request, max_retries=5, initial_delay=0, max_delay=0)
 
     assert result == {"ok": True}
     assert request.execute.call_count == 4
@@ -154,9 +152,7 @@ def test_next_chunk_with_retries_recovers_from_transport_error(err):
     downloader = Mock()
     downloader.next_chunk.side_effect = [err, (Mock(), True)]
 
-    status, done = next_chunk_with_retries(
-        downloader, initial_delay=0, max_delay=0
-    )
+    status, done = next_chunk_with_retries(downloader, initial_delay=0, max_delay=0)
 
     assert done is True
     assert downloader.next_chunk.call_count == 2
@@ -167,9 +163,7 @@ def test_next_chunk_with_retries_exhausts_then_raises():
     downloader.next_chunk.side_effect = BrokenPipeError("epipe")
 
     with pytest.raises(BrokenPipeError):
-        next_chunk_with_retries(
-            downloader, max_retries=1, initial_delay=0, max_delay=0
-        )
+        next_chunk_with_retries(downloader, max_retries=1, initial_delay=0, max_delay=0)
 
     assert downloader.next_chunk.call_count == 2
 
@@ -192,9 +186,7 @@ def test_batch_execute_with_retries_exhausts_then_raises():
     batch.execute.side_effect = ConnectionResetError("reset")
 
     with pytest.raises(ConnectionResetError):
-        batch_execute_with_retries(
-            batch, max_retries=0, initial_delay=0, max_delay=0
-        )
+        batch_execute_with_retries(batch, max_retries=0, initial_delay=0, max_delay=0)
 
     assert batch.execute.call_count == 1
 
