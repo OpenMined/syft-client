@@ -875,7 +875,7 @@ class SyftboxManager(BaseModel):
             # component to get a datasite-relative path for the filter check.
             datasite_rel = Path(*rel.parts[1:]) if len(rel.parts) > 1 else rel
             if not is_normal_syncable_path(datasite_rel):
-                logger.warning("push_job_files: pushing non-syncable path %s", rel)
+                logger.warning(f"push_job_files: pushing non-syncable path {rel}")
 
         last_file = False
         for i, relative_file_path in enumerate(relative_file_paths):

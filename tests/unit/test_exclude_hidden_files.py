@@ -84,6 +84,7 @@ def test_read_job_code_skips_hidden_files(tmp_path):
     assert result is not None
     assert "main.py" in result
     assert "utils.py" in result
+    assert len(result) == 2, f"expected only 2 files, got {sorted(result)}"
 
     # None of the hidden/generated files should appear
     for key in result:
@@ -124,6 +125,12 @@ def test_push_job_files_pushes_all_files_and_warns(caplog):
         ]
         assert any("main.py" in p for p in arrived_paths)
         assert any("utils.py" in p for p in arrived_paths)
+
+        # Non-syncable paths must NOT make it through to the DO side.
+        for p in arrived_paths:
+            assert ".venv" not in p, f"non-syncable file arrived: {p}"
+            assert ".git" not in p, f"non-syncable file arrived: {p}"
+            assert "__pycache__" not in p, f"non-syncable file arrived: {p}"
 
         # A warning is emitted for each non-syncable file (we no longer filter).
         warning_messages = [

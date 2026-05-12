@@ -168,10 +168,8 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             return None
         return max(m.timestamp for m in cached_messages)
 
-    def collections_relative_path(self) -> Path | None:
-        """Return the collections folder path relative to the datasite root, or None."""
-        if self.collections_folder is None or self.syftbox_folder is None:
-            return None
+    def collections_relative_path(self) -> Path:
+        """Return the collections folder path relative to the datasite root."""
         return self.collections_folder.relative_to(self.syftbox_folder / self.email)
 
     def get_syncable_paths(self) -> dict[Path, bytes]:

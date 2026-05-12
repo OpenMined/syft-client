@@ -679,10 +679,14 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     def handle_proposed_filechange_events_message(
         self, sender_email: str, proposed_events_message: ProposedFileChangesMessage
     ):
+        collections_rel = self.event_cache.collections_relative_path()
         allowed_changes = [
             change
             for change in proposed_events_message.proposed_file_changes
-            if self.check_write_permission(sender_email, str(change.path_in_datasite))
+            if is_normal_syncable_path(
+                str(change.path_in_datasite), collections_path=collections_rel
+            )
+            and self.check_write_permission(sender_email, str(change.path_in_datasite))
         ]
 
         if not allowed_changes:
