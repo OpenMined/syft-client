@@ -38,7 +38,7 @@ dependencies = [
     "click>=8.0.0",
     "portalocker>=2.8.0",
     "python-daemon>=3.0.0",
-    "syft-bg==0.3.7",
+    "syft-bg==0.3.8",
     "syft-job==0.1.36", # TODO: move to optional-dependencies after adding lazy imports
     "syft-dataset==0.1.17", # TODO: move to optional-dependencies after adding lazy imports
     "syft-permissions==0.1.11",
