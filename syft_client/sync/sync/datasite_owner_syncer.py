@@ -21,6 +21,7 @@ from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.sync.caches.datasite_owner_cache import DataSiteOwnerEventCache
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
 from syft_client.sync.messages.proposed_filechange import ProposedFileChangesMessage
+from syft_client.sync.utils.path_filters import is_normal_syncable_path
 from syft_client.sync.checkpoints.checkpoint import (
     Checkpoint,
     CheckpointFile,
@@ -515,11 +516,12 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         parent_dir = datasite / str(Path(perm_path).parent)
         if not parent_dir.exists():
             return []
+        collections_rel = self.event_cache.collections_relative_path()
         paths = []
         for file_path in parent_dir.rglob("*"):
             if file_path.is_file():
                 rel = str(file_path.relative_to(datasite))
-                if not rel.startswith("private") and ".venv" not in rel:
+                if is_normal_syncable_path(rel, collections_path=collections_rel):
                     paths.append(rel)
         return paths
 
@@ -677,10 +679,14 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
     def handle_proposed_filechange_events_message(
         self, sender_email: str, proposed_events_message: ProposedFileChangesMessage
     ):
+        collections_rel = self.event_cache.collections_relative_path()
         allowed_changes = [
             change
             for change in proposed_events_message.proposed_file_changes
-            if self.check_write_permission(sender_email, str(change.path_in_datasite))
+            if is_normal_syncable_path(
+                str(change.path_in_datasite), collections_path=collections_rel
+            )
+            and self.check_write_permission(sender_email, str(change.path_in_datasite))
         ]
 
         if not allowed_changes:

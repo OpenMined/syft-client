@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Optional
 
 from syft_bg.common.state import JsonStateManager
 from syft_bg.notify.gmail.sender import GmailSender
+from syft_client.sync.utils.path_filters import is_normal_syncable_path
 
 if TYPE_CHECKING:
     from syft_job.client import JobClient
@@ -24,9 +25,15 @@ def _read_job_code(job_client: "JobClient", job_name: str) -> Optional[dict[str,
     total_size = 0
     all_files = sorted(f for f in job.code_dir.rglob("*") if f.is_file())
 
+    datasite_root = (
+        job_client.config.syftbox_folder / job_client.config.current_user_email
+    )
+
     for f in all_files:
         rel = str(f.relative_to(job.code_dir))
-
+        datasite_rel = f.relative_to(datasite_root)
+        if not is_normal_syncable_path(datasite_rel):
+            continue
         try:
             content = f.read_text(errors="replace")
         except Exception as e:
