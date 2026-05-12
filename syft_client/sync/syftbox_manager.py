@@ -1,7 +1,7 @@
 from pathlib import Path
 import fcntl
 from syft_client.sync.peers.peer_store import PeerStore
-from syft_client.sync.utils.path_filters import is_excluded_path
+from syft_client.sync.utils.path_filters import is_normal_syncable_path
 import logging
 import shutil
 from contextlib import contextmanager
@@ -868,12 +868,14 @@ class SyftboxManager(BaseModel):
         print("   Check progress with: client.jobs")
 
     def push_job_files(self, job_dir: Path):
-        file_paths = [
-            Path(p)
-            for p in job_dir.rglob("*")
-            if p.is_file() and not is_excluded_path(p.relative_to(job_dir))
-        ]
+        file_paths = [Path(p) for p in job_dir.rglob("*") if p.is_file()]
         relative_file_paths = [p.relative_to(self.syftbox_folder) for p in file_paths]
+        for rel in relative_file_paths:
+            # job_dir lives under <syftbox>/<owning_email>/...; strip the email
+            # component to get a datasite-relative path for the filter check.
+            datasite_rel = Path(*rel.parts[1:]) if len(rel.parts) > 1 else rel
+            if not is_normal_syncable_path(datasite_rel):
+                logger.warning("push_job_files: pushing non-syncable path %s", rel)
 
         last_file = False
         for i, relative_file_path in enumerate(relative_file_paths):

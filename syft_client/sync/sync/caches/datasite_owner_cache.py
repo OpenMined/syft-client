@@ -11,7 +11,7 @@ from syft_client.sync.sync.caches.cache_file_writer_connection import FSFileConn
 from syft_client.sync.sync.caches.persisted_dict import PersistedDict
 from syft_client.sync.events.file_change_event import FileChangeEvent
 from syft_client.sync.callback_mixin import BaseModelCallbackMixin
-from syft_client.sync.utils.path_filters import is_excluded_path
+from syft_client.sync.utils.path_filters import is_normal_syncable_path
 from syft_client.sync.sync.caches.cache_file_writer_connection import (
     CacheFileConnection,
     InMemoryCacheFileConnection,
@@ -81,6 +81,8 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
                 events_connection=InMemoryCacheFileConnection[FileChangeEvent](),
                 file_connection=InMemoryCacheFileConnection[str](),
                 email=config.email,
+                syftbox_folder=config.syftbox_folder,
+                file_hashes=PersistedDict(),
                 collections_folder=config.collections_folder,
             )
         else:
@@ -166,28 +168,25 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
             return None
         return max(m.timestamp for m in cached_messages)
 
-    def _is_collections_path(self, path: Path) -> bool:
-        """Check if path is under the collections folder (syft_datasets)."""
-        if self.collections_folder is None:
-            return False
-        # Use the collections folder name for a simple string check
-        collections_name = self.collections_folder.name
-        return f"/{collections_name}/" in f"/{path}/"
+    def collections_relative_path(self) -> Path | None:
+        """Return the collections folder path relative to the datasite root, or None."""
+        if self.collections_folder is None or self.syftbox_folder is None:
+            return None
+        return self.collections_folder.relative_to(self.syftbox_folder / self.email)
+
+    def get_syncable_paths(self) -> dict[Path, bytes]:
+        """Return {datasite-relative Path: content} for all normal-syncable files."""
+        collections_rel = self.collections_relative_path()
+        return {
+            Path(path): content
+            for path, content in self.file_connection.get_items()
+            if is_normal_syncable_path(path, collections_path=collections_rel)
+        }
 
     def process_local_file_changes(self) -> FileChangeEventsMessage | None:
         new_events = []
 
-        # Get current files on disk - normalize paths to Path objects
-        current_files = {}
-        for path, content in self.file_connection.get_items():
-            path = Path(path)  # Normalize to Path
-            if str(path).startswith("private"):
-                continue
-            if is_excluded_path(path):
-                continue
-            if self._is_collections_path(path):
-                continue
-            current_files[path] = content
+        current_files = self.get_syncable_paths()
 
         # Detect modifications and additions
         for path, content in current_files.items():
@@ -375,14 +374,9 @@ class DataSiteOwnerEventCache(BaseModelCallbackMixin):
         Returns:
             A Checkpoint object containing all current files and their hashes.
         """
-        # Get all file contents
-        file_contents = {}
-        for path, content in self.file_connection.get_items():
-            path_str = str(path)
-            # Skip private and excluded folders
-            if path_str.startswith("private") or is_excluded_path(path_str):
-                continue
-            file_contents[path_str] = content
+        file_contents = {
+            str(path): content for path, content in self.get_syncable_paths().items()
+        }
 
         return Checkpoint.from_file_hashes_and_contents(
             email=self.email,
