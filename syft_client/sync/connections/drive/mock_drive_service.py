@@ -789,6 +789,27 @@ class MockPermissionsResource:
         )
 
 
+class MockAboutGetRequest:
+    """Mock request for about().get()."""
+
+    def __init__(self, current_user: str, fields: str | None = None):
+        self._current_user = current_user
+        self._fields = fields
+
+    def execute(self) -> Dict[str, Any]:
+        return {"user": {"emailAddress": self._current_user}}
+
+
+class MockAboutResource:
+    """Mock about() resource."""
+
+    def __init__(self, current_user: str):
+        self._current_user = current_user
+
+    def get(self, fields: str | None = None) -> MockAboutGetRequest:
+        return MockAboutGetRequest(self._current_user, fields=fields)
+
+
 class MockBatchHttpRequest:
     """Mock BatchHttpRequest for batch operations."""
 
@@ -851,6 +872,10 @@ class MockDriveService:
     def permissions(self) -> MockPermissionsResource:
         """Get the permissions resource."""
         return self._permissions_resource
+
+    def about(self) -> MockAboutResource:
+        """Get the about resource (built fresh so _current_user changes are picked up)."""
+        return MockAboutResource(self._current_user)
 
     def new_batch_http_request(self, callback=None) -> MockBatchHttpRequest:
         """Create a new batch HTTP request."""

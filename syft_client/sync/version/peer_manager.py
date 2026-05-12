@@ -5,6 +5,8 @@ PeerManager for managing peers, version information, and compatibility checks.
 import json
 import warnings
 from concurrent.futures import ThreadPoolExecutor
+from enum import Enum
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
@@ -14,21 +16,81 @@ from syft_client.sync.connections.connection_router import ConnectionRouter
 from syft_client.sync.peers.peer import Peer, PeerState
 from syft_client.sync.peers.peer_store import PeerStore
 from syft_client.sync.utils.print_utils import (
-    print_peer_added,
+    print_peer_already_connected,
+    print_peer_connection_established,
+    print_peer_request_accepting,
+    print_peer_request_resending,
+    print_peer_request_sending,
+    print_peer_request_sent,
 )
 from syft_client.sync.version.exceptions import (
     VersionMismatchError,
     VersionUnknownError,
 )
-from syft_client.sync.version.version_info import VersionInfo
+from syft_client.sync.version.version_info import CompatibilityStatus, VersionInfo
+
+
+class CompatAction(str, Enum):
+    """What the caller is doing — used to phrase warning messages."""
+
+    SYNC = "sync"
+    SUBMIT = "submit"
+    EXECUTE = "execute"
+
+
+class PeerCompatibilityResult(BaseModel):
+    """Outcome of a per-peer version compatibility check.
+
+    Carries enough context for callers to either warn (`maybe_warn`) or raise
+    (`raise_on_skip`) without re-deriving anything from PeerManager state.
+    """
+
+    peer_email: str
+    status: CompatibilityStatus
+    should_skip: bool
+    action: Optional[CompatAction] = None
+    explanation_skip: Optional[str] = None
+    explanation_not_skip: Optional[str] = None
+    suppress_version_warnings: bool = False
+    local_version: Optional[VersionInfo] = None
+    peer_version: Optional[VersionInfo] = None
+
+    def maybe_warn(self) -> None:
+        """Emit a warning, picking explanation_skip vs explanation_not_skip.
+
+        Appends an override hint only when skipping. Respects
+        suppress_version_warnings.
+        """
+        if self.suppress_version_warnings:
+            return
+        elif self.should_skip:
+            if self.explanation_skip:
+                warnings.warn(
+                    f"{self.explanation_skip} Use ignore_peer_version=True to override."
+                )
+        elif self.explanation_not_skip:
+            warnings.warn(self.explanation_not_skip)
+
+    def raise_on_skip(self, operation: str) -> None:
+        """Raise the appropriate VersionError if `should_skip` is True."""
+        if not self.should_skip:
+            return
+        elif self.status == CompatibilityStatus.UNKNOWN:
+            raise VersionUnknownError(self.peer_email, operation)
+        else:
+            reason = self.explanation_skip or "version mismatch"
+            raise VersionMismatchError(
+                self.peer_email, self.local_version, self.peer_version, reason
+            )
 
 
 class PeerManagerConfig(BaseModel):
     """Configuration for PeerManager."""
 
+    syftbox_folder: Path
     connection_configs: List[ConnectionConfig] = []
-    ignore_protocol_version: bool = False
-    ignore_client_version: bool = False
+    force_ignore_peer_version: bool = False
+    force_ignore_protocol_version: bool = True
     suppress_version_warnings: bool = False
     n_threads: int = 10
     has_do_role: bool = False
@@ -41,10 +103,11 @@ class PeerManager(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    syftbox_folder: Path
     connection_router: ConnectionRouter
     peer_store: PeerStore
-    ignore_protocol_version: bool = False
-    ignore_client_version: bool = False
+    force_ignore_peer_version: bool = False
+    force_ignore_protocol_version: bool = True
     suppress_version_warnings: bool = False
     n_threads: int = 10
     has_do_role: bool = False
@@ -54,6 +117,10 @@ class PeerManager(BaseModel):
     _executor: Optional[ThreadPoolExecutor] = PrivateAttr(default=None)
 
     # ========== Peer List Properties ==========
+
+    def clear_caches(self) -> None:
+        """Clear the caches."""
+        self.peer_store.clear_caches()
 
     @property
     def approved_peers(self) -> List[Peer]:
@@ -84,10 +151,11 @@ class PeerManager(BaseModel):
         )
         connection_router.peer_store = peer_store
         return cls(
+            syftbox_folder=config.syftbox_folder,
             connection_router=connection_router,
             peer_store=peer_store,
-            ignore_protocol_version=config.ignore_protocol_version,
-            ignore_client_version=config.ignore_client_version,
+            force_ignore_peer_version=config.force_ignore_peer_version,
+            force_ignore_protocol_version=config.force_ignore_protocol_version,
             suppress_version_warnings=config.suppress_version_warnings,
             n_threads=config.n_threads,
             has_do_role=config.has_do_role,
@@ -105,9 +173,12 @@ class PeerManager(BaseModel):
         return self._own_version
 
     def write_own_version(self) -> None:
-        """Write version file to own SyftBox folder."""
+        """Write version file to own SyftBox folder (remote) and local disk."""
+        from syft_client.sync.version.local_version import write_local_version
+
         version_info = self.get_own_version()
         self.connection_router.write_version_file(version_info)
+        write_local_version(self.syftbox_folder)
 
     def share_version_with_peer(self, peer_email: str) -> None:
         """Share version file with a peer so they can read it."""
@@ -146,9 +217,6 @@ class PeerManager(BaseModel):
     ) -> Dict[str, Optional[VersionInfo]]:
         """Load versions for multiple peers in parallel using internal executor."""
 
-        if self.ignore_protocol_version and self.ignore_client_version and not force:
-            return {}
-
         if not peer_emails:
             return {}
 
@@ -174,181 +242,127 @@ class PeerManager(BaseModel):
         if peer:
             peer.version = None
 
-    def is_peer_version_compatible(self, peer_email: str) -> bool:
-        """
-        Check if peer version is compatible with current client.
-
-        Returns True if:
-        - Both version checks are ignored
-        - Peer version is known and compatible
-        """
-        if self.ignore_protocol_version and self.ignore_client_version:
-            return True
-
+    def peer_compatibility_status(self, peer_email: str) -> CompatibilityStatus:
+        """Get the CompatibilityStatus for a peer (UNKNOWN if version not loaded)."""
         peer_version = self.get_peer_version(peer_email)
-        if peer_version is None:
-            return False
+        return self.get_own_version().compatibility_status_with(peer_version)
 
-        return self.get_own_version().is_compatible_with(
-            peer_version,
-            check_client=not self.ignore_client_version,
-            check_protocol=not self.ignore_protocol_version,
-        )
+    def is_peer_version_compatible(self, peer_email: str) -> bool:
+        """True for SAME and PATCH_DIFF; False for INCOMPATIBLE and UNKNOWN."""
+        status = self.peer_compatibility_status(peer_email)
+        return status in (CompatibilityStatus.SAME, CompatibilityStatus.PATCH_DIFF)
 
-    def check_version_compatibility(
+    def get_peer_compatibility_status(
         self,
         peer_email: str,
-        operation: Optional[str] = None,
-        raise_on_mismatch: bool = True,
-        raise_on_unknown: bool = True,
-    ) -> bool:
+        action: CompatAction,
+        ignore_peer_version: bool = False,
+    ) -> PeerCompatibilityResult:
+        """Build a PeerCompatibilityResult describing whether the caller should
+        skip / raise / warn for this peer.
+
+        SAME → no skip, no warning. PATCH_DIFF → no skip, "patch differs"
+        warning. INCOMPATIBLE / UNKNOWN → skip unless effective
+        `force_ignore_peer_version or ignore_peer_version` (then proceed with
+        a "proceeding to {action}" warning). UNKNOWN's skip message includes
+        a "call client.sync()" hint.
         """
-        Check if peer version is compatible.
-
-        Args:
-            peer_email: The peer to check
-            operation: Description of the operation for error messages
-            raise_on_mismatch: Raise VersionMismatchError if incompatible
-            raise_on_unknown: Raise VersionUnknownError if peer version unknown
-
-        Returns:
-            True if compatible, False otherwise
-
-        Raises:
-            VersionUnknownError: If peer version is unknown and raise_on_unknown=True
-            VersionMismatchError: If versions don't match and raise_on_mismatch=True
-        """
-        if self.ignore_protocol_version and self.ignore_client_version:
-            return True
-
-        peer_version = self.get_peer_version(peer_email)
-
-        if peer_version is None:
-            if raise_on_unknown:
-                raise VersionUnknownError(peer_email, operation)
-            return False
-
         own_version = self.get_own_version()
-        is_compatible = own_version.is_compatible_with(
-            peer_version,
-            check_client=not self.ignore_client_version,
-            check_protocol=not self.ignore_protocol_version,
+        peer_version = self.get_peer_version(peer_email)
+        status = self.peer_compatibility_status(peer_email)
+        common = dict(
+            peer_email=peer_email,
+            status=status,
+            action=action,
+            suppress_version_warnings=self.suppress_version_warnings,
+            local_version=own_version,
+            peer_version=peer_version,
         )
 
-        if not is_compatible and raise_on_mismatch:
-            reason = own_version.get_incompatibility_reason(
-                peer_version,
-                check_client=not self.ignore_client_version,
-                check_protocol=not self.ignore_protocol_version,
+        if status == CompatibilityStatus.SAME:
+            return PeerCompatibilityResult(should_skip=False, **common)
+
+        if status == CompatibilityStatus.PATCH_DIFF:
+            patch_text = (
+                own_version.get_patch_warning_text(peer_version)
+                if peer_version is not None
+                else None
             )
-            raise VersionMismatchError(peer_email, own_version, peer_version, reason)
+            explanation_not_skip = (
+                f"Peer {peer_email}: {patch_text}" if patch_text else None
+            )
+            return PeerCompatibilityResult(
+                should_skip=False,
+                explanation_not_skip=explanation_not_skip,
+                **common,
+            )
 
-        return is_compatible
+        # UNKNOWN or INCOMPATIBLE
+        if status == CompatibilityStatus.UNKNOWN:
+            detail = (
+                "version information not available "
+                "(if you are unsure if it is up to date, call client.sync())"
+            )
+        else:
+            detail = own_version.get_incompatibility_reason(peer_version)
 
-    def get_compatible_peer_emails(
-        self, peer_emails: List[str], warn_incompatible: bool = True
+        effective_ignore = self.force_ignore_peer_version or ignore_peer_version
+        if effective_ignore:
+            return PeerCompatibilityResult(
+                should_skip=False,
+                explanation_not_skip=(
+                    f"Proceeding anyway to {action.value} for peer "
+                    f"{peer_email}: {detail}."
+                ),
+                **common,
+            )
+        return PeerCompatibilityResult(
+            should_skip=True,
+            explanation_skip=f"Skipping peer {peer_email}: {detail}.",
+            **common,
+        )
+
+    def get_compatible_peer_emails_for_syncing(
+        self,
+        peer_emails: List[str],
+        ignore_peer_version: bool = False,
     ) -> List[str]:
+        """Filter peer emails to those compatible enough to sync with.
+
+        Uses `get_peer_compatibility_status` and emits any associated warnings
+        via `PeerCompatibilityResult.maybe_warn()`.
         """
-        Filter peer emails to only those with compatible versions.
-
-        Args:
-            peer_emails: List of peer emails to filter
-            warn_incompatible: Whether to warn about incompatible peers
-
-        Returns:
-            List of peer emails with compatible versions
-        """
-        if self.ignore_protocol_version and self.ignore_client_version:
-            return peer_emails
-
-        compatible = []
+        compatible: List[str] = []
         for email in peer_emails:
-            if self.is_peer_version_compatible(email):
+            result = self.get_peer_compatibility_status(
+                email,
+                action=CompatAction.SYNC,
+                ignore_peer_version=ignore_peer_version,
+            )
+            result.maybe_warn()
+            if not result.should_skip:
                 compatible.append(email)
-            elif warn_incompatible and not self.suppress_version_warnings:
-                peer_version = self.get_peer_version(email)
-                if peer_version is None:
-                    warnings.warn(
-                        f"Skipping peer {email}: version information not available."
-                    )
-                else:
-                    own_version = self.get_own_version()
-                    reason = own_version.get_incompatibility_reason(
-                        peer_version,
-                        check_client=not self.ignore_client_version,
-                        check_protocol=not self.ignore_protocol_version,
-                    )
-                    warnings.warn(f"Skipping peer {email}: {reason}")
-
         return compatible
 
     def warn_if_all_peers_incompatible(self, peer_emails: List[str]) -> None:
-        """
-        Warn if all connected peers are incompatible (used by DS during sync).
-        """
+        """Warn if all connected peers are incompatible (used by DS during sync)."""
         if self.suppress_version_warnings:
             return
-
-        if self.ignore_protocol_version and self.ignore_client_version:
+        if self.force_ignore_peer_version:
             return
-
         if not peer_emails:
             return
 
-        compatible = self.get_compatible_peer_emails(
-            peer_emails, warn_incompatible=False
+        any_compatible = any(
+            self.peer_compatibility_status(email)
+            in (CompatibilityStatus.SAME, CompatibilityStatus.PATCH_DIFF)
+            for email in peer_emails
         )
-        if not compatible:
+        if not any_compatible:
             warnings.warn(
                 f"All connected peers ({len(peer_emails)}) have incompatible versions. "
                 "You may not be able to submit jobs or load datasets until versions match."
             )
-
-    def check_version_for_submission(
-        self, peer_email: str, force: bool = False
-    ) -> None:
-        """
-        Check version before job submission (DS side).
-
-        Args:
-            peer_email: The DO peer email
-            force: If True, skip version check
-
-        Raises:
-            VersionUnknownError: If DO version is unknown
-            VersionMismatchError: If versions don't match
-        """
-        if force:
-            return
-
-        # Load the peer version if not already cached
-        if self.get_peer_version(peer_email) is None:
-            self.load_peer_version(peer_email)
-
-        self.check_version_compatibility(
-            peer_email,
-            operation="submit job",
-            raise_on_mismatch=True,
-            raise_on_unknown=True,
-        )
-
-    def check_version_for_job_execution(self, submitter_email: str) -> None:
-        """
-        Check version before job execution (DO side).
-
-        Args:
-            submitter_email: The DS who submitted the job
-
-        Raises:
-            VersionUnknownError: If DS version is unknown
-            VersionMismatchError: If versions don't match
-        """
-        self.check_version_compatibility(
-            submitter_email,
-            operation="execute job",
-            raise_on_mismatch=True,
-            raise_on_unknown=True,
-        )
 
     def shutdown(self) -> None:
         """Shutdown the thread pool executor."""
@@ -367,23 +381,35 @@ class PeerManager(BaseModel):
         """
         existing_peer_obj = self.get_cached_peer(peer_email)
         if existing_peer_obj and not force:
-            if existing_peer_obj.state == PeerState.REQUESTED_BY_PEER:
-                pass  # Fall through to create our folders and accept
-            elif existing_peer_obj.state == PeerState.REQUESTED_BY_ME:
+            if existing_peer_obj.state == PeerState.REQUESTED_BY_ME:
                 if verbose:
-                    print(f"Peer {peer_email} already requested, skipping")
+                    print_peer_already_connected(
+                        peer_email, PeerState.REQUESTED_BY_ME.value
+                    )
                 return
-            elif existing_peer_obj.state == PeerState.ACCEPTED:
+            if existing_peer_obj.state == PeerState.ACCEPTED:
                 if verbose:
-                    print(f"Peer {peer_email} already accepted, skipping")
+                    print_peer_already_connected(peer_email, PeerState.ACCEPTED.value)
                 return
+            # REQUESTED_BY_PEER falls through to accept the incoming request
 
         is_accepting = (
             existing_peer_obj and existing_peer_obj.state == PeerState.REQUESTED_BY_PEER
         )
+
+        if verbose:
+            if force:
+                print_peer_request_resending(peer_email)
+            elif is_accepting:
+                print_peer_request_accepting(peer_email)
+            else:
+                print_peer_request_sending(peer_email)
+
         new_state = PeerState.ACCEPTED if is_accepting else PeerState.REQUESTED_BY_ME
 
-        new_peer_obj = self.connection_router.add_peer(peer_email=peer_email)
+        new_peer_obj = self.connection_router.add_peer(
+            peer_email=peer_email, verbose=False
+        )
 
         if existing_peer_obj:
             new_peer_obj = existing_peer_obj
@@ -408,7 +434,10 @@ class PeerManager(BaseModel):
         self.peer_store.set_peer(new_peer_obj)
 
         if verbose:
-            print_peer_added(new_peer_obj)
+            if is_accepting:
+                print_peer_connection_established(peer_email)
+            else:
+                print_peer_request_sent(peer_email)
 
     def _write_encryption_bundle_for_peer(self, peer_email: str) -> dict | None:
         """Write own encryption bundle for a peer if encryption is enabled."""
@@ -428,12 +457,20 @@ class PeerManager(BaseModel):
         data = json.loads(bundle_json)
         return data.get("public_encryption_bundle")
 
-    def load_peers(self):
-        """Load peers: from JSON (accepted + requested_by_me) + new requests from folder scan."""
+    def load_peers(self, force_download: bool = False):
+        """Load peers: from JSON (accepted + requested_by_me) + new requests from folder scan.
+
+        Args:
+            force_download: If True, re-fetch SYFT_peers.json from Drive instead
+                of using the cached copy. Use when an external writer (e.g. another
+                process) may have modified the file.
+        """
         if not self.has_do_role and not self.has_ds_role:
             raise ValueError("Client has no role. Set has_do_role or has_ds_role.")
 
-        json_peers = self.connection_router.get_all_peers_from_json()
+        json_peers = self.connection_router.get_all_peers_from_json(
+            force_download=force_download
+        )
         peers = [
             p
             for p in json_peers

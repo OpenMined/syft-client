@@ -13,11 +13,23 @@ from googleapiclient.discovery import build
 from syft_bg.notify.email_templates import TemplateRenderer
 
 
+def _format_interval(seconds: int) -> str:
+    """Render an interval as a short human string (e.g. '60s', '5m', '24h')."""
+    if seconds % 86400 == 0 and seconds >= 86400:
+        return f"{seconds // 86400}d"
+    if seconds % 3600 == 0 and seconds >= 3600:
+        return f"{seconds // 3600}h"
+    if seconds % 60 == 0 and seconds >= 60:
+        return f"{seconds // 60}m"
+    return f"{seconds}s"
+
+
 @dataclass
 class SendResult:
     """Result of sending an email."""
 
     success: bool
+    error_message: str | None = None
     thread_id: str | None = None
 
 
@@ -28,6 +40,10 @@ class GmailSender:
         self.service = build("gmail", "v1", credentials=credentials)
         self.use_html = use_html
         self._renderer: Optional[TemplateRenderer] = None
+
+    def verify(self) -> None:
+        """Verify credentials by fetching the Gmail user profile."""
+        self.service.users().getProfile(userId="me").execute()
 
     @property
     def renderer(self) -> Optional[TemplateRenderer]:
@@ -73,9 +89,48 @@ class GmailSender:
                 success=True,
                 thread_id=result.get("threadId"),
             )
-        except Exception as e:
-            print(f"[GmailSender] Failed to send to {to_email}: {e}")
-            return SendResult(success=False)
+        except Exception:
+            import traceback
+
+            print(
+                f"[GmailSender] Failed to send to {to_email}: {traceback.format_exc()}"
+            )
+            return SendResult(success=False, error_message=str(traceback.format_exc()))
+
+    def notify_heartbeat(
+        self,
+        do_email: str,
+        interval_seconds: int,
+        timestamp: Optional[datetime] = None,
+    ) -> SendResult:
+        """Send a heartbeat email confirming the service is still running."""
+        subject = "heartbeat: syft-bg still running, token is active"
+        ts = timestamp or datetime.now()
+        interval_human = _format_interval(interval_seconds)
+        body_text = (
+            "syft-bg is still running.\n\n"
+            f"Account: {do_email}\n"
+            f"Sent: {ts:%Y-%m-%d %H:%M:%S}\n"
+            f"Heartbeat interval: {interval_human}\n\n"
+            "Receiving this email confirms the notify service is up and the "
+            "Gmail token is still valid. If these stop arriving, check "
+            "`syft-bg status`.\n"
+        )
+        body_html = None
+        if self.use_html and self.renderer:
+            try:
+                body_html = self.renderer.render(
+                    "emails/heartbeat.html",
+                    {
+                        "do_email": do_email,
+                        "timestamp": ts,
+                        "interval_human": interval_human,
+                    },
+                )
+            except Exception:
+                pass
+
+        return self.send_email(do_email, subject, body_text, body_html)
 
     def notify_new_job(
         self,
@@ -84,6 +139,7 @@ class GmailSender:
         submitter: str,
         timestamp: Optional[datetime] = None,
         job_url: Optional[str] = None,
+        job_code: Optional[dict[str, str]] = None,
     ) -> SendResult:
         """Notify DO about a new job."""
         subject = f"Job: {job_name}"
@@ -91,8 +147,19 @@ class GmailSender:
 
 Job: {job_name}
 From: {submitter}
+"""
+        if job_code:
+            body_text += "\nFiles: " + ", ".join(job_code.keys()) + "\n"
+            body_text += "\n--- Code ---\n"
+            for filename, contents in job_code.items():
+                body_text += f"#{filename}\n{contents}\n\n"
+            body_text += "--- End Code ---\n"
 
-Log in to SyftBox to review and approve this job.
+        body_text += """
+To approve or deny this job, reply to this email with:
+  approve
+  auto-approve
+  deny <reason>
 """
         body_html = None
         if self.use_html and self.renderer:
@@ -104,12 +171,44 @@ Log in to SyftBox to review and approve this job.
                         "submitter": submitter,
                         "timestamp": timestamp or datetime.now(),
                         "job_url": job_url,
+                        "job_code": job_code,
                     },
                 )
             except Exception:
                 pass
 
         return self.send_email(do_email, subject, body_text, body_html)
+
+    def notify_job_submitted_to_ds(
+        self,
+        ds_email: str,
+        job_name: str,
+        do_email: str,
+    ) -> SendResult:
+        """Notify DS that their job was submitted and is pending review."""
+        subject = f"Job Submitted: {job_name}"
+        body_text = f"""Your job has been submitted!
+
+Job: {job_name}
+Submitted To: {do_email}
+
+Your job is now pending review by the data owner.
+You'll receive follow-up emails when the job is reviewed and executed.
+"""
+        body_html = None
+        if self.use_html and self.renderer:
+            try:
+                body_html = self.renderer.render(
+                    "emails/job_submitted_ds.html",
+                    {
+                        "job_name": job_name,
+                        "do_email": do_email,
+                    },
+                )
+            except Exception:
+                pass
+
+        return self.send_email(ds_email, subject, body_text, body_html)
 
     def notify_job_approved(
         self,
@@ -375,6 +474,50 @@ The job has finished execution. Results are available.
                     {
                         "job_name": job_name,
                         "ds_email": ds_email,
+                        "duration": duration,
+                    },
+                )
+            except Exception:
+                pass
+
+        return self.send_email(do_email, subject, body_text, body_html, thread_id)
+
+    def notify_job_failed_to_do(
+        self,
+        do_email: str,
+        job_name: str,
+        ds_email: str,
+        error_output: Optional[str] = None,
+        return_code: Optional[int] = None,
+        duration: Optional[int] = None,
+        thread_id: Optional[str] = None,
+    ) -> SendResult:
+        """Notify DO that a job failed during execution."""
+        subject = f"Re: Job: {job_name}" if thread_id else f"Job Failed: {job_name}"
+        rc_text = f"\nReturn Code: {return_code}" if return_code is not None else ""
+        duration_text = f"\nDuration: {duration}s" if duration else ""
+        body_text = f"""Job failed!
+
+Job: {job_name}
+From: {ds_email}{rc_text}{duration_text}
+
+The job failed during execution.
+"""
+        if error_output:
+            body_text += (
+                f"\n--- Error Output ---\n{error_output}\n--- End Error Output ---\n"
+            )
+
+        body_html = None
+        if self.use_html and self.renderer:
+            try:
+                body_html = self.renderer.render(
+                    "emails/job_failed_do.html",
+                    {
+                        "job_name": job_name,
+                        "ds_email": ds_email,
+                        "error_output": error_output,
+                        "return_code": return_code,
                         "duration": duration,
                     },
                 )

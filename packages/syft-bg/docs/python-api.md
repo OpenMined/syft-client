@@ -7,11 +7,21 @@ import syft_bg
 ## Init
 
 ```python
-syft_bg.init(email="you@example.com", start=True)
+syft_bg.init(do_email="you@example.com")
 ```
 
-Creates config and starts the background services (notify + approve).
-Use `start=False` to just create the config without starting.
+Creates the config file. Optionally pass `syftbox_root` and `token_path`.
+
+## Ensure running
+
+```python
+syft_bg.ensure_running(["notify", "approve"])
+```
+
+Starts the listed services if they aren't already running. Pass `restart=True` to force a restart.
+
+- `services` — list of service names, or a dict mapping service names to config overrides
+- `restart` — if `True`, restart services even if already running (default `False`)
 
 ## Status
 
@@ -31,7 +41,7 @@ syft_bg.auto_approve(
 )
 ```
 
-Registers scripts for auto-approval. Jobs matching these scripts from listed peers get approved automatically.
+Registers files for auto-approval. Jobs matching these files from listed peers get approved automatically.
 
 - `contents` — files (or directories) to approve by content
 - `file_paths` — files to allow by name only (e.g. data files)
@@ -66,23 +76,15 @@ Creates an auto-approval config from an existing job's files. Calls `auto_approv
 - `peers` — restrict to these emails. Defaults to the job's submitter
 - `name` — optional name for the approval object (defaults to job name)
 
-## Authenticate
-
-```python
-syft_bg.authenticate()
-```
-
-Interactive OAuth setup for Gmail and Drive tokens. Run this if `init()` reports missing tokens.
-
 ## Service control
 
 ```python
-syft_bg.start()           # start all services
-syft_bg.stop()            # stop all services
-syft_bg.restart()         # restart all services
-syft_bg.ensure_running()  # start any stopped services
-syft_bg.logs("approve")   # last 50 lines of approve service log
-syft_bg.logs("notify")    # last 50 lines of notify service log
+syft_bg.start()                              # start all services
+syft_bg.stop()                               # stop all services
+syft_bg.restart()                            # restart all services
+syft_bg.ensure_running(["notify", "approve"])  # start listed services
+syft_bg.logs("approve")                      # last 50 lines of approve service log
+syft_bg.logs("notify")                       # last 50 lines of notify service log
 ```
 
 ## Typical notebook flow
@@ -90,22 +92,16 @@ syft_bg.logs("notify")    # last 50 lines of notify service log
 ```python
 import syft_bg
 
-# First time setup
-syft_bg.init(email="you@example.com", start=True)
+# Create config
+syft_bg.init(do_email="you@example.com")
 
-# If tokens are missing
-syft_bg.authenticate()
-
-# Register scripts for auto-approval
-syft_bg.auto_approve(
-    contents=["main.py", "utils.py"],
-    file_paths=["params.json"],
-    peers=["alice@uni.edu"],
-)
+# Start services
+syft_bg.ensure_running(["notify", "approve"])
 
 # Check everything
 syft_bg.status
 
-# After kernel restart, recover services
-syft_bg.ensure_running()
+# Auto-approve future runs of this job
+job = do_manager.jobs[0]
+syft_bg.auto_approve_job(job)
 ```

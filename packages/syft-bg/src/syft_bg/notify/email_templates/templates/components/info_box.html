@@ -39,7 +39,7 @@
         {% if item.badge %}
         <span
           class="status-badge status-{{ item.badge }}"
-          style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: 500; {% if item.badge == 'success' %}background-color: #c6f6d5; color: #22543d;{% elif item.badge == 'pending' %}background-color: #feebc8; color: #744210;{% else %}background-color: #bee3f8; color: #2a4365;{% endif %}"
+          style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: 500; {% if item.badge == 'success' %}background-color: #c6f6d5; color: #22543d;{% elif item.badge == 'pending' %}background-color: #feebc8; color: #744210;{% elif item.badge == 'error' %}background-color: #fed7d7; color: #822727;{% else %}background-color: #bee3f8; color: #2a4365;{% endif %}"
           >{{ item.value }}</span
         >
         {% else %} {{ item.value }} {% endif %}

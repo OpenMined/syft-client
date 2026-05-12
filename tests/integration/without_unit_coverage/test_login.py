@@ -117,6 +117,23 @@ def test_login_do_with_sync_and_load_peers():
 
 
 @pytest.mark.flaky(reruns=3, reruns_delay=2)
+@pytest.mark.usefixtures("check_credentials")
+def test_login_ds_email_mismatch_raises():
+    """Login must fail fast when the email doesn't match the token's account."""
+    with pytest.raises(ValueError, match="Token/email mismatch") as exc_info:
+        sc.login_ds(
+            email=EMAIL_DO,  # intentionally wrong: DO's email with DS's token
+            token_path=token_path_ds,
+            sync=False,
+            load_peers=False,
+        )
+
+    msg = str(exc_info.value)
+    assert EMAIL_DO in msg
+    assert EMAIL_DS in msg
+
+
+@pytest.mark.flaky(reruns=3, reruns_delay=2)
 def test_login_ds_missing_token_path_raises(monkeypatch):
     """Test that login_ds raises error when token_path is missing in Jupyter env."""
     # Unset the env var so the test can verify the error is raised

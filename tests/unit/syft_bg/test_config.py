@@ -233,10 +233,3 @@ class TestNotifyConfig:
         config = NotifyConfig()
         assert config.do_email is None
         assert config.syftbox_root is None
-        assert config.interval == 30
-
-    def test_load_from_file(self, sample_config):
-        config = NotifyConfig.load(sample_config)
-        assert config.do_email == "test@example.com"
-        assert config.syftbox_root == Path("/tmp/syftbox")
-        assert config.interval == 30

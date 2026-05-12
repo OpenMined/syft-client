@@ -4,6 +4,7 @@ from pathlib import Path
 
 import click
 
+from syft_bg.cli.init.exceptions import InitFlowError
 from syft_bg.common.drive import DRIVE_SCOPES
 
 
@@ -12,7 +13,7 @@ def setup_drive(
     token_path: Path,
     skip: bool = False,
     quiet: bool = False,
-) -> bool:
+) -> None:
     """Set up Google Drive authentication.
 
     Args:
@@ -21,29 +22,27 @@ def setup_drive(
         skip: If True, skip OAuth setup (token must already exist)
         quiet: If True, suppress output messages
 
-    Returns:
-        True if setup successful, False otherwise
+    Raises:
+        InitFlowError: If setup fails.
     """
     if token_path.exists():
         if not quiet:
             click.echo(f"Drive token exists: {token_path}")
-        return True
+        return
 
-    # If skip requested but token doesn't exist, fail
     if skip:
-        click.echo("Error: Cannot skip Drive OAuth - token not found")
-        click.echo(f"  Expected: {token_path}")
-        click.echo()
-        click.echo("Either:")
-        click.echo("  - Run without --skip-oauth to complete Drive authentication")
-        click.echo("  - Provide existing token with --drive-token /path/to/token.json")
-        return False
+        raise InitFlowError(
+            f"Cannot skip Drive OAuth - token not found\n"
+            f"  Expected: {token_path}\n\n"
+            f"Either:\n"
+            f"  - Run without --skip-oauth to complete Drive authentication\n"
+            f"  - Provide existing token with --drive-token /path/to/token.json"
+        )
 
     if not quiet:
         click.echo("Google Drive access is required for monitoring jobs and peers.")
         click.echo()
 
-    # Check for credentials file
     if not credentials_path.exists():
         click.echo(f"credentials.json not found at {credentials_path}")
         click.echo()
@@ -55,7 +54,7 @@ def setup_drive(
         click.echo()
 
         if quiet:
-            return False
+            raise InitFlowError(f"credentials.json not found at {credentials_path}")
 
         creds_input = click.prompt(
             "Or enter path to credentials.json", type=click.Path(exists=True)
@@ -64,17 +63,14 @@ def setup_drive(
 
     if not quiet:
         click.echo("Setting up Google Drive authentication...")
+
     try:
         from google_auth_oauthlib.flow import InstalledAppFlow
 
         flow = InstalledAppFlow.from_client_secrets_file(
             str(credentials_path), DRIVE_SCOPES
         )
-
-        # Manual OAuth flow for headless environments (Colab, SSH, containers)
-        # Set redirect URI for out-of-band (manual) flow
         flow.redirect_uri = "http://localhost:1"
-
         auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
 
         click.echo()
@@ -96,10 +92,7 @@ def setup_drive(
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text(creds.to_json())
         click.echo(f"Drive token saved: {token_path}")
-        return True
     except ImportError:
-        click.echo("google-auth-oauthlib not installed, skipping Drive setup", err=True)
-        return False
+        raise InitFlowError("google-auth-oauthlib not installed")
     except Exception as e:
-        click.echo(f"Drive setup failed: {e}", err=True)
-        return False
+        raise InitFlowError(f"Drive setup failed: {e}") from e

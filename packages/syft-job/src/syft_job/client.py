@@ -64,6 +64,7 @@ class JobClient(BaseJobClient):
         self.target_datasite_owner_email = (
             target_datasite_owner_email or config.current_user_email
         )  # The email of the datasite owner of the jobs
+        self.has_do_role = config.has_do_role
 
         # Validate that user_email exists in SyftBox root
         self._validate_user_email()
@@ -281,7 +282,7 @@ class JobClient(BaseJobClient):
         Generate bash script for Python job execution.
 
         Args:
-            entrypoint_path: Path to Python file to execute (e.g., "code/script.py" or "code/project_dir/main.py")
+            entrypoint_path: Filename to execute (e.g., "main.py" or "script.py")
             dependencies: List of dependencies to install
             has_pyproject: Whether the code has a pyproject.toml
 
@@ -301,33 +302,28 @@ class JobClient(BaseJobClient):
             return f"""#!/bin/bash
 set -euo pipefail
 export UV_SYSTEM_PYTHON=false
-cd {code_folder} && uv sync --python {RUN_SCRIPT_PYTHON_VERSION} && cd ..
-source {code_folder}/.venv/bin/activate
+cd {code_folder}
+uv venv --python {RUN_SCRIPT_PYTHON_VERSION}
+source .venv/bin/activate
+uv sync --python {RUN_SCRIPT_PYTHON_VERSION}
 {install_deps_cmd}
-export PYTHONPATH={code_folder}:${{PYTHONPATH:-}}
+export PYTHONPATH=.:${{PYTHONPATH:-}}
 python {entrypoint_path}
 """
         else:
-            # entrypoint_path is like "code/main.py" for single files or "code/project_dir/main.py" for folders
-            # The code folder for PYTHONPATH is always "code" or "code/project_dir"
-            parts = entrypoint_path.split("/")
-            if len(parts) > 2:
-                # folder submission: code/project_dir/main.py
-                code_folder = "/".join(parts[:2])
-            else:
-                # single file: code/main.py
-                code_folder = parts[0]  # "code"
-
-            pythonpath_cmd = f"export PYTHONPATH={code_folder}:${{PYTHONPATH:-}}"
+            # entrypoint_path is just the filename (e.g. "main.py")
+            # We cd into code/ and run from there so relative paths (like params.json) work
+            code_folder = "code"
 
             deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
             return f"""#!/bin/bash
 set -euo pipefail
 export UV_SYSTEM_PYTHON=false
+cd {code_folder}
 uv venv --python {RUN_SCRIPT_PYTHON_VERSION}
 source .venv/bin/activate
 uv pip install {deps_str}
-{pythonpath_cmd}
+export PYTHONPATH=.:${{PYTHONPATH:-}}
 python {entrypoint_path}
 """
 
@@ -394,19 +390,17 @@ python {entrypoint_path}
         if is_folder_submission:
             shutil.copytree(code_path_resolved, code_dest)
             # Entrypoint path is relative to code/
-            entrypoint_for_script = f"code/{entrypoint}"
             pyproject_path = code_dest / "pyproject.toml"
         else:
             code_dest.mkdir(parents=True)
             shutil.copy2(code_path_resolved, code_dest / code_path_resolved.name)
-            entrypoint_for_script = f"code/{entrypoint}"
             pyproject_path = None
 
         # Generate bash script for Python execution
         dependencies = dependencies or []
         has_pyproject = pyproject_path is not None and pyproject_path.exists()
         bash_script = self._generate_python_run_script(
-            entrypoint_for_script, dependencies, has_pyproject
+            entrypoint, dependencies, has_pyproject
         )
 
         # Create run.sh file
@@ -490,7 +484,7 @@ python {entrypoint_path}
                 received_at=now,
                 rejected_by=self.current_user_email,
                 rejected_at=now,
-                rejection_reason=reason,
+                review_reason=reason,
             )
         else:
             state = JobState(status=JobStatus.PENDING, received_at=now)
@@ -654,7 +648,11 @@ python {entrypoint_path}
             )
 
         sorted_jobs = sorted(current_jobs, key=job_sort_key)
-        return JobsList(sorted_jobs, self.target_datasite_owner_email)
+        return JobsList(
+            sorted_jobs,
+            self.target_datasite_owner_email,
+            has_do_role=self.has_do_role,
+        )
 
 
 def get_client(

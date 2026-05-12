@@ -1,6 +1,7 @@
 """Base orchestrator for managing service monitors."""
 
 import threading
+import time
 from typing import Literal, Optional
 
 from syft_bg.common.monitor import Monitor
@@ -23,6 +24,34 @@ class BaseOrchestrator:
         self._threads: list[threading.Thread] = []
         self._stop_event = threading.Event()
         self.interval: int = 30
+
+    def setup(self) -> None:
+        """Validate external dependencies. Override in subclasses.
+
+        Raises on failure so the error message and traceback are captured.
+        """
+
+    @staticmethod
+    def _wait_for_sync_ready(timeout: int = 120, label: str = "") -> None:
+        """Block until the sync service has completed at least one cycle.
+
+        The sync service touches a marker file after its first successful cycle;
+        services that read or write the SyftBox cache must wait for that marker
+        to avoid racing sync's initial event-replay storm.
+        """
+        # Local import: sync.orchestrator depends on common.orchestrator.
+        from syft_bg.sync.orchestrator import sync_ready_path
+
+        marker = sync_ready_path()
+        waited = 0
+        prefix = f"[{label}] " if label else ""
+        while not marker.exists() and waited < timeout:
+            if waited % 10 == 0:
+                print(f"{prefix}Waiting for sync service...")
+            time.sleep(1)
+            waited += 1
+        if waited >= timeout:
+            print(f"{prefix}Timed out waiting for sync, starting anyway")
 
     def _init_monitors(self):
         """Initialize job and peer monitors. Override in subclass."""
@@ -53,7 +82,7 @@ class BaseOrchestrator:
             self._peer_monitor.stop()
         self._threads.clear()
 
-    def check(self, monitor_type: Optional[MonitorType] = None) -> None:
+    def run_once(self, monitor_type: Optional[MonitorType] = None) -> None:
         """Run a single check cycle."""
         self._init_monitors()
 
@@ -70,7 +99,7 @@ class BaseOrchestrator:
         """Check if any monitor threads are running."""
         return any(t.is_alive() for t in self._threads)
 
-    def run(self, monitor_type: Optional[MonitorType] = None) -> None:
+    def run_loop(self, monitor_type: Optional[MonitorType] = None) -> None:
         """Run monitors in foreground (blocking)."""
         self._init_monitors()
         self._stop_event.clear()

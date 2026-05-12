@@ -127,6 +127,14 @@ class JsonStateManager:
         data = self._load_all()
         return data.get("thread_ids", {}).get(job_name)
 
+    def get_job_name_by_thread_id(self, thread_id: str) -> Optional[str]:
+        """Reverse lookup: find job_name for a given Gmail thread ID."""
+        data = self._load_all()
+        for job_name, tid in data.get("thread_ids", {}).items():
+            if tid == thread_id:
+                return job_name
+        return None
+
     # --- State inspection ---
 
     def is_empty(self) -> bool:

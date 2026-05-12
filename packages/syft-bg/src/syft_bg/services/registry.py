@@ -21,7 +21,19 @@ def _create_services() -> dict[str, Service]:
             pid_file=paths.approve_pid,
             log_file=paths.approve_log,
         ),
+        "email_approve": Service(
+            name="email_approve",
+            description="Approve/reject jobs by replying to emails",
+            pid_file=paths.email_approve_pid,
+            log_file=paths.email_approve_log,
+        ),
+        "sync": Service(
+            name="sync",
+            description="Centralized sync and Drive operations",
+            pid_file=paths.sync_pid,
+            log_file=paths.sync_log,
+        ),
     }
 
 
-SERVICES = _create_services()
+SERVICE_REGISTRY = _create_services()

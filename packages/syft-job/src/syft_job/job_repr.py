@@ -713,6 +713,14 @@ def job_info_repr_html(job: "JobInfo") -> str:
                         <div class="syftjob-single-detail-label">Submitted:</div>
                         <div class="syftjob-single-detail-value">{submitted_time}</div>
                     </div>
+                    <div class="syftjob-single-detail">
+                        <div class="syftjob-single-detail-label">Approval:</div>
+                        <div class="syftjob-single-detail-value">{job.approval_method or "—"}</div>
+                    </div>
+                    <div class="syftjob-single-detail">
+                        <div class="syftjob-single-detail-label">Review reason:</div>
+                        <div class="syftjob-single-detail-value">{job.review_reason or ""}</div>
+                    </div>
                 </div>
                 <div class="syftjob-single-section">
                     <h4>📜 Script</h4>
@@ -723,7 +731,9 @@ def job_info_repr_html(job: "JobInfo") -> str:
         """
 
 
-def jobs_list_str(jobs: List["JobInfo"], root_email: str) -> str:
+def jobs_list_str(
+    jobs: List["JobInfo"], root_email: str, has_do_role: bool = False
+) -> str:
     """Format jobs list as separate tables grouped by user."""
     if not jobs:
         return "📭 No jobs found.\n"
@@ -779,7 +789,9 @@ def jobs_list_str(jobs: List["JobInfo"], root_email: str) -> str:
         status_width = max(status_width, 12)
         submitted_width = max(submitted_width, 15)
 
-        header = f"{'Index':<6} {'Job Name':<{name_width}} {'Submitted By':<{submitted_width}} {'Status':<{status_width}}"
+        approval_width = 10
+
+        header = f"{'Index':<6} {'Job Name':<{name_width}} {'Submitted By':<{submitted_width}} {'Status':<{status_width}} {'Approval':<{approval_width}}"
         lines.append(header)
         lines.append("-" * len(header))
 
@@ -788,7 +800,8 @@ def jobs_list_str(jobs: List["JobInfo"], root_email: str) -> str:
         for job in sorted_jobs:
             emoji = status_emojis.get(job.status, "❓")
             status_display = f"{emoji} {job.status}"
-            line = f"[{job_index:<4}] {job.name:<{name_width}} {job.submitted_by:<{submitted_width}} {status_display:<{status_width}}"
+            approval_display = job.approval_method or "—"
+            line = f"[{job_index:<4}] {job.name:<{name_width}} {job.submitted_by:<{submitted_width}} {status_display:<{status_width}} {approval_display:<{approval_width}}"
             lines.append(line)
             job_index += 1
 
@@ -821,15 +834,18 @@ def jobs_list_str(jobs: List["JobInfo"], root_email: str) -> str:
     if global_summary_parts:
         lines.append("📋 Global: " + " | ".join(global_summary_parts))
 
-    lines.append("")
-    lines.append(
-        "💡 Use job_client.jobs[0].approve() to approve jobs or job_client.jobs[0].accept_by_depositing_result('file_or_folder') to complete jobs"
-    )
+    if has_do_role:
+        lines.append("")
+        lines.append(
+            "💡 Use job_client.jobs[0].approve() to approve jobs or job_client.jobs[0].accept_by_depositing_result('file_or_folder') to complete jobs"
+        )
 
     return "\n".join(lines)
 
 
-def jobs_list_repr_html(jobs: List["JobInfo"], root_email: str) -> str:
+def jobs_list_repr_html(
+    jobs: List["JobInfo"], root_email: str, has_do_role: bool = False
+) -> str:
     """HTML representation for Jupyter notebooks with enhanced visual appeal."""
     if not jobs:
         return """
@@ -1242,6 +1258,7 @@ def jobs_list_repr_html(jobs: List["JobInfo"], root_email: str) -> str:
                             <th class="syftjob-th">Job Name</th>
                             <th class="syftjob-th">Submitted By</th>
                             <th class="syftjob-th">Status</th>
+                            <th class="syftjob-th">Approval</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1251,6 +1268,7 @@ def jobs_list_repr_html(jobs: List["JobInfo"], root_email: str) -> str:
             style_info = status_styles.get(job.status, {"emoji": "❓"})
             row_class = "syftjob-row-even" if i % 2 == 0 else "syftjob-row-odd"
 
+            approval_display = job.approval_method or "—"
             html += f"""
                         <tr class="{row_class} syftjob-row">
                             <td class="syftjob-td">
@@ -1266,6 +1284,9 @@ def jobs_list_repr_html(jobs: List["JobInfo"], root_email: str) -> str:
                                 <span class="syftjob-status-{job.status}">
                                     {style_info["emoji"]} {job.status.upper()}
                                 </span>
+                            </td>
+                            <td class="syftjob-td">
+                                {approval_display}
                             </td>
                         </tr>
                 """
@@ -1292,9 +1313,14 @@ def jobs_list_repr_html(jobs: List["JobInfo"], root_email: str) -> str:
 
     html += """
                 </div>
+        """
+    if has_do_role:
+        html += """
                 <div class="syftjob-hint">
                     💡 Use <code class="syftjob-code">jobs[0].approve()</code> to approve jobs or <code class="syftjob-code">jobs[0].accept_by_depositing_result('file_or_folder')</code> to complete jobs
                 </div>
+        """
+    html += """
             </div>
         </div>
         """

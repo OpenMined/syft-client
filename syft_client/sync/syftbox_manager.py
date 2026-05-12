@@ -1,7 +1,9 @@
 from pathlib import Path
+import fcntl
+from syft_client.sync.peers.peer_store import PeerStore
 import logging
 import shutil
-import warnings
+from contextlib import contextmanager
 from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
 from syft_client.utils import resolve_path
 from concurrent.futures import ThreadPoolExecutor
@@ -31,6 +33,7 @@ from syft_client.sync.events.file_change_event import (
     FileChangeEvent,
     FileChangeEventsMessage,
 )
+from syft_client.sync.utils.pre_submit_scan import run_pre_submit_check
 from syft_client.sync.utils.syftbox_utils import (
     random_email,
     random_syftbox_folder_for_testing,
@@ -45,15 +48,19 @@ from syft_client.sync.connections.drive import mock_drive_service
 from syft_client.sync.sync.datasite_owner_syncer import (
     DatasiteOwnerSyncer,
     DatasiteOwnerSyncerConfig,
+    MIN_MESSAGES_COMPACT,
 )
 from syft_client.sync.sync.datasite_watcher_syncer import (
     DatasiteWatcherSyncer,
     DatasiteWatcherSyncerConfig,
 )
 from syft_client.sync.version.peer_manager import (
+    CompatAction,
     PeerManager,
     PeerManagerConfig,
 )
+from syft_client.sync.version.version_info import VersionInfo
+from syft_client.version import VERSION_FILE_NAME
 import os
 
 logger = logging.getLogger(__name__)
@@ -124,12 +131,14 @@ class SyftboxManagerConfig(BaseModel):
         job_client_config = SyftJobConfig(
             syftbox_folder=syftbox_folder,
             current_user_email=email,
+            has_do_role=has_do_role,
         )
         dataset_manager_config = SyftBoxConfig(
             syftbox_folder=syftbox_folder,
             email=email,
         )
         peer_manager_config = PeerManagerConfig(
+            syftbox_folder=syftbox_folder,
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
@@ -197,8 +206,10 @@ class SyftboxManagerConfig(BaseModel):
         job_client_config = SyftJobConfig(
             syftbox_folder=syftbox_folder,
             current_user_email=email,
+            has_do_role=has_do_role,
         )
         peer_manager_config = PeerManagerConfig(
+            syftbox_folder=syftbox_folder,
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
@@ -261,12 +272,13 @@ class SyftboxManagerConfig(BaseModel):
         job_client_config = SyftJobConfig(
             syftbox_folder=Path(syftbox_folder),
             current_user_email=email,
+            has_do_role=has_do_role,
         )
         peer_manager_config = PeerManagerConfig(
+            syftbox_folder=syftbox_folder,
             connection_configs=[],  # Empty for in-memory, connections added later
             n_threads=2,  # Use fewer threads for testing
-            ignore_protocol_version=not check_versions,
-            ignore_client_version=not check_versions,
+            force_ignore_peer_version=not check_versions,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
         )
@@ -335,11 +347,12 @@ class SyftboxManagerConfig(BaseModel):
         job_client_config = SyftJobConfig(
             syftbox_folder=syftbox_folder,
             current_user_email=email,
+            has_do_role=has_do_role,
         )
         peer_manager_config = PeerManagerConfig(
+            syftbox_folder=syftbox_folder,
             connection_configs=connection_configs,
-            ignore_protocol_version=not check_versions,
-            ignore_client_version=not check_versions,
+            force_ignore_peer_version=not check_versions,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
         )
@@ -410,10 +423,27 @@ class SyftboxManager(BaseModel):
         "should_create_checkpoint",
         "try_create_checkpoint",
         "delete_syftbox",
+        "write_own_version",
     )
 
     def __dir__(self):
         return list(self._PUBLIC_API)
+
+    def read_local_version(self) -> VersionInfo | None:
+        """Read the local SYFT_version.json from the SyftBox directory."""
+        version_file = self.syftbox_folder / VERSION_FILE_NAME
+        if not version_file.exists():
+            return None
+        try:
+            return VersionInfo.from_json(version_file.read_text())
+        except Exception:
+            return None
+
+    def write_local_version(self) -> None:
+        """Write current version info to a local SYFT_version.json."""
+        self.syftbox_folder.mkdir(parents=True, exist_ok=True)
+        version_file = self.syftbox_folder / VERSION_FILE_NAME
+        version_file.write_text(VersionInfo.current().to_json())
 
     @property
     def peers(self) -> PeerList:
@@ -518,7 +548,6 @@ class SyftboxManager(BaseModel):
             )
         )
         manager._init_encryption(encryption, encryption_keys)
-        manager.peer_manager.write_own_version()
         return manager
 
     def _init_encryption(
@@ -562,7 +591,6 @@ class SyftboxManager(BaseModel):
             )
         )
         manager._init_encryption(encryption, encryption_keys)
-        manager.peer_manager.write_own_version()
         return manager
 
     @classmethod
@@ -633,7 +661,7 @@ class SyftboxManager(BaseModel):
 
         if add_peers:
             # DS creates peer request
-            sender_manager.add_peer(receiver_manager.email)
+            sender_manager.add_peer(receiver_manager.email, sync=False)
             # unfortunately, we need this because of delays in gdrive
             # DO approves the peer request automatically (for backward compatibility)
             receiver_manager.load_peers()
@@ -710,7 +738,6 @@ class SyftboxManager(BaseModel):
 
         # Add connections to managers
         do_manager._add_connection(do_connection)
-
         ds_manager._add_connection(ds_connection)
 
         # Set up callbacks for DS -> DO communication
@@ -731,30 +758,37 @@ class SyftboxManager(BaseModel):
 
         # Initialize encryption if requested
         if encryption:
-            from syft_client.sync.peers.peer_store import PeerStore
-
-            ds_ps = PeerStore(email=ds_manager.email, use_encryption=True)
-            ds_ps.generate_keys()
-            ds_manager._set_peer_store(ds_ps)
-
-            do_ps = PeerStore(email=do_manager.email, use_encryption=True)
-            do_ps.generate_keys()
-            do_manager._set_peer_store(do_ps)
+            ds_manager._init_encrypted_peer_store()
+            do_manager._init_encrypted_peer_store()
 
         if add_peers:
             # DS creates peer request
-            ds_manager.add_peer(do_manager.email)
+            ds_manager.add_peer(do_manager.email, sync=False)
             # DO approves the peer request
             do_manager.load_peers()
             do_manager.approve_peer_request(ds_manager.email)
 
         return ds_manager, do_manager
 
-    def add_peer(self, peer_email: str, force: bool = False, verbose: bool = True):
+    def _init_encrypted_peer_store(self) -> None:
+        """Initialize the encrypted peer store."""
+        peer_store = PeerStore(email=self.email, use_encryption=True)
+        peer_store.generate_keys()
+        self._set_peer_store(peer_store)
+
+    def add_peer(
+        self,
+        peer_email: str,
+        force: bool = False,
+        verbose: bool = True,
+        sync: bool = True,
+    ):
         """Add a peer. Delegates to PeerManager."""
         self.peer_manager.add_peer(peer_email, force=force, verbose=verbose)
         if self.has_do_role:
             self._post_approve_peer_do(peer_email)
+        if sync:
+            self.sync()
 
     def submit_bash_job(
         self,
@@ -763,10 +797,17 @@ class SyftboxManager(BaseModel):
         job_name: str = "",
         sync=True,
         force_submission: bool = False,
+        ignore_peer_version: bool = False,
     ):
         # Check version compatibility before submission (uses cached versions)
         if not force_submission:
-            self.peer_manager.check_version_for_submission(user, force=False)
+            result = self.peer_manager.get_peer_compatibility_status(
+                user,
+                action=CompatAction.SUBMIT,
+                ignore_peer_version=ignore_peer_version,
+            )
+            result.raise_on_skip(operation="submit job")
+            result.maybe_warn()
         job_dir = self.job_client.submit_bash_job(user, script, job_name=job_name)
         self.push_job_files(job_dir)
 
@@ -779,10 +820,34 @@ class SyftboxManager(BaseModel):
         entrypoint: str | None = None,
         sync=True,
         force_submission: bool = False,
+        ignore_peer_version: bool = False,
     ):
+        peer_emails = {p.email for p in self.peer_manager.syncable_peers}
+        if user not in peer_emails:
+            print(f"⚠️  {user} is not in your peer list.")
+            print(f"   Add them first with: client.add_peer('{user}')")
+            return
+
+        if not force_submission:
+            if not run_pre_submit_check(Path(code_path)):
+                print("Submission aborted.")
+                return
+
+        print(f"📤 Submitting '{code_path}' to {user}...")
+        if job_name:
+            print(f"   Job name     : {job_name}")
+        if dependencies:
+            print(f"   Dependencies : {', '.join(dependencies)}")
+
         # Check version compatibility before submission (uses cached versions)
         if not force_submission:
-            self.peer_manager.check_version_for_submission(user, force=False)
+            result = self.peer_manager.get_peer_compatibility_status(
+                user,
+                action=CompatAction.SUBMIT,
+                ignore_peer_version=ignore_peer_version,
+            )
+            result.raise_on_skip(operation="submit job")
+            result.maybe_warn()
         job_dir = self.job_client.submit_python_job(
             user,
             code_path,
@@ -791,7 +856,11 @@ class SyftboxManager(BaseModel):
             entrypoint=entrypoint,
         )
         self.push_job_files(job_dir)
-        print(f"Submitted python job, job files are in {job_dir}")
+
+        print("\n✅ Job submitted successfully!")
+        print("   Status : inbox (waiting for DO to review)")
+        print(f"\n⏳ Next step: wait for {user} to approve and run it.")
+        print("   Check progress with: client.jobs")
 
     def push_job_files(self, job_dir: Path):
         file_paths = [Path(p) for p in job_dir.rglob("*") if p.is_file()]
@@ -807,7 +876,30 @@ class SyftboxManager(BaseModel):
                 relative_file_path, process_now=last_file
             )
 
-    def sync(self, auto_checkpoint: bool = True, checkpoint_threshold: int = 50):
+    @contextmanager
+    def _sync_file_lock(self):
+        lock_path = self.syftbox_folder / ".sync.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.touch(exist_ok=True)
+        with open(lock_path, "r") as lock_handle:
+            logger.info(f"Acquiring sync lock for {self.email}...")
+            try:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+                logger.info(f"Sync lock acquired for {self.email}")
+                yield
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+                logger.info(f"Sync lock released for {self.email}")
+
+    def sync(
+        self,
+        auto_checkpoint: bool = True,
+        checkpoint_threshold: int = 50,
+        auto_compact: bool = True,
+        compact_threshold: int = MIN_MESSAGES_COMPACT,
+        force_download_peer_state: bool = False,
+        ignore_peer_version: bool = False,
+    ):
         """
         Sync local state with Google Drive.
 
@@ -815,25 +907,48 @@ class SyftboxManager(BaseModel):
             auto_checkpoint: If True, automatically create checkpoint when
                             event count exceeds threshold (DO only).
             checkpoint_threshold: Create checkpoint when events >= this value.
+            auto_compact: If True, after each DO sync, compact each peer's
+                          outbox if it holds at least `compact_threshold`
+                          message files (DO only).
+            compact_threshold: Compact a peer's outbox when message-file
+                          count >= this value.
+            force_download_peer_state: If True, re-fetch SYFT_peers.json
+                          from Drive instead of using the cached copy. Use
+                          from background daemons (e.g. syft-bg) where a
+                          separate process may have updated the file.
         """
-        self.load_peers()
-        if self.has_do_role:
-            peer_emails = [peer.email for peer in self.peer_manager.approved_peers]
-            compatible_emails = self.peer_manager.get_compatible_peer_emails(
-                peer_emails, warn_incompatible=True
-            )
-            self.datasite_owner_syncer.sync(compatible_emails)
-            if auto_checkpoint:
-                self.try_create_checkpoint(checkpoint_threshold)
+        with self._sync_file_lock():
+            self.load_peers(force_download=force_download_peer_state)
+            if self.has_do_role:
+                peer_emails = [peer.email for peer in self.peer_manager.approved_peers]
+                compatible_emails = (
+                    self.peer_manager.get_compatible_peer_emails_for_syncing(
+                        peer_emails,
+                        ignore_peer_version=ignore_peer_version,
+                    )
+                )
+                self.datasite_owner_syncer.sync(compatible_emails)
+                if auto_compact:
+                    for peer_email in compatible_emails:
+                        self.datasite_owner_syncer.compact_outbox_if_needed(
+                            peer_email, min_messages=compact_threshold
+                        )
+                if auto_checkpoint:
+                    self.try_create_checkpoint(checkpoint_threshold)
 
-        if self.has_ds_role:
-            peer_emails = [peer.email for peer in self.peer_manager.syncable_peers]
-            self.peer_manager.warn_if_all_peers_incompatible(peer_emails)
-            self.datasite_watcher_syncer.sync_down(peer_emails)
+            if self.has_ds_role:
+                peer_emails = [peer.email for peer in self.peer_manager.syncable_peers]
+                self.peer_manager.warn_if_all_peers_incompatible(peer_emails)
+                self.datasite_watcher_syncer.sync_down(peer_emails)
 
-    def load_peers(self):
-        """Load peers from connection router. Delegates to PeerManager."""
-        cast(PeerManager, self.peer_manager).load_peers()
+    def load_peers(self, force_download: bool = False):
+        """Load peers from connection router. Delegates to PeerManager.
+
+        Args:
+            force_download: If True, re-fetch SYFT_peers.json from Drive
+                instead of using the cached copy.
+        """
+        cast(PeerManager, self.peer_manager).load_peers(force_download=force_download)
 
     def _check_peer_request_exists(self, email: str) -> bool:
         """Check if a peer request exists. Delegates to PeerManager."""
@@ -860,6 +975,18 @@ class SyftboxManager(BaseModel):
         if self.has_do_role:
             self.job_client.setup_ds_job_folder_as_do(peer_email)
             self._share_any_datasets_with_peer(peer_email)
+
+    def _ensure_local_peer_permissions(self) -> None:
+        """Recreate local permission files for all approved peers.
+
+        After an upgrade that deletes local state, permission files
+        (syft.pub.yaml) are lost. This restores them so that incoming
+        proposals from approved peers are not silently rejected.
+        """
+        if not self.has_do_role:
+            return
+        for peer in self.peer_manager.approved_peers:
+            self.job_client.setup_ds_job_folder_as_do(peer.email)
 
     def _share_any_datasets_with_peer(self, peer_email: str):
         """Share all datasets that have 'any' permission with a specific peer.
@@ -903,6 +1030,7 @@ class SyftboxManager(BaseModel):
         force_execution: bool = False,
         share_outputs_with_submitter: bool = False,
         share_logs_with_submitter: bool = False,
+        ignore_peer_version: bool = False,
     ) -> None:
         """
         Process approved jobs. Automatically calls sync() after processing
@@ -924,30 +1052,17 @@ class SyftboxManager(BaseModel):
         skip_job_names = []
 
         if not force_execution:
-            # Check version compatibility for all approved job submitters (uses cached versions)
             approved_jobs = [
                 job for job in self.job_client.jobs if job.status == "approved"
             ]
-
             for job in approved_jobs:
-                if job.submitted_by == "unknown":
-                    continue
-
-                if not self.peer_manager.is_peer_version_compatible(job.submitted_by):
-                    # Warn about incompatible job
-                    peer_version = self.peer_manager.get_peer_version(job.submitted_by)
-                    if peer_version is None:
-                        warnings.warn(
-                            f"Skipping job '{job.name}' from {job.submitted_by}: "
-                            "version unknown. Use force_execution=True to override."
-                        )
-                    else:
-                        own_version = self.peer_manager.get_own_version()
-                        reason = own_version.get_incompatibility_reason(peer_version)
-                        warnings.warn(
-                            f"Skipping job '{job.name}' from {job.submitted_by}: "
-                            f"{reason}. Use force_execution=True to override."
-                        )
+                result = self.peer_manager.get_peer_compatibility_status(
+                    job.submitted_by,
+                    action=CompatAction.EXECUTE,
+                    ignore_peer_version=ignore_peer_version,
+                )
+                result.maybe_warn()
+                if result.should_skip:
                     skip_job_names.append(job.name)
 
         self.job_runner.process_approved_jobs(
@@ -1259,15 +1374,16 @@ class SyftboxManager(BaseModel):
         if not self.has_do_role:
             raise ValueError("Only data owners can share private datasets")
 
-        files = self.dataset_manager.get_private_dataset_files(tag)
-        events_message = self.datasite_owner_syncer.event_cache.create_events_for_files(
-            files
-        )
-        self.datasite_owner_syncer.queue_event_for_syftbox(
-            recipients=[enclave_email],
-            file_change_events_message=events_message,
-        )
-        self.datasite_owner_syncer.process_syftbox_events_queue()
+        with self._sync_file_lock():
+            files = self.dataset_manager.get_private_dataset_files(tag)
+            events_message = (
+                self.datasite_owner_syncer.event_cache.create_events_for_files(files)
+            )
+            self.datasite_owner_syncer.queue_event_for_syftbox(
+                recipients=[enclave_email],
+                file_change_events_message=events_message,
+            )
+            self.datasite_owner_syncer.process_syftbox_events_queue()
 
     @property
     def datasets(self) -> SyftDatasetManager:
@@ -1294,11 +1410,23 @@ class SyftboxManager(BaseModel):
         else:
             return self.datasite_watcher_syncer.connection_router
 
+    def reset_all_connection_caches(self):
+        """Reset GDrive caches on all connection router instances."""
+        if self.peer_manager:
+            self.peer_manager.connection_router.reset_caches()
+        if self.datasite_owner_syncer:
+            self.datasite_owner_syncer.connection_router.reset_caches()
+        if self.datasite_watcher_syncer:
+            self.datasite_watcher_syncer.connection_router.reset_caches()
+            if hasattr(self.datasite_watcher_syncer, "datasite_watcher_cache"):
+                self.datasite_watcher_syncer.datasite_watcher_cache.connection_router.reset_caches()
+
     def _clear_caches(self):
         if self.datasite_owner_syncer is not None:
             self.datasite_owner_syncer.event_cache.clear_cache()
         if self.datasite_watcher_syncer is not None:
             self.datasite_watcher_syncer.datasite_watcher_cache.clear_cache()
+        self.peer_manager.clear_caches()
 
     def _broadcast_delete_events(
         self,
@@ -1391,10 +1519,13 @@ class SyftboxManager(BaseModel):
 
         # Clear in-memory caches and filesystem cache contents
         self._clear_caches()
-        self._connection_router.reset_caches()
+        self.reset_all_connection_caches()
 
         # Delete local syftbox folder and cache directories
         self._delete_local_dirs()
+        print(
+            "Done, if you are also running syft-bg, make sure to call syft-bg.reset() before delete_syftbox()."
+        )
 
     def _delete_local_dirs(self):
         """Delete local syftbox folder and cache directories."""
@@ -1432,7 +1563,30 @@ class SyftboxManager(BaseModel):
         """
         if not self.has_do_role:
             raise ValueError("Checkpoints can only be created by Data Owners")
-        return self.datasite_owner_syncer.create_checkpoint()
+        with self._sync_file_lock():
+            return self.datasite_owner_syncer.create_checkpoint()
+
+    def compact_outboxes_if_needed(
+        self, min_messages: int = MIN_MESSAGES_COMPACT
+    ) -> dict[str, int]:
+        """Merge accumulated event messages in each approved peer's outbox.
+
+        This compacts each peer's outbox into a
+        single message when it has at least `min_messages` files.
+
+        Returns a mapping of recipient_email -> number of source messages
+        compacted (0 if that peer was below threshold or skipped).
+        Only available for Data Owners.
+        """
+        if not self.has_do_role:
+            return {}
+        with self._sync_file_lock():
+            return {
+                peer.email: self.datasite_owner_syncer.compact_outbox_if_needed(
+                    peer.email, min_messages=min_messages
+                )
+                for peer in self.peer_manager.approved_peers
+            }
 
     def should_create_checkpoint(self, threshold: int = 50) -> bool:
         """

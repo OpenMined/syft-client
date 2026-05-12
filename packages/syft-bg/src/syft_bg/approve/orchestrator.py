@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Optional
 from syft_bg.approve.config import AutoApproveConfig
 from syft_bg.approve.monitors.job import JobMonitor
 from syft_bg.approve.monitors.peer import PeerMonitor
-from syft_bg.common.config import get_default_paths
 from syft_bg.common.orchestrator import BaseOrchestrator
 from syft_bg.common.state import JsonStateManager
 
@@ -23,15 +22,20 @@ class ApprovalOrchestrator(BaseOrchestrator):
         self,
         client: SyftboxManager,
         config: AutoApproveConfig,
+        config_path: Optional[Path] = None,
     ):
         super().__init__()
         self.client = client
         self.config = config
         self.interval = config.interval
+        self._config_path = config_path
 
-        paths = get_default_paths()
-        self._state = JsonStateManager(paths.approve_state)
+        self._state = JsonStateManager(config.approve_state_path)
         self._monitors_initialized = False
+
+    def setup(self) -> None:
+        """Verify client and config by initializing monitors."""
+        self._init_monitors()
 
     @classmethod
     def from_client(
@@ -55,22 +59,18 @@ class ApprovalOrchestrator(BaseOrchestrator):
     @classmethod
     def from_config(
         cls,
-        config_path: Optional[str] = None,
-        interval: Optional[int] = None,
+        config: AutoApproveConfig,
     ) -> ApprovalOrchestrator:
-        """Create orchestrator from config file."""
-        config = AutoApproveConfig.load(Path(config_path) if config_path else None)
-
+        """Create orchestrator from an AutoApproveConfig."""
         if not config.do_email:
             raise ValueError("Config missing 'do_email' field")
         if not config.syftbox_root:
             raise ValueError("Config missing 'syftbox_root' field")
 
-        if interval is not None:
-            config.interval = interval
-
-        paths = get_default_paths()
-        token_path = config.drive_token_path or paths.drive_token
+        # Wait for sync to seed the cache before building SyftboxManager —
+        # SyftboxManager.from_config triggers _load_file_hashes_from_disk,
+        # which races sync's identical replay if both run cold-start.
+        cls._wait_for_sync_ready(label="Approve")
 
         from syft_client.sync.environments.environment import Environment
         from syft_client.sync.syftbox_manager import SyftboxManager
@@ -86,69 +86,35 @@ class ApprovalOrchestrator(BaseOrchestrator):
             client = SyftboxManager.for_jupyter(
                 email=config.do_email,
                 has_do_role=True,
-                token_path=token_path,
+                token_path=config.drive_token_path,
             )
 
         return cls(client=client, config=config)
 
-    def _build_reject_callback(self):
-        """Build rejection callback that notifies DS via Gmail, if available."""
-        paths = get_default_paths()
-        gmail_token_path = paths.creds_dir / "gmail_token.json"
-
-        if not gmail_token_path.exists():
-            print(
-                "[ApprovalOrchestrator] Gmail token not found, skipping DS rejection notifications"
-            )
-            return None
-
-        try:
-            from google.oauth2.credentials import Credentials
-
-            from syft_bg.notify.gmail.sender import GmailSender
-            from syft_bg.notify.handlers.job import JobHandler
-
-            creds = Credentials.from_authorized_user_file(str(gmail_token_path))
-            sender = GmailSender(creds)
-            notify_state = JsonStateManager(paths.notify_state)
-            notify_handler = JobHandler(
-                sender=sender,
-                state=notify_state,
-                do_email=self.config.do_email or "",
-            )
-
-            def _on_reject(job, reason):
-                notify_handler.on_job_rejected(
-                    do_email=self.config.do_email or "",
-                    job_name=job.name,
-                    ds_email=job.submitted_by,
-                    reason=reason,
-                )
-
-            return _on_reject
-        except Exception as e:
-            print(
-                f"[ApprovalOrchestrator] Could not set up rejection notifications: {e}"
-            )
-            return None
+    def _collect_auto_approve_emails(self) -> set[str]:
+        """Collect peer emails from all auto-approval objects."""
+        emails: set[str] = set()
+        for obj in self.config.auto_approvals.objects.values():
+            emails.update(obj.peers)
+        return emails
 
     def _init_monitors(self):
         """Initialize job and peer monitors."""
         if self._monitors_initialized:
             return
 
-        on_reject = None
         if self.config.auto_approvals.enabled:
-            on_reject = self._build_reject_callback()
             self._job_monitor = JobMonitor(
                 client=self.client,
-                config=self.config.auto_approvals,
+                config_path=self._config_path,
                 state=self._state,
-                on_reject=on_reject,
                 verbose=True,
             )
 
-        if self.config.peers.enabled:
+        self.config.peers.auto_approve_emails = list(
+            self._collect_auto_approve_emails()
+        )
+        if self.config.peers.auto_approve_emails or self.config.peers.approved_domains:
             self._peer_monitor = PeerMonitor(
                 client=self.client,
                 config=self.config.peers,
@@ -167,5 +133,7 @@ class ApprovalOrchestrator(BaseOrchestrator):
         print(
             f"  Auto-approvals: {'enabled' if self.config.auto_approvals.enabled else 'disabled'}"
         )
-        print(f"  Peers: {'enabled' if self.config.peers.enabled else 'disabled'}")
+        emails = self.config.peers.auto_approve_emails
+        domains = self.config.peers.approved_domains
+        print(f"  Peer approval: {len(emails)} emails, {len(domains)} domains")
         print()

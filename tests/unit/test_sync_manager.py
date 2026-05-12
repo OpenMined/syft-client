@@ -751,7 +751,8 @@ with open("outputs/result.txt", "w") as f:
         assert "uv sync" not in run_script, (
             "Should NOT use 'uv sync' without pyproject.toml"
         )
-        assert "python code/main.py" in run_script, "Should run code/main.py"
+        assert "cd code" in run_script, "Should cd into code folder"
+        assert "python main.py" in run_script, "Should run main.py from code/"
 
     finally:
         shutil.rmtree(project_dir, ignore_errors=True)
@@ -822,7 +823,7 @@ dependencies = []
             "Should use 'uv sync' for folders with pyproject.toml"
         )
         assert "cd code" in run_script, "Should cd into code folder for uv sync"
-        assert "python code/main.py" in run_script, "Should run code/main.py"
+        assert "python main.py" in run_script, "Should run main.py from code/"
 
     finally:
         shutil.rmtree(project_dir, ignore_errors=True)
@@ -857,7 +858,8 @@ def test_folder_job_auto_detect_main_py():
 
         # Verify main.py was auto-detected
         run_script = (job_dir / "run.sh").read_text()
-        assert "python code/main.py" in run_script, (
+        assert "cd code" in run_script, "Should cd into code folder"
+        assert "python main.py" in run_script, (
             "Should auto-detect main.py as entrypoint"
         )
 
@@ -893,7 +895,8 @@ def test_folder_job_auto_detect_single_py():
 
         # Verify script.py was auto-detected
         run_script = (job_dir / "run.sh").read_text()
-        assert "python code/script.py" in run_script, (
+        assert "cd code" in run_script, "Should cd into code folder"
+        assert "python script.py" in run_script, (
             "Should auto-detect single .py file as entrypoint"
         )
 
@@ -1181,7 +1184,7 @@ def test_pyproject_folder_job_flow_with_dataset():
             "Should use 'uv sync' for folders with pyproject.toml"
         )
         assert "cd code" in run_script, "Should cd into code folder for uv sync"
-        assert "python code/main.py" in run_script, "Should run code/main.py"
+        assert "python main.py" in run_script, "Should run main.py from code/"
 
         # Run the job
         job.approve()

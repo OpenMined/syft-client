@@ -20,7 +20,7 @@ class Monitor(ABC):
         """Check all entities and process any that need action."""
         pass
 
-    def check(self, interval: Optional[int] = None, duration: Optional[int] = None):
+    def run_once(self, interval: Optional[int] = None, duration: Optional[int] = None):
         """Run checks, optionally in a loop with interval and duration."""
         if interval is None:
             self._check_all_entities()

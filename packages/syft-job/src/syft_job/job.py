@@ -106,21 +106,42 @@ class JobInfo:
     @property
     def output_paths(self) -> List[Path]:
         """Get list of all file paths in the outputs directory."""
-        if self._state.status not in (JobStatus.DONE, JobStatus.FAILED):
+        status = self._state.status
+
+        def _list_output_files() -> List[Path]:
+            outputs_dir = self.job_review_path / "outputs"
+            if not outputs_dir.exists():
+                return []
+            try:
+                return [
+                    item
+                    for item in outputs_dir.iterdir()
+                    if item.name != PERMISSION_FILE_NAME
+                ]
+            except Exception:
+                return []
+
+        if status == JobStatus.FAILED:
+            partial = _list_output_files()
+            print(f"❌ Job '{self.name}' failed (status: {self.status}).")
+            print(
+                f"   Returning {len(partial)} partial output file(s). "
+                "Check stderr for details: job.stderr"
+            )
+            return partial
+
+        if status != JobStatus.DONE:
+            print(f"⏳ Job '{self.name}' is not done yet (status: {self.status}).")
+            print("   Sync and check again: client.sync()")
             return []
 
-        outputs_dir = self.job_review_path / "outputs"
-        if not outputs_dir.exists():
+        output_files = _list_output_files()
+        if not output_files:
+            print(f"⚠️  Job '{self.name}' is done but no output files were found.")
+            print("   The job script may not have written to the outputs/ folder.")
             return []
 
-        try:
-            return [
-                item
-                for item in outputs_dir.iterdir()
-                if item.name != PERMISSION_FILE_NAME
-            ]
-        except Exception:
-            return []
+        return output_files
 
     @property
     def stdout(self) -> StdoutViewer:
@@ -134,17 +155,23 @@ class JobInfo:
 
     @property
     def files(self) -> List[Path]:
-        """Get list of all files across both inbox and review."""
+        """Get list of relevant files across both inbox and review."""
         all_files = []
         try:
-            if self.job_submission_path.exists():
-                all_files.extend(
-                    f for f in self.job_submission_path.rglob("*") if f.is_file()
-                )
-            if self.job_review_path.exists():
-                all_files.extend(
-                    f for f in self.job_review_path.rglob("*") if f.is_file()
-                )
+            for root in (self.job_submission_path, self.job_review_path):
+                if not root.exists():
+                    continue
+                for f in root.rglob("*"):
+                    if not f.is_file():
+                        continue
+                    if f.name.startswith("."):
+                        continue
+                    if any(
+                        d in f.parts
+                        for d in (".venv", "__pycache__", ".git", "node_modules")
+                    ):
+                        continue
+                    all_files.append(f)
         except Exception:
             pass
         return all_files
@@ -153,10 +180,25 @@ class JobInfo:
     # Actions (write to review/)
     # ──────────────────────────────────────────────
 
-    def approve(self) -> None:
+    @property
+    def approval_method(self) -> Optional[str]:
+        return self._state.approval_method
+
+    @property
+    def review_reason(self) -> Optional[str]:
+        """Reason recorded at review time (approval or rejection)."""
+        return self._state.review_reason
+
+    def approve(
+        self, reason: Optional[str] = None, approval_method: str = "manual"
+    ) -> None:
         """
         Approve a job by updating state.yaml in review/.
         Only the datasite owner can approve jobs.
+
+        Args:
+            reason: Optional reason for approval (recorded as review_reason).
+            approval_method: How the job was approved ("manual" or "auto")
 
         Raises:
             ValueError: If job is not in pending status
@@ -176,15 +218,20 @@ class JobInfo:
         self._state.status = JobStatus.APPROVED
         self._state.approved_by = self.current_user_email
         self._state.approved_at = datetime.now(timezone.utc)
+        self._state.approval_method = approval_method
+        self._state.review_reason = reason
         self._state.save(self.job_review_path / "state.yaml")
-        print(f"Job '{self.name}' approved successfully!")
+        print(f"✅ Job '{self.name}' approved successfully!")
+        print("   Status    : approved → will run on next process cycle")
+        print("\n⏳ Next step: run process_approved_jobs() to execute it.")
+        print("   client.process_approved_jobs(share_outputs_with_submitter=True)")
 
-    def reject(self, reason: str = "") -> None:
+    def reject(self, reason: Optional[str] = None) -> None:
         """
         Reject a job by updating state.yaml in review/.
 
         Args:
-            reason: Optional reason for rejection.
+            reason: Optional reason for rejection (recorded as review_reason).
 
         Raises:
             ValueError: If job is not in pending status
@@ -203,7 +250,7 @@ class JobInfo:
         self._state.status = JobStatus.REJECTED
         self._state.rejected_by = self.current_user_email
         self._state.rejected_at = datetime.now(timezone.utc)
-        self._state.rejection_reason = reason
+        self._state.review_reason = reason
         self._state.save(self.job_review_path / "state.yaml")
         print(f"Job '{self.name}' rejected.")
 
@@ -349,10 +396,26 @@ class JobInfo:
             "failed": "💥",
         }
         emoji = status_emojis.get(self.status, "❓")
-        return f"{emoji} {self.name} ({self.status}) -> {self.datasite_owner_email}"
+        approval_info = ""
+        if self.approval_method:
+            approval_info = f" [approved: {self.approval_method}]"
+        base = f"{emoji} {self.name} ({self.status}{approval_info}) -> {self.datasite_owner_email}"
+        if self.review_reason:
+            base += f" | Review reason: {self.review_reason}"
+        return base
 
     def __repr__(self) -> str:
-        return f"JobInfo(name='{self.name}', submitted_by='{self.submitted_by}', current_user_email='{self.current_user_email}', status='{self.status}')"
+        parts = [
+            f"name='{self.name}'",
+            f"submitted_by='{self.submitted_by}'",
+            f"current_user_email='{self.current_user_email}'",
+            f"status='{self.status}'",
+        ]
+        if self.approval_method:
+            parts.append(f"approval_method='{self.approval_method}'")
+        if self.review_reason:
+            parts.append(f"review_reason='{self.review_reason}'")
+        return f"JobInfo({', '.join(parts)})"
 
     def _repr_html_(self) -> str:
         return job_info_repr_html(self)
@@ -361,9 +424,10 @@ class JobInfo:
 class JobsList:
     """A list-like container for JobInfo objects with nice display."""
 
-    def __init__(self, jobs: List[JobInfo], root_email: str):
+    def __init__(self, jobs: List[JobInfo], root_email: str, has_do_role: bool = False):
         self._jobs = jobs
         self._root_email = root_email
+        self._has_do_role = has_do_role
 
     def __getitem__(self, index: int | str) -> JobInfo:
         if isinstance(index, int):
@@ -383,10 +447,10 @@ class JobsList:
         return iter(self._jobs)
 
     def __str__(self) -> str:
-        return jobs_list_str(self._jobs, self._root_email)
+        return jobs_list_str(self._jobs, self._root_email, self._has_do_role)
 
     def __repr__(self) -> str:
         return f"JobsList({len(self._jobs)} jobs)"
 
     def _repr_html_(self) -> str:
-        return jobs_list_repr_html(self._jobs, self._root_email)
+        return jobs_list_repr_html(self._jobs, self._root_email, self._has_do_role)

@@ -37,7 +37,7 @@ test-unit-enclave:
 
 test-unit-fast:
     #!/bin/bash
-    uv run pytest ./tests/unit --ignore=tests/unit/test_job_auto_approval.py -k "not (test_jobs or job_flow_with_dataset)"
+    uv run pytest ./tests/unit --ignore=tests/unit/test_job_auto_approval.py --ignore=tests/unit/test_version_mismatch_flow.py --ignore=tests/unit/syft_bg/test_email_auto_approve_flow.py --ignore=tests/unit/syft_bg/test_email_approval_flow.py --ignore=tests/unit/test_sync_file_lock.py -k "not (test_jobs or job_flow_with_dataset)"
 
 
 test-integration-mock-mode:

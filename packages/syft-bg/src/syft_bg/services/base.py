@@ -4,25 +4,54 @@ import os
 import signal
 import subprocess
 import sys
-from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from pydantic import BaseModel, Field
 
-class ServiceStatus(Enum):
+
+class ServiceStatus(str, Enum):
+    STARTING = "starting"
     RUNNING = "running"
     STOPPED = "stopped"
     ERROR = "error"
     UNKNOWN = "unknown"
 
 
-@dataclass
-class ServiceInfo:
+class ServiceInfo(BaseModel):
+    name: str
     status: ServiceStatus
     pid: Optional[int] = None
-    uptime: Optional[str] = None
-    last_activity: Optional[str] = None
+    error: Optional[str] = None
+    timestamp: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    installed: bool = False
+
+    @property
+    def status_str(self) -> str:
+        if self.status == ServiceStatus.STARTING:
+            return f"starting (PID {self.pid})"
+        if self.status == ServiceStatus.RUNNING:
+            return f"running (PID {self.pid})"
+        if self.status == ServiceStatus.ERROR:
+            return "setup error"
+        return "stopped"
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.model_dump_json(exclude={"pid", "installed"}, indent=2))
+
+    @classmethod
+    def load(cls, path: Path) -> Optional["ServiceInfo"]:
+        if not path.exists():
+            return None
+        try:
+            return cls.model_validate_json(path.read_text())
+        except Exception:
+            return None
 
 
 class Service:
@@ -60,49 +89,66 @@ class Service:
         except OSError:
             return False
 
-    def get_status(self) -> ServiceInfo:
+    def info(self) -> ServiceInfo:
         """Get the current service status."""
+        from syft_bg.api.utils import load_setup_state
+        from syft_bg.systemd import is_installed
+
+        persisted = load_setup_state(self.name)
         pid = self.get_pid()
-        if pid and self.is_running():
-            return ServiceInfo(
-                status=ServiceStatus.RUNNING,
-                pid=pid,
-            )
-        return ServiceInfo(status=ServiceStatus.STOPPED)
+        process_running = bool(pid and self.is_running())
+
+        if persisted and persisted.status == ServiceStatus.ERROR:
+            status = ServiceStatus.ERROR
+        elif not process_running:
+            status = ServiceStatus.STOPPED
+        elif persisted and persisted.status == ServiceStatus.STARTING:
+            status = ServiceStatus.STARTING
+        else:
+            status = ServiceStatus.RUNNING
+
+        return ServiceInfo(
+            name=self.name,
+            status=status,
+            pid=pid if process_running else None,
+            error=persisted.error if persisted else None,
+            timestamp=(
+                persisted.timestamp
+                if persisted
+                else datetime.now(timezone.utc).isoformat()
+            ),
+            installed=is_installed(self.name),
+        )
 
     def start(self) -> tuple[bool, str]:
         """Start the service as a background subprocess."""
         if self.is_running():
-            return (False, f"{self.name} is already running")
+            print(f"{self.name} is already running")
 
-        try:
-            # Ensure directories exist
-            self.pid_file.parent.mkdir(parents=True, exist_ok=True)
-            self.log_file.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure directories exist
+        self.pid_file.parent.mkdir(parents=True, exist_ok=True)
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Open log file for output
-            log_fd = open(self.log_file, "a")
+        # Open log file for output
+        log_fd = open(self.log_file, "a")
 
-            # Spawn syft-bg run --service <name> as a daemon
-            # Use -u for unbuffered output so logs appear immediately
-            env = os.environ.copy()
-            env["PYTHONUNBUFFERED"] = "1"
-            env["SYFT_BG_DAEMON"] = "1"
-            process = subprocess.Popen(
-                [sys.executable, "-u", "-m", "syft_bg", "run", "--service", self.name],
-                stdout=log_fd,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,  # Detach from parent process group
-                env=env,
-            )
+        # Spawn a subprocess that runs the orchestrator via the API
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        env["SYFT_BG_DAEMON"] = "1"
+        script = (
+            f"from syft_bg.api.api import run_foreground; run_foreground('{self.name}')"
+        )
+        process = subprocess.Popen(
+            [sys.executable, "-u", "-c", script],
+            stdout=log_fd,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=env,
+        )
 
-            # Write PID file
-            self.pid_file.write_text(str(process.pid))
-
-            return (True, f"{self.name} started (PID {process.pid})")
-
-        except Exception as e:
-            return (False, str(e))
+        # Write PID file
+        self.pid_file.write_text(str(process.pid))
 
     def stop(self) -> tuple[bool, str]:
         """Stop the service."""
@@ -110,49 +156,41 @@ class Service:
             # Clean up stale PID file
             if self.pid_file.exists():
                 self.pid_file.unlink()
-            return (False, f"{self.name} is not running")
+            raise ValueError(f"{self.name} is not running")
 
         pid = self.get_pid()
         if not pid:
             return (False, "Could not get PID")
 
-        try:
-            # Send SIGTERM for graceful shutdown
-            os.kill(pid, signal.SIGTERM)
+        # Send SIGTERM for graceful shutdown
+        os.kill(pid, signal.SIGTERM)
 
-            # Wait briefly for process to terminate
-            import time
+        # Wait briefly for process to terminate
+        import time
 
-            for _ in range(10):  # Wait up to 1 second
-                time.sleep(0.1)
-                try:
-                    os.kill(pid, 0)
-                except OSError:
-                    break  # Process terminated
-            else:
-                # Force kill if still running
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
+        for _ in range(10):  # Wait up to 1 second
+            time.sleep(0.1)
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                break  # Process terminated
+        else:
+            # Force kill if still running
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
 
-            # Clean up PID file
-            if self.pid_file.exists():
-                self.pid_file.unlink()
-
-            return (True, f"{self.name} stopped")
-
-        except OSError as e:
-            return (False, f"Failed to stop: {e}")
+        # Clean up PID file
+        if self.pid_file.exists():
+            self.pid_file.unlink()
 
     def restart(self) -> tuple[bool, str]:
         """Restart the service."""
         if self.is_running():
-            success, msg = self.stop()
-            if not success:
-                return (False, f"Failed to stop: {msg}")
+            self.stop()
 
-        return self.start()
+        self.start()
 
     def get_logs(self, lines: int = 50) -> list[str]:
         """Get recent log lines."""

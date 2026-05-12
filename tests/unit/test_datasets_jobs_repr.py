@@ -67,6 +67,68 @@ def test_dataset_manager_repr_html():
     _, do_manager, _ = _create_manager_with_dataset()
     html = do_manager.datasets._repr_html_()
     assert html is not None
+    assert "📦 Available datasets (1)" in html
+    assert "test-dataset" in html
+    assert f"from: {do_manager.email}" in html
+    assert "1 mock file" in html
+    assert 'client.datasets.get("test-dataset"' in html
+    assert "dataset.mock_files[0].read_text()" in html
+
+
+def test_dataset_manager_repr_html_with_tags():
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    mock_path, private_path, _ = create_tmp_dataset_files()
+    do_manager.create_dataset(
+        name="tagged-dataset",
+        mock_path=mock_path,
+        private_path=private_path,
+        tags=["beach", "water-quality"],
+    )
+    html = do_manager.datasets._repr_html_()
+    assert "[beach, water-quality]" in html
+
+
+def test_dataset_manager_repr_html_empty():
+    _, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    html = do_manager.datasets._repr_html_()
+    assert "📦 No datasets available yet." in html
+    assert "client.sync()" in html
+    assert "haven't created any datasets yet" in html
+    assert "not connected to any peers yet" in html
+
+
+def test_dataset_manager_get_missing_lists_available():
+    _, do_manager, _ = _create_manager_with_dataset()
+    with pytest.raises(FileNotFoundError) as excinfo:
+        do_manager.datasets.get("nope")
+    msg = str(excinfo.value)
+    assert "❌" in msg
+    assert "'nope'" in msg
+    assert "client.sync()" in msg
+    assert "Available datasets:" in msg
+    assert "test-dataset" in msg
+
+
+def test_dataset_manager_get_missing_no_datasets():
+    _, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+        sync_automatically=False,
+    )
+    with pytest.raises(FileNotFoundError) as excinfo:
+        do_manager.datasets.get("nope")
+    assert "(none found — check your peer connections)" in str(excinfo.value)
+
+
+def test_dataset_repr_html_mentions_mock_files():
+    _, _, dataset = _create_manager_with_dataset()
+    html = dataset._repr_html_()
+    assert ".mock_files" in html
 
 
 # --- JobsList tests ---

@@ -1,11 +1,13 @@
 """End-to-end unit test for the syft-job package lifecycle."""
 
+import time
 from pathlib import Path
 
 from syft_job.client import JobClient
 from syft_job.config import SyftJobConfig
 from syft_job.job_runner import SyftJobRunner
 from syft_perms import SyftPermContext
+from syft_job.models.state import JobState
 
 
 DO_EMAIL = "do@test.org"
@@ -186,6 +188,7 @@ def test_job_reject(tmp_path: Path):
 
     job.reject(reason="Not approved")
     assert job.status == "rejected"
+    assert job.review_reason == "Not approved"
 
 
 def test_submission_validation(tmp_path: Path):
@@ -212,8 +215,40 @@ def test_submission_validation(tmp_path: Path):
     )
     assert review_state.exists()
 
-    from syft_job.models.state import JobState
-
     state = JobState.load(review_state)
     assert state.status.value == "rejected"
-    assert state.rejection_reason is not None
+    assert state.review_reason is not None
+
+
+INFINITE_LOOP_PY = """\
+while True:
+    pass
+"""
+
+
+def test_timeout_does_not_hang_runner(tmp_path: Path):
+    syftbox = tmp_path / "SyftBox"
+    syftbox.mkdir()
+
+    code_file = tmp_path / "main.py"
+    code_file.write_text(INFINITE_LOOP_PY)
+
+    do_config = SyftJobConfig(syftbox_folder=syftbox, current_user_email=DO_EMAIL)
+    ds_config = SyftJobConfig(syftbox_folder=syftbox, current_user_email=DS_EMAIL)
+
+    ds_client = JobClient(config=ds_config)
+    do_client = JobClient(config=do_config)
+    do_runner = SyftJobRunner(config=do_config)
+
+    ds_client.submit_python_job(
+        user=DO_EMAIL, code_path=str(code_file), job_name="loop.job"
+    )
+    do_client.jobs[0].approve()
+
+    start = time.time()
+    do_runner.process_approved_jobs(stream_output=True, timeout=3)
+    elapsed = time.time() - start
+
+    # 3s job timeout + venv setup + tree-kill cleanup should fit well under 60s.
+    assert elapsed < 60, f"process_approved_jobs took {elapsed:.1f}s — likely hung"
+    assert do_client.jobs[0].status == "failed"

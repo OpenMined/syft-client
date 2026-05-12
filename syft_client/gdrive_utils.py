@@ -2,6 +2,7 @@
 
 import io
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -12,14 +13,18 @@ from googleapiclient.http import MediaIoBaseDownload
 
 from syft_client.sync.connections.drive.gdrive_transport import (
     build_drive_service,
-    SCOPES,
     GOOGLE_FOLDER_MIME_TYPE,
 )
+from syft_client.sync.connections.drive.gdrive_transport import SCOPES as GDRIVE_SCOPES
 from syft_client.sync.connections.drive.gdrive_retry import (
     execute_with_retries,
     next_chunk_with_retries,
 )
-from syft_client.sync.utils.syftbox_utils import check_env
+from syft_client.sync.utils.syftbox_utils import (
+    check_env,
+    _resolve_email,
+    _resolve_token_path,
+)
 from syft_client.sync.environments.environment import Environment
 from syft_client.sync.config.config import settings
 
@@ -30,9 +35,31 @@ from syft_client.sync.config.config import settings
 _COULD_BE_ID = re.compile(r"^[a-zA-Z0-9_-]{10,}$")
 
 
+DO_SCOPES = [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/pubsub",
+]
+
+
+def _extract_auth_code(response: str) -> str:
+    """Extract the OAuth authorization code from a raw code or full redirect URL."""
+    if response.startswith(("http://", "https://")):
+        query_code = parse_qs(urlparse(response).query).get("code")
+        if not query_code:
+            raise ValueError(
+                f"Could not find 'code' query parameter in URL: {response}"
+            )
+        return query_code[0]
+    return response
+
+
 def credentials_to_token(
     credentials_path: str | Path,
     output_path: str | Path | None = None,
+    store: bool = False,
+    do_scopes: bool = False,
+    force_browserless=False,
 ) -> Path:
     """Convert a Google OAuth credentials.json to an authorized token file.
 
@@ -50,11 +77,44 @@ def credentials_to_token(
     else:
         output_path = Path(output_path)
 
+    scopes = DO_SCOPES if do_scopes else GDRIVE_SCOPES
     flow = InstalledAppFlow.from_client_secrets_file(
-        str(credentials_path.absolute()), SCOPES
+        str(credentials_path.absolute()), scopes
     )
-    creds = flow.run_local_server(port=0)
+
+    def run_browserless():
+        flow.redirect_uri = "http://localhost:1"
+        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+        print("Visit this URL to authorize Google Drive access:\n")
+        print(f"  {auth_url}\n")
+        print("After authorizing, you'll see a page that won't load.")
+        response = input(
+            "Paste the authorization code OR the full redirect URL here: "
+        ).strip()
+        code = _extract_auth_code(response)
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+        return creds
+
+    if force_browserless:
+        creds = run_browserless()
+    else:
+        try:
+            creds = flow.run_local_server(port=0)
+        except Exception:
+            creds = run_browserless()
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(creds.to_json())
+
+    if store:
+        path = Path.home() / ".syft-bg" / "token.json"
+        path.write_text(creds.to_json())
+        project_id_path = Path.home() / ".syft-bg" / "project_id.txt"
+        with open(credentials_path, "r") as f:
+            f.read().strip()
+        project_id_path.write_text(creds.project_id)
+
     return output_path
 
 
@@ -98,7 +158,9 @@ def _build_service(token_path: str | Path | None = None):
             "No token path provided. Set SYFTCLIENT_TOKEN_PATH env var "
             "or pass token_path explicitly."
         )
-    credentials = GoogleCredentials.from_authorized_user_file(str(resolved), SCOPES)
+    credentials = GoogleCredentials.from_authorized_user_file(
+        str(resolved), GDRIVE_SCOPES
+    )
     return build_drive_service(credentials)
 
 
@@ -229,3 +291,55 @@ def _download_folder(
         _download_single_file(service, f["id"], target / f["name"], f["name"])
 
     return target
+
+
+def delete_remote_syftbox(
+    token_path: str | Path | None = None,
+    email: str | None = None,
+    verbose: bool = True,
+) -> None:
+    """Delete all SyftBox state from Google Drive.
+
+    This is a standalone utility that does not require a full SyftboxManager.
+    It creates a temporary GDriveConnection to find and delete all SyftBox
+    files/folders from Google Drive.
+
+    Note: This function does NOT broadcast ``is_deleted`` events to peers.
+
+    Args:
+        token_path: Path to OAuth token JSON file. Required when running
+            locally. On Colab, pass ``None`` to use Colab's built-in auth.
+        email: Google account email. Required when running locally. On Colab,
+            this is auto-detected if not provided.
+        verbose: If True (default), print deletion progress.
+    """
+    from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
+
+    email = _resolve_email(email)
+    token_path = _resolve_token_path(token_path)
+    conn = GDriveConnection.from_token_path(email=email, token_path=token_path)
+
+    # Gather file IDs via folder hierarchy
+    folder_file_ids = set(conn.gather_all_file_and_folder_ids())
+
+    # Find orphaned syft files by name pattern
+    orphaned_file_ids = set(conn.find_orphaned_message_files())
+
+    all_file_ids = list(folder_file_ids | orphaned_file_ids)
+
+    start = time.time()
+    conn.delete_multiple_files_by_ids(all_file_ids)
+    elapsed = time.time() - start
+
+    if verbose:
+        orphan_count = len(orphaned_file_ids - folder_file_ids)
+        print(
+            f"Deleted {len(all_file_ids)} remote files/folders in {elapsed:.2f}s",
+            end="",
+        )
+        if orphan_count > 0:
+            print(f" (including {orphan_count} orphaned)")
+        else:
+            print()
+
+    conn.reset_caches()

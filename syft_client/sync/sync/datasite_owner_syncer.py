@@ -7,6 +7,7 @@ from queue import Queue
 from typing import List, Tuple
 from syft_client.sync.events.file_change_event import (
     FileChangeEventsMessage,
+    FileChangeEventsMessageFileName,
     FileChangeEvent,
 )
 from syft_client.sync.connections.base_connection import (
@@ -29,12 +30,17 @@ from syft_client.sync.checkpoints.checkpoint import (
 )
 from syft_client.sync.checkpoints.rolling_state import RollingState
 from syft_perms import SyftPermContext
+from syft_client.sync.sync.constants import CACHE_DIR, ROLLING_STATE_FILENAME
 
 # Default threshold for creating incremental checkpoint from rolling state
 DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50
 
 # Default: upload rolling state to GDrive after this many events
 DEFAULT_ROLLING_STATE_UPLOAD_THRESHOLD = 1
+
+# Minimum number of message files in a peer's outbox before
+# compact_outbox_if_needed() will merge them into a single message.
+MIN_MESSAGES_COMPACT = 20
 
 
 class DatasiteOwnerSyncerConfig(BaseModel):
@@ -104,23 +110,51 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             collections_folder=config.collections_folder,
         )
 
+    @property
+    def _rolling_state_path(self) -> Path:
+        return self.syftbox_folder / CACHE_DIR / ROLLING_STATE_FILENAME
+
+    def _load_rolling_state(self) -> None:
+        """Load rolling state from disk for cross-process consistency."""
+        path = self._rolling_state_path
+        if not path.exists():
+            return
+        try:
+            self._rolling_state = RollingState.model_validate_json(path.read_text())
+        except Exception:
+            pass
+
+    def _save_rolling_state(self) -> None:
+        """Save rolling state to disk for cross-process consistency."""
+        if self._rolling_state is None:
+            return
+        path = self._rolling_state_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(self._rolling_state.model_dump_json())
+        tmp.rename(path)
+
     def sync(self, peer_emails: list[str], recompute_hashes: bool = True):
-        if not self.initial_sync_done:
-            self.pull_initial_state()
+        self._load_rolling_state()
+        try:
+            if not self.initial_sync_done:
+                self.pull_initial_state()
 
-        if recompute_hashes:
-            self.process_local_changes(recipients=peer_emails)
+            if recompute_hashes:
+                self.process_local_changes(recipients=peer_emails)
 
-        # first, pull existing state
-        for peer_email in peer_emails:
-            while True:
-                msg = self.pull_and_process_next_proposed_filechange(
-                    peer_email, raise_on_none=False
-                )
-                if msg is None:
-                    # no new message, we are done
-                    break
-            self.process_syftbox_events_queue()
+            # first, pull existing state
+            for peer_email in peer_emails:
+                while True:
+                    msg = self.pull_and_process_next_proposed_filechange(
+                        peer_email, raise_on_none=False
+                    )
+                    if msg is None:
+                        # no new message, we are done
+                        break
+                self.process_syftbox_events_queue()
+        finally:
+            self._save_rolling_state()
 
     def download_events_message_by_id_with_connection(
         self, events_message_id: str
@@ -528,6 +562,9 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
             perm_events, recipients, events_by_recipient, data_event_sent_to
         )
         self._queue_events_for_outbox(events_by_recipient)
+        # Feed local events into rolling state so they flow through
+        # incremental/full checkpoints.
+        self._add_events_to_rolling_state(file_change_events_message)
         self.process_syftbox_events_queue()
 
     def _split_events(
@@ -679,6 +716,86 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
                 recipient, file_change_events_message
             )
 
+    def _download_outbox_message_with_new_connection(
+        self, file_id: str
+    ) -> FileChangeEventsMessage:
+        """Download and decompress one outbox events-message file."""
+        connection = self.connection_router.connection_for_parallel_download()
+        raw = connection.download_file(file_id)
+        return FileChangeEventsMessage.from_compressed_data(raw)
+
+    def compact_outbox_if_needed(
+        self,
+        recipient_email: str,
+        min_messages: int = MIN_MESSAGES_COMPACT,
+    ) -> int:
+        """Merge accumulated event-message files in a recipient's outbox into one.
+
+        Compaction downloads them, concatenates their events into one fresh message, and
+        deletes the originals.
+
+        Returns the number of source messages compacted (0 if below threshold,
+        if no outbox folder, or if peer encryption is on — DO can't read
+        peer-encrypted bytes back to merge).
+        """
+        if self.connection_router.peer_store.peer_uses_encryption(recipient_email):
+            print(
+                f"WARNING: outbox compaction for {recipient_email} skipped — "
+                f"peer encryption is not supported yet"
+            )
+            return 0
+
+        conn = self.connection_router.connection_for_outbox()
+        folder_id = conn._get_own_datasite_outbox_id(recipient_email)
+        if folder_id is None:
+            print(
+                f"WARNING: outbox compaction for {recipient_email} skipped — "
+                f"could not resolve outbox folder id"
+            )
+            return 0
+
+        metas = conn.get_file_metadatas_from_folder(folder_id, since_timestamp=None)
+
+        # Keep only well-formed events-message filenames; track timestamps so
+        # we apply events in order in the merged message.
+        parsed: list[tuple[float, str]] = []
+        for m in metas:
+            try:
+                fname = FileChangeEventsMessageFileName.from_string(m["name"])
+            except ValueError:
+                continue
+            parsed.append((fname.timestamp, m["id"]))
+
+        if len(parsed) < min_messages:
+            return 0
+
+        parsed.sort(key=lambda x: x[0])
+
+        # Parallel download. executor.map preserves input order, so messages[i]
+        # corresponds to parsed[i] — no re-zip-and-sort needed since `parsed`
+        # is already timestamp-sorted.
+        file_ids = [fid for _, fid in parsed]
+        messages = list(
+            self._executor.map(
+                self._download_outbox_message_with_new_connection, file_ids
+            )
+        )
+
+        merged_events: list[FileChangeEvent] = []
+        for msg in messages:
+            merged_events.extend(msg.events)
+
+        merged = FileChangeEventsMessage(events=merged_events)
+
+        # Write the merged message FIRST. A DS that pulls between this and
+        # the delete sees `merged ∪ some originals`; its file_hashes cache
+        # makes duplicate events no-op writes.
+        self.connection_router.owner_write_event_messages_to_outbox(
+            recipient_email, merged
+        )
+        conn.delete_multiple_files_by_ids(file_ids)
+        return len(parsed)
+
     def write_file_filesystem(self, path: str, content: str):
         if self.write_files:
             raise NotImplementedError("Writing files to filesystem is not implemented")
@@ -816,23 +933,27 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         Returns:
             The created Checkpoint object.
         """
-        last_event_timestamp = self.event_cache.get_latest_event_timestamp()
-        checkpoint = self.event_cache.create_checkpoint(
-            last_event_timestamp=last_event_timestamp
-        )
-        print(f"Creating full checkpoint with {len(checkpoint.files)} files...")
-        self.connection_router.upload_checkpoint(checkpoint)
+        self._load_rolling_state()
+        try:
+            last_event_timestamp = self.event_cache.get_latest_event_timestamp()
+            checkpoint = self.event_cache.create_checkpoint(
+                last_event_timestamp=last_event_timestamp
+            )
+            print(f"Creating full checkpoint with {len(checkpoint.files)} files...")
+            self.connection_router.upload_checkpoint(checkpoint)
 
-        # Reset rolling state after checkpoint creation
-        self.connection_router.delete_rolling_state()
-        base_timestamp = last_event_timestamp or checkpoint.timestamp
-        self._rolling_state = RollingState(
-            email=self.email,
-            base_checkpoint_timestamp=base_timestamp,
-        )
-        self._events_since_rolling_state_upload = 0
+            # Reset rolling state after checkpoint creation
+            self.connection_router.delete_rolling_state()
+            base_timestamp = last_event_timestamp or checkpoint.timestamp
+            self._rolling_state = RollingState(
+                email=self.email,
+                base_checkpoint_timestamp=base_timestamp,
+            )
+            self._events_since_rolling_state_upload = 0
 
-        return checkpoint
+            return checkpoint
+        finally:
+            self._save_rolling_state()
 
     def should_create_checkpoint(
         self, threshold: int = DEFAULT_CHECKPOINT_EVENT_THRESHOLD
@@ -982,14 +1103,18 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         Returns:
             The created checkpoint (incremental or compacted), or None.
         """
-        result = None
+        self._load_rolling_state()
+        try:
+            result = None
 
-        # First, check if we should create an incremental checkpoint
-        if self.should_create_checkpoint(threshold):
-            result = self.create_incremental_checkpoint()
+            # First, check if we should create an incremental checkpoint
+            if self.should_create_checkpoint(threshold):
+                result = self.create_incremental_checkpoint()
 
-            # After creating, check if we should compact
-            if self.should_compact_checkpoints(compacting_threshold):
-                result = self.compact_checkpoints()
+                # After creating, check if we should compact
+                if self.should_compact_checkpoints(compacting_threshold):
+                    result = self.compact_checkpoints()
 
-        return result
+            return result
+        finally:
+            self._save_rolling_state()

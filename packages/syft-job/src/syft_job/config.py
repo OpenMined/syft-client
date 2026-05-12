@@ -8,6 +8,9 @@ class SyftJobConfig(BaseModel):
 
     syftbox_folder: Path = Field(..., description="Path to SyftBox root folder")
     current_user_email: str = Field(..., description="User email address")
+    has_do_role: bool = Field(
+        default=False, description="Whether the owning manager has the DO role"
+    )
 
     @property
     def syftbox_folder_path_str(self) -> str:
