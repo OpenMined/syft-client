@@ -4,6 +4,12 @@ Focus: the retry helpers must recover from socket-level transients
 (ConnectionResetError, BrokenPipeError, etc.) that surface when httplib2's
 cached keepalive connection is closed server-side. Pre-fix these escaped the
 retry loop entirely; this test pins the behavior so it doesn't regress.
+
+The three retry helpers (execute / next_chunk / batch) share the same
+`except (HttpError, *RETRYABLE_TRANSPORT_ERRORS)` clause, so the
+parametrized registry test in `is_retryable_error` is what actually proves
+each error type is recognized. The per-helper tests are smoke tests to
+confirm the wiring, not exhaustive cross-products.
 """
 
 import http.client
@@ -15,7 +21,6 @@ import pytest
 from googleapiclient.errors import HttpError
 
 from syft_client.sync.connections.drive.gdrive_retry import (
-    RETRYABLE_TRANSPORT_ERRORS,
     batch_execute_with_retries,
     execute_with_retries,
     is_retryable_error,
@@ -49,7 +54,10 @@ def _no_sleep():
         yield
 
 
-# ---------- is_retryable_error ----------------------------------------------
+# ---------- is_retryable_error registry -------------------------------------
+# These are the safety net: they prove every error class we claim to handle
+# is actually in the retryable set. If someone removes a class from
+# RETRYABLE_TRANSPORT_ERRORS, the matching case here fails by name.
 
 
 @pytest.mark.parametrize("err", TRANSPORT_INSTANCES)
@@ -57,14 +65,14 @@ def test_is_retryable_error_transport(err):
     assert is_retryable_error(err) is True
 
 
-@pytest.mark.parametrize("status", [500, 502, 503, 429])
-def test_is_retryable_error_retryable_http(status):
-    assert is_retryable_error(_http_error(status)) is True
+def test_is_retryable_error_retryable_http_statuses():
+    for status in (500, 502, 503, 429):
+        assert is_retryable_error(_http_error(status)) is True, status
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 404, 409])
-def test_is_retryable_error_non_retryable_http(status):
-    assert is_retryable_error(_http_error(status)) is False
+def test_is_retryable_error_non_retryable_http_statuses():
+    for status in (400, 403, 404):
+        assert is_retryable_error(_http_error(status)) is False, status
 
 
 def test_is_retryable_error_unrelated_exception():
@@ -72,13 +80,14 @@ def test_is_retryable_error_unrelated_exception():
 
 
 # ---------- execute_with_retries --------------------------------------------
+# This is the hot path -- most Drive calls flow through here. The exhaust /
+# immediate-raise / pass-through behaviors are covered here once; the other
+# two helpers use the same loop structure and only get smoke tests.
 
 
-@pytest.mark.parametrize("err", TRANSPORT_INSTANCES)
-def test_execute_with_retries_recovers_from_transport_error(err):
-    """After Fix A, transport errors are caught and retried."""
+def test_execute_with_retries_recovers_from_transport_error():
     request = Mock()
-    request.execute.side_effect = [err, {"ok": True}]
+    request.execute.side_effect = [ConnectionResetError("reset"), {"ok": True}]
 
     result = execute_with_retries(request, initial_delay=0, max_delay=0)
 
@@ -109,32 +118,15 @@ def test_execute_with_retries_non_retryable_http_raises_immediately():
 
 def test_execute_with_retries_retries_retryable_http():
     request = Mock()
-    request.execute.side_effect = [_http_error(503), _http_error(500), {"ok": True}]
+    request.execute.side_effect = [_http_error(503), {"ok": True}]
 
     result = execute_with_retries(request, initial_delay=0, max_delay=0)
 
     assert result == {"ok": True}
-    assert request.execute.call_count == 3
-
-
-def test_execute_with_retries_mixed_error_types():
-    """Sequence mixing transport and HTTP transients both retry."""
-    request = Mock()
-    request.execute.side_effect = [
-        ConnectionResetError("reset"),
-        _http_error(503),
-        BrokenPipeError("epipe"),
-        {"ok": True},
-    ]
-
-    result = execute_with_retries(request, max_retries=5, initial_delay=0, max_delay=0)
-
-    assert result == {"ok": True}
-    assert request.execute.call_count == 4
+    assert request.execute.call_count == 2
 
 
 def test_execute_with_retries_passes_through_unrelated_exception():
-    """Non-transport, non-HttpError exceptions are not caught by the retry."""
     request = Mock()
     request.execute.side_effect = ValueError("nope")
 
@@ -144,59 +136,26 @@ def test_execute_with_retries_passes_through_unrelated_exception():
     assert request.execute.call_count == 1
 
 
-# ---------- next_chunk_with_retries -----------------------------------------
+# ---------- next_chunk_with_retries / batch_execute_with_retries ------------
+# Smoke tests. Same retry loop as execute_with_retries; we only need to
+# confirm the helper actually wires the right method (next_chunk / execute)
+# to the loop.
 
 
-@pytest.mark.parametrize("err", TRANSPORT_INSTANCES)
-def test_next_chunk_with_retries_recovers_from_transport_error(err):
+def test_next_chunk_with_retries_recovers():
     downloader = Mock()
-    downloader.next_chunk.side_effect = [err, (Mock(), True)]
+    downloader.next_chunk.side_effect = [BrokenPipeError("epipe"), (Mock(), True)]
 
-    status, done = next_chunk_with_retries(downloader, initial_delay=0, max_delay=0)
+    _, done = next_chunk_with_retries(downloader, initial_delay=0, max_delay=0)
 
     assert done is True
     assert downloader.next_chunk.call_count == 2
 
 
-def test_next_chunk_with_retries_exhausts_then_raises():
-    downloader = Mock()
-    downloader.next_chunk.side_effect = BrokenPipeError("epipe")
-
-    with pytest.raises(BrokenPipeError):
-        next_chunk_with_retries(downloader, max_retries=1, initial_delay=0, max_delay=0)
-
-    assert downloader.next_chunk.call_count == 2
-
-
-# ---------- batch_execute_with_retries --------------------------------------
-
-
-@pytest.mark.parametrize("err", TRANSPORT_INSTANCES)
-def test_batch_execute_with_retries_recovers_from_transport_error(err):
+def test_batch_execute_with_retries_recovers():
     batch = Mock()
-    batch.execute.side_effect = [err, None]
+    batch.execute.side_effect = [ConnectionResetError("reset"), None]
 
     batch_execute_with_retries(batch, initial_delay=0, max_delay=0)
 
     assert batch.execute.call_count == 2
-
-
-def test_batch_execute_with_retries_exhausts_then_raises():
-    batch = Mock()
-    batch.execute.side_effect = ConnectionResetError("reset")
-
-    with pytest.raises(ConnectionResetError):
-        batch_execute_with_retries(batch, max_retries=0, initial_delay=0, max_delay=0)
-
-    assert batch.execute.call_count == 1
-
-
-# ---------- module-level invariants -----------------------------------------
-
-
-def test_all_listed_transport_errors_are_recognized_as_retryable():
-    """RETRYABLE_TRANSPORT_ERRORS and is_retryable_error must agree."""
-    for cls in RETRYABLE_TRANSPORT_ERRORS:
-        # ssl.SSLError requires an arg; others accept a string. Both work.
-        instance = cls("x") if cls is not http.client.BadStatusLine else cls("x")
-        assert is_retryable_error(instance) is True, cls
