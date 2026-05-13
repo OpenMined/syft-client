@@ -71,11 +71,11 @@ def credentials_to_token(
     Returns:
         Path to the written token file.
     """
-    credentials_path = Path(credentials_path)
+    credentials_path = Path(credentials_path).expanduser()
     if output_path is None:
         output_path = credentials_path.parent / "token.json"
     else:
-        output_path = Path(output_path)
+        output_path = Path(output_path).expanduser()
 
     scopes = DO_SCOPES if do_scopes else GDRIVE_SCOPES
     flow = InstalledAppFlow.from_client_secrets_file(
