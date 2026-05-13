@@ -9,7 +9,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pandas",
     "psutil",
-    "syft-perms==0.1.11",
+    "syft-perms==0.1.12",
 ]
 
 [project.scripts]
