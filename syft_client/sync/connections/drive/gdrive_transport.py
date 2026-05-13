@@ -24,6 +24,7 @@ from syft_client.sync.connections.drive.gdrive_retry import (
     next_chunk_with_retries,
     batch_execute_with_retries,
 )
+from syft_client.sync.version.version_info import _parse_semver
 
 from syft_client.sync.connections.base_connection import (
     FileCollection,
@@ -195,6 +196,42 @@ class PrivateDatasetCollectionFolder(BaseModel):
         from syft_client.sync.file_utils import compute_file_hashes
 
         return compute_file_hashes(files)
+
+
+# Parsers extract the embedded SYFT_CLIENT_VERSION from a folder name, or
+# return None if the name doesn't match the expected shape. Used by
+# _find_compatible_versioned_folder to find folders created by peers/sessions
+# on a different patch version.
+
+
+def _p2p_folder_version(name: str) -> str | None:
+    parts = name.split("#")
+    if len(parts) != 5 or parts[0] != GDRIVE_P2P_FOLDER_DATASITE_PREFIX:
+        return None
+    return parts[1]
+
+
+def _personal_syftbox_folder_version(name: str) -> str | None:
+    parts = name.split("#")
+    if len(parts) != 2 or "@" in parts[0]:
+        return None
+    return parts[0]
+
+
+def _checkpoints_folder_version(name: str, email: str) -> str | None:
+    prefix = f"{email}-"
+    suffix = "-checkpoints"
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        return None
+    return name[len(prefix) : -len(suffix)]
+
+
+def _rolling_state_folder_version(name: str, email: str) -> str | None:
+    prefix = f"{email}-"
+    suffix = "-rolling-state"
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        return None
+    return name[len(prefix) : -len(suffix)]
 
 
 class GDriveConnection(SyftboxPlatformConnection):
@@ -760,19 +797,17 @@ class GDriveConnection(SyftboxPlatformConnection):
         """/SyftBox/{version}#{email}"""
         if self._personal_syftbox_folder_id:
             return self._personal_syftbox_folder_id
-        else:
-            syftbox_folder_id = self.get_syftbox_folder_id()
-            folder_name = GdrivePersonalSyftboxFolder(email=self.email).as_string()
-            personal_syftbox_folder_id = self._find_folder_by_name(
-                folder_name,
-                parent_id=syftbox_folder_id,
-                owner_email=self.email,
-            )
-            if personal_syftbox_folder_id:
-                self._personal_syftbox_folder_id = personal_syftbox_folder_id
-                return self._personal_syftbox_folder_id
-            else:
-                return self.create_personal_syftbox_folder()
+        syftbox_folder_id = self.get_syftbox_folder_id()
+        personal_syftbox_folder_id = self._find_compatible_versioned_folder(
+            name_contains=[f"#{self.email}"],
+            parse_version=_personal_syftbox_folder_version,
+            parent_id=syftbox_folder_id,
+            owner_email=self.email,
+        )
+        if personal_syftbox_folder_id:
+            self._personal_syftbox_folder_id = personal_syftbox_folder_id
+            return self._personal_syftbox_folder_id
+        return self.create_personal_syftbox_folder()
 
     def get_syftbox_folder_id(self) -> str:
         """/SyftBox"""
@@ -982,16 +1017,31 @@ class GDriveConnection(SyftboxPlatformConnection):
         msg.platform_id = file_id
         return msg
 
+    def _find_p2p_folder_id(
+        self,
+        datasite_email: str,
+        folder_type: str,
+        peer_email: str,
+        owner_email: str,
+    ) -> str | None:
+        return self._find_compatible_versioned_folder(
+            name_contains=[
+                f"{GDRIVE_P2P_FOLDER_DATASITE_PREFIX}#",
+                f"#{datasite_email}#{folder_type}#{peer_email}",
+            ],
+            parse_version=_p2p_folder_version,
+            owner_email=owner_email,
+        )
+
     def _get_peer_datasite_inbox_id(self, peer_email: str) -> str | None:
         """Get folder: syft_datasite_{peer}_inbox_{self}, owned by self."""
         if peer_email in self.peer_datasite_inbox_cache:
             return self.peer_datasite_inbox_cache[peer_email]
-
-        folder = GdriveP2PFolder(
-            datasite_email=peer_email, folder_type="inbox", peer_email=self.email
-        )
-        folder_id = self._find_folder_by_name(
-            folder.as_string(), owner_email=self.email
+        folder_id = self._find_p2p_folder_id(
+            datasite_email=peer_email,
+            folder_type="inbox",
+            peer_email=self.email,
+            owner_email=self.email,
         )
         if folder_id is not None:
             self.peer_datasite_inbox_cache[peer_email] = folder_id
@@ -1001,12 +1051,11 @@ class GDriveConnection(SyftboxPlatformConnection):
         """Get folder: syft_datasite_{peer}_outbox_{self}, owned by self."""
         if peer_email in self.peer_datasite_outbox_cache:
             return self.peer_datasite_outbox_cache[peer_email]
-
-        folder = GdriveP2PFolder(
-            datasite_email=peer_email, folder_type="outbox", peer_email=self.email
-        )
-        folder_id = self._find_folder_by_name(
-            folder.as_string(), owner_email=self.email
+        folder_id = self._find_p2p_folder_id(
+            datasite_email=peer_email,
+            folder_type="outbox",
+            peer_email=self.email,
+            owner_email=self.email,
         )
         if folder_id is not None:
             self.peer_datasite_outbox_cache[peer_email] = folder_id
@@ -1016,12 +1065,11 @@ class GDriveConnection(SyftboxPlatformConnection):
         """Get folder: syft_datasite_{self}_inbox_{peer}, owned by peer."""
         if peer_email in self.own_datasite_inbox_cache:
             return self.own_datasite_inbox_cache[peer_email]
-
-        folder = GdriveP2PFolder(
-            datasite_email=self.email, folder_type="inbox", peer_email=peer_email
-        )
-        folder_id = self._find_folder_by_name(
-            folder.as_string(), owner_email=peer_email
+        folder_id = self._find_p2p_folder_id(
+            datasite_email=self.email,
+            folder_type="inbox",
+            peer_email=peer_email,
+            owner_email=peer_email,
         )
         if folder_id is not None:
             self.own_datasite_inbox_cache[peer_email] = folder_id
@@ -1031,12 +1079,11 @@ class GDriveConnection(SyftboxPlatformConnection):
         """Get folder: syft_datasite_{self}_outbox_{peer}, owned by peer."""
         if peer_email in self.own_datasite_outbox_cache:
             return self.own_datasite_outbox_cache[peer_email]
-
-        folder = GdriveP2PFolder(
-            datasite_email=self.email, folder_type="outbox", peer_email=peer_email
-        )
-        folder_id = self._find_folder_by_name(
-            folder.as_string(), owner_email=peer_email
+        folder_id = self._find_p2p_folder_id(
+            datasite_email=self.email,
+            folder_type="outbox",
+            peer_email=peer_email,
+            owner_email=peer_email,
         )
         if folder_id is not None:
             self.own_datasite_outbox_cache[peer_email] = folder_id
@@ -1308,6 +1355,81 @@ class GDriveConnection(SyftboxPlatformConnection):
         )
         items = results.get("files", [])
         return items[0]["id"] if items else None
+
+    def _find_compatible_versioned_folder(
+        self,
+        *,
+        name_contains: list[str],
+        parse_version,  # Callable[[str], str | None]
+        parent_id: str | None = None,
+        owner_email: str | None = None,
+    ) -> Optional[str]:
+        """Find the folder whose embedded version is patch-compatible with the current client.
+
+        Folder names embed SYFT_CLIENT_VERSION (e.g. "0.1.114"), but
+        VersionInfo.is_compatible_with treats patch differences as compatible,
+        so exact-name lookup misses folders from a different patch. This helper
+        queries Drive with stable substrings, parses each candidate's version,
+        and filters to those whose major.minor matches the current client.
+
+        Exactly one compatible folder is expected per (caller, identity) pairing.
+        Returns its id if found, None if not (caller creates). Raises
+        RuntimeError if more than one is found — auto-picking risks orphaning
+        data, so the user must reconcile manually on Drive.
+        """
+        try:
+            cur_major, cur_minor, _ = _parse_semver(SYFT_CLIENT_VERSION)
+        except ValueError:
+            return None
+
+        clauses = [
+            f"mimeType='{GOOGLE_FOLDER_MIME_TYPE}'",
+            "trashed=false",
+        ]
+        for substr in name_contains:
+            clauses.append(f"name contains '{substr}'")
+        if parent_id:
+            clauses.append(f"'{parent_id}' in parents")
+        if owner_email:
+            clauses.append(f"'{owner_email}' in owners")
+        query = " and ".join(clauses)
+
+        candidates: list[tuple[str, str]] = []
+        page_token = None
+        while True:
+            results = execute_with_retries(
+                self.drive_service.files().list(
+                    q=query,
+                    fields="files(id, name), nextPageToken",
+                    pageToken=page_token,
+                )
+            )
+            for f in results.get("files", []):
+                version = parse_version(f["name"])
+                if version is None:
+                    continue
+                try:
+                    major, minor, _ = _parse_semver(version)
+                except ValueError:
+                    continue
+                if major != cur_major or minor != cur_minor:
+                    continue
+                candidates.append((f["id"], f["name"]))
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0][0]
+        names = [c[1] for c in candidates]
+        raise RuntimeError(
+            f"Found {len(candidates)} compatible folders on Drive: {names}. "
+            f"Exactly one is expected. This usually indicates a stale folder "
+            f"left behind by a prior client version. Please delete the stale "
+            f"folder(s) on Drive (keeping the one with your data) and retry."
+        )
 
     def download_file(self, file_id: str) -> bytes:
         request = self.drive_service.files().get_media(fileId=file_id)
@@ -1801,15 +1923,12 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     def _get_checkpoints_folder_id(self) -> str | None:
         """Find the checkpoints folder ID from Google Drive."""
-        folder_name = self._get_checkpoints_folder_name()
         syftbox_folder_id = self.get_syftbox_folder_id()
-        query = (
-            f"name='{folder_name}' and mimeType='{GOOGLE_FOLDER_MIME_TYPE}' "
-            f"and '{syftbox_folder_id}' in parents and trashed=false"
+        return self._find_compatible_versioned_folder(
+            name_contains=[f"{self.email}-", "-checkpoints"],
+            parse_version=lambda n: _checkpoints_folder_version(n, self.email),
+            parent_id=syftbox_folder_id,
         )
-        results = self.drive_service.files().list(q=query, fields="files(id)").execute()
-        items = results.get("files", [])
-        return items[0]["id"] if items else None
 
     def _get_or_create_checkpoints_folder_id(self) -> str:
         """Get or create the checkpoints folder."""
@@ -2108,18 +2227,15 @@ class GDriveConnection(SyftboxPlatformConnection):
         if use_cache and self._rolling_state_folder_id is not None:
             return self._rolling_state_folder_id
 
-        folder_name = self._get_rolling_state_folder_name()
         syftbox_folder_id = self.get_syftbox_folder_id()
-        query = (
-            f"name='{folder_name}' and mimeType='{GOOGLE_FOLDER_MIME_TYPE}' "
-            f"and '{syftbox_folder_id}' in parents and trashed=false"
+        folder_id = self._find_compatible_versioned_folder(
+            name_contains=[f"{self.email}-", "-rolling-state"],
+            parse_version=lambda n: _rolling_state_folder_version(n, self.email),
+            parent_id=syftbox_folder_id,
         )
-        results = self.drive_service.files().list(q=query, fields="files(id)").execute()
-        items = results.get("files", [])
-        if items:
-            self._rolling_state_folder_id = items[0]["id"]
-            return self._rolling_state_folder_id
-        return None
+        if folder_id is not None:
+            self._rolling_state_folder_id = folder_id
+        return folder_id
 
     def _get_or_create_rolling_state_folder_id(self) -> str:
         """Get or create the rolling state folder."""
