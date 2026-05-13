@@ -198,40 +198,54 @@ class PrivateDatasetCollectionFolder(BaseModel):
         return compute_file_hashes(files)
 
 
-# Parsers extract the embedded SYFT_CLIENT_VERSION from a folder name, or
-# return None if the name doesn't match the expected shape. Used by
-# _find_compatible_versioned_folder to find folders created by peers/sessions
-# on a different patch version.
+# Helpers for finding folders whose names embed SYFT_CLIENT_VERSION. Folder
+# names use '#' or '-' as field separators with the version as one field,
+# so we walk those fields looking for an X.Y.Z-shaped chunk -- no per-format
+# parser needed. Patch-compat means same major.minor (matches the protocol
+# definition in version_info.is_compatible_with).
 
 
-def _p2p_folder_version(name: str) -> str | None:
-    parts = name.split("#")
-    if len(parts) != 5 or parts[0] != GDRIVE_P2P_FOLDER_DATASITE_PREFIX:
-        return None
-    return parts[1]
+def _looks_like_version(s: str) -> bool:
+    """True if s is shaped like 'X.Y.Z' with all numeric parts."""
+    parts = s.split(".")
+    return len(parts) == 3 and all(p.isdigit() for p in parts)
 
 
-def _personal_syftbox_folder_version(name: str) -> str | None:
-    parts = name.split("#")
-    if len(parts) != 2 or "@" in parts[0]:
-        return None
-    return parts[0]
+def _extract_version_from_name(name: str) -> str | None:
+    """Return the first '#'/'-'-separated field that looks like a semver."""
+    for chunk in name.replace("-", "#").split("#"):
+        if _looks_like_version(chunk):
+            return chunk
+    return None
 
 
-def _checkpoints_folder_version(name: str, email: str) -> str | None:
-    prefix = f"{email}-"
-    suffix = "-checkpoints"
-    if not name.startswith(prefix) or not name.endswith(suffix):
-        return None
-    return name[len(prefix) : -len(suffix)]
+def _filter_patch_compatible(
+    folders: list[tuple[str, str]],
+    current_version: str | None = None,
+) -> list[tuple[str, str]]:
+    """Keep folders whose embedded version has matching major.minor.
 
-
-def _rolling_state_folder_version(name: str, email: str) -> str | None:
-    prefix = f"{email}-"
-    suffix = "-rolling-state"
-    if not name.startswith(prefix) or not name.endswith(suffix):
-        return None
-    return name[len(prefix) : -len(suffix)]
+    `current_version` defaults to the module-level SYFT_CLIENT_VERSION at call
+    time (not import time) so tests that patch the version take effect.
+    """
+    if current_version is None:
+        current_version = SYFT_CLIENT_VERSION
+    try:
+        cur_major, cur_minor, _ = _parse_semver(current_version)
+    except ValueError:
+        return []
+    kept: list[tuple[str, str]] = []
+    for fid, name in folders:
+        version_str = _extract_version_from_name(name)
+        if version_str is None:
+            continue
+        try:
+            major, minor, _ = _parse_semver(version_str)
+        except ValueError:
+            continue
+        if major == cur_major and minor == cur_minor:
+            kept.append((fid, name))
+    return kept
 
 
 class GDriveConnection(SyftboxPlatformConnection):
@@ -797,16 +811,19 @@ class GDriveConnection(SyftboxPlatformConnection):
         """/SyftBox/{version}#{email}"""
         if self._personal_syftbox_folder_id:
             return self._personal_syftbox_folder_id
-        syftbox_folder_id = self.get_syftbox_folder_id()
-        personal_syftbox_folder_id = self._find_compatible_versioned_folder(
+        folders = self._find_folders(
             name_contains=[f"#{self.email}"],
-            parse_version=_personal_syftbox_folder_version,
-            parent_id=syftbox_folder_id,
+            parent_id=self.get_syftbox_folder_id(),
             owner_email=self.email,
         )
-        if personal_syftbox_folder_id:
-            self._personal_syftbox_folder_id = personal_syftbox_folder_id
-            return self._personal_syftbox_folder_id
+        # The substring '#{email}' also matches p2p folder names that end in
+        # '#{peer}#{type}#{email}'. Personal folder shape is exactly
+        # '{version}#{email}', so require a single '#'.
+        folders = [(fid, name) for fid, name in folders if name.count("#") == 1]
+        folder_id = self._expect_one(_filter_patch_compatible(folders))
+        if folder_id:
+            self._personal_syftbox_folder_id = folder_id
+            return folder_id
         return self.create_personal_syftbox_folder()
 
     def get_syftbox_folder_id(self) -> str:
@@ -1024,14 +1041,14 @@ class GDriveConnection(SyftboxPlatformConnection):
         peer_email: str,
         owner_email: str,
     ) -> str | None:
-        return self._find_compatible_versioned_folder(
+        folders = self._find_folders(
             name_contains=[
                 f"{GDRIVE_P2P_FOLDER_DATASITE_PREFIX}#",
                 f"#{datasite_email}#{folder_type}#{peer_email}",
             ],
-            parse_version=_p2p_folder_version,
             owner_email=owner_email,
         )
+        return self._expect_one(_filter_patch_compatible(folders))
 
     def _get_peer_datasite_inbox_id(self, peer_email: str) -> str | None:
         """Get folder: syft_datasite_{peer}_inbox_{self}, owned by self."""
@@ -1356,36 +1373,20 @@ class GDriveConnection(SyftboxPlatformConnection):
         items = results.get("files", [])
         return items[0]["id"] if items else None
 
-    def _find_compatible_versioned_folder(
+    def _find_folders(
         self,
         *,
-        name_contains: list[str],
-        parse_version,  # Callable[[str], str | None]
+        name_contains: list[str] = (),
         parent_id: str | None = None,
         owner_email: str | None = None,
-    ) -> Optional[str]:
-        """Find the folder whose embedded version is patch-compatible with the current client.
+    ) -> list[tuple[str, str]]:
+        """List folders matching the constraints. Returns (id, name) pairs.
 
-        Folder names embed SYFT_CLIENT_VERSION (e.g. "0.1.114"), but
-        VersionInfo.is_compatible_with treats patch differences as compatible,
-        so exact-name lookup misses folders from a different patch. This helper
-        queries Drive with stable substrings, parses each candidate's version,
-        and filters to those whose major.minor matches the current client.
-
-        Exactly one compatible folder is expected per (caller, identity) pairing.
-        Returns its id if found, None if not (caller creates). Raises
-        RuntimeError if more than one is found — auto-picking risks orphaning
-        data, so the user must reconcile manually on Drive.
+        Thin wrapper over Drive's files.list -- handles query building and
+        pagination, knows nothing about versions. Pair with
+        _filter_patch_compatible when the caller cares about version compat.
         """
-        try:
-            cur_major, cur_minor, _ = _parse_semver(SYFT_CLIENT_VERSION)
-        except ValueError:
-            return None
-
-        clauses = [
-            f"mimeType='{GOOGLE_FOLDER_MIME_TYPE}'",
-            "trashed=false",
-        ]
+        clauses = [f"mimeType='{GOOGLE_FOLDER_MIME_TYPE}'", "trashed=false"]
         for substr in name_contains:
             clauses.append(f"name contains '{substr}'")
         if parent_id:
@@ -1394,38 +1395,35 @@ class GDriveConnection(SyftboxPlatformConnection):
             clauses.append(f"'{owner_email}' in owners")
         query = " and ".join(clauses)
 
-        candidates: list[tuple[str, str]] = []
+        out: list[tuple[str, str]] = []
         page_token = None
         while True:
-            results = execute_with_retries(
+            page = execute_with_retries(
                 self.drive_service.files().list(
                     q=query,
                     fields="files(id, name), nextPageToken",
                     pageToken=page_token,
                 )
             )
-            for f in results.get("files", []):
-                version = parse_version(f["name"])
-                if version is None:
-                    continue
-                try:
-                    major, minor, _ = _parse_semver(version)
-                except ValueError:
-                    continue
-                if major != cur_major or minor != cur_minor:
-                    continue
-                candidates.append((f["id"], f["name"]))
-            page_token = results.get("nextPageToken")
+            out.extend((f["id"], f["name"]) for f in page.get("files", []))
+            page_token = page.get("nextPageToken")
             if not page_token:
                 break
+        return out
 
-        if not candidates:
+    def _expect_one(self, folders: list[tuple[str, str]]) -> str | None:
+        """Return the single folder id, None if empty, raise if more than one.
+
+        Auto-picking from multiple matches risks orphaning data, so the user
+        must reconcile on Drive themselves.
+        """
+        if not folders:
             return None
-        if len(candidates) == 1:
-            return candidates[0][0]
-        names = [c[1] for c in candidates]
+        if len(folders) == 1:
+            return folders[0][0]
+        names = [n for _, n in folders]
         raise RuntimeError(
-            f"Found {len(candidates)} compatible folders on Drive: {names}. "
+            f"Found {len(folders)} compatible folders on Drive: {names}. "
             f"Exactly one is expected. This usually indicates a stale folder "
             f"left behind by a prior client version. Please delete the stale "
             f"folder(s) on Drive (keeping the one with your data) and retry."
@@ -1923,12 +1921,11 @@ class GDriveConnection(SyftboxPlatformConnection):
 
     def _get_checkpoints_folder_id(self) -> str | None:
         """Find the checkpoints folder ID from Google Drive."""
-        syftbox_folder_id = self.get_syftbox_folder_id()
-        return self._find_compatible_versioned_folder(
+        folders = self._find_folders(
             name_contains=[f"{self.email}-", "-checkpoints"],
-            parse_version=lambda n: _checkpoints_folder_version(n, self.email),
-            parent_id=syftbox_folder_id,
+            parent_id=self.get_syftbox_folder_id(),
         )
+        return self._expect_one(_filter_patch_compatible(folders))
 
     def _get_or_create_checkpoints_folder_id(self) -> str:
         """Get or create the checkpoints folder."""
@@ -2227,12 +2224,11 @@ class GDriveConnection(SyftboxPlatformConnection):
         if use_cache and self._rolling_state_folder_id is not None:
             return self._rolling_state_folder_id
 
-        syftbox_folder_id = self.get_syftbox_folder_id()
-        folder_id = self._find_compatible_versioned_folder(
+        folders = self._find_folders(
             name_contains=[f"{self.email}-", "-rolling-state"],
-            parse_version=lambda n: _rolling_state_folder_version(n, self.email),
-            parent_id=syftbox_folder_id,
+            parent_id=self.get_syftbox_folder_id(),
         )
+        folder_id = self._expect_one(_filter_patch_compatible(folders))
         if folder_id is not None:
             self._rolling_state_folder_id = folder_id
         return folder_id
