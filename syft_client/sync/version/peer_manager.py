@@ -3,6 +3,7 @@ PeerManager for managing peers, version information, and compatibility checks.
 """
 
 import json
+import logging
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
@@ -28,6 +29,8 @@ from syft_client.sync.version.exceptions import (
     VersionUnknownError,
 )
 from syft_client.sync.version.version_info import CompatibilityStatus, VersionInfo
+
+logger = logging.getLogger(__name__)
 
 
 class CompatAction(str, Enum):
@@ -55,8 +58,13 @@ class PeerCompatibilityResult(BaseModel):
     local_version: Optional[VersionInfo] = None
     peer_version: Optional[VersionInfo] = None
 
+    # TODO: rename `maybe_warn` -> `maybe_log` and `suppress_version_warnings`
+    # -> `suppress_version_logs`. The body now emits via logger.info() rather
+    # than warnings.warn(), so the "warn" naming is misleading. Held off on
+    # the rename to keep this change minimal; do it in a follow-up that
+    # updates the public API and all call sites.
     def maybe_warn(self) -> None:
-        """Emit a warning, picking explanation_skip vs explanation_not_skip.
+        """Emit an INFO log, picking explanation_skip vs explanation_not_skip.
 
         Appends an override hint only when skipping. Respects
         suppress_version_warnings.
@@ -65,11 +73,11 @@ class PeerCompatibilityResult(BaseModel):
             return
         elif self.should_skip:
             if self.explanation_skip:
-                warnings.warn(
+                logger.info(
                     f"{self.explanation_skip} Use ignore_peer_version=True to override."
                 )
         elif self.explanation_not_skip:
-            warnings.warn(self.explanation_not_skip)
+            logger.info(self.explanation_not_skip)
 
     def raise_on_skip(self, operation: str) -> None:
         """Raise the appropriate VersionError if `should_skip` is True."""
