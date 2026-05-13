@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr
+from pydantic import BaseModel, ConfigDict, PrivateAttr, model_validator
 
 from syft_client.sync.connections.base_connection import ConnectionConfig
 from syft_client.sync.connections.connection_router import ConnectionRouter
@@ -104,6 +104,15 @@ class PeerManagerConfig(BaseModel):
     has_do_role: bool = False
     has_ds_role: bool = False
     use_encryption: bool = False
+    # None means "default by role" — resolved in the model_validator below
+    # to True for DOs (has_do_role) and False for DS-only managers.
+    skip_on_patch_version_difference: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def _default_skip_on_patch(self) -> "PeerManagerConfig":
+        if self.skip_on_patch_version_difference is None:
+            self.skip_on_patch_version_difference = self.has_do_role
+        return self
 
 
 class PeerManager(BaseModel):
@@ -120,6 +129,7 @@ class PeerManager(BaseModel):
     n_threads: int = 10
     has_do_role: bool = False
     has_ds_role: bool = False
+    skip_on_patch_version_difference: bool = False
 
     _own_version: Optional[VersionInfo] = PrivateAttr(default=None)
     _executor: Optional[ThreadPoolExecutor] = PrivateAttr(default=None)
@@ -168,6 +178,9 @@ class PeerManager(BaseModel):
             n_threads=config.n_threads,
             has_do_role=config.has_do_role,
             has_ds_role=config.has_ds_role,
+            skip_on_patch_version_difference=bool(
+                config.skip_on_patch_version_difference
+            ),
         )
 
     def model_post_init(self, __context) -> None:
@@ -296,6 +309,22 @@ class PeerManager(BaseModel):
                 if peer_version is not None
                 else None
             )
+            if self.skip_on_patch_version_difference:
+                effective_ignore = self.force_ignore_peer_version or ignore_peer_version
+                if effective_ignore:
+                    return PeerCompatibilityResult(
+                        should_skip=False,
+                        explanation_not_skip=(
+                            f"Proceeding anyway to {action.value} for peer "
+                            f"{peer_email}: {patch_text}."
+                        ),
+                        **common,
+                    )
+                return PeerCompatibilityResult(
+                    should_skip=True,
+                    explanation_skip=f"Skipping peer {peer_email}: {patch_text}.",
+                    **common,
+                )
             explanation_not_skip = (
                 f"Peer {peer_email}: {patch_text}" if patch_text else None
             )
