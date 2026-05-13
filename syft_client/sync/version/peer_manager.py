@@ -3,13 +3,14 @@ PeerManager for managing peers, version information, and compatibility checks.
 """
 
 import json
+import logging
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr
+from pydantic import BaseModel, ConfigDict, PrivateAttr, model_validator
 
 from syft_client.sync.connections.base_connection import ConnectionConfig
 from syft_client.sync.connections.connection_router import ConnectionRouter
@@ -28,6 +29,8 @@ from syft_client.sync.version.exceptions import (
     VersionUnknownError,
 )
 from syft_client.sync.version.version_info import CompatibilityStatus, VersionInfo
+
+logger = logging.getLogger(__name__)
 
 
 class CompatAction(str, Enum):
@@ -55,8 +58,13 @@ class PeerCompatibilityResult(BaseModel):
     local_version: Optional[VersionInfo] = None
     peer_version: Optional[VersionInfo] = None
 
+    # TODO: rename `maybe_warn` -> `maybe_log` and `suppress_version_warnings`
+    # -> `suppress_version_logs`. The body now emits via logger.info() rather
+    # than warnings.warn(), so the "warn" naming is misleading. Held off on
+    # the rename to keep this change minimal; do it in a follow-up that
+    # updates the public API and all call sites.
     def maybe_warn(self) -> None:
-        """Emit a warning, picking explanation_skip vs explanation_not_skip.
+        """Emit an INFO log, picking explanation_skip vs explanation_not_skip.
 
         Appends an override hint only when skipping. Respects
         suppress_version_warnings.
@@ -65,11 +73,11 @@ class PeerCompatibilityResult(BaseModel):
             return
         elif self.should_skip:
             if self.explanation_skip:
-                warnings.warn(
+                logger.info(
                     f"{self.explanation_skip} Use ignore_peer_version=True to override."
                 )
         elif self.explanation_not_skip:
-            warnings.warn(self.explanation_not_skip)
+            logger.info(self.explanation_not_skip)
 
     def raise_on_skip(self, operation: str) -> None:
         """Raise the appropriate VersionError if `should_skip` is True."""
@@ -96,6 +104,15 @@ class PeerManagerConfig(BaseModel):
     has_do_role: bool = False
     has_ds_role: bool = False
     use_encryption: bool = False
+    # None means "default by role" — resolved in the model_validator below
+    # to True for DOs (has_do_role) and False for DS-only managers.
+    skip_on_patch_version_difference: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def _default_skip_on_patch(self) -> "PeerManagerConfig":
+        if self.skip_on_patch_version_difference is None:
+            self.skip_on_patch_version_difference = self.has_do_role
+        return self
 
 
 class PeerManager(BaseModel):
@@ -112,6 +129,7 @@ class PeerManager(BaseModel):
     n_threads: int = 10
     has_do_role: bool = False
     has_ds_role: bool = False
+    skip_on_patch_version_difference: bool = False
 
     _own_version: Optional[VersionInfo] = PrivateAttr(default=None)
     _executor: Optional[ThreadPoolExecutor] = PrivateAttr(default=None)
@@ -160,6 +178,9 @@ class PeerManager(BaseModel):
             n_threads=config.n_threads,
             has_do_role=config.has_do_role,
             has_ds_role=config.has_ds_role,
+            skip_on_patch_version_difference=bool(
+                config.skip_on_patch_version_difference
+            ),
         )
 
     def model_post_init(self, __context) -> None:
@@ -288,6 +309,22 @@ class PeerManager(BaseModel):
                 if peer_version is not None
                 else None
             )
+            if self.skip_on_patch_version_difference:
+                effective_ignore = self.force_ignore_peer_version or ignore_peer_version
+                if effective_ignore:
+                    return PeerCompatibilityResult(
+                        should_skip=False,
+                        explanation_not_skip=(
+                            f"Proceeding anyway to {action.value} for peer "
+                            f"{peer_email}: {patch_text}."
+                        ),
+                        **common,
+                    )
+                return PeerCompatibilityResult(
+                    should_skip=True,
+                    explanation_skip=f"Skipping peer {peer_email}: {patch_text}.",
+                    **common,
+                )
             explanation_not_skip = (
                 f"Peer {peer_email}: {patch_text}" if patch_text else None
             )
