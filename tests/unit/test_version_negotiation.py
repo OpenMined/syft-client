@@ -12,22 +12,6 @@ from syft_client.sync.version.peer_manager import CompatAction
 from syft_client.sync.version.version_info import CompatibilityStatus, VersionInfo
 
 
-@pytest.fixture
-def syft_caplog(caplog):
-    """Capture log records emitted via the syft_client logger.
-
-    The package sets propagate=False on its logger so records don't reach
-    pytest's root-attached handler. We attach caplog's handler directly to
-    the syft_client logger for the test, then remove it.
-    """
-    syft_logger = logging.getLogger("syft_client")
-    syft_logger.addHandler(caplog.handler)
-    try:
-        yield caplog
-    finally:
-        syft_logger.removeHandler(caplog.handler)
-
-
 def build_client_version(client_version: str) -> VersionInfo:
     """Build a VersionInfo for a given client version, leaving other fields as-current."""
     base = VersionInfo.current()
@@ -350,50 +334,50 @@ def _patch_plus_one_version() -> VersionInfo:
 class TestPatchTolerance:
     """Patch-only differences: DSes log but don't skip; DOs skip by default."""
 
-    def test_patch_diff_does_not_skip_in_sync_for_ds(self, syft_caplog):
+    def test_patch_diff_does_not_skip_in_sync_for_ds(self, caplog):
         """DS-side default: patch differences log but do not skip."""
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
         _set_peer_version(ds_manager, do_manager.email, _patch_plus_one_version())
 
-        with syft_caplog.at_level(logging.INFO, logger="syft_client"):
+        with caplog.at_level(logging.INFO, logger="syft_client"):
             compatible = ds_manager.peer_manager.get_compatible_peer_emails_for_syncing(
                 [do_manager.email]
             )
         assert do_manager.email in compatible
-        assert any("patch" in r.getMessage().lower() for r in syft_caplog.records)
+        assert any("patch" in r.getMessage().lower() for r in caplog.records)
 
-    def test_patch_diff_skips_in_sync_for_do_default(self, syft_caplog):
+    def test_patch_diff_skips_in_sync_for_do_default(self, caplog):
         """DO-side default: patch differences cause the peer to be skipped."""
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
         _set_peer_version(do_manager, ds_manager.email, _patch_plus_one_version())
 
-        with syft_caplog.at_level(logging.INFO, logger="syft_client"):
+        with caplog.at_level(logging.INFO, logger="syft_client"):
             compatible = do_manager.peer_manager.get_compatible_peer_emails_for_syncing(
                 [ds_manager.email]
             )
         assert ds_manager.email not in compatible
-        assert any("patch" in r.getMessage().lower() for r in syft_caplog.records)
+        assert any("patch" in r.getMessage().lower() for r in caplog.records)
 
-    def test_patch_diff_allows_job_submission(self, syft_caplog):
+    def test_patch_diff_allows_job_submission(self, caplog):
         """DS submitting to a patch-drifted DO does not raise (DS default = no skip)."""
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
         _set_peer_version(ds_manager, do_manager.email, _patch_plus_one_version())
 
-        with syft_caplog.at_level(logging.INFO, logger="syft_client"):
+        with caplog.at_level(logging.INFO, logger="syft_client"):
             result = ds_manager.peer_manager.get_peer_compatibility_status(
                 do_manager.email, action=CompatAction.SUBMIT
             )
             result.raise_on_skip(operation="submit job")
             result.maybe_warn()
-        assert any("patch" in r.getMessage().lower() for r in syft_caplog.records)
+        assert any("patch" in r.getMessage().lower() for r in caplog.records)
 
-    def test_patch_diff_do_force_ignore_proceeds(self, syft_caplog):
+    def test_patch_diff_do_force_ignore_proceeds(self, caplog):
         """DO with force_ignore_peer_version proceeds despite patch drift."""
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
@@ -401,13 +385,13 @@ class TestPatchTolerance:
         _set_peer_version(do_manager, ds_manager.email, _patch_plus_one_version())
         do_manager.peer_manager.force_ignore_peer_version = True
 
-        with syft_caplog.at_level(logging.INFO, logger="syft_client"):
+        with caplog.at_level(logging.INFO, logger="syft_client"):
             compatible = do_manager.peer_manager.get_compatible_peer_emails_for_syncing(
                 [ds_manager.email]
             )
         assert ds_manager.email in compatible
         assert any(
-            "proceeding anyway" in r.getMessage().lower() for r in syft_caplog.records
+            "proceeding anyway" in r.getMessage().lower() for r in caplog.records
         )
 
     def test_patch_diff_do_per_call_ignore_proceeds(self):
@@ -484,20 +468,20 @@ class TestForceAllowIncompatiblePeers:
         )
         assert ds_manager.email not in compatible
 
-    def test_force_allow_includes_incompatible_peer(self, syft_caplog):
+    def test_force_allow_includes_incompatible_peer(self, caplog):
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
         _set_peer_version(do_manager, ds_manager.email, build_client_version("99.0.0"))
 
         do_manager.peer_manager.force_ignore_peer_version = True
-        with syft_caplog.at_level(logging.INFO, logger="syft_client"):
+        with caplog.at_level(logging.INFO, logger="syft_client"):
             compatible = do_manager.peer_manager.get_compatible_peer_emails_for_syncing(
                 [ds_manager.email]
             )
         assert ds_manager.email in compatible
         assert any(
-            "proceeding anyway" in r.getMessage().lower() for r in syft_caplog.records
+            "proceeding anyway" in r.getMessage().lower() for r in caplog.records
         )
 
     def test_per_call_ignore_peer_version_includes_peer(self):

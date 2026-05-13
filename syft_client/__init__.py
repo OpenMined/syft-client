@@ -7,15 +7,15 @@ from pathlib import Path
 
 # Default logging for the syft_client namespace. Only installs a handler if
 # nothing is already configured -- callers who set up their own logging keep
-# full control. propagate=False prevents double-printing when the root logger
-# also has a handler.
+# full control. Records still propagate to the root logger so test fixtures
+# (pytest's caplog) and user-configured root handlers can observe them; in
+# default Python the root logger has no handler so there's no double print.
 _logger = logging.getLogger("syft_client")
 if not _logger.handlers:
     _handler = logging.StreamHandler()
     _handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
     _logger.addHandler(_handler)
     _logger.setLevel(logging.INFO)
-    _logger.propagate = False
 
 from syft_client.version import SYFT_CLIENT_VERSION as __version__  # noqa: F401, E402
 from syft_client.sync.login import login_do, login_ds, login  # noqa: F401, E402
