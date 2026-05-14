@@ -81,12 +81,16 @@ class ApprovalOrchestrator(BaseOrchestrator):
             client = SyftboxManager.for_colab(
                 email=config.do_email,
                 has_do_role=True,
+                skip_peer_on_patch_version_diff=config.skip_peer_on_patch_version_diff,
+                force_ignore_peer_version=config.force_ignore_peer_version,
             )
         else:
             client = SyftboxManager.for_jupyter(
                 email=config.do_email,
                 has_do_role=True,
                 token_path=config.drive_token_path,
+                skip_peer_on_patch_version_diff=config.skip_peer_on_patch_version_diff,
+                force_ignore_peer_version=config.force_ignore_peer_version,
             )
 
         return cls(client=client, config=config)

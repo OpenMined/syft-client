@@ -20,3 +20,7 @@ class SyncConfig(BaseModel):
     sync_state_path: Path = Field(
         default_factory=lambda: get_default_paths().sync_state
     )
+    skip_peer_on_patch_version_diff: Optional[bool] = (
+        None  # None: value is determined by the role
+    )
+    force_ignore_peer_version: bool = False

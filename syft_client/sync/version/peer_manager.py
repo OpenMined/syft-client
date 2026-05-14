@@ -104,14 +104,14 @@ class PeerManagerConfig(BaseModel):
     has_do_role: bool = False
     has_ds_role: bool = False
     use_encryption: bool = False
-    # None means "default by role" — resolved in the model_validator below
-    # to True for DOs (has_do_role) and False for DS-only managers.
-    skip_on_patch_version_difference: Optional[bool] = None
+    skip_peer_on_patch_version_diff: Optional[bool] = (
+        None  # None: value is determined by the role (resolves to has_do_role)
+    )
 
     @model_validator(mode="after")
-    def _default_skip_on_patch(self) -> "PeerManagerConfig":
-        if self.skip_on_patch_version_difference is None:
-            self.skip_on_patch_version_difference = self.has_do_role
+    def _default_skip_peer_on_patch(self) -> "PeerManagerConfig":
+        if self.skip_peer_on_patch_version_diff is None:
+            self.skip_peer_on_patch_version_diff = self.has_do_role
         return self
 
 
@@ -129,7 +129,7 @@ class PeerManager(BaseModel):
     n_threads: int = 10
     has_do_role: bool = False
     has_ds_role: bool = False
-    skip_on_patch_version_difference: bool = False
+    skip_peer_on_patch_version_diff: bool = False
 
     _own_version: Optional[VersionInfo] = PrivateAttr(default=None)
     _executor: Optional[ThreadPoolExecutor] = PrivateAttr(default=None)
@@ -178,8 +178,8 @@ class PeerManager(BaseModel):
             n_threads=config.n_threads,
             has_do_role=config.has_do_role,
             has_ds_role=config.has_ds_role,
-            skip_on_patch_version_difference=bool(
-                config.skip_on_patch_version_difference
+            skip_peer_on_patch_version_diff=bool(
+                config.skip_peer_on_patch_version_diff
             ),
         )
 
@@ -309,7 +309,7 @@ class PeerManager(BaseModel):
                 if peer_version is not None
                 else None
             )
-            if self.skip_on_patch_version_difference:
+            if self.skip_peer_on_patch_version_diff:
                 effective_ignore = self.force_ignore_peer_version or ignore_peer_version
                 if effective_ignore:
                     return PeerCompatibilityResult(
