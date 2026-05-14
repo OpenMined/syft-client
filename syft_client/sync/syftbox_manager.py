@@ -18,7 +18,7 @@ from syft_datasets.config import SyftBoxConfig
 from syft_datasets.dataset_manager import SyftDatasetManager
 from syft_client.sync.platforms.base_platform import BasePlatform
 from pydantic import BaseModel, PrivateAttr
-from typing import List, cast
+from typing import List, Optional, cast
 from syft_client.sync.sync.caches.datasite_watcher_cache import (
     DataSiteWatcherCacheConfig,
 )
@@ -100,7 +100,14 @@ class SyftboxManagerConfig(BaseModel):
 
     @classmethod
     def for_colab(
-        cls, email: str, has_ds_role: bool = False, has_do_role: bool = False
+        cls,
+        email: str,
+        has_ds_role: bool = False,
+        has_do_role: bool = False,
+        skip_peer_on_patch_version_diff: Optional[
+            bool
+        ] = None,  # None: value is determined by the role
+        force_ignore_peer_version: bool = False,
     ):
         if not has_ds_role and not has_do_role:
             raise ValueError("At least one of has_ds_role or has_do_role must be True")
@@ -147,6 +154,8 @@ class SyftboxManagerConfig(BaseModel):
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
+            skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
+            force_ignore_peer_version=force_ignore_peer_version,
         )
         return cls(
             email=email,
@@ -169,6 +178,10 @@ class SyftboxManagerConfig(BaseModel):
         has_ds_role: bool = False,
         has_do_role: bool = False,
         token_path: Path | None = None,
+        skip_peer_on_patch_version_diff: Optional[
+            bool
+        ] = None,  # None: value is determined by the role
+        force_ignore_peer_version: bool = False,
     ):
         if not has_ds_role and not has_do_role:
             raise ValueError("At least one of has_ds_role or has_do_role must be True")
@@ -218,6 +231,8 @@ class SyftboxManagerConfig(BaseModel):
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
+            skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
+            force_ignore_peer_version=force_ignore_peer_version,
         )
         return cls(
             email=email,
@@ -544,12 +559,18 @@ class SyftboxManager(BaseModel):
         has_do_role: bool = False,
         encryption: bool = False,
         encryption_keys: dict | None = None,
+        skip_peer_on_patch_version_diff: Optional[
+            bool
+        ] = None,  # None: value is determined by the role
+        force_ignore_peer_version: bool = False,
     ):
         manager = cls.from_config(
             SyftboxManagerConfig.for_colab(
                 email=email,
                 has_ds_role=has_ds_role,
                 has_do_role=has_do_role,
+                skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
+                force_ignore_peer_version=force_ignore_peer_version,
             )
         )
         manager._init_encryption(encryption, encryption_keys)
@@ -584,6 +605,10 @@ class SyftboxManager(BaseModel):
         token_path: Path | None = None,
         encryption: bool = False,
         encryption_keys: dict | None = None,
+        skip_peer_on_patch_version_diff: Optional[
+            bool
+        ] = None,  # None: value is determined by the role
+        force_ignore_peer_version: bool = False,
     ):
         if token_path is not None:
             token_path = Path(token_path)
@@ -593,6 +618,8 @@ class SyftboxManager(BaseModel):
                 has_ds_role=has_ds_role,
                 has_do_role=has_do_role,
                 token_path=token_path,
+                skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
+                force_ignore_peer_version=force_ignore_peer_version,
             )
         )
         manager._init_encryption(encryption, encryption_keys)

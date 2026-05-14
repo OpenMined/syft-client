@@ -73,6 +73,10 @@ class AutoApproveConfig(BaseModel):
     interval: int = 5
     auto_approvals: AutoApprovalsConfig = Field(default_factory=AutoApprovalsConfig)
     peers: PeerApprovalConfig = Field(default_factory=PeerApprovalConfig)
+    skip_peer_on_patch_version_diff: Optional[bool] = (
+        None  # None: value is determined by the role
+    )
+    force_ignore_peer_version: bool = False
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "AutoApproveConfig":
@@ -102,6 +106,12 @@ class AutoApproveConfig(BaseModel):
             "peers": PeerApprovalConfig(**peers_data)
             if peers_data
             else PeerApprovalConfig(),
+            "skip_peer_on_patch_version_diff": approve_section.get(
+                "skip_peer_on_patch_version_diff"
+            ),
+            "force_ignore_peer_version": approve_section.get(
+                "force_ignore_peer_version", False
+            ),
         }
         if common.get("do_email"):
             kwargs["do_email"] = common["do_email"]
@@ -137,6 +147,8 @@ class AutoApproveConfig(BaseModel):
             "interval": self.interval,
             "auto_approvals": self.auto_approvals.model_dump(),
             "peers": self.peers.model_dump(),
+            "skip_peer_on_patch_version_diff": self.skip_peer_on_patch_version_diff,
+            "force_ignore_peer_version": self.force_ignore_peer_version,
         }
 
         with open(config_path, "w") as f:

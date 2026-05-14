@@ -407,12 +407,12 @@ class TestPatchTolerance:
         assert ds_manager.email in compatible
 
     def test_patch_diff_do_explicit_false_does_not_skip(self):
-        """Setting skip_on_patch_version_difference=False on a DO disables the skip."""
+        """Setting skip_peer_on_patch_version_diff=False on a DO disables the skip."""
         ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
             check_versions=True,
         )
         _set_peer_version(do_manager, ds_manager.email, _patch_plus_one_version())
-        do_manager.peer_manager.skip_on_patch_version_difference = False
+        do_manager.peer_manager.skip_peer_on_patch_version_diff = False
 
         compatible = do_manager.peer_manager.get_compatible_peer_emails_for_syncing(
             [ds_manager.email]
@@ -421,7 +421,7 @@ class TestPatchTolerance:
 
 
 class TestPeerManagerConfigPatchSkipDefault:
-    """Tests for the role-derived default of skip_on_patch_version_difference."""
+    """Tests for the role-derived default of skip_peer_on_patch_version_diff."""
 
     def _make_config(self, **kwargs):
         from pathlib import Path
@@ -432,25 +432,23 @@ class TestPeerManagerConfigPatchSkipDefault:
 
     def test_do_defaults_to_skip(self):
         cfg = self._make_config(has_do_role=True)
-        assert cfg.skip_on_patch_version_difference is True
+        assert cfg.skip_peer_on_patch_version_diff is True
 
     def test_ds_only_defaults_to_no_skip(self):
         cfg = self._make_config(has_ds_role=True)
-        assert cfg.skip_on_patch_version_difference is False
+        assert cfg.skip_peer_on_patch_version_diff is False
 
     def test_dual_role_defaults_to_skip(self):
         cfg = self._make_config(has_do_role=True, has_ds_role=True)
-        assert cfg.skip_on_patch_version_difference is True
+        assert cfg.skip_peer_on_patch_version_diff is True
 
     def test_explicit_false_on_do_is_preserved(self):
-        cfg = self._make_config(
-            has_do_role=True, skip_on_patch_version_difference=False
-        )
-        assert cfg.skip_on_patch_version_difference is False
+        cfg = self._make_config(has_do_role=True, skip_peer_on_patch_version_diff=False)
+        assert cfg.skip_peer_on_patch_version_diff is False
 
     def test_explicit_true_on_ds_is_preserved(self):
-        cfg = self._make_config(has_ds_role=True, skip_on_patch_version_difference=True)
-        assert cfg.skip_on_patch_version_difference is True
+        cfg = self._make_config(has_ds_role=True, skip_peer_on_patch_version_diff=True)
+        assert cfg.skip_peer_on_patch_version_diff is True
 
 
 class TestForceAllowIncompatiblePeers:
