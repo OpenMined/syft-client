@@ -69,8 +69,16 @@ def login(
     sync: bool = True,
     load_peers: bool = True,
     token_path: str | Path | None = None,
+    skip_peer_on_patch_version_diff: bool
+    | None = None,  # None: value is determined by the role
 ):
-    return login_ds(email, sync, load_peers, token_path)
+    return login_ds(
+        email,
+        sync,
+        load_peers,
+        token_path,
+        skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
+    )
 
 
 def login_ds(
@@ -78,6 +86,8 @@ def login_ds(
     sync: bool = True,
     load_peers: bool = True,
     token_path: str | Path | None = None,
+    skip_peer_on_patch_version_diff: bool
+    | None = None,  # None: value is determined by the role
 ):
     env = check_env()
     email, token_path = _resolve_login_params(email, token_path)
@@ -85,10 +95,17 @@ def login_ds(
     handle_potential_version_mismatches_on_login(email, token_path)
 
     if env == Environment.COLAB:
-        client = SyftboxManager.for_colab(email=email, has_ds_role=True)
+        client = SyftboxManager.for_colab(
+            email=email,
+            has_ds_role=True,
+            skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
+        )
     else:
         client = SyftboxManager.for_jupyter(
-            email=email, has_ds_role=True, token_path=token_path
+            email=email,
+            has_ds_role=True,
+            token_path=token_path,
+            skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
         )
 
     return _init_client_login(client, sync, load_peers)
@@ -99,6 +116,8 @@ def login_do(
     sync: bool = True,
     load_peers: bool = True,
     token_path: str | Path | None = None,
+    skip_peer_on_patch_version_diff: bool
+    | None = None,  # None: value is determined by the role
 ):
     env = check_env()
     email, token_path = _resolve_login_params(email, token_path)
@@ -106,10 +125,17 @@ def login_do(
     handle_potential_version_mismatches_on_login(email, token_path)
 
     if env == Environment.COLAB:
-        client = SyftboxManager.for_colab(email=email, has_do_role=True)
+        client = SyftboxManager.for_colab(
+            email=email,
+            has_do_role=True,
+            skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
+        )
     else:
         client = SyftboxManager.for_jupyter(
-            email=email, has_do_role=True, token_path=token_path
+            email=email,
+            has_do_role=True,
+            token_path=token_path,
+            skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
         )
 
     return _init_client_login(client, sync, load_peers)
