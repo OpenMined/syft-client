@@ -920,14 +920,16 @@ class SyftboxManager(BaseModel):
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock_path.touch(exist_ok=True)
         with open(lock_path, "r") as lock_handle:
-            logger.info(f"Acquiring sync lock for {self.email}...")
             try:
-                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-                logger.info(f"Sync lock acquired for {self.email}")
+                try:
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    logger.info(f"Waiting for sync lock for {self.email}...")
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+                    logger.info(f"Sync lock acquired for {self.email}")
                 yield
             finally:
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-                logger.info(f"Sync lock released for {self.email}")
 
     def sync(
         self,
