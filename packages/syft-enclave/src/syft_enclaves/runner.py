@@ -1,9 +1,9 @@
 """Enclave runner — long-running process that drives the enclave lifecycle.
 
-Startup sequence:
-    INITIALIZING -> ATTESTING -> PEERING -> RUNNING (loop)
+Startup runs three phases in order, then enters the poll loop:
+    initialize -> attest -> peer -> run
 
-The RUNNING state executes a poll loop:
+The poll loop executes:
     sync -> receive_jobs -> run_jobs -> distribute_results -> sleep
 """
 
@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Optional
 
 from syft_enclaves.client import SyftEnclaveClient
-from syft_enclaves.state import EnclaveState, EnclaveStateMachine
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ TEE_SOCKET_PATH = Path("/run/container_launcher/teeserver.sock")
 
 
 class EnclaveRunner:
-    """State machine + poll loop for enclave operation inside a TEE container."""
+    """Poll loop for enclave operation inside a TEE container."""
 
     def __init__(
         self,
@@ -34,12 +33,7 @@ class EnclaveRunner:
         self.client = client
         self.poll_interval = poll_interval
         self.require_tee = require_tee
-        self._sm = EnclaveStateMachine()
         self._shutdown_requested = False
-
-    @property
-    def state(self) -> EnclaveState:
-        return self._sm.state
 
     # -- lifecycle --------------------------------------------------------
 
@@ -54,21 +48,16 @@ class EnclaveRunner:
 
         try:
             self._on_initializing()
-            self._sm.transition(EnclaveState.ATTESTING)
             self._on_attesting()
-            self._sm.transition(EnclaveState.PEERING)
             self._on_peering()
-            self._sm.transition(EnclaveState.RUNNING)
             self._loop()
-        except Exception as exc:
-            self._sm.fail(str(exc))
+        except Exception:
             logger.exception("Fatal error in enclave runner")
             raise
         finally:
-            self._sm.transition(EnclaveState.SHUTTING_DOWN)
             self._on_shutting_down()
 
-    # -- state handlers ---------------------------------------------------
+    # -- phase handlers ---------------------------------------------------
 
     def _on_initializing(self) -> None:
         """Validate configuration, ensure directories exist."""
