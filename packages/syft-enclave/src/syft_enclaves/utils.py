@@ -1,4 +1,4 @@
-from syft_client.sync.syftbox_manager import SyftboxManager, SyftboxManagerConfig
+from syft_client.sync.syftbox_manager import SyftboxManagerConfig
 from syft_client.sync.connections.drive.mock_drive_service import (
     MockDriveBackingStore,
     MockDriveService,
@@ -35,8 +35,10 @@ def create_configs(
     return enclave_config, do1_config, do2_config, ds_config
 
 
-def create_managers(configs) -> tuple:
-    return tuple(SyftboxManager.from_config(c) for c in configs)
+def create_clients(configs) -> tuple:
+    from syft_enclaves.client import SyftEnclaveClient
+
+    return tuple(SyftEnclaveClient.from_config(c) for c in configs)
 
 
 def setup_connections(managers: tuple):

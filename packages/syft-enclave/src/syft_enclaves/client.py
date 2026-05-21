@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from syft_client.sync.syftbox_manager import SyftboxManager
+from syft_client.sync.syftbox_manager import SyftboxManager, SyftboxManagerConfig
 from syft_client.sync.peers.peer import Peer
 from syft_client.sync.peers.peer_list import PeerList
 from syft_datasets.dataset_manager import SyftDatasetManager
@@ -19,8 +19,8 @@ from syft_perms.syftperm_context import SyftPermContext
 
 from syft_enclaves.enclave_job_client import EnclaveJobClient
 from syft_enclaves.utils import (
+    create_clients,
     create_configs,
-    create_managers,
     setup_callbacks,
     setup_connections,
     wire_peers,
@@ -321,6 +321,13 @@ class SyftEnclaveClient:
             ctx.open(approval_rel).grant_write_access(do_email)
 
     @classmethod
+    def from_config(cls, config: SyftboxManagerConfig) -> "SyftEnclaveClient":
+        """Build a SyftEnclaveClient from a manager config with a wrapped job_client."""
+        manager = SyftboxManager.from_config(config)
+        manager.job_client = EnclaveJobClient(manager.job_client)
+        return cls(manager)
+
+    @classmethod
     def for_enclave(
         cls,
         email: str,
@@ -331,13 +338,13 @@ class SyftEnclaveClient:
             email: The enclave datasite's email address.
             token_path: Path to a pre-authorized Google Drive OAuth token.
         """
-        manager = SyftboxManager.for_jupyter(
+        config = SyftboxManagerConfig.for_jupyter(
             email=email,
             has_ds_role=True,
             has_do_role=True,
-            token_path=token_path,
+            token_path=Path(token_path) if token_path is not None else None,
         )
-        return cls(manager)
+        return cls.from_config(config)
 
     @classmethod
     def quad_with_mock_drive_service_connection(
@@ -367,13 +374,11 @@ class SyftEnclaveClient:
         configs = create_configs(
             enclave_email, do1_email, do2_email, ds_email, use_in_memory_cache
         )
-        managers = create_managers(configs)
+        clients = create_clients(configs)
+        managers = tuple(c._manager for c in clients)
         setup_connections(managers)
         setup_callbacks(managers)
         write_versions(managers)
         wire_peers(managers)
 
-        for m in managers:
-            m.job_client = EnclaveJobClient(m.job_client)
-
-        return tuple(cls(m) for m in managers)
+        return clients
