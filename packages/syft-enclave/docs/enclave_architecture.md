@@ -17,7 +17,7 @@ This directory contains a Docker image that packages `syft-client` with an HTTP 
 │  │  │  - Exposes attestation Unix socket      │  │  │
 │  │  │  - Manages container lifecycle          │  │  │
 │  │  └──────────────┬──────────────────────────┘  │  │
-│  │                 │                              │  │
+│  │                 │                             │  │
 │  │  ┌──────────────▼──────────────────────────┐  │  │
 │  │  │  syft-client-enclave container          │  │  │
 │  │  │  - FastAPI server on port 8080          │  │  │
