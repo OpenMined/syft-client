@@ -44,6 +44,9 @@ jobs:
           echo "Timed out waiting for syft-client==${VERSION} on PyPI"
           exit 1
 
+      - name: Wait for PyPI CDN propagation
+        run: sleep 30
+
       - name: Install syft-client from PyPI
         run: |
           uv venv .venv

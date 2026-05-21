@@ -149,7 +149,7 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
     def sync_down(self, peer_emails: list[str]):
         for peer_email in peer_emails:
             # Sync messages with parallel download
-            self.datasite_watcher_cache.sync_down_parallel(
+            event_count = self.datasite_watcher_cache.sync_down_parallel(
                 peer_email,
                 self._executor,
                 lambda fid,
@@ -157,6 +157,8 @@ class DatasiteWatcherSyncer(BaseModelCallbackMixin):
                     fid, pe
                 ),
             )
+            if event_count:
+                print(f"Pulled {event_count} inbound event(s) from {peer_email}")
             # Sync datasets with parallel download
             self.datasite_watcher_cache.sync_down_datasets_parallel(
                 peer_email,
