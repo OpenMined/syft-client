@@ -26,7 +26,7 @@ uv pip install -e .
 - A GCP project with billing enabled
 - [`just`](https://github.com/casey/just) and `jq`
 
-All deploy / inspect / teardown commands below are `just` recipes defined in [`./Justfile`](./Justfile). Run them from this directory.
+All deploy / inspect / teardown commands below are `just` recipes defined in [`Justfile`](./Justfile). Run them from this directory.
 
 ### One-time setup
 
