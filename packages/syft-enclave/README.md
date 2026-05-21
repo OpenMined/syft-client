@@ -34,7 +34,7 @@ All deploy / inspect / teardown commands below are `just` recipes defined in [`.
 just init YOUR_PROJECT_ID
 ```
 
-This stores settings in `~/syft-enclaves/settings.json` and sets the active gcloud project. Every other recipe reads `project_id` and `zone` from this file — zone is **not** a per-call arg. To deploy in a different zone, re-run `just init YOUR_PROJECT_ID europe-west4-a`.
+This stores settings in `~/.syft-enclaves/settings.json` and sets the active gcloud project. Every other recipe reads `project_id` and `zone` from this file — zone is **not** a per-call arg. To deploy in a different zone, re-run `just init YOUR_PROJECT_ID europe-west4-a`.
 
 ### Production deployment
 

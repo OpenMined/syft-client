@@ -3,9 +3,9 @@ image := "docker.io/openminedreleasebot/syft-client-enclave:latest"
 machine_type_default := "n2d-standard-2"
 vm_default := "syft-enclave-vm"
 
-# Shared shell snippet: loads project_id and zone from ~/syft-enclaves/settings.json.
+# Shared shell snippet: loads project_id and zone from ~/.syft-enclaves/settings.json.
 # Interpolated as {{load_settings}} at the top of every recipe that needs them.
-load_settings := 'settings="$HOME/syft-enclaves/settings.json"
+load_settings := 'settings="$HOME/.syft-enclaves/settings.json"
 [ -f "$settings" ] || { echo "Error: $settings not found. Run: just init <project_id>" >&2; exit 1; }
 project_id=$(jq -r .project_id "$settings")
 zone=$(jq -r .zone "$settings")'
@@ -13,12 +13,12 @@ zone=$(jq -r .zone "$settings")'
 # ---------------------------------------------------------------------------------------------------------------------
 # Settings
 #
-# `init` writes ~/syft-enclaves/settings.json with project_id and zone. Every other
+# `init` writes ~/.syft-enclaves/settings.json with project_id and zone. Every other
 # recipe reads both from that file — there is no per-call zone override. To switch
 # zones, re-run `just init <project_id> <zone>`.
 # ---------------------------------------------------------------------------------------------------------------------
 
-# Initialize ~/syft-enclaves/settings.json and set gcloud's active project
+# Initialize ~/.syft-enclaves/settings.json and set gcloud's active project
 [group('setup')]
 init project_id zone="us-central1-a":
     #!/bin/bash
@@ -31,11 +31,11 @@ init project_id zone="us-central1-a":
       echo "No authenticated gcloud account. Running 'gcloud auth login'..."
       gcloud auth login
     fi
-    mkdir -p "$HOME/syft-enclaves"
+    mkdir -p "$HOME/.syft-enclaves"
     jq -n --arg p "{{project_id}}" --arg z "{{zone}}" \
-      '{project_id: $p, zone: $z}' > "$HOME/syft-enclaves/settings.json"
+      '{project_id: $p, zone: $z}' > "$HOME/.syft-enclaves/settings.json"
     gcloud config set project {{project_id}}
-    echo "wrote $HOME/syft-enclaves/settings.json"
+    echo "wrote $HOME/.syft-enclaves/settings.json"
     echo "[gcloud account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')]"
 
 # Print the active gcloud account (shown before each VM-touching recipe)
