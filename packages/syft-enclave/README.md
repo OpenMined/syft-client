@@ -15,6 +15,8 @@ Enclave support for syft-client, enabling secure computation in Trusted Executio
 uv pip install -e .
 ```
 
+## Deploy
+
 ### Prerequisites
 
 - Docker with buildx support (Docker Desktop includes this)
