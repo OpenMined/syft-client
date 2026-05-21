@@ -3160,7 +3160,7 @@ wheels = [
 
 [[package]]
 name = "syft-bg"
-version = "0.3.6"
+version = "0.3.7"
 source = { editable = "packages/syft-bg" }
 dependencies = [
     { name = "click" },
@@ -3308,7 +3308,7 @@ wheels = [
 
 [[package]]
 name = "syft-dataset"
-version = "0.1.15"
+version = "0.1.16"
 source = { editable = "packages/syft-datasets" }
 dependencies = [
     { name = "pyyaml" },
@@ -3336,15 +3336,19 @@ name = "syft-enclave"
 version = "0.1.0"
 source = { editable = "packages/syft-enclave" }
 dependencies = [
+    { name = "pydantic-settings" },
     { name = "syft-client" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "syft-client", editable = "." }]
+requires-dist = [
+    { name = "pydantic-settings", specifier = ">=2.11.0" },
+    { name = "syft-client", editable = "." },
+]
 
 [[package]]
 name = "syft-job"
-version = "0.1.34"
+version = "0.1.35"
 source = { editable = "packages/syft-job" }
 dependencies = [
     { name = "pandas" },
@@ -3388,7 +3392,7 @@ requires-dist = [
 
 [[package]]
 name = "syft-permissions"
-version = "0.1.9"
+version = "0.1.10"
 source = { editable = "packages/syft-permissions" }
 dependencies = [
     { name = "pydantic" },
@@ -3405,7 +3409,7 @@ requires-dist = [
 
 [[package]]
 name = "syft-perms"
-version = "0.1.9"
+version = "0.1.10"
 source = { editable = "packages/syft-perms" }
 dependencies = [
     { name = "syft-permissions" },

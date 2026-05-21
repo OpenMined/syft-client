@@ -317,6 +317,30 @@ class SyftEnclaveClient:
             ctx.open(approval_rel).grant_write_access(do_email)
 
     @classmethod
+    def for_enclave(
+        cls,
+        email: str,
+        syftbox_folder: Path | str,
+        token_path: Path | str | None = None,
+    ) -> "SyftEnclaveClient":
+        """Build an enclave client backed by a real Google Drive connection.
+
+        Args:
+            email: The enclave datasite's email address.
+            syftbox_folder: Root SyftBox folder. Provisioned by the deployment
+                inside a container; any writable path when running locally.
+            token_path: Path to a pre-authorized Google Drive OAuth token.
+        """
+        manager = SyftboxManager.for_jupyter(
+            email=email,
+            has_ds_role=True,
+            has_do_role=True,
+            token_path=token_path,
+            syftbox_folder=syftbox_folder,
+        )
+        return cls(manager)
+
+    @classmethod
     def quad_with_mock_drive_service_connection(
         cls,
         enclave_email: str | None = None,
