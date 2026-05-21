@@ -32,13 +32,6 @@ class EnclaveSettings(BaseSettings):
     email: str = Field(
         description="Email address of the enclave datasite. Required.",
     )
-    syftbox_folder: Path | None = Field(
-        default=None,
-        description=(
-            "Root SyftBox folder. Provisioned by the deployment inside a "
-            "container; any writable path when running locally."
-        ),
-    )
     # Default coupled with docker/entrypoint.sh, which writes the
     # operator-supplied token to this exact path before the runner starts.
     token_path: Path = Field(
