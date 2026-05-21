@@ -5,10 +5,12 @@ vm_default := "syft-enclave-vm"
 
 # Shared shell snippet: loads project_id and zone from ~/.syft-enclaves/settings.json.
 # Interpolated as {{load_settings}} at the top of every recipe that needs them.
-load_settings := 'settings="$HOME/.syft-enclaves/settings.json"
-[ -f "$settings" ] || { echo "Error: $settings not found. Run: just init <project_id>" >&2; exit 1; }
-project_id=$(jq -r .project_id "$settings")
-zone=$(jq -r .zone "$settings")'
+load_settings := '''
+    settings="$HOME/.syft-enclaves/settings.json"
+    [ -f "$settings" ] || { echo "Error: $settings not found. Run: just init <project_id>" >&2; exit 1; }
+    project_id=$(jq -r .project_id "$settings")
+    zone=$(jq -r .zone "$settings")
+'''
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Settings
@@ -23,17 +25,56 @@ zone=$(jq -r .zone "$settings")'
 init project_id zone="us-central1-a":
     #!/bin/bash
     set -e
-    if ! command -v gcloud >/dev/null 2>&1; then
-      echo "Error: gcloud not found. Install: https://cloud.google.com/sdk/docs/install" >&2
+
+    # gcloud install + version + auth checks (override: SKIP_GCLOUD_CHECK=1)
+    if [ "${SKIP_GCLOUD_CHECK:-0}" != "1" ]; then
+      if ! command -v gcloud >/dev/null 2>&1; then
+        echo "Error: gcloud not found. Install: https://cloud.google.com/sdk/docs/install" >&2
+        echo "Skip this check: SKIP_GCLOUD_CHECK=1 just init {{project_id}}" >&2
+        exit 1
+      fi
+
+      # --confidential-compute-type=SEV needs >= 475.0.0
+      required_gcloud="475.0.0"
+      current_gcloud=$(gcloud --version 2>/dev/null | head -1 | awk '{print $NF}')
+      if [ "$(printf '%s\n%s\n' "$required_gcloud" "$current_gcloud" | sort -V | head -1)" != "$required_gcloud" ]; then
+        echo "Error: gcloud $current_gcloud is too old (need >= $required_gcloud)." >&2
+        echo "Upgrade: gcloud components update" >&2
+        echo "Skip this check: SKIP_GCLOUD_CHECK=1 just init {{project_id}}" >&2
+        exit 1
+      fi
+
+      # check auth (exercises refresh token)
+      active_account=$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null)
+      if [ -z "$active_account" ]; then
+        echo "No authenticated gcloud account. Running 'gcloud auth login'..."
+        gcloud auth login
+      elif ! gcloud auth print-access-token >/dev/null 2>&1; then
+        echo "gcloud credentials for '$active_account' are stale (refresh token rejected). Running 'gcloud auth login'..."
+        gcloud auth login
+      fi
+    fi
+
+    # verify project id exists (catches passing display name instead of id)
+    if ! gcloud projects describe {{project_id}} >/dev/null 2>&1; then
+      echo "Error: project ID '{{project_id}}' not found or not accessible." >&2
+      matches=$(gcloud projects list --filter="name:{{project_id}} OR projectId:{{project_id}}" --format='table(projectId,name,projectNumber)' 2>/dev/null || true)
+      if [ -n "$matches" ]; then
+        echo "Did you mean one of these?" >&2
+        echo ""
+        echo "$matches" >&2
+      else
+        echo "Run 'gcloud projects list' to see the PROJECT_ID column — pass that, not the display name." >&2
+      fi
       exit 1
     fi
-    if ! gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | grep -q .; then
-      echo "No authenticated gcloud account. Running 'gcloud auth login'..."
-      gcloud auth login
-    fi
+
+    # write settings.json
     mkdir -p "$HOME/.syft-enclaves"
     jq -n --arg p "{{project_id}}" --arg z "{{zone}}" \
       '{project_id: $p, zone: $z}' > "$HOME/.syft-enclaves/settings.json"
+
+    # set active gcloud project
     gcloud config set project {{project_id}}
     echo "wrote $HOME/.syft-enclaves/settings.json"
     echo "[gcloud account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')]"
@@ -42,19 +83,28 @@ init project_id zone="us-central1-a":
 _whoami:
     @echo "[gcloud account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')]"
 
+# Print the active gcloud account
+whoami: _whoami
+
 # Enable APIs, grant attestation IAM role, create firewall rule (idempotent)
 _provision: _whoami
     #!/bin/bash
     set -e
     {{load_settings}}
+
+    # enable required APIs
     gcloud services enable \
       compute.googleapis.com \
       confidentialcomputing.googleapis.com \
       --project="$project_id"
+
+    # grant attestation role to default compute SA
     project_number=$(gcloud projects describe "$project_id" --format='get(projectNumber)')
     gcloud projects add-iam-policy-binding "$project_id" \
       --member="serviceAccount:${project_number}-compute@developer.gserviceaccount.com" \
       --role="roles/confidentialcomputing.workloadUser"
+
+    # open tcp/8080 (idempotent)
     gcloud compute firewall-rules create allow-enclave-http \
       --project="$project_id" \
       --direction=INGRESS \
@@ -65,9 +115,11 @@ _provision: _whoami
       --target-tags=http-server \
       --source-ranges=0.0.0.0/0 || true
 
-# Deploy a production enclave VM (hardened image, no SSH)
+# Deploy a production enclave VM (hardened image, no SSH).
+# Token content is shipped via instance metadata and is readable by any
+# principal with compute.instances.get on this project.
 [group('deploy')]
-start name=vm_default machine_type=machine_type_default: _provision
+start email token_path name=vm_default machine_type=machine_type_default: _provision
     #!/bin/bash
     set -e
     {{load_settings}}
@@ -83,11 +135,14 @@ start name=vm_default machine_type=machine_type_default: _provision
       --image-project=confidential-space-images \
       --scopes=cloud-platform \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true" \
+      --metadata-from-file="tee-env-SYFT_ENCLAVE_TOKEN_CONTENT={{token_path}}"
 
-# Deploy a debug enclave VM (SSH + container log redirection enabled)
+# Deploy a debug enclave VM (SSH + container log redirection enabled).
+# Token content is shipped via instance metadata and is readable by any
+# principal with compute.instances.get on this project.
 [group('deploy')]
-start-debug name=vm_default machine_type=machine_type_default: _provision
+start-debug email token_path name=vm_default machine_type=machine_type_default: _provision
     #!/bin/bash
     set -e
     {{load_settings}}
@@ -103,7 +158,8 @@ start-debug name=vm_default machine_type=machine_type_default: _provision
       --image-project=confidential-space-images \
       --scopes=cloud-platform \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true" \
+      --metadata-from-file="tee-env-SYFT_ENCLAVE_TOKEN_CONTENT={{token_path}}"
 
 # Delete the enclave VM and remove the firewall rule
 [group('teardown')]
@@ -140,6 +196,18 @@ status name=vm_default: _whoami
       --project="$project_id" \
       --zone="$zone" \
       --format='get(status)'
+
+# Fetch the TEE attestation report from the running enclave
+[group('inspect')]
+attest name=vm_default: _whoami
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    ip=$(gcloud compute instances describe {{name}} \
+      --project="$project_id" \
+      --zone="$zone" \
+      --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+    curl -sS "http://${ip}:8080/attestation" | python3 -m json.tool
 
 # Tail the last 50 lines of the VM's serial port output
 [group('inspect')]

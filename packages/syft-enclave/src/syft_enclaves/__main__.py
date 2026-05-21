@@ -39,10 +39,11 @@ def main() -> None:
     settings = _load_settings()
     _configure_logging(settings.log_level)
     logger.info(
-        "Enclave settings — email=%s syftbox_folder=%s poll_interval=%ds "
-        "require_tee=%s",
+        "Enclave settings — email=%s syftbox_folder=%s token_path=%s "
+        "poll_interval=%ds require_tee=%s",
         settings.email,
         settings.syftbox_folder,
+        settings.token_path,
         settings.poll_interval,
         settings.require_tee,
     )
