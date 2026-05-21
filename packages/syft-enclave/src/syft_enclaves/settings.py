@@ -33,7 +33,7 @@ class EnclaveSettings(BaseSettings):
     email: str = Field(
         description="Email address of the enclave datasite. Required.",
     )
-    syftbox_folder: Path = Field(
+    syftbox_folder: Path | None = Field(
         default=None,
         description=(
             "Root SyftBox folder. Provisioned by the deployment inside a "

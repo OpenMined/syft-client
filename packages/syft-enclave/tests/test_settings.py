@@ -7,7 +7,6 @@ import pytest
 from pydantic import ValidationError
 
 from syft_enclaves import EnclaveSettings
-from syft_enclaves.settings import DEFAULT_SYFTBOX_FOLDER
 
 
 @pytest.fixture
@@ -32,7 +31,7 @@ def test_defaults_applied_when_required_fields_set(required_env):
 
     assert settings.email == "enclave@openmined.org"
     assert settings.token_path == Path("/secrets/token.json")
-    assert settings.syftbox_folder == DEFAULT_SYFTBOX_FOLDER
+    assert settings.syftbox_folder is None
     assert settings.poll_interval == 10
     assert settings.require_tee is False
     assert settings.log_level == "INFO"
