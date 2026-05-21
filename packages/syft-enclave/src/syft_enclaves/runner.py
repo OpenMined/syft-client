@@ -43,6 +43,7 @@ class EnclaveRunner:
         logger.info(
             "Enclave runner starting — email=%s poll=%ds",
             self.client.email,
+            self.client.syftbox_folder,
             self.poll_interval,
         )
 

@@ -37,6 +37,10 @@ class SyftEnclaveClient:
         return self._manager.email
 
     @property
+    def syftbox_folder(self) -> Path:
+        return self._manager.syftbox_folder
+
+    @property
     def peers(self) -> PeerList:
         return self._manager.peers
 
@@ -320,7 +324,7 @@ class SyftEnclaveClient:
     def for_enclave(
         cls,
         email: str,
-        syftbox_folder: Path | str,
+        syftbox_folder: Path | None = None,
         token_path: Path | str | None = None,
     ) -> "SyftEnclaveClient":
         """Build an enclave client backed by a real Google Drive connection.

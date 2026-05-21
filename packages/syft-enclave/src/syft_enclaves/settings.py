@@ -6,10 +6,6 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-#: Fallback SyftBox root, used for local development. In a container the
-#: deployment provisions the storage location and sets it explicitly.
-DEFAULT_SYFTBOX_FOLDER = Path.home() / "SyftBox"
-
 
 class EnclaveSettings(BaseSettings):
     """Runtime configuration for ``python -m syft_enclaves``.
@@ -38,7 +34,7 @@ class EnclaveSettings(BaseSettings):
         description="Email address of the enclave datasite. Required.",
     )
     syftbox_folder: Path = Field(
-        default=DEFAULT_SYFTBOX_FOLDER,
+        default=None,
         description=(
             "Root SyftBox folder. Provisioned by the deployment inside a "
             "container; any writable path when running locally."

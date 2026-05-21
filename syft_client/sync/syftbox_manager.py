@@ -178,7 +178,6 @@ class SyftboxManagerConfig(BaseModel):
         has_ds_role: bool = False,
         has_do_role: bool = False,
         token_path: Path | None = None,
-        syftbox_folder: Path | None = None,
         skip_peer_on_patch_version_diff: Optional[
             bool
         ] = None,  # None: value is determined by the role
@@ -187,7 +186,7 @@ class SyftboxManagerConfig(BaseModel):
         if not has_ds_role and not has_do_role:
             raise ValueError("At least one of has_ds_role or has_do_role must be True")
 
-        syftbox_folder = syftbox_folder or get_jupyter_default_syftbox_folder(email)
+        syftbox_folder = get_jupyter_default_syftbox_folder(email)
         collections_folder = syftbox_folder / email / COLLECTION_SUBPATH
 
         connection_configs = [
@@ -604,7 +603,6 @@ class SyftboxManager(BaseModel):
         has_ds_role: bool = False,
         has_do_role: bool = False,
         token_path: Path | None = None,
-        syftbox_folder: Path | None = None,
         encryption: bool = False,
         encryption_keys: dict | None = None,
         skip_peer_on_patch_version_diff: Optional[
@@ -614,15 +612,12 @@ class SyftboxManager(BaseModel):
     ):
         if token_path is not None:
             token_path = Path(token_path)
-        if syftbox_folder is not None:
-            syftbox_folder = Path(syftbox_folder)
         manager = cls.from_config(
             SyftboxManagerConfig.for_jupyter(
                 email=email,
                 has_ds_role=has_ds_role,
                 has_do_role=has_do_role,
                 token_path=token_path,
-                syftbox_folder=syftbox_folder,
                 skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
                 force_ignore_peer_version=force_ignore_peer_version,
             )
