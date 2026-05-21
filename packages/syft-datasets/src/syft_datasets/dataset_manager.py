@@ -456,11 +456,12 @@ class SyftDatasetManager:
             raise ValueError(f"Private data directory not found: {private_dir}")
 
         files = {}
-        for f in private_dir.iterdir():
+        for f in private_dir.rglob("*"):
             if not f.is_file():
                 continue
-            path_in_datasite = Path(f"private/syft_datasets/{name}/{f.name}")
-            if f.name == "private_metadata.yaml":
+            rel = f.relative_to(private_dir)
+            path_in_datasite = Path(f"private/syft_datasets/{name}") / rel
+            if f.name == "private_metadata.yaml" and rel == Path(f.name):
                 files[path_in_datasite] = self._private_config_without_data_dir(f)
             else:
                 files[path_in_datasite] = f.read_bytes()
