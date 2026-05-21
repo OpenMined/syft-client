@@ -17,7 +17,6 @@ class EnclaveSettings(BaseSettings):
     Example ``.env`` for local development::
 
         SYFT_ENCLAVE_EMAIL=enclave@openmined.org
-        SYFT_ENCLAVE_SYFTBOX_FOLDER=/tmp/enclave-syftbox
         SYFT_ENCLAVE_TOKEN_PATH=/secrets/gdrive_token.json
         SYFT_ENCLAVE_REQUIRE_TEE=false
     """
@@ -32,13 +31,6 @@ class EnclaveSettings(BaseSettings):
 
     email: str = Field(
         description="Email address of the enclave datasite. Required.",
-    )
-    syftbox_folder: Path | None = Field(
-        default=None,
-        description=(
-            "Root SyftBox folder. Provisioned by the deployment inside a "
-            "container; any writable path when running locally."
-        ),
     )
     # TODO: this is temporary and only for testing, this will be replaced
     # with a secrets management solution or passing the token value via environment variable for testing.

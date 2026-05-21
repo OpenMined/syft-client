@@ -40,7 +40,7 @@ class EnclaveRunner:
         """Main entry point. Blocks until shutdown signal."""
         self._install_signal_handlers()
         logger.info(
-            "Enclave runner starting — email=%s poll=%ds",
+            "Enclave runner starting — email=%s syftbox_folder=%s poll=%ds",
             self.client.email,
             self.client.syftbox_folder,
             self.poll_interval,
