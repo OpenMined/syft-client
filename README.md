@@ -16,7 +16,7 @@ Syft client lets data scientists submit computations which are ran by data owner
 - [Background Services](packages/syft-bg/README.md) — Email notifications, auto-approval, and TUI dashboard
 - [Connections](docs/connections.md) — How the Google Drive transport layer works
 - [Permissions](packages/syft-permissions/docs/permission-user-docs.md) - Permissions for syft-client
-- [Enclaves](packages/syft-enclaves) - Enclaves with syft-client
+- [Enclaves](packages/syft-enclave) - Enclaves with syft-client
 
 ## Features
 
