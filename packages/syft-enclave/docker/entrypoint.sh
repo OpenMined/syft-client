@@ -14,7 +14,12 @@ else
     echo "To enable attestation, deploy this container on a GCP Confidential VM with Confidential Spaces."
 fi
 
+# Attestation server (background) — configured via PORT.
 PORT="${PORT:-8080}"
 echo "Starting attestation server on port $PORT..."
+uvicorn attestation_server:app --host 0.0.0.0 --port "$PORT" &
 
-exec uvicorn attestation_server:app --host 0.0.0.0 --port "$PORT"
+# Enclave runner (foreground) — configured entirely via SYFT_ENCLAVE_* env vars.
+# See syft_enclaves.settings.EnclaveSettings for the full list of variables.
+echo "Starting enclave runner..."
+exec python -m syft_enclaves
