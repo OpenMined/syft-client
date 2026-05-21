@@ -42,10 +42,11 @@ def test_missing_email_raises(clean_env):
         EnclaveSettings(_env_file=None)
 
 
-def test_missing_token_path_raises(clean_env):
+def test_token_path_defaults_to_entrypoint_write_location(clean_env):
+    # The default must match the path docker/entrypoint.sh writes to.
     clean_env.setenv("SYFT_ENCLAVE_EMAIL", "enclave@openmined.org")
-    with pytest.raises(ValidationError, match="token_path"):
-        EnclaveSettings(_env_file=None)
+    settings = EnclaveSettings(_env_file=None)
+    assert settings.token_path == Path("/run/syft-enclave/token.json")
 
 
 def test_env_prefix_and_type_coercion(required_env):
