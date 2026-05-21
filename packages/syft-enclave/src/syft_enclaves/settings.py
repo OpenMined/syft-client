@@ -44,14 +44,10 @@ class EnclaveSettings(BaseSettings):
             "container; any writable path when running locally."
         ),
     )
+    # TODO: this is temporary and only for testing, this will be replaced
+    # with a secrets management solution or passing the token value via environment variable for testing.
     token_path: Path = Field(
-        description=(
-            "Filesystem path to a pre-authorized Google Drive OAuth token. "
-            "An enclave cannot complete an interactive OAuth flow, so the "
-            "token is provisioned ahead of time. A file path works for local "
-            "testing; production deployments (e.g. Confidential Spaces) will "
-            "instead pass the token as a string or via a secret manager."
-        ),
+        description=("Filesystem path to a pre-authorized Google Drive OAuth token. "),
     )
     poll_interval: int = Field(
         default=10,
