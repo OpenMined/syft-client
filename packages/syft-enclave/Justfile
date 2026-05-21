@@ -3,19 +3,19 @@ image := "docker.io/openminedreleasebot/syft-client-enclave:latest"
 machine_type_default := "n2d-standard-2"
 vm_default := "syft-enclave-vm"
 
-# Shared shell snippet: loads project_id and zone_default from ~/syft-enclaves/settings.json.
+# Shared shell snippet: loads project_id and zone from ~/syft-enclaves/settings.json.
 # Interpolated as {{load_settings}} at the top of every recipe that needs them.
 load_settings := 'settings="$HOME/syft-enclaves/settings.json"
 [ -f "$settings" ] || { echo "Error: $settings not found. Run: just init <project_id>" >&2; exit 1; }
 project_id=$(jq -r .project_id "$settings")
-zone_default=$(jq -r .zone "$settings")'
+zone=$(jq -r .zone "$settings")'
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Settings
 #
 # `init` writes ~/syft-enclaves/settings.json with project_id and zone. Every other
-# recipe reads project_id from that file. Zone resolution: explicit `zone=` arg wins,
-# otherwise fall back to settings.json's zone. Run `just init <project_id>` first.
+# recipe reads both from that file — there is no per-call zone override. To switch
+# zones, re-run `just init <project_id> <zone>`.
 # ---------------------------------------------------------------------------------------------------------------------
 
 # Initialize ~/syft-enclaves/settings.json and set gcloud's active project
@@ -67,12 +67,10 @@ _provision: _whoami
 
 # Deploy a production enclave VM (hardened image, no SSH)
 [group('deploy')]
-start name=vm_default zone="" machine_type=machine_type_default: _provision
+start name=vm_default machine_type=machine_type_default: _provision
     #!/bin/bash
     set -e
     {{load_settings}}
-    zone="{{zone}}"
-    zone="${zone:-$zone_default}"
     gcloud compute instances create {{name}} \
       --project="$project_id" \
       --zone="$zone" \
@@ -89,12 +87,10 @@ start name=vm_default zone="" machine_type=machine_type_default: _provision
 
 # Deploy a debug enclave VM (SSH + container log redirection enabled)
 [group('deploy')]
-start-debug name=vm_default zone="" machine_type=machine_type_default: _provision
+start-debug name=vm_default machine_type=machine_type_default: _provision
     #!/bin/bash
     set -e
     {{load_settings}}
-    zone="{{zone}}"
-    zone="${zone:-$zone_default}"
     gcloud compute instances create {{name}} \
       --project="$project_id" \
       --zone="$zone" \
@@ -111,12 +107,10 @@ start-debug name=vm_default zone="" machine_type=machine_type_default: _provisio
 
 # Delete the enclave VM and remove the firewall rule
 [group('teardown')]
-stop name=vm_default zone="": _whoami
+stop name=vm_default: _whoami
     #!/bin/bash
     set -e
     {{load_settings}}
-    zone="{{zone}}"
-    zone="${zone:-$zone_default}"
     gcloud compute instances delete {{name}} \
       --project="$project_id" \
       --zone="$zone" \
@@ -127,12 +121,10 @@ stop name=vm_default zone="": _whoami
 
 # Print the VM's external IP
 [group('inspect')]
-get-ip name=vm_default zone="": _whoami
+get-ip name=vm_default: _whoami
     #!/bin/bash
     set -e
     {{load_settings}}
-    zone="{{zone}}"
-    zone="${zone:-$zone_default}"
     gcloud compute instances describe {{name}} \
       --project="$project_id" \
       --zone="$zone" \
@@ -140,12 +132,10 @@ get-ip name=vm_default zone="": _whoami
 
 # Print the VM's current status (RUNNING / TERMINATED / etc.)
 [group('inspect')]
-status name=vm_default zone="": _whoami
+status name=vm_default: _whoami
     #!/bin/bash
     set -e
     {{load_settings}}
-    zone="{{zone}}"
-    zone="${zone:-$zone_default}"
     gcloud compute instances describe {{name}} \
       --project="$project_id" \
       --zone="$zone" \
@@ -153,24 +143,20 @@ status name=vm_default zone="": _whoami
 
 # Tail the last 50 lines of the VM's serial port output
 [group('inspect')]
-logs name=vm_default zone="": _whoami
+logs name=vm_default: _whoami
     #!/bin/bash
     set -e
     {{load_settings}}
-    zone="{{zone}}"
-    zone="${zone:-$zone_default}"
     gcloud compute instances get-serial-port-output {{name}} \
       --project="$project_id" \
       --zone="$zone" 2>&1 | tail -50
 
 # SSH into the VM (only works on debug image)
 [group('inspect')]
-ssh name=vm_default zone="": _whoami
+ssh name=vm_default: _whoami
     #!/bin/bash
     set -e
     {{load_settings}}
-    zone="{{zone}}"
-    zone="${zone:-$zone_default}"
     gcloud compute ssh {{name}} \
       --project="$project_id" \
       --zone="$zone"

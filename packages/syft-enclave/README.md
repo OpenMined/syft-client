@@ -9,6 +9,8 @@ Enclave support for syft-client, enabling secure computation in Trusted Executio
 
 ## Dev
 
+**note: `[arg]` syntax in this document means that `arg` is optional (with default)**
+
 ```
 uv pip install -e .
 ```
@@ -28,46 +30,46 @@ All deploy / inspect / teardown commands below are `just` recipes defined in [`.
 just init YOUR_PROJECT_ID
 ```
 
-This stores `project_id` (and zone, default `us-central1-a`) in `~/syft-enclaves/settings.json`, and runs `gcloud config set project`. Every other recipe reads `project_id` from this file. Pass a custom zone with `just init YOUR_PROJECT_ID europe-west4-a`.
+This stores settings in `~/syft-enclaves/settings.json` and sets the active gcloud project. Every other recipe reads `project_id` and `zone` from this file — zone is **not** a per-call arg. To deploy in a different zone, re-run `just init YOUR_PROJECT_ID europe-west4-a`.
 
 ### Production deployment
 
-For production, use the hardened image. This disables SSH, log redirection, and debugging.
+#### Start
+
+`just start` runs the one-time provisioning steps and then creates a Confidential Space VM
 
 ```bash
-just start                                # defaults: syft-enclave-vm, n2d-standard-2
-just start my-vm europe-west4-a n2d-standard-4   # override name / zone / machine type
+just start                          # defaults: syft-enclave-vm, n2d-standard-2
+just start my-vm n2d-standard-4     # override name / machine type
 ```
 
-`just start` runs the one-time provisioning steps (enable APIs, grant the default compute service account `roles/confidentialcomputing.workloadUser`, create the `allow-enclave-http` firewall rule on tcp:8080) and then creates a Confidential Space VM running the image at `docker.io/openminedreleasebot/syft-client-enclave:latest`.
+#### stop
 
-Production image differences:
+```bash
+just stop [name]
+```
+
+Deletes the VM and all related objects.
+
+### Inspect a running VM
+
+Each of these takes an optional `name` (default: `syft-enclave-vm`). Zone is always read from `settings.json`.
+
+```bash
+just status [name]   # RUNNING / TERMINATED / etc.
+just get-ip [name]   # external IP
+just logs   [name]   # last 50 lines of serial output
+just ssh    [name]   # debug image only
+```
+
+## Debugging
+
+Production image features:
 
 - No SSH access
 - No container log redirection (serial logs only show launcher output)
 - `tee-restart-policy=Never` shuts down the VM if the container exits
 - `Hardened:true` in attestation claims
-
-### Inspect a running VM
-
-Each of these takes an optional `name` and `zone` (defaults: `syft-enclave-vm` and the zone from `settings.json`):
-
-```bash
-just status [name] [zone]   # RUNNING / TERMINATED / etc.
-just get-ip [name] [zone]   # external IP
-just logs   [name] [zone]   # last 50 lines of serial output
-just ssh    [name] [zone]   # debug image only
-```
-
-## Debugging
-
-### Debug deployment (recommended for initial setup)
-
-The debug image allows SSH access and container log redirection to serial output, making it easier to troubleshoot issues.
-
-```bash
-just start-debug
-```
 
 Debug image features:
 
@@ -76,13 +78,13 @@ Debug image features:
 - `tee-restart-policy=Always` keeps the VM running if the container crashes
 - `tee-container-log-redirect=true` redirects container logs to serial output
 
-## Cleanup
+### Debug deployment (recommended for initial setup)
+
+The debug image allows SSH access and container log redirection to serial output, making it easier to troubleshoot issues.
 
 ```bash
-just stop [name] [zone]
+just start-debug
 ```
-
-Deletes the VM and removes the `allow-enclave-http` firewall rule. The firewall rule is recreated automatically the next time you run `just start` or `just start-debug`.
 
 ## Building & pushing a new Docker Image
 
