@@ -2,36 +2,66 @@
 
 Enclave support for syft-client, enabling secure computation in Trusted Execution Environments (TEEs).
 
+## About
+
+- [Enclave Architecture](./docs/enclave_architecture.md)
+- [API](./docs/api.md)
+
 ## Dev
+
+**note: `[arg]` syntax in this document means that `arg` is optional (with default)**
 
 ```
 uv pip install -e .
 ```
 
-## Running the enclave runner
+## Deploy
 
-The runner is configured entirely through `SYFT_ENCLAVE_*` environment
-variables — there is no command-line interface, because the runner is always
-started programmatically (by the Confidential Spaces launcher in production,
-or from a `.env` file during local development). Start it with:
+**note: `[arg]` syntax in this document means that `arg` is optional (with default)**
 
+### Prerequisites
+
+- Docker with buildx support (Docker Desktop includes this)
+- `gcloud` [CLI installed](https://docs.cloud.google.com/sdk/docs/install-sdk)
+- A GCP project with billing enabled
+- [`just`](https://github.com/casey/just) and `jq`
+
+All deploy / inspect / teardown commands below are `just` recipes defined in [`./Justfile`](./Justfile). Run them from this directory.
+
+### One-time setup
+
+```bash
+just init YOUR_PROJECT_ID
 ```
-python -m syft_enclaves
+
+This stores settings in `~/.syft-enclaves/settings.json` and sets the active gcloud project. Every other recipe reads `project_id` and `zone` from this file — zone is **not** a per-call arg. To deploy in a different zone, re-run `just init YOUR_PROJECT_ID europe-west4-a`.
+
+### Production deployment
+
+#### Start
+
+`just start` runs the one-time provisioning steps and then creates a Confidential Space VM
+
+```bash
+just start                          # defaults: syft-enclave-vm, n2d-standard-2
+just start my-vm n2d-standard-4     # override name / machine type
 ```
 
-| Variable                      | Required | Default           | Description                             |
-| ----------------------------- | -------- | ----------------- | --------------------------------------- |
-| `SYFT_ENCLAVE_EMAIL`          | yes      | —                 | Enclave datasite email                  |
-| `SYFT_ENCLAVE_SYFTBOX_FOLDER` | no       | `~/SyftBox_email` | Root SyftBox folder                     |
-| `SYFT_ENCLAVE_TOKEN_PATH`     | yes      | —                 | Pre-authorized Google Drive OAuth token |
-| `SYFT_ENCLAVE_POLL_INTERVAL`  | no       | `10`              | Seconds between poll cycles             |
-| `SYFT_ENCLAVE_REQUIRE_TEE`    | no       | `false`           | Refuse to start outside a TEE           |
-| `SYFT_ENCLAVE_LOG_LEVEL`      | no       | `INFO`            | Logging level                           |
+#### stop
 
-For local development, place these in a `.env` file in the working directory.
-The same `python -m syft_enclaves` entry point runs unchanged locally, inside
-Docker, and in Confidential Spaces — only the environment differs.
+```bash
+just stop [name]
+```
 
-## Architecture
+Deletes the VM and all related objects.
 
-See [Enclave Architecture](../../docs/enclave_architecture/README.md) for detailed deployment and architecture documentation.
+### Inspect a running VM
+
+Each of these takes an optional `name` (default: `syft-enclave-vm`). Zone is always read from `settings.json`.
+
+```bash
+just status [name]   # RUNNING / TERMINATED / etc.
+just get-ip [name]   # external IP
+just logs   [name]   # last 50 lines of serial output
+just ssh    [name]   # debug image only
+```
