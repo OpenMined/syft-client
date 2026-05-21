@@ -17,7 +17,7 @@ class EnclaveSettings(BaseSettings):
     Example ``.env`` for local development::
 
         SYFT_ENCLAVE_EMAIL=enclave@openmined.org
-        SYFT_ENCLAVE_TOKEN_PATH=/secrets/gdrive_token.json
+        SYFT_ENCLAVE_TOKEN_PATH=/secrets/gdrive_token.json   # optional
         SYFT_ENCLAVE_REQUIRE_TEE=false
     """
 
@@ -32,10 +32,16 @@ class EnclaveSettings(BaseSettings):
     email: str = Field(
         description="Email address of the enclave datasite. Required.",
     )
-    # TODO: this is temporary and only for testing, this will be replaced
-    # with a secrets management solution or passing the token value via environment variable for testing.
+    # Default coupled with docker/entrypoint.sh, which writes the
+    # operator-supplied token to this exact path before the runner starts.
     token_path: Path = Field(
-        description=("Filesystem path to a pre-authorized Google Drive OAuth token. "),
+        default=Path("/run/syft-enclave/token.json"),
+        description=(
+            "Filesystem path to a pre-authorized Google Drive OAuth token. "
+            "In production, docker/entrypoint.sh writes the token content "
+            "shipped via SYFT_ENCLAVE_TOKEN_CONTENT to this path before the "
+            "runner starts."
+        ),
     )
     poll_interval: int = Field(
         default=10,
