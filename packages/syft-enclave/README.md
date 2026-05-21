@@ -5,7 +5,7 @@ Enclave support for syft-client, enabling secure computation in Trusted Executio
 ## About
 
 - [Enclave Architecture](./docs/enclave_architecture.md)
-- [API](.docs/api.md)
+- [API](./docs/api.md)
 
 ## Dev
 
