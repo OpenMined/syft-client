@@ -17,7 +17,6 @@ from syft_enclaves.client import SyftEnclaveClient
 
 logger = logging.getLogger(__name__)
 
-HEARTBEAT_PATH = Path("/tmp/enclave_heartbeat")
 TEE_SOCKET_PATH = Path("/run/container_launcher/teeserver.sock")
 
 
@@ -93,7 +92,6 @@ class EnclaveRunner:
         logger.info("Entering main loop (interval=%ds)", self.poll_interval)
         while not self._shutdown_requested:
             self._tick()
-            self._write_heartbeat()
             self._sleep()
 
     def _tick(self) -> None:
@@ -122,12 +120,6 @@ class EnclaveRunner:
                     )
 
     # -- utilities --------------------------------------------------------
-
-    def _write_heartbeat(self) -> None:
-        try:
-            HEARTBEAT_PATH.write_text(str(time.time()))
-        except OSError:
-            pass
 
     def _sleep(self) -> None:
         """Interruptible sleep — exits early on shutdown."""
