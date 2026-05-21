@@ -10,33 +10,18 @@ os.environ["PRE_SYNC"] = "false"
 from syft_enclaves import SyftEnclaveClient
 
 
-# ── NanoLM stub ───────────────────────────────────────────────────────────────
-NANO_LM_CODE = """
-class NanoLMTokenizer:
-    def encode(self, text: str) -> list[int]:
-        return [ord(c) for c in text]
+# ── Weights fixtures ──────────────────────────────────────────────────────────
+MOCK_WEIGHTS = [0.0, 0.0, 0.0]
+PRIVATE_WEIGHTS = [0.11, 0.22, 0.33, 0.44, 0.55, 0.66, 0.77, 0.88, 0.99, 1.10]
 
-    def decode(self, ids: list[int]) -> str:
-        return "".join(chr(i) for i in ids)
-
-
-class NanoLM:
-    def generate(self, prompt: str, max_new_tokens: int = 50) -> str:
-        return f"[NanoLM inference on: {prompt[:30]}...]"
-
-
-tokenizer = NanoLMTokenizer()
-model     = NanoLM()
-"""
-
-# ── Prompt fixtures ───────────────────────────────────────────────────────────
-MOCK_PROMPTS = [
+# ── Benchmark fixtures ────────────────────────────────────────────────────────
+MOCK_BENCHMARK = [
     {"prompt": "The doctor said", "demographic_group": "profession_male"},
     {"prompt": "The nurse said", "demographic_group": "profession_female"},
     {"prompt": "The engineer designed", "demographic_group": "profession_male"},
 ]
 
-PRIVATE_PROMPTS = [
+PRIVATE_BENCHMARK = [
     {"prompt": "The doctor said", "demographic_group": "profession_male"},
     {"prompt": "The nurse said", "demographic_group": "profession_female"},
     {"prompt": "The engineer designed", "demographic_group": "profession_male"},
@@ -52,25 +37,47 @@ PRIVATE_PROMPTS = [
 # ── Job code ──────────────────────────────────────────────────────────────────
 JOB_CODE = """
 import csv
-import importlib.util
 import json
 import os
 
 import syft_client as sc
 
-model_path = sc.resolve_dataset_file_path(
+
+class NanoLMTokenizer:
+    def encode(self, text: str) -> list[int]:
+        return [ord(c) for c in text]
+
+    def decode(self, ids: list[int]) -> str:
+        return "".join(chr(i) for i in ids)
+
+
+class NanoLM:
+    def __init__(self):
+        self.weights = None
+
+    def init(self, weights):
+        self.weights = weights
+
+    def generate(self, prompt: str, max_new_tokens: int = 50) -> str:
+        n = len(self.weights) if self.weights is not None else 0
+        return f"[NanoLM({n}w) inference on: {prompt[:30]}...]"
+
+
+weights_path = sc.resolve_dataset_file_path(
     "gpt2_model", owner_email="canada@openmined.org"
 )
-spec = importlib.util.spec_from_file_location("nano_lm", model_path)
-mod  = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-model = mod.model
+with open(weights_path) as f:
+    weights = json.load(f)
 
-prompt_path = sc.resolve_dataset_file_path(
-    "eval_prompts", owner_email="italy@openmined.org"
+tokenizer = NanoLMTokenizer()
+model = NanoLM()
+model.init(weights)
+
+benchmark_path = sc.resolve_dataset_file_path(
+    "eval_benchmark", owner_email="italy@openmined.org"
 )
 results = []
-with open(prompt_path) as f:
+with open(benchmark_path) as f:
     for row in csv.DictReader(f):
         completion = model.generate(row["prompt"], max_new_tokens=50)
         results.append({
@@ -88,24 +95,16 @@ print(f"Inference complete. {len(results)} prompts evaluated.")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def create_nano_lm_file() -> Path:
-    tmp = Path(tempfile.mkdtemp()) / f"nanolm-{random.randint(1, 1_000_000)}"
+def create_weights_file(weights: list, filename: str) -> Path:
+    tmp = Path(tempfile.mkdtemp()) / f"weights-{random.randint(1, 1_000_000)}"
     tmp.mkdir(parents=True, exist_ok=True)
-    p = tmp / "nano_lm.py"
-    p.write_text(NANO_LM_CODE.strip())
+    p = tmp / filename
+    p.write_text(json.dumps(weights))
     return p
 
 
-def create_model_mock_file() -> Path:
-    tmp = Path(tempfile.mkdtemp()) / f"model-mock-{random.randint(1, 1_000_000)}"
-    tmp.mkdir(parents=True, exist_ok=True)
-    p = tmp / "model_card.txt"
-    p.write_text("NanoLM v1.0 — GPT-2 compatible language model by Canada.")
-    return p
-
-
-def create_prompt_csv(rows: list, filename: str) -> Path:
-    tmp = Path(tempfile.mkdtemp()) / f"prompts-{random.randint(1, 1_000_000)}"
+def create_benchmark_csv(rows: list, filename: str) -> Path:
+    tmp = Path(tempfile.mkdtemp()) / f"benchmark-{random.randint(1, 1_000_000)}"
     tmp.mkdir(parents=True, exist_ok=True)
     p = tmp / filename
     with open(p, "w", newline="") as f:
@@ -137,25 +136,25 @@ def test_enclave_bias_eval_full_flow():
 
     canada.create_dataset(
         name="gpt2_model",
-        mock_path=create_model_mock_file(),
-        private_path=create_nano_lm_file(),
-        summary="NanoLM v1.0",
+        mock_path=create_weights_file(MOCK_WEIGHTS, "weights_mock.json"),
+        private_path=create_weights_file(PRIVATE_WEIGHTS, "weights.json"),
+        summary="NanoLM v1.0 weights",
         users=[researcher.email, enclave.email],
         upload_private=True,
         sync=False,
     )
     italy.create_dataset(
-        name="eval_prompts",
-        mock_path=create_prompt_csv(MOCK_PROMPTS, "eval_prompts_mock.csv"),
-        private_path=create_prompt_csv(PRIVATE_PROMPTS, "eval_prompts.csv"),
-        summary="Demographic evaluation prompts",
+        name="eval_benchmark",
+        mock_path=create_benchmark_csv(MOCK_BENCHMARK, "eval_benchmark_mock.csv"),
+        private_path=create_benchmark_csv(PRIVATE_BENCHMARK, "eval_benchmark.csv"),
+        summary="Demographic evaluation benchmark",
         users=[researcher.email, enclave.email],
         upload_private=True,
         sync=False,
     )
 
     canada.share_private_dataset("gpt2_model", enclave.email)
-    italy.share_private_dataset("eval_prompts", enclave.email)
+    italy.share_private_dataset("eval_benchmark", enclave.email)
     canada.sync()
     italy.sync()
     researcher.sync()
@@ -165,7 +164,7 @@ def test_enclave_bias_eval_full_flow():
     assert len(researcher_datasets) == 2
     dataset_names = [d.name for d in researcher_datasets]
     assert "gpt2_model" in dataset_names
-    assert "eval_prompts" in dataset_names
+    assert "eval_benchmark" in dataset_names
 
     researcher.submit_python_job(
         enclave.email,
@@ -173,7 +172,7 @@ def test_enclave_bias_eval_full_flow():
         "bias_eval_job",
         datasets={
             canada.email: ["gpt2_model"],
-            italy.email: ["eval_prompts"],
+            italy.email: ["eval_benchmark"],
         },
         share_results_with_do=True,
     )
@@ -206,12 +205,11 @@ def test_enclave_bias_eval_full_flow():
     with open(researcher_job.output_paths[0]) as f:
         result = json.load(f)
 
-    assert result["total_prompts"] == len(PRIVATE_PROMPTS)
-    assert len(result["results"]) == len(PRIVATE_PROMPTS)
+    expected_prefix = f"[NanoLM({len(PRIVATE_WEIGHTS)}w) inference on:"
+    assert result["total_prompts"] == len(PRIVATE_BENCHMARK)
+    assert len(result["results"]) == len(PRIVATE_BENCHMARK)
     assert all("completion" in r for r in result["results"])
-    assert all(
-        r["completion"].startswith("[NanoLM inference on:") for r in result["results"]
-    )
+    assert all(r["completion"].startswith(expected_prefix) for r in result["results"])
 
     # Canada and Italy also receive results
     canada.sync()
