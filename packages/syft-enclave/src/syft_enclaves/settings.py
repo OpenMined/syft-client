@@ -17,7 +17,6 @@ class EnclaveSettings(BaseSettings):
     Example ``.env`` for local development::
 
         SYFT_ENCLAVE_EMAIL=enclave@openmined.org
-        SYFT_ENCLAVE_SYFTBOX_FOLDER=/tmp/enclave-syftbox
         SYFT_ENCLAVE_TOKEN_PATH=/secrets/gdrive_token.json   # optional
         SYFT_ENCLAVE_REQUIRE_TEE=false
     """

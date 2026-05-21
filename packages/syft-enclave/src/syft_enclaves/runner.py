@@ -1,10 +1,14 @@
-"""Enclave runner — long-running process that drives the enclave lifecycle.
+"""Enclave runner — drives the enclave lifecycle.
 
-Startup runs three phases in order, then enters the poll loop:
-    initialize -> attest -> peer -> run
+Two ways to use this:
 
-The poll loop executes:
-    sync -> receive_jobs -> run_jobs -> distribute_results -> sleep
+  * ``run()`` — long-running daemon mode. Installs signal handlers, calls
+    ``init()``, then loops ``tick()`` on ``poll_interval`` until interrupted.
+  * ``init()`` + ``tick()`` — manual mode (e.g. inside a notebook). Call
+    ``init()`` once, then call ``tick()`` whenever the enclave needs to act.
+
+``init()`` runs three startup phases in order: initialize → attest → peer.
+``tick()`` runs one iteration: sync → receive_jobs → run_jobs → distribute_results.
 """
 
 import logging
@@ -21,7 +25,8 @@ TEE_SOCKET_PATH = Path("/run/container_launcher/teeserver.sock")
 
 
 class EnclaveRunner:
-    """Poll loop for enclave operation inside a TEE container."""
+    """Drives the enclave lifecycle. Use ``run()`` for daemon mode or
+    ``init()`` + ``tick()`` to drive it manually (e.g. from a notebook)."""
 
     def __init__(
         self,
@@ -34,22 +39,37 @@ class EnclaveRunner:
         self.require_tee = require_tee
         self._shutdown_requested = False
 
-    # -- lifecycle --------------------------------------------------------
+    # -- public API -------------------------------------------------------
 
-    def run(self) -> None:
-        """Main entry point. Blocks until shutdown signal."""
-        self._install_signal_handlers()
+    def init(self) -> None:
+        """Run the startup phases: initialize → attest → peer."""
         logger.info(
-            "Enclave runner starting — email=%s poll=%ds",
+            "Enclave runner initializing — email=%s syftbox_folder=%s",
             self.client.email,
             self.client.syftbox_folder,
-            self.poll_interval,
         )
+        self._on_initializing()
+        self._on_attesting()
+        self._on_peering()
 
+    def tick(self) -> None:
+        """One iteration: accept peers, sync, receive_jobs, run_jobs, distribute_results."""
         try:
-            self._on_initializing()
-            self._on_attesting()
-            self._on_peering()
+            self._accept_peers()
+            self.client.sync()
+            self.client.receive_jobs()
+            self.client.run_jobs()
+            self.client.distribute_results()
+        except Exception:
+            logger.exception("Error during tick")
+            # Don't crash — log and retry next cycle
+
+    def run(self) -> None:
+        """Daemon mode: install signal handlers, init, then loop tick()."""
+        self._install_signal_handlers()
+        logger.info("Enclave runner starting — poll=%ds", self.poll_interval)
+        try:
+            self.init()
             self._loop()
         except Exception:
             logger.exception("Fatal error in enclave runner")
@@ -92,20 +112,8 @@ class EnclaveRunner:
         """Core poll loop — runs until shutdown is requested."""
         logger.info("Entering main loop (interval=%ds)", self.poll_interval)
         while not self._shutdown_requested:
-            self._tick()
+            self.tick()
             self._sleep()
-
-    def _tick(self) -> None:
-        """Single iteration of the main loop."""
-        try:
-            self._accept_peers()
-            self.client.sync()
-            self.client.receive_jobs()
-            self.client.run_jobs()
-            self.client.distribute_results()
-        except Exception:
-            logger.exception("Error during tick")
-            # Don't crash — log and retry next cycle
 
     def _accept_peers(self) -> None:
         """Accept any pending peer requests."""

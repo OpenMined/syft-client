@@ -42,7 +42,6 @@ def main() -> None:
         "Enclave settings — email=%s syftbox_folder=%s token_path=%s "
         "poll_interval=%ds require_tee=%s",
         settings.email,
-        settings.syftbox_folder,
         settings.token_path,
         settings.poll_interval,
         settings.require_tee,
@@ -50,7 +49,6 @@ def main() -> None:
 
     client = SyftEnclaveClient.for_enclave(
         email=settings.email,
-        syftbox_folder=settings.syftbox_folder,
         token_path=settings.token_path,
     )
     runner = EnclaveRunner(

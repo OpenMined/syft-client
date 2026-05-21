@@ -64,7 +64,7 @@ class NanoLM:
 
 
 weights_path = sc.resolve_dataset_file_path(
-    "gpt2_model", owner_email="canada@openmined.org"
+    "gpt2_model", owner_email="model_owner@openmined.org"
 )
 with open(weights_path) as f:
     weights = json.load(f)
@@ -74,7 +74,7 @@ model = NanoLM()
 model.init(weights)
 
 benchmark_path = sc.resolve_dataset_file_path(
-    "eval_benchmark", owner_email="italy@openmined.org"
+    "eval_benchmark", owner_email="benchmark_owner@openmined.org"
 )
 results = []
 with open(benchmark_path) as f:
@@ -124,17 +124,17 @@ def create_code_file(code: str) -> str:
 
 def test_enclave_bias_eval_full_flow():
     """Full flow: submit → distribute → approve → run → distribute results."""
-    enclave, canada, italy, researcher = (
+    enclave, model_owner, benchmark_owner, researcher = (
         SyftEnclaveClient.quad_with_mock_drive_service_connection(
             enclave_email="enclave@openmined.org",
-            do1_email="canada@openmined.org",
-            do2_email="italy@openmined.org",
+            do1_email="model_owner@openmined.org",
+            do2_email="benchmark_owner@openmined.org",
             ds_email="researcher@openmined.org",
             use_in_memory_cache=False,
         )
     )
 
-    canada.create_dataset(
+    model_owner.create_dataset(
         name="gpt2_model",
         mock_path=create_weights_file(MOCK_WEIGHTS, "weights_mock.json"),
         private_path=create_weights_file(PRIVATE_WEIGHTS, "weights.json"),
@@ -143,7 +143,7 @@ def test_enclave_bias_eval_full_flow():
         upload_private=True,
         sync=False,
     )
-    italy.create_dataset(
+    benchmark_owner.create_dataset(
         name="eval_benchmark",
         mock_path=create_benchmark_csv(MOCK_BENCHMARK, "eval_benchmark_mock.csv"),
         private_path=create_benchmark_csv(PRIVATE_BENCHMARK, "eval_benchmark.csv"),
@@ -153,10 +153,10 @@ def test_enclave_bias_eval_full_flow():
         sync=False,
     )
 
-    canada.share_private_dataset("gpt2_model", enclave.email)
-    italy.share_private_dataset("eval_benchmark", enclave.email)
-    canada.sync()
-    italy.sync()
+    model_owner.share_private_dataset("gpt2_model", enclave.email)
+    benchmark_owner.share_private_dataset("eval_benchmark", enclave.email)
+    model_owner.sync()
+    benchmark_owner.sync()
     researcher.sync()
 
     # Researcher sees both mock datasets
@@ -171,8 +171,8 @@ def test_enclave_bias_eval_full_flow():
         create_code_file(JOB_CODE),
         "bias_eval_job",
         datasets={
-            canada.email: ["gpt2_model"],
-            italy.email: ["eval_benchmark"],
+            model_owner.email: ["gpt2_model"],
+            benchmark_owner.email: ["eval_benchmark"],
         },
         share_results_with_do=True,
     )
@@ -182,10 +182,10 @@ def test_enclave_bias_eval_full_flow():
     enclave.receive_jobs()
 
     # Both approve
-    canada.sync()
-    italy.sync()
-    canada.approve_job(canada.jobs["bias_eval_job"])
-    italy.approve_job(italy.jobs["bias_eval_job"])
+    model_owner.sync()
+    benchmark_owner.sync()
+    model_owner.approve_job(model_owner.jobs["bias_eval_job"])
+    benchmark_owner.approve_job(benchmark_owner.jobs["bias_eval_job"])
 
     enclave.sync()
     assert enclave.jobs["bias_eval_job"].status == "approved"
@@ -211,8 +211,8 @@ def test_enclave_bias_eval_full_flow():
     assert all("completion" in r for r in result["results"])
     assert all(r["completion"].startswith(expected_prefix) for r in result["results"])
 
-    # Canada and Italy also receive results
-    canada.sync()
-    italy.sync()
-    assert len(canada.jobs["bias_eval_job"].output_paths) > 0
-    assert len(italy.jobs["bias_eval_job"].output_paths) > 0
+    # Model owner and Benchmark owner also receive results
+    model_owner.sync()
+    benchmark_owner.sync()
+    assert len(model_owner.jobs["bias_eval_job"].output_paths) > 0
+    assert len(benchmark_owner.jobs["bias_eval_job"].output_paths) > 0
