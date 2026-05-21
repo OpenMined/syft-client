@@ -5,7 +5,7 @@ Enclave support for syft-client, enabling secure computation in Trusted Executio
 ## About
 
 - [Enclave Architecture](./docs/enclave_architecture.md)
-- [API](.docs/api.md)
+- [API](./docs/api.md)
 
 ## Dev
 
@@ -14,6 +14,9 @@ Enclave support for syft-client, enabling secure computation in Trusted Executio
 ```
 uv pip install -e .
 ```
+
+## Deploy
+**note: `[arg]` syntax in this document means that `arg` is optional (with default)**
 
 ### Prerequisites
 
