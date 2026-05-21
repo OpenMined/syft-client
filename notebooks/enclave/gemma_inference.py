@@ -281,6 +281,21 @@ def load_params(weights_dir, cfg):
     return {"params": nestify(raw)["transformer"]}
 
 
+# ── Setup (convenience entry point) ───────────────────────────────────────
+
+
+def setup(size, weights_dir):
+    """Configure model, load weights and tokenizer.
+
+    Returns (model, tokenizer, params).
+    """
+    cfg = set_model_config(size)
+    params = load_params(weights_dir, cfg)
+    model = Transformer()
+    sp = load_tokenizer(weights_dir)
+    return model, sp, params
+
+
 # ── Tokenizer + generation ─────────────────────────────────────────────────
 
 
