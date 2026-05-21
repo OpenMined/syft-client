@@ -1,7 +1,10 @@
 """Retry logic for Google Drive API calls."""
 
+import http.client
 import logging
 import random
+import socket
+import ssl
 import time
 from typing import Any, TypeVar
 
@@ -24,11 +27,27 @@ RETRYABLE_REASONS = {
     "badRequest",  # GDrive resumable uploads can return transient 400 "badRequest"
 }
 
+# Socket/TLS transients raised by httplib2 when Google closes an idle keepalive
+# connection. googleapiclient's own retry loop only catches ssl.SSLError and
+# socket.timeout, so these escape and surface to callers as unhandled errors.
+RETRYABLE_TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
+    ConnectionResetError,
+    ConnectionAbortedError,
+    BrokenPipeError,
+    TimeoutError,
+    socket.timeout,
+    ssl.SSLError,
+    http.client.RemoteDisconnected,
+    http.client.BadStatusLine,
+)
+
 T = TypeVar("T")
 
 
 def is_retryable_error(error: Exception) -> bool:
     """Check if an error is transient and should be retried."""
+    if isinstance(error, RETRYABLE_TRANSPORT_ERRORS):
+        return True
     if isinstance(error, HttpError):
         if error.resp.status in RETRYABLE_STATUS_CODES:
             return True
@@ -38,6 +57,12 @@ def is_retryable_error(error: Exception) -> bool:
                 if detail.get("reason") in RETRYABLE_REASONS:
                     return True
     return False
+
+
+def _describe(error: Exception) -> str:
+    if isinstance(error, HttpError):
+        return str(error.resp.status)
+    return type(error).__name__
 
 
 def execute_with_retries(
@@ -70,7 +95,7 @@ def execute_with_retries(
     for attempt in range(max_retries + 1):
         try:
             return request.execute()
-        except HttpError as e:
+        except (HttpError, *RETRYABLE_TRANSPORT_ERRORS) as e:
             last_error = e
             if not is_retryable_error(e) or attempt == max_retries:
                 raise
@@ -81,7 +106,7 @@ def execute_with_retries(
 
             logger.warning(
                 f"Google Drive API error (attempt {attempt + 1}/{max_retries + 1}): "
-                f"{e.resp.status} - retrying in {sleep_time:.2f}s"
+                f"{_describe(e)} - retrying in {sleep_time:.2f}s"
             )
             time.sleep(sleep_time)
             delay = min(delay * backoff_multiplier, max_delay)
@@ -117,7 +142,7 @@ def next_chunk_with_retries(
     for attempt in range(max_retries + 1):
         try:
             return downloader.next_chunk()
-        except HttpError as e:
+        except (HttpError, *RETRYABLE_TRANSPORT_ERRORS) as e:
             last_error = e
             if not is_retryable_error(e) or attempt == max_retries:
                 raise
@@ -128,7 +153,7 @@ def next_chunk_with_retries(
 
             logger.warning(
                 f"Google Drive download error (attempt {attempt + 1}/{max_retries + 1}): "
-                f"{e.resp.status} - retrying in {sleep_time:.2f}s"
+                f"{_describe(e)} - retrying in {sleep_time:.2f}s"
             )
             time.sleep(sleep_time)
             delay = min(delay * backoff_multiplier, max_delay)
@@ -162,7 +187,7 @@ def batch_execute_with_retries(
         try:
             batch.execute()
             return
-        except HttpError as e:
+        except (HttpError, *RETRYABLE_TRANSPORT_ERRORS) as e:
             last_error = e
             if not is_retryable_error(e) or attempt == max_retries:
                 raise
@@ -173,7 +198,7 @@ def batch_execute_with_retries(
 
             logger.warning(
                 f"Google Drive batch error (attempt {attempt + 1}/{max_retries + 1}): "
-                f"{e.resp.status} - retrying in {sleep_time:.2f}s"
+                f"{_describe(e)} - retrying in {sleep_time:.2f}s"
             )
             time.sleep(sleep_time)
             delay = min(delay * backoff_multiplier, max_delay)

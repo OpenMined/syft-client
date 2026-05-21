@@ -1,6 +1,7 @@
 from pathlib import Path
 import fcntl
 from syft_client.sync.peers.peer_store import PeerStore
+from syft_client.sync.utils.path_filters import is_normal_syncable_path
 import logging
 import shutil
 from contextlib import contextmanager
@@ -17,7 +18,7 @@ from syft_datasets.config import SyftBoxConfig
 from syft_datasets.dataset_manager import SyftDatasetManager
 from syft_client.sync.platforms.base_platform import BasePlatform
 from pydantic import BaseModel, PrivateAttr
-from typing import List, cast
+from typing import List, Optional, cast
 from syft_client.sync.sync.caches.datasite_watcher_cache import (
     DataSiteWatcherCacheConfig,
 )
@@ -69,6 +70,10 @@ COLAB_DEFAULT_SYFTBOX_FOLDER = Path("/")
 JUPYTER_DEFAULT_SYFTBOX_FOLDER = Path.home() / "SyftBox"
 COLLECTION_SUBPATH = Path("public/syft_datasets")
 
+# ANSI codes for highlighting important warnings in terminals / notebooks.
+_ANSI_RED = "\033[1;91m"
+_ANSI_RESET = "\033[0m"
+
 
 def get_jupyter_default_syftbox_folder(email: str):
     return Path.home() / f"SyftBox_{email}"
@@ -95,7 +100,14 @@ class SyftboxManagerConfig(BaseModel):
 
     @classmethod
     def for_colab(
-        cls, email: str, has_ds_role: bool = False, has_do_role: bool = False
+        cls,
+        email: str,
+        has_ds_role: bool = False,
+        has_do_role: bool = False,
+        skip_peer_on_patch_version_diff: Optional[
+            bool
+        ] = None,  # None: value is determined by the role
+        force_ignore_peer_version: bool = False,
     ):
         if not has_ds_role and not has_do_role:
             raise ValueError("At least one of has_ds_role or has_do_role must be True")
@@ -142,6 +154,8 @@ class SyftboxManagerConfig(BaseModel):
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
+            skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
+            force_ignore_peer_version=force_ignore_peer_version,
         )
         return cls(
             email=email,
@@ -164,6 +178,10 @@ class SyftboxManagerConfig(BaseModel):
         has_ds_role: bool = False,
         has_do_role: bool = False,
         token_path: Path | None = None,
+        skip_peer_on_patch_version_diff: Optional[
+            bool
+        ] = None,  # None: value is determined by the role
+        force_ignore_peer_version: bool = False,
     ):
         if not has_ds_role and not has_do_role:
             raise ValueError("At least one of has_ds_role or has_do_role must be True")
@@ -213,6 +231,8 @@ class SyftboxManagerConfig(BaseModel):
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
+            skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
+            force_ignore_peer_version=force_ignore_peer_version,
         )
         return cls(
             email=email,
@@ -539,12 +559,18 @@ class SyftboxManager(BaseModel):
         has_do_role: bool = False,
         encryption: bool = False,
         encryption_keys: dict | None = None,
+        skip_peer_on_patch_version_diff: Optional[
+            bool
+        ] = None,  # None: value is determined by the role
+        force_ignore_peer_version: bool = False,
     ):
         manager = cls.from_config(
             SyftboxManagerConfig.for_colab(
                 email=email,
                 has_ds_role=has_ds_role,
                 has_do_role=has_do_role,
+                skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
+                force_ignore_peer_version=force_ignore_peer_version,
             )
         )
         manager._init_encryption(encryption, encryption_keys)
@@ -579,6 +605,10 @@ class SyftboxManager(BaseModel):
         token_path: Path | None = None,
         encryption: bool = False,
         encryption_keys: dict | None = None,
+        skip_peer_on_patch_version_diff: Optional[
+            bool
+        ] = None,  # None: value is determined by the role
+        force_ignore_peer_version: bool = False,
     ):
         if token_path is not None:
             token_path = Path(token_path)
@@ -588,6 +618,8 @@ class SyftboxManager(BaseModel):
                 has_ds_role=has_ds_role,
                 has_do_role=has_do_role,
                 token_path=token_path,
+                skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
+                force_ignore_peer_version=force_ignore_peer_version,
             )
         )
         manager._init_encryption(encryption, encryption_keys)
@@ -865,6 +897,12 @@ class SyftboxManager(BaseModel):
     def push_job_files(self, job_dir: Path):
         file_paths = [Path(p) for p in job_dir.rglob("*") if p.is_file()]
         relative_file_paths = [p.relative_to(self.syftbox_folder) for p in file_paths]
+        for rel in relative_file_paths:
+            # job_dir lives under <syftbox>/<owning_email>/...; strip the email
+            # component to get a datasite-relative path for the filter check.
+            datasite_rel = Path(*rel.parts[1:]) if len(rel.parts) > 1 else rel
+            if not is_normal_syncable_path(datasite_rel):
+                logger.warning(f"push_job_files: pushing non-syncable path {rel}")
 
         last_file = False
         for i, relative_file_path in enumerate(relative_file_paths):
@@ -882,14 +920,16 @@ class SyftboxManager(BaseModel):
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock_path.touch(exist_ok=True)
         with open(lock_path, "r") as lock_handle:
-            logger.info(f"Acquiring sync lock for {self.email}...")
             try:
-                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-                logger.info(f"Sync lock acquired for {self.email}")
+                try:
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    logger.info(f"Waiting for sync lock for {self.email}...")
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+                    logger.info(f"Sync lock acquired for {self.email}")
                 yield
             finally:
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-                logger.info(f"Sync lock released for {self.email}")
 
     def sync(
         self,
@@ -1523,8 +1563,10 @@ class SyftboxManager(BaseModel):
 
         # Delete local syftbox folder and cache directories
         self._delete_local_dirs()
+
         print(
-            "Done, if you are also running syft-bg, make sure to call syft-bg.reset() before delete_syftbox()."
+            f"{_ANSI_RED}Done. If you are also running syft-bg, make sure to call "
+            f"syft_bg.reset() before delete_syftbox().{_ANSI_RESET}"
         )
 
     def _delete_local_dirs(self):

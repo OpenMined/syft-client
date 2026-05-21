@@ -1,61 +1,61 @@
-"""CLI entry point: python -m syft_enclaves.runner"""
+"""Entry point for the Syft enclave runner: ``python -m syft_enclaves``.
 
-# stdlib
-import argparse
+Configuration is read entirely from ``SYFT_ENCLAVE_*`` environment variables
+(see :class:`syft_enclaves.settings.EnclaveSettings`).
+"""
+
 import logging
+import sys
 
-# relative
-from syft_client.sync.syftbox_manager import SyftboxManager, SyftboxManagerConfig
+from pydantic import ValidationError
+
 from syft_enclaves.client import SyftEnclaveClient
 from syft_enclaves.runner import EnclaveRunner
+from syft_enclaves.settings import EnclaveSettings
+
+logger = logging.getLogger(__name__)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Syft Enclave Runner")
-    parser.add_argument("--email", required=True, help="Enclave datasite email")
-    parser.add_argument(
-        "--syftbox-folder",
-        default=None,
-        help="Path to SyftBox folder (default: ~/SyftBox)",
-    )
-    parser.add_argument(
-        "--poll-interval",
-        type=int,
-        default=10,
-        help="Seconds between poll cycles (default: 10)",
-    )
-    parser.add_argument(
-        "--require-tee",
-        action="store_true",
-        help="Refuse to start if not running in a TEE",
-    )
-    parser.add_argument(
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-    )
-    args = parser.parse_args()
-
+def _configure_logging(log_level: str) -> None:
     logging.basicConfig(
-        level=getattr(logging, args.log_level),
+        level=log_level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    syftbox_folder = args.syftbox_folder or str(
-        SyftboxManagerConfig.default_syftbox_folder()
-    )
-    config = SyftboxManagerConfig(
-        syftbox_folder=syftbox_folder,
-        email=args.email,
-    )
-    manager = SyftboxManager(config)
-    client = SyftEnclaveClient(manager)
 
+def _load_settings() -> EnclaveSettings:
+    """Load settings, exiting with an actionable message on misconfiguration."""
+    try:
+        return EnclaveSettings()
+    except ValidationError as exc:
+        # A missing or malformed SYFT_ENCLAVE_* variable is an operator error,
+        # not a bug — fail fast with the validation report, not a traceback.
+        print(f"Invalid enclave configuration:\n{exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
+def main() -> None:
+    settings = _load_settings()
+    _configure_logging(settings.log_level)
+    logger.info(
+        "Enclave settings — email=%s syftbox_folder=%s poll_interval=%ds "
+        "require_tee=%s",
+        settings.email,
+        settings.syftbox_folder,
+        settings.poll_interval,
+        settings.require_tee,
+    )
+
+    client = SyftEnclaveClient.for_enclave(
+        email=settings.email,
+        syftbox_folder=settings.syftbox_folder,
+        token_path=settings.token_path,
+    )
     runner = EnclaveRunner(
         client=client,
-        poll_interval=args.poll_interval,
-        require_tee=args.require_tee,
+        poll_interval=settings.poll_interval,
+        require_tee=settings.require_tee,
     )
     runner.run()
 

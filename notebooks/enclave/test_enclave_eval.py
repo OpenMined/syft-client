@@ -69,17 +69,15 @@ model = mod.model
 prompt_path = sc.resolve_dataset_file_path(
     "eval_prompts", owner_email="italy@openmined.org"
 )
-with open(prompt_path) as f:
-    prompts = list(csv.DictReader(f))
-
 results = []
-for row in prompts:
-    completion = model.generate(row["prompt"], max_new_tokens=50)
-    results.append({
-        "prompt":            row["prompt"],
-        "demographic_group": row["demographic_group"],
-        "completion":        completion,
-    })
+with open(prompt_path) as f:
+    for row in csv.DictReader(f):
+        completion = model.generate(row["prompt"], max_new_tokens=50)
+        results.append({
+            "prompt":            row["prompt"],
+            "demographic_group": row["demographic_group"],
+            "completion":        completion,
+        })
 
 os.makedirs("outputs", exist_ok=True)
 with open("outputs/bias_eval_results.json", "w") as f:
