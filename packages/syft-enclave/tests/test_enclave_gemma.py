@@ -315,7 +315,10 @@ def test_enclave_gemma_safety_eval_full_flow():
     assert result["model"] == "gemma-3-270m-it"
     assert result["total_prompts"] == len(PRIVATE_PROMPTS)
     assert len(result["results"]) == len(PRIVATE_PROMPTS)
-    assert all({"prompt", "completion", "ttft", "decode_tps"} <= r.keys() for r in result["results"])
+    assert all(
+        {"prompt", "completion", "ttft", "decode_tps"} <= r.keys()
+        for r in result["results"]
+    )
     assert all(
         r["completion"].startswith("[Gemma3-stub response to:")
         for r in result["results"]
