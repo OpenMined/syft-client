@@ -9,13 +9,12 @@ Enclave support for syft-client, enabling secure computation in Trusted Executio
 
 ## Dev
 
-**note: `[arg]` syntax in this document means that `arg` is optional (with default)**
-
 ```
 uv pip install -e .
 ```
 
 ## Deploy
+**note: `[arg]` syntax in this document means that `arg` is optional (with default)**
 
 ### Prerequisites
 
