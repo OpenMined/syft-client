@@ -1,0 +1,198 @@
+dockerhub_username := "openminedreleasebot"
+image := "docker.io/openminedreleasebot/syft-client-enclave:latest"
+machine_type_default := "n2d-standard-2"
+vm_default := "syft-enclave-vm"
+
+# Shared shell snippet: loads project_id and zone_default from ~/syft-enclaves/settings.json.
+# Interpolated as {{load_settings}} at the top of every recipe that needs them.
+load_settings := 'settings="$HOME/syft-enclaves/settings.json"
+[ -f "$settings" ] || { echo "Error: $settings not found. Run: just init <project_id>" >&2; exit 1; }
+project_id=$(jq -r .project_id "$settings")
+zone_default=$(jq -r .zone "$settings")'
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Settings
+#
+# `init` writes ~/syft-enclaves/settings.json with project_id and zone. Every other
+# recipe reads project_id from that file. Zone resolution: explicit `zone=` arg wins,
+# otherwise fall back to settings.json's zone. Run `just init <project_id>` first.
+# ---------------------------------------------------------------------------------------------------------------------
+
+# Initialize ~/syft-enclaves/settings.json and set gcloud's active project
+[group('setup')]
+init project_id zone="us-central1-a":
+    #!/bin/bash
+    set -e
+    if ! command -v gcloud >/dev/null 2>&1; then
+      echo "Error: gcloud not found. Install: https://cloud.google.com/sdk/docs/install" >&2
+      exit 1
+    fi
+    if ! gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | grep -q .; then
+      echo "No authenticated gcloud account. Running 'gcloud auth login'..."
+      gcloud auth login
+    fi
+    mkdir -p "$HOME/syft-enclaves"
+    jq -n --arg p "{{project_id}}" --arg z "{{zone}}" \
+      '{project_id: $p, zone: $z}' > "$HOME/syft-enclaves/settings.json"
+    gcloud config set project {{project_id}}
+    echo "wrote $HOME/syft-enclaves/settings.json"
+    echo "[gcloud account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')]"
+
+# Print the active gcloud account (shown before each VM-touching recipe)
+_whoami:
+    @echo "[gcloud account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')]"
+
+# Enable APIs, grant attestation IAM role, create firewall rule (idempotent)
+_provision: _whoami
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    gcloud services enable \
+      compute.googleapis.com \
+      confidentialcomputing.googleapis.com \
+      --project="$project_id"
+    project_number=$(gcloud projects describe "$project_id" --format='get(projectNumber)')
+    gcloud projects add-iam-policy-binding "$project_id" \
+      --member="serviceAccount:${project_number}-compute@developer.gserviceaccount.com" \
+      --role="roles/confidentialcomputing.workloadUser"
+    gcloud compute firewall-rules create allow-enclave-http \
+      --project="$project_id" \
+      --direction=INGRESS \
+      --priority=1000 \
+      --network=default \
+      --action=ALLOW \
+      --rules=tcp:8080 \
+      --target-tags=http-server \
+      --source-ranges=0.0.0.0/0 || true
+
+# Deploy a production enclave VM (hardened image, no SSH)
+[group('deploy')]
+start name=vm_default zone="" machine_type=machine_type_default: _provision
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    zone="{{zone}}"
+    zone="${zone:-$zone_default}"
+    gcloud compute instances create {{name}} \
+      --project="$project_id" \
+      --zone="$zone" \
+      --machine-type={{machine_type}} \
+      --confidential-compute-type=SEV \
+      --shielded-secure-boot \
+      --maintenance-policy=MIGRATE \
+      --min-cpu-platform="AMD Milan" \
+      --image-family=confidential-space \
+      --image-project=confidential-space-images \
+      --scopes=cloud-platform \
+      --tags=http-server \
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never"
+
+# Deploy a debug enclave VM (SSH + container log redirection enabled)
+[group('deploy')]
+start-debug name=vm_default zone="" machine_type=machine_type_default: _provision
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    zone="{{zone}}"
+    zone="${zone:-$zone_default}"
+    gcloud compute instances create {{name}} \
+      --project="$project_id" \
+      --zone="$zone" \
+      --machine-type={{machine_type}} \
+      --confidential-compute-type=SEV \
+      --shielded-secure-boot \
+      --maintenance-policy=MIGRATE \
+      --min-cpu-platform="AMD Milan" \
+      --image-family=confidential-space-debug \
+      --image-project=confidential-space-images \
+      --scopes=cloud-platform \
+      --tags=http-server \
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true"
+
+# Delete the enclave VM and remove the firewall rule
+[group('teardown')]
+stop name=vm_default zone="": _whoami
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    zone="{{zone}}"
+    zone="${zone:-$zone_default}"
+    gcloud compute instances delete {{name}} \
+      --project="$project_id" \
+      --zone="$zone" \
+      --quiet
+    gcloud compute firewall-rules delete allow-enclave-http \
+      --project="$project_id" \
+      --quiet
+
+# Print the VM's external IP
+[group('inspect')]
+get-ip name=vm_default zone="": _whoami
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    zone="{{zone}}"
+    zone="${zone:-$zone_default}"
+    gcloud compute instances describe {{name}} \
+      --project="$project_id" \
+      --zone="$zone" \
+      --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
+
+# Print the VM's current status (RUNNING / TERMINATED / etc.)
+[group('inspect')]
+status name=vm_default zone="": _whoami
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    zone="{{zone}}"
+    zone="${zone:-$zone_default}"
+    gcloud compute instances describe {{name}} \
+      --project="$project_id" \
+      --zone="$zone" \
+      --format='get(status)'
+
+# Tail the last 50 lines of the VM's serial port output
+[group('inspect')]
+logs name=vm_default zone="": _whoami
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    zone="{{zone}}"
+    zone="${zone:-$zone_default}"
+    gcloud compute instances get-serial-port-output {{name}} \
+      --project="$project_id" \
+      --zone="$zone" 2>&1 | tail -50
+
+# SSH into the VM (only works on debug image)
+[group('inspect')]
+ssh name=vm_default zone="": _whoami
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    zone="{{zone}}"
+    zone="${zone:-$zone_default}"
+    gcloud compute ssh {{name}} \
+      --project="$project_id" \
+      --zone="$zone"
+
+# Build a multi-arch image (linux/amd64 + linux/arm64) and push to Docker Hub
+[group('docker')]
+build-push:
+    #!/bin/bash
+    set -e
+    docker buildx create --name multiarch --use 2>/dev/null || true
+    docker buildx build --platform linux/amd64,linux/arm64 \
+      -t {{image}} \
+      -f docker/Dockerfile \
+      --push \
+      .
+
+# Build a linux/amd64-only image and push to Docker Hub
+[group('docker')]
+build-push-amd:
+    #!/bin/bash
+    set -e
+    docker build --platform linux/amd64 \
+      -t {{image}} \
+      -f docker/Dockerfile .
+    docker push {{image}}
