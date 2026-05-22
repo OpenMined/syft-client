@@ -1051,8 +1051,7 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         # Drive's `name contains` is a fuzzy token/prefix match, not a substring
         # match, so it can return folders for other peers when email tokens
-        # collide (e.g. a lookup for ds.007 also matches ds.008's folder when
-        # the enclave itself is enclave.007).
+        # collide
         def _is_exact_match(name: str) -> bool:
             try:
                 folder = GdriveP2PFolder.from_name(name)
