@@ -31,7 +31,7 @@ class EnclaveRunner:
     def __init__(
         self,
         client: SyftEnclaveClient,
-        poll_interval: int = 10,
+        poll_interval: int = 1,
         require_tee: bool = False,
     ) -> None:
         self.client = client
