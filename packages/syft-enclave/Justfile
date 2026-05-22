@@ -1,5 +1,6 @@
 dockerhub_username := "openminedreleasebot"
-image := "docker.io/openminedreleasebot/syft-client-enclave:latest"
+image_base := "docker.io/openminedreleasebot/syft-client-enclave"
+image := image_base + ":latest"
 machine_type_default := "n2d-standard-2"
 vm_default := "syft-enclave-vm"
 
@@ -10,6 +11,21 @@ load_settings := '''
     [ -f "$settings" ] || { echo "Error: $settings not found. Run: just init <project_id>" >&2; exit 1; }
     project_id=$(jq -r .project_id "$settings")
     zone=$(jq -r .zone "$settings")
+'''
+
+# Ensure we have Docker Hub creds before pushing.
+# If OM_DOCKER_LOGIN + OM_DOCKER_PW are set, do a non-interactive login.
+# Otherwise, if no cached creds, fall back to interactive `docker login`.
+ensure_dockerhub_login := '''
+    if ! grep -q '"https://index.docker.io/v1/"' "$HOME/.docker/config.json" 2>/dev/null; then
+        if [ -n "${OM_DOCKER_LOGIN:-}" ] && [ -n "${OM_DOCKER_PW:-}" ]; then
+            echo "Logging in to Docker Hub as $OM_DOCKER_LOGIN (from env)..."
+            echo "$OM_DOCKER_PW" | docker login -u "$OM_DOCKER_LOGIN" --password-stdin
+        else
+            echo "Not logged in to Docker Hub. Either set OM_DOCKER_LOGIN and OM_DOCKER_PW, or log in interactively now:"
+            docker login
+        fi
+    fi
 '''
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -229,24 +245,46 @@ ssh name=vm_default: _whoami
       --project="$project_id" \
       --zone="$zone"
 
-# Build a multi-arch image (linux/amd64 + linux/arm64) and push to Docker Hub
+# Set OM_DOCKER_LOGIN + OM_DOCKER_PW to skip the docker-login prompt.
+# Build a multi-arch image (linux/amd64 + linux/arm64) and push to Docker Hub.
+# `tags` is space-separated, e.g. `just build-push "0.1 latest"`.
+# Build context is the monorepo root (`../..`) so the Dockerfile can install
+# syft-enclave from the workspace; .dockerignore (next to the Dockerfile)
+# keeps the context small.
 [group('docker')]
-build-push:
+build-push tags="latest":
     #!/bin/bash
     set -e
+    {{ensure_dockerhub_login}}
     docker buildx create --name multiarch --use 2>/dev/null || true
+    tag_args=""
+    for t in {{tags}}; do
+        tag_args="$tag_args -t {{image_base}}:$t"
+    done
     docker buildx build --platform linux/amd64,linux/arm64 \
-      -t {{image}} \
+      $tag_args \
       -f docker/Dockerfile \
       --push \
-      .
+      ../..
 
-# Build a linux/amd64-only image and push to Docker Hub
+# Set OM_DOCKER_LOGIN + OM_DOCKER_PW to skip the docker-login prompt.
+# Build a linux/amd64-only image and push to Docker Hub.
+# `tags` is space-separated, e.g. `just build-push-amd "0.1 latest"`.
+# Build context is the monorepo root (`../..`) so the Dockerfile can install
+# syft-enclave from the workspace; .dockerignore (next to the Dockerfile)
+# keeps the context small.
 [group('docker')]
-build-push-amd:
+build-push-amd tags="latest":
     #!/bin/bash
     set -e
+    {{ensure_dockerhub_login}}
+    tag_args=""
+    for t in {{tags}}; do
+        tag_args="$tag_args -t {{image_base}}:$t"
+    done
     docker build --platform linux/amd64 \
-      -t {{image}} \
-      -f docker/Dockerfile .
-    docker push {{image}}
+      $tag_args \
+      -f docker/Dockerfile ../..
+    for t in {{tags}}; do
+        docker push {{image_base}}:$t
+    done

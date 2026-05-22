@@ -48,12 +48,25 @@ class EnclaveRunner:
             self.client.email,
             self.client.syftbox_folder,
         )
+
+        logger.info("init step 1/3: initializing")
         self._on_initializing()
+        logger.info("init step 1/3: initializing complete")
+
+        logger.info("init step 2/3: attesting")
         self._on_attesting()
+        logger.info("init step 2/3: attesting complete")
+
+        logger.info("init step 3/3: peering")
         self._on_peering()
+        logger.info("init step 3/3: peering complete")
+
+        logger.info("Enclave runner init complete")
 
     def tick(self) -> None:
         """One iteration: accept peers, sync, receive_jobs, run_jobs, distribute_results."""
+        logger.info("tick start")
+        started = time.monotonic()
         try:
             self._accept_peers()
             self.client.sync()
@@ -63,6 +76,7 @@ class EnclaveRunner:
         except Exception:
             logger.exception("Error during tick")
             # Don't crash — log and retry next cycle
+        logger.info("tick complete (%.2fs)", time.monotonic() - started)
 
     def run(self) -> None:
         """Daemon mode: install signal handlers, init, then loop tick()."""
