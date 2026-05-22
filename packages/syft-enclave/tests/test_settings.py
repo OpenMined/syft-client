@@ -31,7 +31,7 @@ def test_defaults_applied_when_required_fields_set(required_env):
 
     assert settings.email == "enclave@openmined.org"
     assert settings.token_path == Path("/secrets/token.json")
-    assert settings.poll_interval == 10
+    assert settings.poll_interval == 1
     assert settings.require_tee is False
     assert settings.log_level == "INFO"
 

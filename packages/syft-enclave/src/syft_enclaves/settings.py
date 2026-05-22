@@ -44,7 +44,7 @@ class EnclaveSettings(BaseSettings):
         ),
     )
     poll_interval: int = Field(
-        default=10,
+        default=1,
         ge=1,
         description="Seconds to wait between poll-loop cycles.",
     )
