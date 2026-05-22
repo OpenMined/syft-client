@@ -3,11 +3,6 @@
 Mirrors the full enclave_gemma.ipynb flow but uses a stub model that implements
 the same interface as gemma_inference.py, allowing CI to run without downloading
 ~500MB of weights.
-
-By default only tests the 270m config. To test other sizes:
-    uv run pytest tests/test_enclave_gemma.py --model-size 1b
-    uv run pytest tests/test_enclave_gemma.py --model-size 4b
-    uv run pytest tests/test_enclave_gemma.py --model-size all
 """
 
 import json
@@ -21,8 +16,6 @@ os.environ["PRE_SYNC"] = "false"
 
 from syft_enclaves import SyftEnclaveClient
 
-ALL_MODEL_SIZES = ["270m", "1b", "4b", "12b", "27b"]
-
 # ── Model configs (mirrors gemma_inference.py) ───────────────────────────────
 STUB_MODEL_CONFIGS = {
     "270m": dict(ckpt_subdir="gemma-3-270m-it"),
@@ -32,19 +25,22 @@ STUB_MODEL_CONFIGS = {
     "27b": dict(ckpt_subdir="gemma3-27b-it"),
 }
 
+# Change this to test a different size.
+MODEL_SIZE = "270m"
+CKPT_SUBDIR = STUB_MODEL_CONFIGS[MODEL_SIZE]["ckpt_subdir"]
 
-def _make_stub_inference_code(model_size: str) -> str:
-    """Generate stub inference module that handles the given model size."""
-    ckpt_subdir = STUB_MODEL_CONFIGS[model_size]["ckpt_subdir"]
+
+def _make_stub_inference_code() -> str:
+    """Generate stub inference module."""
     return f'''
 import time
 
 MODEL_CONFIGS = {{
-    "{model_size}": dict(
+    "{MODEL_SIZE}": dict(
         num_layers=2, embed_dim=64, hidden_dim=128, num_heads=2,
         num_kv_heads=1, head_dim=32, sliding_window=64,
-        kaggle_handle="google/gemma-3/flax/{ckpt_subdir}",
-        ckpt_subdir="{ckpt_subdir}",
+        kaggle_handle="google/gemma-3/flax/{CKPT_SUBDIR}",
+        ckpt_subdir="{CKPT_SUBDIR}",
     ),
 }}
 
@@ -93,7 +89,7 @@ def format_chat(prompt):
 
 
 def generate(model, params, sp, prompt, max_new_tokens=200, temperature=0.8, top_k=40):
-    response = f"[Gemma3-{model_size}-stub response to: {{prompt[:40]}}]"
+    response = f"[Gemma3-{MODEL_SIZE}-stub response to: {{prompt[:40]}}]"
     stats = {{
         "ttft": 0.01,
         "decode_tps": 100.0,
@@ -105,9 +101,8 @@ def generate(model, params, sp, prompt, max_new_tokens=200, temperature=0.8, top
 '''
 
 
-def _make_job_code(model_size: str) -> str:
-    """Generate job code parameterized by model size."""
-    ckpt_subdir = STUB_MODEL_CONFIGS[model_size]["ckpt_subdir"]
+def _make_job_code() -> str:
+    """Generate job code."""
     return f'''
 import importlib.util
 import json
@@ -130,7 +125,7 @@ spec.loader.exec_module(gemma)
 
 # Load model, tokenizer, and params in one call
 print(f"Loading Gemma 3 from {{weights_dir}}...")
-model, tokenizer, params = gemma.setup("{model_size}", weights_dir)
+model, tokenizer, params = gemma.setup("{MODEL_SIZE}", weights_dir)
 print("Model loaded successfully")
 
 # Load benchmark owner's private prompts (one per line)
@@ -159,7 +154,7 @@ for i, prompt in enumerate(prompts):
 os.makedirs("outputs", exist_ok=True)
 with open("outputs/safety_eval_results.json", "w") as f:
     json.dump({{
-        "model": "{ckpt_subdir}",
+        "model": "{CKPT_SUBDIR}",
         "total_prompts": len(results),
         "results": results,
     }}, f, indent=2)
@@ -194,22 +189,19 @@ PRIVATE_PROMPTS = [
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-def create_model_private_dir(model_size: str) -> Path:
+def create_model_private_dir() -> Path:
     """Create a stub model directory with inference code + fake checkpoint."""
-    ckpt_subdir = STUB_MODEL_CONFIGS[model_size]["ckpt_subdir"]
     tmp = Path(tempfile.mkdtemp()) / f"gemma3-private-{random.randint(1, 1_000_000)}"
     tmp.mkdir(parents=True, exist_ok=True)
 
     # Stub inference module
-    (tmp / "gemma_inference.py").write_text(
-        _make_stub_inference_code(model_size).strip()
-    )
+    (tmp / "gemma_inference.py").write_text(_make_stub_inference_code().strip())
 
     # Stub tokenizer
     (tmp / "tokenizer.model").write_bytes(b"stub_tokenizer")
 
     # Stub checkpoint directory (nested — tests the rglob fix)
-    ckpt_dir = tmp / ckpt_subdir
+    ckpt_dir = tmp / CKPT_SUBDIR
     ckpt_dir.mkdir()
     (ckpt_dir / "checkpoint").write_bytes(b"stub_checkpoint_data")
 
@@ -249,23 +241,9 @@ def create_code_file(code: str) -> str:
     return str(p)
 
 
-# ── Pytest parametrize by --model-size flag (registered in conftest.py) ──────
-def pytest_generate_tests(metafunc):
-    if "model_size" in metafunc.fixturenames:
-        choice = metafunc.config.getoption("model_size")
-        if choice == "all":
-            sizes = ALL_MODEL_SIZES
-        else:
-            assert choice in ALL_MODEL_SIZES, f"Unknown model size: {choice}"
-            sizes = [choice]
-        metafunc.parametrize("model_size", sizes)
-
-
 # ── Test ─────────────────────────────────────────────────────────────────────
-def test_enclave_gemma_safety_eval_full_flow(model_size):
+def test_enclave_gemma_safety_eval_full_flow():
     """Full flow: submit → distribute → approve → run → distribute results."""
-    ckpt_subdir = STUB_MODEL_CONFIGS[model_size]["ckpt_subdir"]
-
     enclave, model_owner, benchmark_owner, researcher = (
         SyftEnclaveClient.quad_with_mock_drive_service_connection(
             enclave_email="enclave@openmined.org",
@@ -280,8 +258,8 @@ def test_enclave_gemma_safety_eval_full_flow(model_size):
     model_owner.create_dataset(
         name="gemma3_model",
         mock_path=create_model_mock_file(),
-        private_path=create_model_private_dir(model_size),
-        summary=f"Gemma 3 {model_size}-IT stub",
+        private_path=create_model_private_dir(),
+        summary=f"Gemma 3 {MODEL_SIZE}-IT stub",
         users=[researcher.email, enclave.email],
         upload_private=True,
         sync=False,
@@ -315,7 +293,7 @@ def test_enclave_gemma_safety_eval_full_flow(model_size):
     # Step 5 — Submit job
     researcher.submit_python_job(
         enclave.email,
-        create_code_file(_make_job_code(model_size)),
+        create_code_file(_make_job_code()),
         "safety_eval_job",
         datasets={
             model_owner.email: ["gemma3_model"],
@@ -354,7 +332,7 @@ def test_enclave_gemma_safety_eval_full_flow(model_size):
     with open(researcher_job.output_paths[0]) as f:
         result = json.load(f)
 
-    assert result["model"] == ckpt_subdir
+    assert result["model"] == CKPT_SUBDIR
     assert result["total_prompts"] == len(PRIVATE_PROMPTS)
     assert len(result["results"]) == len(PRIVATE_PROMPTS)
     assert all(
@@ -362,7 +340,7 @@ def test_enclave_gemma_safety_eval_full_flow(model_size):
         for r in result["results"]
     )
     assert all(
-        r["completion"].startswith(f"[Gemma3-{model_size}-stub response to:")
+        r["completion"].startswith(f"[Gemma3-{MODEL_SIZE}-stub response to:")
         for r in result["results"]
     )
 
