@@ -7,7 +7,6 @@ Enclave support for syft-client, enabling secure computation in Trusted Executio
 - [Enclave Architecture](./docs/enclave_architecture.md)
 - [API](./docs/api.md)
 
-
 ## Prerequisites
 
 - Docker with buildx support (Docker Desktop includes this)
@@ -17,7 +16,6 @@ Enclave support for syft-client, enabling secure computation in Trusted Executio
 
 All commands are defined in the [`Justfile`](./Justfile). Run them from this directory.
 
-
 ## One-time setup
 
 ```bash
@@ -25,7 +23,6 @@ just init YOUR_PROJECT_ID
 ```
 
 This stores settings in `~/.syft-enclaves/settings.json` and sets the active gcloud project. Every other recipe reads `project_id` and `zone` from this file — zone is **not** a per-call arg. To deploy in a different zone, re-run `just init YOUR_PROJECT_ID europe-west4-a`.
-
 
 ## Production deployment
 
@@ -48,7 +45,6 @@ just start-debug EMAIL TOKEN_PATH                          # defaults: syft-encl
 just start-debug EMAIL TOKEN_PATH my-vm n2d-standard-4     # override name / machine type
 just stop [name]                                           # Teardown: Deletes VM and removes firewall rule.
 ```
-
 
 ## Inspect a running VM
 
