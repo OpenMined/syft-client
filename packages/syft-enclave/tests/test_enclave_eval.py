@@ -10,6 +10,44 @@ os.environ["PRE_SYNC"] = "false"
 from syft_enclaves import SyftEnclaveClient
 
 
+# ── NanoLM inference module variants ─────────────────────────────────────────
+NANO_LM_CODE_PRIVATE = """
+class NanoLMTokenizer:
+    def encode(self, text: str) -> list[int]:
+        return [ord(c) for c in text]
+
+    def decode(self, ids: list[int]) -> str:
+        return "".join(chr(i) for i in ids)
+
+
+class NanoLM:
+    def __init__(self):
+        self.weights = None
+
+    def init(self, weights):
+        self.weights = weights
+
+    def generate(self, prompt: str, max_new_tokens: int = 50) -> str:
+        n = len(self.weights) if self.weights is not None else 0
+        return f"[NanoLM({n}w) inference on: {prompt[:30]}...]"
+
+
+tokenizer = NanoLMTokenizer()
+model     = NanoLM()
+"""
+
+NANO_LM_CODE_MOCK = """
+class NanoLM:
+    def init(self, weights):
+        self.weights = weights
+
+    def generate(self, prompt, max_new_tokens=50):
+        return f"[mock NanoLM({len(self.weights)}w) preview]"
+
+
+model = NanoLM()
+"""
+
 # ── Weights fixtures ──────────────────────────────────────────────────────────
 MOCK_WEIGHTS = [0.0, 0.0, 0.0]
 PRIVATE_WEIGHTS = [0.11, 0.22, 0.33, 0.44, 0.55, 0.66, 0.77, 0.88, 0.99, 1.10]
@@ -37,40 +75,27 @@ PRIVATE_BENCHMARK = [
 # ── Job code ──────────────────────────────────────────────────────────────────
 JOB_CODE = """
 import csv
+import importlib.util
 import json
 import os
 
 import syft_client as sc
 
-
-class NanoLMTokenizer:
-    def encode(self, text: str) -> list[int]:
-        return [ord(c) for c in text]
-
-    def decode(self, ids: list[int]) -> str:
-        return "".join(chr(i) for i in ids)
-
-
-class NanoLM:
-    def __init__(self):
-        self.weights = None
-
-    def init(self, weights):
-        self.weights = weights
-
-    def generate(self, prompt: str, max_new_tokens: int = 50) -> str:
-        n = len(self.weights) if self.weights is not None else 0
-        return f"[NanoLM({n}w) inference on: {prompt[:30]}...]"
-
-
-weights_path = sc.resolve_dataset_file_path(
+model_files = sc.resolve_dataset_files_path(
     "gpt2_model", owner_email="model_owner@openmined.org"
 )
-with open(weights_path) as f:
+model_dir = str(model_files[0].parent)
+
+spec = importlib.util.spec_from_file_location(
+    "nano_lm", os.path.join(model_dir, "nano_lm.py")
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+with open(os.path.join(model_dir, "weights.json")) as f:
     weights = json.load(f)
 
-tokenizer = NanoLMTokenizer()
-model = NanoLM()
+model = mod.model
 model.init(weights)
 
 benchmark_path = sc.resolve_dataset_file_path(
@@ -95,12 +120,12 @@ print(f"Inference complete. {len(results)} prompts evaluated.")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def create_weights_file(weights: list, filename: str) -> Path:
-    tmp = Path(tempfile.mkdtemp()) / f"weights-{random.randint(1, 1_000_000)}"
+def create_model_dir(code: str, weights: list) -> Path:
+    tmp = Path(tempfile.mkdtemp()) / f"model-{random.randint(1, 1_000_000)}"
     tmp.mkdir(parents=True, exist_ok=True)
-    p = tmp / filename
-    p.write_text(json.dumps(weights))
-    return p
+    (tmp / "nano_lm.py").write_text(code.strip())
+    (tmp / "weights.json").write_text(json.dumps(weights))
+    return tmp
 
 
 def create_benchmark_csv(rows: list, filename: str) -> Path:
@@ -136,9 +161,9 @@ def test_enclave_bias_eval_full_flow():
 
     model_owner.create_dataset(
         name="gpt2_model",
-        mock_path=create_weights_file(MOCK_WEIGHTS, "weights_mock.json"),
-        private_path=create_weights_file(PRIVATE_WEIGHTS, "weights.json"),
-        summary="NanoLM v1.0 weights",
+        mock_path=create_model_dir(NANO_LM_CODE_MOCK, MOCK_WEIGHTS),
+        private_path=create_model_dir(NANO_LM_CODE_PRIVATE, PRIVATE_WEIGHTS),
+        summary="NanoLM v1.0",
         users=[researcher.email, enclave.email],
         upload_private=True,
         sync=False,
