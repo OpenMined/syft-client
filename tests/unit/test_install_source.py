@@ -14,17 +14,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-
-@pytest.fixture(autouse=True)
-def clear_install_source_cache():
-    """Clear the lru_cache before each test."""
-    from syft_job.install_source import get_syft_client_install_source
-
-    get_syft_client_install_source.cache_clear()
-    yield
-    get_syft_client_install_source.cache_clear()
+import pytest  # noqa: F401
 
 
 class MockDistribution:
@@ -66,10 +56,11 @@ class TestGetInstallSource:
 
         with patch.dict(os.environ, {"SYFT_CLIENT_INSTALL_SOURCE": "/custom/path"}):
             result = get_syft_client_install_source()
-            assert result == "/custom/path"
+            assert result.primary == "/custom/path"
+            assert result.pypi_fallback is None
 
     def test_editable_install_returns_local_path(self):
-        """Editable install should return the local directory path."""
+        """Editable install should return the local directory path and a PyPI fallback."""
         from syft_job.install_source import get_syft_client_install_source
 
         mock_dist = MockDistribution(
@@ -88,10 +79,11 @@ class TestGetInstallSource:
                 create_mock_distributions(mock_dist),
             ):
                 result = get_syft_client_install_source()
-                assert result == "/Users/test/workspace/syft-client"
+                assert result.primary == "/Users/test/workspace/syft-client"
+                assert result.pypi_fallback == "syft-client==0.1.94"
 
     def test_local_non_editable_install_returns_path(self):
-        """Non-editable local install should return the local directory path."""
+        """Non-editable local install should return the local directory path and a PyPI fallback."""
         from syft_job.install_source import get_syft_client_install_source
 
         mock_dist = MockDistribution(
@@ -110,7 +102,8 @@ class TestGetInstallSource:
                 create_mock_distributions(mock_dist),
             ):
                 result = get_syft_client_install_source()
-                assert result == "/Users/test/workspace/syft-client"
+                assert result.primary == "/Users/test/workspace/syft-client"
+                assert result.pypi_fallback == "syft-client==0.1.94"
 
     def test_github_install_returns_git_url(self):
         """GitHub install should return the git+ URL with branch."""
@@ -136,7 +129,11 @@ class TestGetInstallSource:
                 create_mock_distributions(mock_dist),
             ):
                 result = get_syft_client_install_source()
-                assert result == "git+https://github.com/OpenMined/syft-client@main"
+                assert (
+                    result.primary
+                    == "git+https://github.com/OpenMined/syft-client@main"
+                )
+                assert result.pypi_fallback is None
 
     def test_github_install_with_branch(self):
         """GitHub install with specific branch should include branch in URL."""
@@ -163,9 +160,10 @@ class TestGetInstallSource:
             ):
                 result = get_syft_client_install_source()
                 assert (
-                    result
+                    result.primary
                     == "git+https://github.com/OpenMined/syft-client.git@feature/new-stuff"
                 )
+                assert result.pypi_fallback is None
 
     def test_github_install_without_branch_uses_commit(self):
         """GitHub install without requested_revision should use commit_id."""
@@ -191,9 +189,10 @@ class TestGetInstallSource:
             ):
                 result = get_syft_client_install_source()
                 assert (
-                    result
+                    result.primary
                     == "git+https://github.com/OpenMined/syft-client@abc123def456"
                 )
+                assert result.pypi_fallback is None
 
     def test_pypi_install_returns_package_name_with_version(self):
         """PyPI install (no direct_url.json) should return package name with version."""
@@ -213,7 +212,8 @@ class TestGetInstallSource:
                 create_mock_distributions(mock_dist),
             ):
                 result = get_syft_client_install_source()
-                assert result == "syft-client==0.1.94"
+                assert result.primary == "syft-client==0.1.94"
+                assert result.pypi_fallback is None
 
     def test_no_package_found_returns_pypi_name_without_version_and_warns(self, caplog):
         """When syft-client is not installed, fall back to PyPI name and log a warning."""
@@ -230,7 +230,8 @@ class TestGetInstallSource:
                 with caplog.at_level(logging.WARNING):
                     result = get_syft_client_install_source()
 
-                assert result == "syft-client"
+                assert result.primary == "syft-client"
+                assert result.pypi_fallback is None
                 assert "Could not detect syft-client installation source" in caplog.text
                 assert "Falling back to" in caplog.text
 
@@ -262,7 +263,8 @@ class TestGetInstallSource:
                 create_mock_distributions(mock_egg_info, mock_dist_info),
             ):
                 result = get_syft_client_install_source()
-                assert result == "/Users/test/workspace/syft-client"
+                assert result.primary == "/Users/test/workspace/syft-client"
+                assert result.pypi_fallback == "syft-client==0.1.94"
 
 
 class TestGetInstallSourceCurrentEnvironment:
@@ -282,19 +284,21 @@ class TestGetInstallSourceCurrentEnvironment:
             os.environ.pop("SYFT_CLIENT_INSTALL_SOURCE", None)
             result = get_syft_client_install_source()
 
-            # The result should be a non-empty string
-            assert isinstance(result, str)
-            assert len(result) > 0
+            # The result should have a non-empty primary spec
+            assert isinstance(result.primary, str)
+            assert len(result.primary) > 0
 
-            # In this test environment (editable install), it should be a path
-            # If this is an editable install, it should be the repo root
-            if Path(result).exists():
+            # In this test environment (editable install), primary is a path
+            # and pypi_fallback should be set.
+            if Path(result.primary).exists():
                 # Check it looks like the syft-client repo
-                assert Path(result).is_dir()
+                assert Path(result.primary).is_dir()
                 # Should contain syft_client package
-                assert (Path(result) / "syft_client").exists() or (
-                    Path(result) / "pyproject.toml"
+                assert (Path(result.primary) / "syft_client").exists() or (
+                    Path(result.primary) / "pyproject.toml"
                 ).exists()
+                # Editable / local installs should always carry a PyPI fallback
+                assert result.pypi_fallback is not None
 
 
 class TestRuntimeEvaluation:
@@ -305,26 +309,21 @@ class TestRuntimeEvaluation:
         Verify that changing the env var after import affects the result.
 
         This confirms that the install source is evaluated at call time,
-        not at module import time. This is important so that tests and
-        runtime code can override the source without needing to reload modules.
-
-        Note: We use cache_clear() between calls because the function uses
-        lru_cache for performance. In production, the cache means the env var
-        must be set BEFORE the first call to get_syft_client_install_source().
+        not at module import time, so tests and runtime code can override
+        the source without needing to reload modules.
         """
         from syft_job.install_source import get_syft_client_install_source
 
         # First, check with no env var
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("SYFT_CLIENT_INSTALL_SOURCE", None)
-            get_syft_client_install_source.cache_clear()
             result_without_env = get_syft_client_install_source()
 
         # Now set an env var and verify it's respected
         with patch.dict(os.environ, {"SYFT_CLIENT_INSTALL_SOURCE": "/new/test/path"}):
-            get_syft_client_install_source.cache_clear()
             result_with_env = get_syft_client_install_source()
-            assert result_with_env == "/new/test/path"
+            assert result_with_env.primary == "/new/test/path"
+            assert result_with_env.pypi_fallback is None
 
         # The results should be different (env var overrides auto-detection)
-        assert result_without_env != result_with_env
+        assert result_without_env.primary != result_with_env.primary

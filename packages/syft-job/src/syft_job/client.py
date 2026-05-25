@@ -1,4 +1,5 @@
 import os
+import shlex
 import shutil
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
@@ -9,7 +10,7 @@ from syft_perms.syftperm_context import SyftPermContext
 from syft_permissions.spec.ruleset import PERMISSION_FILE_NAME
 
 from .config import SyftJobConfig
-from .install_source import get_syft_client_install_source
+from .install_source import InstallSpec, get_syft_client_install_source
 from .job import JobInfo, JobsList
 from .models.config import JobSubmissionMetadata
 from .models.state import JobState, JobStatus
@@ -275,8 +276,48 @@ class JobClient(BaseJobClient):
 
         return resolved_path, is_folder_submission, entrypoint
 
+    def _build_install_block(
+        self, install_spec: InstallSpec, dependencies: List[str]
+    ) -> str:
+        """Build the ``uv pip install`` block for run.sh.
+
+        When ``install_spec`` points at a local directory (e.g. an editable
+        install on a developer machine), the block becomes conditional: it
+        installs from the local path if it exists on the runner, otherwise
+        falls back to the PyPI spec. This lets the same run.sh execute both
+        locally and on a remote runner.
+        """
+        user_deps_str = " ".join(f'"{dep}"' for dep in dependencies)
+
+        if install_spec.pypi_fallback is None:
+            all_specs = [install_spec.primary] + list(dependencies)
+            joined = " ".join(f'"{dep}"' for dep in all_specs)
+            return f"uv pip install {joined}"
+
+        local_quoted = shlex.quote(install_spec.primary)
+        fallback_quoted = shlex.quote(install_spec.pypi_fallback)
+        install_line = 'uv pip install "$SYFT_SPEC"'
+        if user_deps_str:
+            install_line = f"{install_line} {user_deps_str}"
+        return (
+            f"LOCAL_SYFT_SRC={local_quoted}\n"
+            f"SYFT_PYPI_FALLBACK={fallback_quoted}\n"
+            'if [ -d "$LOCAL_SYFT_SRC" ]; then\n'
+            '    SYFT_SPEC="$LOCAL_SYFT_SRC"\n'
+            "else\n"
+            '    echo "[syft-client] local source not found at $LOCAL_SYFT_SRC; '
+            'falling back to $SYFT_PYPI_FALLBACK"\n'
+            '    SYFT_SPEC="$SYFT_PYPI_FALLBACK"\n'
+            "fi\n"
+            f"{install_line}"
+        )
+
     def _generate_python_run_script(
-        self, entrypoint_path: str, dependencies: List[str], has_pyproject: bool
+        self,
+        entrypoint_path: str,
+        dependencies: List[str],
+        has_pyproject: bool,
+        install_spec: InstallSpec,
     ) -> str:
         """
         Generate bash script for Python job execution.
@@ -285,19 +326,18 @@ class JobClient(BaseJobClient):
             entrypoint_path: Filename to execute (e.g., "main.py" or "script.py")
             dependencies: List of dependencies to install
             has_pyproject: Whether the code has a pyproject.toml
+            install_spec: Resolved syft-client install spec (caller resolves
+                once and passes it in so the metadata isn't scanned twice).
 
         Returns:
             Bash script content
         """
-        all_dependencies = [get_syft_client_install_source()] + dependencies
+        install_block = self._build_install_block(install_spec, dependencies)
 
         if has_pyproject:
             # For projects with pyproject.toml, run uv sync inside the code folder
             # entrypoint_path is like "code/main.py", code_folder is "code"
             code_folder = "code"
-            # Always install syft_client (and any extra dependencies) after uv sync
-            deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
-            install_deps_cmd = f"uv pip install {deps_str}"
 
             return f"""#!/bin/bash
 set -euo pipefail
@@ -306,7 +346,7 @@ cd {code_folder}
 uv venv --python {RUN_SCRIPT_PYTHON_VERSION}
 source .venv/bin/activate
 uv sync --python {RUN_SCRIPT_PYTHON_VERSION}
-{install_deps_cmd}
+{install_block}
 export PYTHONPATH=.:${{PYTHONPATH:-}}
 python {entrypoint_path}
 """
@@ -315,14 +355,13 @@ python {entrypoint_path}
             # We cd into code/ and run from there so relative paths (like params.json) work
             code_folder = "code"
 
-            deps_str = " ".join(f'"{dep}"' for dep in all_dependencies)
             return f"""#!/bin/bash
 set -euo pipefail
 export UV_SYSTEM_PYTHON=false
 cd {code_folder}
 uv venv --python {RUN_SCRIPT_PYTHON_VERSION}
 source .venv/bin/activate
-uv pip install {deps_str}
+{install_block}
 export PYTHONPATH=.:${{PYTHONPATH:-}}
 python {entrypoint_path}
 """
@@ -399,8 +438,9 @@ python {entrypoint_path}
         # Generate bash script for Python execution
         dependencies = dependencies or []
         has_pyproject = pyproject_path is not None and pyproject_path.exists()
+        install_spec = get_syft_client_install_source()
         bash_script = self._generate_python_run_script(
-            entrypoint, dependencies, has_pyproject
+            entrypoint, dependencies, has_pyproject, install_spec
         )
 
         # Create run.sh file
@@ -413,8 +453,11 @@ python {entrypoint_path}
             str(p.relative_to(code_dest)) for p in code_dest.rglob("*") if p.is_file()
         ]
 
-        # Compute all_dependencies for config
-        all_dependencies = [get_syft_client_install_source()] + dependencies
+        # Compute all_dependencies for config. For local-path installs we
+        # record the PyPI fallback so config.yaml describes what a remote
+        # runner would actually install.
+        recorded_syft_spec = install_spec.pypi_fallback or install_spec.primary
+        all_dependencies = [recorded_syft_spec] + dependencies
 
         # Write config.yaml using model
         config = JobSubmissionMetadata(

@@ -10,8 +10,9 @@ See: https://packaging.python.org/en/latest/specifications/direct-url/
 import json
 import logging
 import os
-from functools import lru_cache
+from dataclasses import dataclass
 from importlib.metadata import distributions
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -19,15 +20,37 @@ PACKAGE_NAME = "syft-client"
 ENV_VAR_NAME = "SYFT_CLIENT_INSTALL_SOURCE"
 
 
-def _parse_direct_url(direct_url: dict) -> str:
+@dataclass(frozen=True)
+class InstallSpec:
+    """Resolved syft-client install source.
+
+    primary: The spec to install (e.g. ``syft-client==x.x.x``, a git URL, or
+        a local directory path).
+    pypi_fallback: Only set when ``primary`` is a local-directory path that
+        may not exist on a remote runner. The generated
+        ``run.sh`` falls back to this PyPI spec when the local path is missing.
     """
-    Parse a direct_url.json content and return the pip-installable string.
+
+    primary: str
+    pypi_fallback: Optional[str] = None
+
+
+def _pypi_spec(version: Optional[str]) -> str:
+    return f"{PACKAGE_NAME}=={version}" if version else PACKAGE_NAME
+
+
+def _parse_direct_url(direct_url: dict, version: Optional[str]) -> InstallSpec:
+    """
+    Parse a direct_url.json content and return the pip-installable spec.
 
     Args:
         direct_url: Parsed direct_url.json content
+        version: Installed package version (used to build the PyPI fallback
+            when the install is a local directory).
 
     Returns:
-        A string suitable for pip/uv install
+        An ``InstallSpec`` suitable for pip/uv install. ``pypi_fallback`` is
+        set only for local-directory installs.
     """
     url = direct_url.get("url", "")
 
@@ -40,22 +63,22 @@ def _parse_direct_url(direct_url: dict) -> str:
         revision = vcs_info.get("requested_revision") or vcs_info.get("commit_id")
 
         if revision:
-            return f"{vcs}+{url}@{revision}"
-        return f"{vcs}+{url}"
+            return InstallSpec(primary=f"{vcs}+{url}@{revision}")
+        return InstallSpec(primary=f"{vcs}+{url}")
 
-    # Local directory install (editable or not)
+    # Local directory install (editable or not). Capture a PyPI fallback so
+    # that a generated run.sh can recover when the local path doesn't exist
+    # on the runner machine.
     if "dir_info" in direct_url:
-        # Convert file:// URL to path
-        if url.startswith("file://"):
-            return url[7:]  # Remove "file://" prefix
-        return url
+        local_path = url[7:] if url.startswith("file://") else url
+        return InstallSpec(primary=local_path, pypi_fallback=_pypi_spec(version))
 
     # Archive URL install
     if "archive_info" in direct_url:
-        return url
+        return InstallSpec(primary=url)
 
     # Fallback: return the URL as-is
-    return url
+    return InstallSpec(primary=url)
 
 
 def _find_syft_client_info() -> tuple[dict | None, str | None]:
@@ -92,10 +115,9 @@ def _find_syft_client_info() -> tuple[dict | None, str | None]:
     return None, version
 
 
-@lru_cache(maxsize=1)
-def get_syft_client_install_source() -> str:
+def get_syft_client_install_source() -> InstallSpec:
     """
-    Determine how syft-client was installed and return the appropriate dependency string.
+    Determine how syft-client was installed and return the appropriate install spec.
 
     Priority:
     1. Environment variable override (SYFT_CLIENT_INSTALL_SOURCE)
@@ -103,28 +125,27 @@ def get_syft_client_install_source() -> str:
     3. Fallback to PyPI package name with version
 
     Returns:
-        A string suitable for pip/uv install, one of:
-        - A local path (e.g., "/Users/test/workspace/syft-client")
-        - A git URL (e.g., "git+https://github.com/OpenMined/syft-client@main")
-        - The PyPI package name with version (e.g., "syft-client==0.1.94")
+        An ``InstallSpec`` whose ``primary`` field is suitable for pip/uv
+        install. ``pypi_fallback`` is set only when ``primary`` is a local
+        directory path (so callers can emit a portable run.sh).
     """
     # Check for environment variable override
     env_override = os.environ.get(ENV_VAR_NAME)
     if env_override:
-        return env_override
+        return InstallSpec(primary=env_override)
 
     # Try to detect from package metadata
     direct_url, version = _find_syft_client_info()
     if direct_url:
-        return _parse_direct_url(direct_url)
+        return _parse_direct_url(direct_url, version)
 
     # Fallback to PyPI package name with version
     if version:
-        return f"{PACKAGE_NAME}=={version}"
+        return InstallSpec(primary=_pypi_spec(version))
 
     logger.warning(
         f"Could not detect syft-client installation source or version. "
         f"Falling back to '{PACKAGE_NAME}'. "
         f"Jobs may fail if syft-client is not available on PyPI."
     )
-    return PACKAGE_NAME
+    return InstallSpec(primary=PACKAGE_NAME)
