@@ -45,15 +45,14 @@ MODEL_CONFIGS = {{
 }}
 
 
-def set_model_config(size):
-    return MODEL_CONFIGS[size]
-
-
 def load_params(weights_dir, cfg):
     return {{"params": {{"stub": True}}}}
 
 
 class Transformer:
+    def __init__(self, cfg=None):
+        self.cfg = cfg
+
     def apply(self, params, tokens, cache=None):
         return None, None
 
@@ -77,9 +76,9 @@ def load_tokenizer(weights_dir):
 
 
 def setup(size, weights_dir):
-    cfg = set_model_config(size)
+    cfg = MODEL_CONFIGS[size]
     params = load_params(weights_dir, cfg)
-    model = Transformer()
+    model = Transformer(cfg=cfg)
     sp = load_tokenizer(weights_dir)
     return model, sp, params
 
