@@ -227,7 +227,7 @@ attest name=vm_default: _whoami
 
 # Tail the last 50 lines of the VM's serial port output
 [group('inspect')]
-logs name=vm_default n=100: _whoami
+logs name=vm_default n="100": _whoami
     #!/bin/bash
     set -e
     {{load_settings}}
