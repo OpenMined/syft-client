@@ -227,13 +227,13 @@ attest name=vm_default: _whoami
 
 # Tail the last 50 lines of the VM's serial port output
 [group('inspect')]
-logs name=vm_default: _whoami
+logs name=vm_default n=100: _whoami
     #!/bin/bash
     set -e
     {{load_settings}}
     gcloud compute instances get-serial-port-output {{name}} \
       --project="$project_id" \
-      --zone="$zone" 2>&1 | tail -50
+      --zone="$zone" 2>&1 | tail -n {{n}}
 
 # SSH into the VM (only works on debug image)
 [group('inspect')]
