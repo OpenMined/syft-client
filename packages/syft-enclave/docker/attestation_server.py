@@ -21,22 +21,20 @@ Architecture:
 """
 
 import base64
-import hashlib
 import json
 import os
-import re
-import socket
 from datetime import datetime, timezone
-from http.client import HTTPConnection
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from syft_enclaves.tee_token import (
+    TEE_SOCKET_PATH,
+    build_eat_nonce,
+    fetch_attestation_token,
+    validate_nonce,
+)
 
 app = FastAPI(title="Syft Client Enclave", version="0.1.0")
-
-# Confidential Spaces attestation socket path
-TEE_SOCKET_PATH = "/run/container_launcher/teeserver.sock"
-TOKEN_AUDIENCE = "syft-client-attestation"
 
 
 def _get_syft_version() -> str:
@@ -50,85 +48,7 @@ def _get_syft_version() -> str:
 
 def _is_confidential_space() -> bool:
     """Check if we're running inside Google Confidential Spaces."""
-    return os.path.exists(TEE_SOCKET_PATH)
-
-
-# -- eat_nonce helpers --------------------------------------------------------
-
-_NONCE_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
-_NONCE_MAX_LEN = 74
-
-
-def _version_hash() -> str:
-    """SHA-256 hex digest of the syft-client version string."""
-    return hashlib.sha256(_get_syft_version().encode()).hexdigest()
-
-
-def _build_eat_nonce(caller_nonce: str | None = None) -> list[str]:
-    """Build the eat_nonce array for the attestation token request.
-
-    Slot 0: SHA-256 of syft-client version.
-    Slot 1: caller-supplied freshness nonce (if provided).
-    """
-    nonces = [_version_hash()]
-    if caller_nonce:
-        nonces.append(caller_nonce)
-    return nonces
-
-
-def _validate_nonce(nonce: str) -> str | None:
-    """Return an error message if *nonce* is invalid, None if valid."""
-    if len(nonce) > _NONCE_MAX_LEN:
-        return f"Nonce exceeds maximum length of {_NONCE_MAX_LEN} characters"
-    if not _NONCE_PATTERN.match(nonce):
-        return (
-            "Nonce must contain only alphanumeric characters, hyphens, and underscores"
-        )
-    return None
-
-
-class _UnixSocketConnection(HTTPConnection):
-    """HTTPConnection subclass that connects over a Unix domain socket."""
-
-    def __init__(self, socket_path: str):
-        super().__init__("localhost")
-        self._socket_path = socket_path
-
-    def connect(self):
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.connect(self._socket_path)
-
-
-def _fetch_attestation_token(eat_nonce: list[str] | None = None) -> str:
-    """Fetch an OIDC attestation token from the Confidential Spaces launcher.
-
-    Sends a POST request to http://localhost/v1/token over the Unix domain
-    socket at /run/container_launcher/teeserver.sock. The launcher collects
-    hardware attestation evidence, sends it to Google's attestation service,
-    and returns a signed JWT.
-    """
-    conn = _UnixSocketConnection(TEE_SOCKET_PATH)
-    payload: dict = {
-        "audience": TOKEN_AUDIENCE,
-        "token_type": "OIDC",
-    }
-    if eat_nonce:
-        payload["eat_nonce"] = eat_nonce
-    body = json.dumps(payload)
-    conn.request(
-        "POST",
-        "/v1/token",
-        body=body,
-        headers={
-            "Content-Type": "application/json",
-        },
-    )
-    resp = conn.getresponse()
-    if resp.status != 200:
-        raise RuntimeError(
-            f"Attestation token request failed: {resp.status} {resp.read().decode()}"
-        )
-    return resp.read().decode().strip()
+    return os.path.exists(str(TEE_SOCKET_PATH))
 
 
 def _decode_jwt_payload(token: str) -> dict:
@@ -251,7 +171,7 @@ def attestation(nonce: str | None = None):
       Returns instructions for how to deploy correctly.
     """
     if nonce is not None:
-        error = _validate_nonce(nonce)
+        error = validate_nonce(nonce)
         if error:
             return JSONResponse(status_code=400, content={"error": error})
 
@@ -276,8 +196,8 @@ def attestation(nonce: str | None = None):
         }
 
     try:
-        eat_nonce = _build_eat_nonce(caller_nonce=nonce)
-        raw_token = _fetch_attestation_token(eat_nonce=eat_nonce)
+        eat_nonce = build_eat_nonce(caller_nonce=nonce)
+        raw_token = fetch_attestation_token(eat_nonce=eat_nonce)
         claims = _decode_jwt_payload(raw_token)
         structured = _structure_claims(claims)
 
