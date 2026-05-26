@@ -1,5 +1,6 @@
 import os
 import shutil
+import warnings
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,6 +66,9 @@ class JobClient(BaseJobClient):
             target_datasite_owner_email or config.current_user_email
         )  # The email of the datasite owner of the jobs
         self.has_do_role = config.has_do_role
+        self.peer_install_sources: dict[
+            str, str
+        ] = {}  # do_email -> syft-client install source (local path, git URL, or "syft-client==X.Y.Z") advertised by that DO in their VersionInfo
 
         # Validate that user_email exists in SyftBox root
         self._validate_user_email()
@@ -275,8 +279,35 @@ class JobClient(BaseJobClient):
 
         return resolved_path, is_folder_submission, entrypoint
 
+    def _resolve_install_source_for(self, do_email: str) -> str:
+        """Return the syft-client install source to bake into a job's run.sh.
+
+        Prefers the source advertised by the DO during peer-version exchange
+        (stored on `self.peer_install_sources`). Falls back to local detection
+        with a loud warning if the DO never advertised one (e.g. older client).
+        """
+        advertised = self.peer_install_sources.get(do_email)
+        if advertised:
+            return advertised
+
+        fallback = get_syft_client_install_source()
+        warnings.warn(
+            f"\n{'=' * 78}\n"
+            f"WARNING: No syft-client install source advertised by DO {do_email!r}.\n"
+            f"Falling back to local detection on the DS side: {fallback!r}.\n"
+            f"The DO may be running an older syft-client; the job may fail to\n"
+            f"install dependencies on the DO's machine.\n"
+            f"{'=' * 78}",
+            stacklevel=3,
+        )
+        return fallback
+
     def _generate_python_run_script(
-        self, entrypoint_path: str, dependencies: List[str], has_pyproject: bool
+        self,
+        entrypoint_path: str,
+        dependencies: List[str],
+        has_pyproject: bool,
+        install_source: str,
     ) -> str:
         """
         Generate bash script for Python job execution.
@@ -285,11 +316,12 @@ class JobClient(BaseJobClient):
             entrypoint_path: Filename to execute (e.g., "main.py" or "script.py")
             dependencies: List of dependencies to install
             has_pyproject: Whether the code has a pyproject.toml
+            install_source: Syft-client install source to use (pip/uv-compatible string).
 
         Returns:
             Bash script content
         """
-        all_dependencies = [get_syft_client_install_source()] + dependencies
+        all_dependencies = [install_source] + dependencies
 
         if has_pyproject:
             # For projects with pyproject.toml, run uv sync inside the code folder
@@ -396,11 +428,15 @@ python {entrypoint_path}
             shutil.copy2(code_path_resolved, code_dest / code_path_resolved.name)
             pyproject_path = None
 
+        # Resolve install source: prefer what the DO advertised in their VersionInfo,
+        # fall back to local detection with a warning if the DO didn't advertise one.
+        install_source = self._resolve_install_source_for(submitting_to_email)
+
         # Generate bash script for Python execution
         dependencies = dependencies or []
         has_pyproject = pyproject_path is not None and pyproject_path.exists()
         bash_script = self._generate_python_run_script(
-            entrypoint, dependencies, has_pyproject
+            entrypoint, dependencies, has_pyproject, install_source
         )
 
         # Create run.sh file
@@ -414,7 +450,7 @@ python {entrypoint_path}
         ]
 
         # Compute all_dependencies for config
-        all_dependencies = [get_syft_client_install_source()] + dependencies
+        all_dependencies = [install_source] + dependencies
 
         # Write config.yaml using model
         config = JobSubmissionMetadata(

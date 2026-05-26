@@ -78,37 +78,16 @@ MODEL_CONFIGS = {
     ),
 }
 
-# ── Architecture constants (set by set_model_config) ───────────────────────
-NUM_LAYERS = 18
-EMBED_DIM = 640
-HIDDEN_DIM = 2048
-NUM_HEADS = 4
-NUM_KV_HEADS = 1
-HEAD_DIM = 256
+# ── Shared constants (identical across all Gemma 3 sizes) ─────────────────
 VOCAB_SIZE = 262144
-SLIDING_WINDOW = 512
 LOCAL_ROPE_BASE = 10_000
 GLOBAL_ROPE_BASE = 1_000_000
-ATTN_TYPES = (("local",) * 5 + ("global",)) * 3
-
 K_MASK = -2.3819763e38  # Google's masking constant (≈ float32 -inf)
 
 
-def set_model_config(size):
-    """Set module-level architecture constants from a model config."""
-    global NUM_LAYERS, EMBED_DIM, HIDDEN_DIM, NUM_HEADS, NUM_KV_HEADS
-    global HEAD_DIM, SLIDING_WINDOW, ATTN_TYPES
-    cfg = MODEL_CONFIGS[size]
-    NUM_LAYERS = cfg["num_layers"]
-    EMBED_DIM = cfg["embed_dim"]
-    HIDDEN_DIM = cfg["hidden_dim"]
-    NUM_HEADS = cfg["num_heads"]
-    NUM_KV_HEADS = cfg["num_kv_heads"]
-    HEAD_DIM = cfg["head_dim"]
-    SLIDING_WINDOW = cfg["sliding_window"]
+def _attn_types(num_layers):
     pattern = ("local",) * 5 + ("global",)
-    ATTN_TYPES = (pattern * ((NUM_LAYERS + 5) // 6))[:NUM_LAYERS]
-    return cfg
+    return (pattern * ((num_layers + 5) // 6))[:num_layers]
 
 
 # ── Standalone helpers ────────────────────────────────────────────────────
@@ -125,11 +104,11 @@ def apply_rope(x, positions, base_freq):
     return jnp.concatenate([x1 * cos - x2 * sin, x2 * cos + x1 * sin], axis=-1)
 
 
-def make_masks(seq_len):
+def make_masks(seq_len, sliding_window):
     """Causal masks — local layers also clip to a sliding window."""
     causal = jnp.tril(jnp.ones((seq_len, seq_len), dtype=jnp.bool_))
     window = jnp.triu(
-        jnp.ones((seq_len, seq_len), dtype=jnp.bool_), k=-(SLIDING_WINDOW - 1)
+        jnp.ones((seq_len, seq_len), dtype=jnp.bool_), k=-(sliding_window - 1)
     )
     return {
         "local": (causal & window)[None, None],
@@ -137,12 +116,12 @@ def make_masks(seq_len):
     }
 
 
-def make_decode_masks(pos):
+def make_decode_masks(pos, sliding_window):
     """Masks for single-token decode."""
     total_len = pos + 1
     positions = jnp.arange(total_len)
     return {
-        "local": (positions >= pos - SLIDING_WINDOW + 1)[None, None, None, :],
+        "local": (positions >= pos - sliding_window + 1)[None, None, None, :],
         "global": jnp.ones((1, 1, 1, total_len), dtype=jnp.bool_),
     }
 
@@ -170,6 +149,8 @@ class RMSNorm(nn.Module):
 
 
 class Attention(nn.Module):
+    cfg: dict
+
     @nn.compact
     def __call__(self, x, positions, mask, attn_type, cache=None):
         q = Einsum(name="q_einsum")("bsd,ndh->bsnh", x)
@@ -189,10 +170,11 @@ class Attention(nn.Module):
             v = jnp.concatenate([cached_v, v], axis=1)
         new_cache = (k, v)
 
-        q = q * (HEAD_DIM**-0.5)
+        q = q * (self.cfg["head_dim"] ** -0.5)
 
-        k_exp = jnp.repeat(k, NUM_HEADS // NUM_KV_HEADS, axis=2)
-        v_exp = jnp.repeat(v, NUM_HEADS // NUM_KV_HEADS, axis=2)
+        repeats = self.cfg["num_heads"] // self.cfg["num_kv_heads"]
+        k_exp = jnp.repeat(k, repeats, axis=2)
+        v_exp = jnp.repeat(v, repeats, axis=2)
 
         logits = jnp.einsum("bsnh,btnh->bnst", q, k_exp)
         logits = jnp.where(mask, logits, K_MASK)
@@ -211,12 +193,15 @@ class FeedForward(nn.Module):
 
 
 class Block(nn.Module):
+    cfg: dict
     attn_type: str = "local"
 
     @nn.compact
     def __call__(self, x, positions, mask, cache=None):
         h = RMSNorm(name="pre_attention_norm")(x)
-        h, new_cache = Attention(name="attn")(h, positions, mask, self.attn_type, cache)
+        h, new_cache = Attention(cfg=self.cfg, name="attn")(
+            h, positions, mask, self.attn_type, cache
+        )
         h = RMSNorm(name="post_attention_norm")(h)
         x = x + h
         h = RMSNorm(name="pre_ffw_norm")(x)
@@ -226,32 +211,40 @@ class Block(nn.Module):
 
 
 class Embedder(nn.Module):
+    cfg: dict
+
     @nn.compact
     def __call__(self, token_ids):
         table = _get(self, "input_embedding")
-        return table[token_ids] * jnp.sqrt(float(EMBED_DIM)), table
+        return table[token_ids] * jnp.sqrt(float(self.cfg["embed_dim"])), table
 
 
 class Transformer(nn.Module):
+    cfg: dict
+
     @nn.compact
     def __call__(self, tokens, cache=None):
-        x, embed_table = Embedder(name="embedder")(tokens)
+        sliding_window = self.cfg["sliding_window"]
+        num_layers = self.cfg["num_layers"]
+        attn_types = _attn_types(num_layers)
+
+        x, embed_table = Embedder(cfg=self.cfg, name="embedder")(tokens)
 
         if cache is None:
             seq_len = tokens.shape[1]
             positions = jnp.arange(seq_len)[None, :]
-            masks = make_masks(seq_len)
+            masks = make_masks(seq_len, sliding_window)
         else:
             cache_len = cache["layer_0"][0].shape[1]
             positions = jnp.array([[cache_len]])
-            masks = make_decode_masks(cache_len)
+            masks = make_decode_masks(cache_len, sliding_window)
 
         new_cache = {}
-        for i in range(NUM_LAYERS):
+        for i in range(num_layers):
             layer_cache = cache[f"layer_{i}"] if cache is not None else None
-            x, layer_new_cache = Block(attn_type=ATTN_TYPES[i], name=f"layer_{i}")(
-                x, positions, masks[ATTN_TYPES[i]], layer_cache
-            )
+            x, layer_new_cache = Block(
+                cfg=self.cfg, attn_type=attn_types[i], name=f"layer_{i}"
+            )(x, positions, masks[attn_types[i]], layer_cache)
             new_cache[f"layer_{i}"] = layer_new_cache
 
         x = RMSNorm(name="final_norm")(x)
@@ -289,9 +282,9 @@ def setup(size, weights_dir):
 
     Returns (model, tokenizer, params).
     """
-    cfg = set_model_config(size)
+    cfg = MODEL_CONFIGS[size]
     params = load_params(weights_dir, cfg)
-    model = Transformer()
+    model = Transformer(cfg=cfg)
     sp = load_tokenizer(weights_dir)
     return model, sp, params
 

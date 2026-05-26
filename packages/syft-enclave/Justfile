@@ -126,15 +126,15 @@ _provision: _whoami
       --role="roles/confidentialcomputing.workloadUser"
 
     # open tcp/8080 (idempotent)
-    gcloud compute firewall-rules create allow-enclave-http \
-      --project="$project_id" \
-      --direction=INGRESS \
-      --priority=1000 \
-      --network=default \
-      --action=ALLOW \
-      --rules=tcp:8080 \
-      --target-tags=http-server \
-      --source-ranges=0.0.0.0/0 || true
+    # gcloud compute firewall-rules create allow-enclave-http \
+    #   --project="$project_id" \
+    #   --direction=INGRESS \
+    #   --priority=1000 \
+    #   --network=default \
+    #   --action=ALLOW \
+    #   --rules=tcp:8080 \
+    #   --target-tags=http-server \
+    #   --source-ranges=0.0.0.0/0 || true
 
 # Deploy a production enclave VM (hardened image, no SSH).
 # Token content is shipped via instance metadata and is readable by any
@@ -192,9 +192,9 @@ stop name=vm_default: _whoami
       --project="$project_id" \
       --zone="$zone" \
       --quiet
-    gcloud compute firewall-rules delete allow-enclave-http \
-      --project="$project_id" \
-      --quiet
+    # gcloud compute firewall-rules delete allow-enclave-http \
+    #   --project="$project_id" \
+    #   --quiet
 
 # Print the VM's external IP
 [group('inspect')]
@@ -293,3 +293,14 @@ build-push-amd tags="latest":
     for t in {{tags}}; do
         docker push {{image_base}}:$t
     done
+
+
+[group('setup')]
+credentials-to-token credentials_path output_path:
+    #!/bin/bash
+    set -e
+    uv run --project ../.. -- python -c "
+    from syft_client import credentials_to_token
+    out = credentials_to_token('{{credentials_path}}', '{{output_path}}')
+    print(f'token written: {out}')
+    "
