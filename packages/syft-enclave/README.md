@@ -31,10 +31,8 @@ Hardened image — no SSH access, TEE enforcement enabled.
 ```bash
 just start EMAIL TOKEN_PATH                          # defaults: syft-enclave-vm, n2d-standard-2
 just start EMAIL TOKEN_PATH my-vm n2d-standard-4     # override name / machine type
-just stop [name]                                     # Teardown: Deletes VM and removes firewall rule.
+just stop [name]                                     # Teardown: Deletes VM and removes firewall rule (default: syft-enclave-vm)
 ```
-
-`just stop` also takes an optional `name` (default: `syft-enclave-vm`).
 
 The first run also provisions APIs, IAM roles, and firewall rules (idempotent).
 
