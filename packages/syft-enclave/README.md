@@ -34,6 +34,8 @@ just start EMAIL TOKEN_PATH my-vm n2d-standard-4     # override name / machine t
 just stop [name]                                     # Teardown: Deletes VM and removes firewall rule.
 ```
 
+`just stop` also takes an optional `name` (default: `syft-enclave-vm`).
+
 The first run also provisions APIs, IAM roles, and firewall rules (idempotent).
 
 ## Debug deployment
