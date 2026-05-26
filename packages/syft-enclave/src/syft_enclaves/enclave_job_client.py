@@ -24,6 +24,10 @@ class EnclaveJobClient(BaseJobClient):
     def current_user_email(self):
         return self._job_client.current_user_email
 
+    @property
+    def peer_install_sources(self) -> dict[str, str]:
+        return self._job_client.peer_install_sources
+
     def submit_bash_job(self, user: str, script: str, job_name: str = "") -> Path:
         return self._job_client.submit_bash_job(user, script, job_name)
 
