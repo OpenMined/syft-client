@@ -43,6 +43,7 @@ class VersionInfo(BaseModel):
     protocol_version: str
     min_supported_protocol_version: str
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    attestation_token: Optional[str] = None
 
     def compatibility_status_with(
         self, other: "VersionInfo" | None
