@@ -288,3 +288,14 @@ build-push-amd tags="latest":
     for t in {{tags}}; do
         docker push {{image_base}}:$t
     done
+
+
+[group('setup')]
+credentials-to-token credentials_path output_path:
+    #!/bin/bash
+    set -e
+    uv run --project ../.. -- python -c "
+    from syft_client import credentials_to_token
+    out = credentials_to_token('{{credentials_path}}', '{{output_path}}')
+    print(f'token written: {out}')
+    "
