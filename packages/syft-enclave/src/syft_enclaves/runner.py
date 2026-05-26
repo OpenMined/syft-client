@@ -14,14 +14,16 @@ Two ways to use this:
 import logging
 import signal
 import time
-from pathlib import Path
 from typing import Optional
 
 from syft_enclaves.client import SyftEnclaveClient
+from syft_enclaves.tee_token import (
+    TEE_SOCKET_PATH,
+    build_eat_nonce,
+    fetch_attestation_token,
+)
 
 logger = logging.getLogger(__name__)
-
-TEE_SOCKET_PATH = Path("/run/container_launcher/teeserver.sock")
 
 
 class EnclaveRunner:
@@ -98,7 +100,7 @@ class EnclaveRunner:
         logger.info("Initializing enclave for %s", self.client.email)
 
     def _on_attesting(self) -> None:
-        """Verify TEE environment and publish attestation."""
+        """Verify TEE environment and publish attestation token to version file."""
         in_tee = TEE_SOCKET_PATH.exists()
         if self.require_tee and not in_tee:
             raise RuntimeError(
@@ -106,9 +108,18 @@ class EnclaveRunner:
                 "Set require_tee=False for local testing."
             )
         if in_tee:
-            logger.info("Confidential Spaces TEE detected")
+            logger.info("Confidential Spaces TEE detected — fetching attestation token")
+            self._publish_attestation()
         else:
             logger.warning("Running outside TEE — attestation unavailable")
+
+    def _publish_attestation(self) -> None:
+        """Fetch attestation JWT from the TEE and write it into the version file."""
+        eat_nonce = build_eat_nonce()
+        token = fetch_attestation_token(eat_nonce=eat_nonce)
+        self.client._manager.peer_manager.get_own_version().attestation_token = token
+        self.client._manager.peer_manager.write_own_version()
+        logger.info("Attestation token published to SYFT_version.json")
 
     def _on_peering(self) -> None:
         """Load peers and accept pending peer requests."""
