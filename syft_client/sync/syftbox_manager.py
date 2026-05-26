@@ -799,6 +799,9 @@ class SyftboxManager(BaseModel):
             # DO approves the peer request
             do_manager.load_peers()
             do_manager.approve_peer_request(ds_manager.email)
+            # DS refreshes peer state so it sees DO's accepted status and
+            # DO's advertised VersionInfo (incl. syft_client_install_source).
+            ds_manager.load_peers()
 
         return ds_manager, do_manager
 
@@ -817,6 +820,7 @@ class SyftboxManager(BaseModel):
     ):
         """Add a peer. Delegates to PeerManager."""
         self.peer_manager.add_peer(peer_email, force=force, verbose=verbose)
+        self._sync_peer_install_sources_to_job_client()
         if self.has_do_role:
             self._post_approve_peer_do(peer_email)
         if sync:
@@ -989,6 +993,7 @@ class SyftboxManager(BaseModel):
                 instead of using the cached copy.
         """
         cast(PeerManager, self.peer_manager).load_peers(force_download=force_download)
+        self._sync_peer_install_sources_to_job_client()
 
     def _check_peer_request_exists(self, email: str) -> bool:
         """Check if a peer request exists. Delegates to PeerManager."""
@@ -1004,6 +1009,7 @@ class SyftboxManager(BaseModel):
         self.peer_manager.approve_peer_request(
             email_or_peer, verbose=verbose, peer_must_exist=peer_must_exist
         )
+        self._sync_peer_install_sources_to_job_client()
         self._post_approve_peer_do(email_or_peer)
 
     def _post_approve_peer_do(self, email_or_peer: str | Peer):
@@ -1015,6 +1021,20 @@ class SyftboxManager(BaseModel):
         if self.has_do_role:
             self.job_client.setup_ds_job_folder_as_do(peer_email)
             self._share_any_datasets_with_peer(peer_email)
+
+    def _sync_peer_install_sources_to_job_client(self) -> None:
+        """Copy each peer's advertised syft-client install source into job_client.
+
+        Called after peer version exchanges so that, when the DS submits a job
+        to a DO, the run.sh references the DO's local install path rather than
+        the DS's local detection.
+        """
+        if not self.job_client:
+            return
+        for peer in self.peer_manager.peer_store.syncable_peers:
+            source = peer.version.syft_client_install_source if peer.version else None
+            if source:
+                self.job_client.peer_install_sources[peer.email] = source
 
     def _ensure_local_peer_permissions(self) -> None:
         """Recreate local permission files for all approved peers.
