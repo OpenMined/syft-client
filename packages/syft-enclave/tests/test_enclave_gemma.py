@@ -103,7 +103,6 @@ def generate(model, params, sp, prompt, max_new_tokens=200, temperature=0.8, top
 def _make_job_code() -> str:
     """Generate job code."""
     return f'''
-import importlib.util
 import json
 import os
 
@@ -115,12 +114,10 @@ model_files = sc.resolve_dataset_files_path(
 )
 weights_dir = str(model_files[0].parent)
 
-# Import the inference module
-inference_path = os.path.join(weights_dir, "gemma_inference.py")
-assert os.path.exists(inference_path), f"gemma_inference.py not found in {{weights_dir}}"
-spec = importlib.util.spec_from_file_location("gemma_inference", inference_path)
-gemma = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(gemma)
+# Import the inference module from the model owner's private dataset
+gemma = sc.load_dataset_code(
+    "gemma3_model.gemma_inference", owner_email="model_owner@openmined.org"
+)
 
 # Load model, tokenizer, and params in one call
 print(f"Loading Gemma 3 from {{weights_dir}}...")
