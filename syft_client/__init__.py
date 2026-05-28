@@ -23,6 +23,7 @@ from syft_client.utils import (  # noqa: F401, E402
     resolve_path,
     resolve_dataset_file_path,
     resolve_dataset_files_path,
+    load_dataset_code,
     bug_report,
 )
 from syft_client.gdrive_utils import (  # noqa: F401, E402
