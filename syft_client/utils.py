@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import platform
 import site
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Optional, Union
 
 from typing_extensions import TYPE_CHECKING
 
+from syft_datasets.dataset import Dataset
 from syft_datasets.dataset_manager import SyftDatasetManager
 
 if TYPE_CHECKING:
@@ -52,12 +55,12 @@ def validate_owner_email(owner_emails: list[str], dataset_name: str) -> str:
             )
 
 
-def resolve_dataset_files_path(
+def _resolve_dataset(
     dataset_name: str,
     syftbox_folder: Optional[Union[str, Path]] = None,
     owner_email: Optional[str] = None,
     client: Optional["SyftBoxManager"] = None,
-) -> Path:
+) -> tuple[Dataset, bool]:
     in_job = os.environ.get("SYFT_IS_IN_JOB", "false").lower() == "true"
     syftbox_folder_known = (
         syftbox_folder is not None or os.environ.get("SYFTBOX_FOLDER") is not None
@@ -100,10 +103,86 @@ def resolve_dataset_files_path(
     # we dont use the email so we can use ""
     manager = SyftDatasetManager(syftbox_folder_path=syftbox_folder, email=owner)
     dataset = manager.get(name=dataset_name, datasite=owner)
+    return dataset, in_job
+
+
+def resolve_dataset_files_path(
+    dataset_name: str,
+    syftbox_folder: Optional[Union[str, Path]] = None,
+    owner_email: Optional[str] = None,
+    client: Optional["SyftBoxManager"] = None,
+) -> list[Path]:
+    dataset, in_job = _resolve_dataset(
+        dataset_name=dataset_name,
+        syftbox_folder=syftbox_folder,
+        owner_email=owner_email,
+        client=client,
+    )
     if in_job:
         return dataset.private_files
     else:
         return dataset.mock_files
+
+
+def load_dataset_code(
+    path: str,
+    owner_email: Optional[str] = None,
+    syftbox_folder: Optional[Union[str, Path]] = None,
+    client: Optional["SyftBoxManager"] = None,
+    module_name: Optional[str] = None,
+) -> ModuleType:
+    """
+    Load a `.py` file that lives inside a synced dataset as a Python module.
+
+    The ``path`` argument is dot-separated, mirroring Python's import syntax:
+    the first segment is the dataset name, and the remaining segments form the
+    folder path plus leaf module (the ``.py`` extension is implied).
+
+    Examples:
+        >>> import syft_client as sc
+        >>> mod = sc.load_dataset_code("my_dataset.helpers", client=client)
+        # → loads <dataset_dir>/helpers.py
+        >>> mod = sc.load_dataset_code("my_dataset.utils.nested", client=client)
+        # → loads <dataset_dir>/utils/nested.py
+
+    Mock vs. private resolution mirrors ``resolve_dataset_files_path``:
+    when ``SYFT_IS_IN_JOB=true`` the file is loaded from the dataset's
+    ``private_dir``; otherwise from its ``mock_dir``.
+
+    Note: dataset names containing ``.`` are not supported by this helper
+    because the dot is used as the separator. In that case, resolve the
+    dataset manually and use ``importlib.util`` directly.
+    """
+    segments = path.split(".")
+    if len(segments) < 2:
+        raise ValueError(
+            f"Invalid path '{path}': expected '<dataset_name>.<code_path>', "
+            "e.g. 'my_dataset.helpers' or 'my_dataset.utils.nested'."
+        )
+    dataset_name, *code_segments = segments
+    leaf = code_segments[-1]
+
+    dataset, in_job = _resolve_dataset(
+        dataset_name=dataset_name,
+        syftbox_folder=syftbox_folder,
+        owner_email=owner_email,
+        client=client,
+    )
+    base_dir = dataset.private_dir if in_job else dataset.mock_dir
+    file_path = base_dir.joinpath(*code_segments).with_suffix(".py")
+    if not file_path.exists():
+        raise FileNotFoundError(
+            f"Code file not found at {file_path} (resolved from '{path}')."
+        )
+
+    name = module_name or leaf
+    spec = importlib.util.spec_from_file_location(name, file_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not build import spec for {file_path}.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def resolve_path(
