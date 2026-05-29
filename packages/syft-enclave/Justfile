@@ -415,16 +415,12 @@ start-debug-wif email image_digest name=vm_default machine_type=machine_type_def
 # No WIF — use when org policy blocks WIF provider creation. Requires
 # `just provision-secret-sa <token>` first.
 [group('deploy')]
-start-sa email image_digest name=vm_default machine_type=machine_type_default: _provision
+start-sa email name=vm_default machine_type=machine_type_default: _provision
     #!/bin/bash
     set -e
     {{load_settings}}
     [ -n "$sa_email" ] || { echo "Error: SA not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
     [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
-    case "{{image_digest}}" in
-      sha256:*) ;;
-      *) echo "Error: image_digest must start with 'sha256:' (got '{{image_digest}}')" >&2; exit 1 ;;
-    esac
 
     gcloud compute instances create {{name}} \
       --project="$project_id" \
@@ -439,21 +435,17 @@ start-sa email image_digest name=vm_default machine_type=machine_type_default: _
       --scopes=cloud-platform \
       --service-account="$sa_email" \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image_base}}@{{image_digest}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
 
 # Same as `start-sa` but with the debug image family (SSH + log
 # redirect enabled) for active testing.
 [group('deploy')]
-start-debug-sa email image_digest name=vm_default machine_type=machine_type_default: _provision
+start-debug-sa email name=vm_default machine_type=machine_type_default: _provision
     #!/bin/bash
     set -e
     {{load_settings}}
     [ -n "$sa_email" ] || { echo "Error: SA not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
     [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
-    case "{{image_digest}}" in
-      sha256:*) ;;
-      *) echo "Error: image_digest must start with 'sha256:' (got '{{image_digest}}')" >&2; exit 1 ;;
-    esac
 
     gcloud compute instances create {{name}} \
       --project="$project_id" \
@@ -468,7 +460,7 @@ start-debug-sa email image_digest name=vm_default machine_type=machine_type_defa
       --scopes=cloud-platform \
       --service-account="$sa_email" \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image_base}}@{{image_digest}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
 
 # Delete the enclave VM and remove the firewall rule
 [group('teardown')]
