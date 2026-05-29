@@ -7,7 +7,6 @@ server (``docker/attestation_server.py``) and the enclave runner.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import socket
@@ -19,25 +18,20 @@ from syft_client.version import SYFT_CLIENT_VERSION
 TEE_SOCKET_PATH = Path("/run/container_launcher/teeserver.sock")
 TOKEN_AUDIENCE = "syft-client-attestation"
 
-_NONCE_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+_NONCE_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")
 _NONCE_MAX_LEN = 74
 
 
 # -- eat_nonce helpers --------------------------------------------------------
 
 
-def version_hash() -> str:
-    """SHA-256 hex digest of the syft-client version string."""
-    return hashlib.sha256(SYFT_CLIENT_VERSION.encode()).hexdigest()
-
-
 def build_eat_nonce(caller_nonce: str | None = None) -> list[str]:
-    """Build the eat_nonce array for the attestation token request.
+    """Build the nonces array for the attestation token request.
 
-    Slot 0: SHA-256 of syft-client version.
+    Slot 0: plain syft-client version string (e.g. "0.1.117").
     Slot 1: caller-supplied freshness nonce (if provided).
     """
-    nonces = [version_hash()]
+    nonces = [SYFT_CLIENT_VERSION]
     if caller_nonce:
         nonces.append(caller_nonce)
     return nonces
