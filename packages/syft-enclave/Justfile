@@ -36,6 +36,11 @@ ensure_dockerhub_login := '''
     fi
 '''
 
+# List all available commands
+[private]
+default:
+    @just --list --unsorted
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Settings
 #
