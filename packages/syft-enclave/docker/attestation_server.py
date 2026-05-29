@@ -23,18 +23,18 @@ Architecture:
 import base64
 import json
 import os
-import socket
 from datetime import datetime, timezone
-from http.client import HTTPConnection
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from syft_enclaves.tee_token import (
+    TEE_SOCKET_PATH,
+    build_eat_nonce,
+    fetch_attestation_token,
+    validate_nonce,
+)
 
 app = FastAPI(title="Syft Client Enclave", version="0.1.0")
-
-# Confidential Spaces attestation socket path
-TEE_SOCKET_PATH = "/run/container_launcher/teeserver.sock"
-TOKEN_AUDIENCE = "syft-client-attestation"
 
 
 def _get_syft_version() -> str:
@@ -48,50 +48,7 @@ def _get_syft_version() -> str:
 
 def _is_confidential_space() -> bool:
     """Check if we're running inside Google Confidential Spaces."""
-    return os.path.exists(TEE_SOCKET_PATH)
-
-
-class _UnixSocketConnection(HTTPConnection):
-    """HTTPConnection subclass that connects over a Unix domain socket."""
-
-    def __init__(self, socket_path: str):
-        super().__init__("localhost")
-        self._socket_path = socket_path
-
-    def connect(self):
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.connect(self._socket_path)
-
-
-def _fetch_attestation_token() -> str:
-    """Fetch an OIDC attestation token from the Confidential Spaces launcher.
-
-    Sends a POST request to http://localhost/v1/token over the Unix domain
-    socket at /run/container_launcher/teeserver.sock. The launcher collects
-    hardware attestation evidence, sends it to Google's attestation service,
-    and returns a signed JWT.
-    """
-    conn = _UnixSocketConnection(TEE_SOCKET_PATH)
-    body = json.dumps(
-        {
-            "audience": TOKEN_AUDIENCE,
-            "token_type": "OIDC",
-        }
-    )
-    conn.request(
-        "POST",
-        "/v1/token",
-        body=body,
-        headers={
-            "Content-Type": "application/json",
-        },
-    )
-    resp = conn.getresponse()
-    if resp.status != 200:
-        raise RuntimeError(
-            f"Attestation token request failed: {resp.status} {resp.read().decode()}"
-        )
-    return resp.read().decode().strip()
+    return os.path.exists(str(TEE_SOCKET_PATH))
 
 
 def _decode_jwt_payload(token: str) -> dict:
@@ -167,6 +124,10 @@ def _structure_claims(claims: dict) -> dict:
     if cs:
         result["confidential_space"] = cs
 
+    eat_nonce_raw = claims.get("eat_nonce")
+    if eat_nonce_raw:
+        result["eat_nonce"] = eat_nonce_raw
+
     return result
 
 
@@ -191,18 +152,29 @@ def health():
 
 
 @app.get("/attestation")
-def attestation():
+def attestation(nonce: str | None = None):
     """Fetch and display the TEE attestation report.
 
+    Query params:
+      nonce — optional caller-supplied freshness nonce. When provided it is
+              embedded in the signed JWT via ``eat_nonce`` so the caller can
+              verify the report was generated on demand (not replayed).
+
     When running in Confidential Spaces:
-      1. Connects to the launcher's Unix socket
-      2. Requests an OIDC attestation token
-      3. Decodes the JWT claims
-      4. Returns structured attestation data + the raw token
+      1. Validates the nonce (if supplied)
+      2. Builds an eat_nonce array (version hash + optional caller nonce)
+      3. Requests an OIDC attestation token with eat_nonce
+      4. Decodes the JWT claims
+      5. Returns structured attestation data + the raw token
 
     When NOT in Confidential Spaces:
       Returns instructions for how to deploy correctly.
     """
+    if nonce is not None:
+        error = validate_nonce(nonce)
+        if error:
+            return JSONResponse(status_code=400, content={"error": error})
+
     version = _get_syft_version()
 
     if not _is_confidential_space():
@@ -224,7 +196,8 @@ def attestation():
         }
 
     try:
-        raw_token = _fetch_attestation_token()
+        eat_nonce = build_eat_nonce(caller_nonce=nonce)
+        raw_token = fetch_attestation_token(eat_nonce=eat_nonce)
         claims = _decode_jwt_payload(raw_token)
         structured = _structure_claims(claims)
 
@@ -232,6 +205,10 @@ def attestation():
             "status": "running_in_confidential_space",
             "syft_client_version": version,
             "attestation": structured,
+            "nonce_info": {
+                "version_hash": eat_nonce[0],
+                "caller_nonce": nonce,
+            },
             "raw_token": raw_token,
         }
 

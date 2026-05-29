@@ -29,7 +29,13 @@ RUN chmod +x entrypoint.sh
 
 # Whitelist env vars that `tee-env-*` instance metadata is allowed to override.
 # Without this, the Confidential Spaces launcher rejects every override.
-LABEL "tee.launch_policy.allow_env_override"="SYFT_ENCLAVE_EMAIL,SYFT_ENCLAVE_TOKEN_CONTENT,SYFT_ENCLAVE_REQUIRE_TEE"
+LABEL "tee.launch_policy.allow_env_override"="\
+SYFT_ENCLAVE_EMAIL,\
+SYFT_ENCLAVE_REQUIRE_TEE,\
+SYFT_BOOTSTRAP,\
+SYFT_BOOTSTRAP_WIF_AUDIENCE,\
+SYFT_BOOTSTRAP_WIF_SECRET,\
+SYFT_ENCLAVE_TOKEN_CONTENT"
 
 # Confidential Spaces expects port 8080
 # Note: runs as root because the TEE attestation socket

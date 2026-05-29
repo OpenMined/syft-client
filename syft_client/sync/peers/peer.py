@@ -1,6 +1,6 @@
 from enum import Enum
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import Any, List, Optional
+from pydantic import BaseModel, PrivateAttr
 from syft_client.sync.platforms.base_platform import BasePlatform
 from syft_client.sync.version.version_info import VersionInfo
 
@@ -20,6 +20,9 @@ class Peer(BaseModel):
     public_encryption_bundle: Optional[dict] = None
     use_encryption: bool = False
 
+    # Set by SyftboxManager.peers when this Peer is handed out.
+    _manager: Any = PrivateAttr(default=None)
+
     @property
     def is_approved(self) -> bool:
         """Returns True if peer is accepted"""
@@ -34,3 +37,13 @@ class Peer(BaseModel):
     def is_requested_by_me(self) -> bool:
         """Returns True if we requested peer but they haven't reciprocated"""
         return self.state == PeerState.REQUESTED_BY_ME
+
+    def attest(self):
+        """Verify this peer's attestation. Re-reads SYFT_version.json from Drive."""
+        if self._manager is None:
+            print(
+                f"ℹ️  Peer {self.email!r} is not bound to a client; "
+                "use client.attest_peer(email) instead."
+            )
+            return None
+        return self._manager.attest_peer(self.email)
