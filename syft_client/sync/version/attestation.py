@@ -150,29 +150,36 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
         raise AttestationError(f"Debug mode detected: dbgstat={dbgstat!r}", result)
 
     # 4. Version hash
-    # if verbose:
-    #     print("  ⏳ Version match ...")
-    # eat_nonce = claims.get("eat_nonce", [])
-    # expected_hash = _expected_version_hash()
-    # actual_hash = eat_nonce[0] if eat_nonce else None
-    # if actual_hash == expected_hash:
-    #     result.add(
-    #         "version_match",
-    #         "Version match",
-    #         True,
-    #         f"enclave runs expected syft-client {EXPECTED_SYFT_VERSION}",
-    #     )
-    # else:
-    #     result.add(
-    #         "version_match",
-    #         "Version match",
-    #         False,
-    #         f"version hash mismatch (expected sha256 of {EXPECTED_SYFT_VERSION!r})",
-    #     )
-    #     if verbose:
-    #         result.print_checklist()
-    #         print("❌ Attestation failed — enclave is NOT trusted")
-    #     raise AttestationError("Version hash mismatch", result)
+    if verbose:
+        print("  ⏳ Version match ...")
+    eat_nonce = claims.get("eat_nonce", [])
+    expected_hash = _expected_version_hash()
+    actual_hash = eat_nonce[0] if eat_nonce else None
+    if not actual_hash:
+        result.add(
+            "version_match",
+            "Version match",
+            None,
+            "no version hash in token",
+        )
+    elif actual_hash == expected_hash:
+        result.add(
+            "version_match",
+            "Version match",
+            True,
+            f"enclave runs expected syft-client {EXPECTED_SYFT_VERSION}",
+        )
+    else:
+        result.add(
+            "version_match",
+            "Version match",
+            False,
+            f"version hash mismatch (expected sha256 of {EXPECTED_SYFT_VERSION!r})",
+        )
+        if verbose:
+            result.print_checklist()
+            print("❌ Attestation failed — enclave is NOT trusted")
+        raise AttestationError("Version hash mismatch", result)
 
     # 5. Image digest
     if verbose:
@@ -183,7 +190,7 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
         result.add(
             "image_digest",
             "Image digest",
-            True,
+            None,
             f"digest {image_digest[:20]}... (expected digest not configured, skipped)"
             if image_digest
             else "no digest in token (expected digest not configured, skipped)",
