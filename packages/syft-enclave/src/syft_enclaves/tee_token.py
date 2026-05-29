@@ -80,8 +80,8 @@ def fetch_attestation_token(eat_nonce: list[str] | None = None) -> str:
         "audience": TOKEN_AUDIENCE,
         "token_type": "OIDC",
     }
-    # if eat_nonce:
-    #     payload["eat_nonce"] = eat_nonce
+    if eat_nonce:
+        payload["nonces"] = eat_nonce
     body = json.dumps(payload)
     conn.request(
         "POST",
