@@ -144,6 +144,39 @@ _provision: _whoami
     #   --target-tags=http-server \
     #   --source-ranges=0.0.0.0/0 || true
 
+# Show the effective org policy for WIF providers on this project.
+# Run before `provision-wif` to confirm the Confidential Spaces issuer
+# is allowed. If the project's parent org blocks it, you'll see the
+# violation here before hitting it mid-provision.
+[group('setup')]
+org-policy-check: _whoami
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    echo "Effective org policy for constraints/iam.workloadIdentityPoolProviders on $project_id:"
+    gcloud resource-manager org-policies describe \
+      constraints/iam.workloadIdentityPoolProviders \
+      --project="$project_id" \
+      --effective \
+      || echo "(no policy returned — either inherited unrestricted or no constraint set at any level)"
+
+# Allow the Confidential Spaces issuer in the WIF provider org policy
+# at the project level. Run if `provision-wif` failed with
+# `constraints/iam.workloadIdentityPoolProviders` violation. Requires
+# `roles/orgpolicy.policyAdmin` on the project (corporate admins usually
+# need to run this — share the command with them if you lack the role).
+[group('setup')]
+org-policy-allow-cs: _whoami
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    gcloud resource-manager org-policies allow \
+      constraints/iam.workloadIdentityPoolProviders \
+      is:https://confidentialcomputing.googleapis.com \
+      --project="$project_id"
+    echo "Allowed https://confidentialcomputing.googleapis.com on $project_id"
+    echo "Re-run: just provision-wif"
+
 # One-time WIF setup. Enables APIs and creates the Workload Identity
 # Pool + OIDC provider that trusts the Confidential Spaces attestation
 # issuer. Condition pins swname and hwmodel. image_digest is enforced
