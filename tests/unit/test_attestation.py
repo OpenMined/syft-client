@@ -1,6 +1,5 @@
 """Tests for enclave attestation verification."""
 
-import hashlib
 from unittest.mock import patch
 
 import pytest
@@ -12,7 +11,6 @@ from syft_client.sync.version.attestation import (
     verify_attestation_token,
 )
 
-VALID_VERSION_HASH = hashlib.sha256(EXPECTED_SYFT_VERSION.encode()).hexdigest()
 FAKE_IMAGE_DIGEST = "sha256:abc123"
 
 
@@ -21,7 +19,7 @@ def _valid_claims(**overrides):
     claims = {
         "secboot": True,
         "dbgstat": "disabled-since-boot",
-        "eat_nonce": [VALID_VERSION_HASH],
+        "eat_nonce": [EXPECTED_SYFT_VERSION],
         "submods": {
             "container": {
                 "image_digest": FAKE_IMAGE_DIGEST,
@@ -74,16 +72,23 @@ class TestVerifyAttestationToken:
         with pytest.raises(AttestationError, match="Debug mode"):
             verify_attestation_token("fake-token", verbose=False)
 
-    def test_version_hash_mismatch(self, mock_verify):
-        mock_verify.return_value = _valid_claims(eat_nonce=["wrong-hash"])
-        with pytest.raises(AttestationError, match="Version hash"):
+    def test_version_mismatch(self, mock_verify):
+        mock_verify.return_value = _valid_claims(eat_nonce=["0.0.1"])
+        with pytest.raises(AttestationError, match="Version mismatch"):
             verify_attestation_token("fake-token", verbose=False)
 
-    @pytest.mark.skip(reason="version hash check is currently disabled")
-    def test_version_hash_missing(self, mock_verify):
+    @pytest.mark.skip(reason="version check is currently disabled")
+    def test_version_missing(self, mock_verify):
         mock_verify.return_value = _valid_claims(eat_nonce=[])
-        with pytest.raises(AttestationError, match="Version hash"):
+        with pytest.raises(AttestationError, match="Version mismatch"):
             verify_attestation_token("fake-token", verbose=False)
+
+    def test_version_as_string(self, mock_verify):
+        """Google returns eat_nonce as a string for single nonce."""
+        mock_verify.return_value = _valid_claims(eat_nonce=EXPECTED_SYFT_VERSION)
+        result = verify_attestation_token("fake-token", verbose=False)
+        version_check = next(c for c in result.checks if c.name == "version_match")
+        assert version_check.passed is not False
 
     def test_image_digest_mismatch(self, mock_verify):
         with patch(
@@ -94,7 +99,7 @@ class TestVerifyAttestationToken:
             with pytest.raises(AttestationError, match="Image digest"):
                 verify_attestation_token("fake-token", verbose=False)
 
-    @pytest.mark.skip(reason="version hash check is currently disabled")
+    @pytest.mark.skip(reason="version check is currently disabled")
     def test_image_digest_skipped_when_not_configured(self, mock_verify):
         """When EXPECTED_IMAGE_DIGEST is empty, image check passes with skip note."""
         result = verify_attestation_token("fake-token", verbose=False)

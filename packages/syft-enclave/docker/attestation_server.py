@@ -206,7 +206,7 @@ def attestation(nonce: str | None = None):
             "syft_client_version": version,
             "attestation": structured,
             "nonce_info": {
-                "version_hash": eat_nonce[0],
+                "version": eat_nonce[0],
                 "caller_nonce": nonce,
             },
             "raw_token": raw_token,
