@@ -45,6 +45,7 @@ class VersionInfo(BaseModel):
     min_supported_protocol_version: str
     syft_client_install_source: Optional[str] = None
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    attestation_token: Optional[str] = None
 
     def compatibility_status_with(
         self, other: "VersionInfo" | None
