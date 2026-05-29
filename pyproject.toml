@@ -53,8 +53,11 @@ datasets = [
 job = [
     "syft-job==0.1.39",
 ]
+enclave = [
+    "syft-enclave==0.1.0",
+]
 all = [
-    "syft-client[datasets,job]",
+    "syft-client[datasets,job,enclave]",
 ]
 
 [tool.uv]
