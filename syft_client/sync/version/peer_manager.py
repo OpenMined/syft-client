@@ -465,6 +465,12 @@ class PeerManager(BaseModel):
         self.share_version_with_peer(peer_email)
         version_info = self.connection_router.read_peer_version_file(peer_email)
 
+        # Verify attestation for enclave peers
+        if version_info and version_info.attestation_token:
+            from syft_client.sync.version.attestation import verify_attestation_token
+
+            verify_attestation_token(version_info.attestation_token, verbose=verbose)
+
         new_peer_obj.version = version_info
         new_peer_obj.public_encryption_bundle = peer_bundle
         new_peer_obj.state = new_state
