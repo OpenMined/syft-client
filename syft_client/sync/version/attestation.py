@@ -8,7 +8,6 @@ the claims inside it to ensure the enclave is trustworthy.
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 
 from google.auth.transport import requests as google_requests
@@ -66,10 +65,6 @@ class AttestationResult:
             else:
                 icon = "  ❌"
             print(f"{icon} {check.label:<20s} — {check.detail}")
-
-
-def _expected_version_hash() -> str:
-    return hashlib.sha256(EXPECTED_SYFT_VERSION.encode()).hexdigest()
 
 
 def verify_attestation_token(token: str, verbose: bool = True) -> AttestationResult:
@@ -149,20 +144,22 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             print("❌ Attestation failed — enclave is NOT trusted")
         raise AttestationError(f"Debug mode detected: dbgstat={dbgstat!r}", result)
 
-    # 4. Version hash
+    # 4. Version match
     if verbose:
         print("  ⏳ Version match ...")
     eat_nonce = claims.get("eat_nonce", [])
-    expected_hash = _expected_version_hash()
-    actual_hash = eat_nonce[0] if eat_nonce else None
-    if not actual_hash:
+    # Google returns a string for single nonce, array for multiple
+    if isinstance(eat_nonce, str):
+        eat_nonce = [eat_nonce]
+    actual_version = eat_nonce[0] if eat_nonce else None
+    if not actual_version:
         result.add(
             "version_match",
             "Version match",
             None,
-            "no version hash in token",
+            "no version in token",
         )
-    elif actual_hash == expected_hash:
+    elif actual_version == EXPECTED_SYFT_VERSION:
         result.add(
             "version_match",
             "Version match",
@@ -174,12 +171,12 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             "version_match",
             "Version match",
             False,
-            f"version hash mismatch (expected sha256 of {EXPECTED_SYFT_VERSION!r})",
+            f"version mismatch (enclave={actual_version}, expected={EXPECTED_SYFT_VERSION})",
         )
         if verbose:
             result.print_checklist()
             print("❌ Attestation failed — enclave is NOT trusted")
-        raise AttestationError("Version hash mismatch", result)
+        raise AttestationError("Version mismatch", result)
 
     # 5. Image digest
     if verbose:
