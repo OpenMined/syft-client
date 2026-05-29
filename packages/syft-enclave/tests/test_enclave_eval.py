@@ -75,7 +75,6 @@ PRIVATE_BENCHMARK = [
 # ── Job code ──────────────────────────────────────────────────────────────────
 JOB_CODE = """
 import csv
-import importlib.util
 import json
 import os
 
@@ -86,11 +85,9 @@ model_files = sc.resolve_dataset_files_path(
 )
 model_dir = str(model_files[0].parent)
 
-spec = importlib.util.spec_from_file_location(
-    "nano_lm", os.path.join(model_dir, "nano_lm.py")
+mod = sc.load_dataset_code(
+    "gpt2_model.nano_lm", owner_email="model_owner@openmined.org"
 )
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
 
 with open(os.path.join(model_dir, "weights.json")) as f:
     weights = json.load(f)

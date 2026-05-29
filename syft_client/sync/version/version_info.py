@@ -4,6 +4,7 @@ VersionInfo model for representing version information.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
@@ -42,6 +43,7 @@ class VersionInfo(BaseModel):
     min_supported_syft_client_version: str
     protocol_version: str
     min_supported_protocol_version: str
+    syft_client_install_source: Optional[str] = None
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     attestation_token: Optional[str] = None
 
@@ -101,11 +103,21 @@ class VersionInfo(BaseModel):
     @classmethod
     def current(cls) -> "VersionInfo":
         """Create VersionInfo with current version constants."""
+        install_source: Optional[str] = None
+        try:
+            from syft_job.install_source import get_syft_client_install_source
+
+            install_source = get_syft_client_install_source()
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Could not detect syft-client install source: {e}")
+
         return cls(
             syft_client_version=SYFT_CLIENT_VERSION,
             min_supported_syft_client_version=MIN_SUPPORTED_SYFT_CLIENT_VERSION,
             protocol_version=PROTOCOL_VERSION,
             min_supported_protocol_version=MIN_SUPPORTED_PROTOCOL_VERSION,
+            syft_client_install_source=install_source,
         )
 
     def to_json(self) -> str:
