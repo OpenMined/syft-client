@@ -145,9 +145,32 @@ def wif_provider() -> bytes:
     return secret_manager_access(secret, fed)
 
 
+def sa_provider() -> bytes:
+    """Fetch a Secret Manager secret using the VM's attached service account.
+
+    The GCE metadata server to get an access
+    token for the attached SA, then calls Secret Manager directly.
+    """
+    secret = os.environ.get("SYFT_BOOTSTRAP_SA_SECRET")
+    if not secret:
+        raise RuntimeError("sa requires SYFT_BOOTSTRAP_SA_SECRET")
+    resp = requests.get(
+        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+        headers={"Metadata-Flavor": "Google"},
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Metadata server returned {resp.status_code}: {resp.text}. "
+            "sa requires running on a GCE VM with an attached service account."
+        )
+    return secret_manager_access(secret, resp.json()["access_token"])
+
+
 PROVIDERS = {
     "envvar": envvar_provider,
     "wif": wif_provider,
+    "sa": sa_provider,
 }
 
 
