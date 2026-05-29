@@ -295,6 +295,15 @@ provision-secret-sa token_path secret=secret_name_default sa=sa_name_default: _p
       --member="serviceAccount:${sa_full}" \
       --project="$project_id" >/dev/null
 
+    # Project-level roles the CS launcher needs from the attached SA:
+    # - confidentialcomputing.workloadUser → REST verifier client (attestation)
+    # - logging.logWriter → launcher startup + diagnostic logs to Cloud Logging
+    for role in roles/confidentialcomputing.workloadUser roles/logging.logWriter; do
+      gcloud projects add-iam-policy-binding "$project_id" \
+        --member="serviceAccount:${sa_full}" \
+        --role="$role" >/dev/null
+    done
+
     project_number=$(gcloud projects describe "$project_id" --format='get(projectNumber)')
     secret_resource="projects/${project_number}/secrets/{{secret}}/versions/latest"
     jq --arg sn "{{secret}}" --arg sr "$secret_resource" --arg sae "$sa_full" \
@@ -303,7 +312,10 @@ provision-secret-sa token_path secret=secret_name_default sa=sa_name_default: _p
 
     echo "  Secret: $secret_resource"
     echo "  SA:     $sa_full"
-    echo "  Grant:  $sa_full has roles/secretmanager.secretAccessor on {{secret}}"
+    echo "  Grants:"
+    echo "    - roles/secretmanager.secretAccessor  on {{secret}}"
+    echo "    - roles/confidentialcomputing.workloadUser  on project"
+    echo "    - roles/logging.logWriter  on project"
 
 # Rotate the syft-client token by adding a new Secret Manager version.
 # Old versions stay accessible until you disable them — VM picks up
