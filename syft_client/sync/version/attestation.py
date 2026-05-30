@@ -13,15 +13,18 @@ from dataclasses import dataclass, field
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 
+from syft_client.version import SYFT_CLIENT_VERSION
+
 ATTESTATION_AUDIENCE = "syft-client-attestation"
 CONFIDENTIAL_COMPUTING_CERTS_URL = (
     "https://www.googleapis.com/service_accounts/v1/metadata/jwk/"
     "signer@confidentialspace-sign.iam.gserviceaccount.com"
 )
 
-# Expected values — hardcoded while infra is being built out.
-# Update these when releasing new enclave versions.
-EXPECTED_SYFT_VERSION = "0.1.117"
+# The verifier expects the enclave to run the same syft-client version as
+# this client. Tracks releases automatically — no manual bump needed when
+# syft-client's version changes.
+EXPECTED_SYFT_VERSION = SYFT_CLIENT_VERSION
 EXPECTED_IMAGE_DIGEST = ""  # TODO: set after  enclave image is published
 
 
@@ -151,15 +154,20 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
     # Google returns a string for single nonce, array for multiple
     if isinstance(eat_nonce, str):
         eat_nonce = [eat_nonce]
-    actual_version = eat_nonce[0] if eat_nonce else None
-    if not actual_version:
+    actual_version_nonce = eat_nonce[0] if eat_nonce else None
+    # Must match the format produced by syft_enclaves.tee_token.build_eat_nonce.
+    expected_version_nonce = f"syft-client-{EXPECTED_SYFT_VERSION}"
+    if not actual_version_nonce:
         result.add(
             "version_match",
             "Version match",
             None,
-            "no version in token",
+            "no version nonce in token",
         )
-    elif actual_version == EXPECTED_SYFT_VERSION:
+        if verbose:
+            result.print_checklist()
+            print("❌ Attestation failed — enclave is NOT trusted")
+    elif actual_version_nonce == expected_version_nonce:
         result.add(
             "version_match",
             "Version match",
@@ -171,7 +179,7 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             "version_match",
             "Version match",
             False,
-            f"version mismatch (enclave={actual_version}, expected={EXPECTED_SYFT_VERSION})",
+            f"version mismatch (enclave={actual_version_nonce!r}, expected={expected_version_nonce!r})",
         )
         if verbose:
             result.print_checklist()

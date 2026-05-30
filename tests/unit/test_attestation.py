@@ -12,6 +12,7 @@ from syft_client.sync.version.attestation import (
 )
 
 FAKE_IMAGE_DIGEST = "sha256:abc123"
+EXPECTED_VERSION_NONCE = f"syft-client-{EXPECTED_SYFT_VERSION}"
 
 
 def _valid_claims(**overrides):
@@ -19,7 +20,7 @@ def _valid_claims(**overrides):
     claims = {
         "secboot": True,
         "dbgstat": "disabled-since-boot",
-        "eat_nonce": [EXPECTED_SYFT_VERSION],
+        "eat_nonce": [EXPECTED_VERSION_NONCE],
         "submods": {
             "container": {
                 "image_digest": FAKE_IMAGE_DIGEST,
@@ -43,12 +44,17 @@ def mock_verify():
 
 
 class TestVerifyAttestationToken:
-    @pytest.mark.skip(reason="version check is currently disabled")
     def test_all_checks_pass(self, mock_verify):
-        result = verify_attestation_token("fake-token", verbose=False)
-        assert result.all_passed()
-        assert len(result.checks) == 5
-        assert all(c.passed for c in result.checks)
+        # Configure EXPECTED_IMAGE_DIGEST so the image_digest check resolves
+        # to True (not None/skipped) and all five checks pass.
+        with patch(
+            "syft_client.sync.version.attestation.EXPECTED_IMAGE_DIGEST",
+            FAKE_IMAGE_DIGEST,
+        ):
+            result = verify_attestation_token("fake-token", verbose=False)
+            assert result.all_passed()
+            assert len(result.checks) == 5
+            assert all(c.passed for c in result.checks)
 
     def test_jwt_signature_failure(self, mock_verify):
         mock_verify.side_effect = ValueError("bad signature")
@@ -73,22 +79,31 @@ class TestVerifyAttestationToken:
             verify_attestation_token("fake-token", verbose=False)
 
     def test_version_mismatch(self, mock_verify):
-        mock_verify.return_value = _valid_claims(eat_nonce=["0.0.1"])
+        # Older enclave version sent in the correct (prefixed) format.
+        mock_verify.return_value = _valid_claims(eat_nonce=["syft-client-0.0.1"])
         with pytest.raises(AttestationError, match="Version mismatch"):
             verify_attestation_token("fake-token", verbose=False)
 
-    @pytest.mark.skip(reason="version check is currently disabled")
-    def test_version_missing(self, mock_verify):
-        mock_verify.return_value = _valid_claims(eat_nonce=[])
+    def test_version_unprefixed_rejected(self, mock_verify):
+        """A bare version (pre-fix sender) must be rejected, not accepted."""
+        mock_verify.return_value = _valid_claims(eat_nonce=[EXPECTED_SYFT_VERSION])
         with pytest.raises(AttestationError, match="Version mismatch"):
             verify_attestation_token("fake-token", verbose=False)
+
+    def test_version_missing(self, mock_verify):
+        """Missing version is logged but doesn't abort verification (skip semantics)."""
+        mock_verify.return_value = _valid_claims(eat_nonce=[])
+        result = verify_attestation_token("fake-token", verbose=False)
+        version_check = next(c for c in result.checks if c.name == "version_match")
+        assert version_check.passed is None
+        assert "no version" in version_check.detail.lower()
 
     def test_version_as_string(self, mock_verify):
         """Google returns eat_nonce as a string for single nonce."""
-        mock_verify.return_value = _valid_claims(eat_nonce=EXPECTED_SYFT_VERSION)
+        mock_verify.return_value = _valid_claims(eat_nonce=EXPECTED_VERSION_NONCE)
         result = verify_attestation_token("fake-token", verbose=False)
         version_check = next(c for c in result.checks if c.name == "version_match")
-        assert version_check.passed is not False
+        assert version_check.passed is True
 
     def test_image_digest_mismatch(self, mock_verify):
         with patch(
@@ -99,12 +114,12 @@ class TestVerifyAttestationToken:
             with pytest.raises(AttestationError, match="Image digest"):
                 verify_attestation_token("fake-token", verbose=False)
 
-    @pytest.mark.skip(reason="version check is currently disabled")
     def test_image_digest_skipped_when_not_configured(self, mock_verify):
-        """When EXPECTED_IMAGE_DIGEST is empty, image check passes with skip note."""
+        """When EXPECTED_IMAGE_DIGEST is empty, image check is skipped (passed=None)."""
         result = verify_attestation_token("fake-token", verbose=False)
         image_check = next(c for c in result.checks if c.name == "image_digest")
-        assert image_check.passed
+        # Skipped checks use passed=None — distinguishes "not run" from "failed".
+        assert image_check.passed is None
         assert "skipped" in image_check.detail
 
     def test_image_digest_matches(self, mock_verify):
