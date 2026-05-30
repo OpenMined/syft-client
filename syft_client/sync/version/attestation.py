@@ -73,14 +73,23 @@ class AttestationResult:
 def verify_attestation_token(token: str, verbose: bool = True) -> AttestationResult:
     """Verify an attestation JWT and return the result checklist.
 
-    Raises ``AttestationError`` if any check fails.
+    Runs every check before raising — so a failure in one (e.g. ``dbgstat``)
+    doesn't hide failures in later checks (e.g. ``image_digest``). The
+    operator sees the full picture in one printout, then a single
+    ``AttestationError`` is raised listing every failed check.
+
+    Exception: ``jwt_signature`` fails fast because all subsequent checks
+    inspect the JWT's claims — without a verified token there's nothing
+    to inspect.
+
+    ``passed=None`` ("skipped") does not count as a failure.
     """
     result = AttestationResult()
 
     if verbose:
         print("🔒 Verifying enclave attestation...")
 
-    # 1. JWT signature + expiry
+    # 1. JWT signature + expiry — fail-fast (no claims → no point continuing)
     if verbose:
         print("  ⏳ JWT signature ...")
     try:
@@ -106,7 +115,9 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
         )
         if verbose:
             result.print_checklist()
-            print("❌ Attestation failed — enclave is NOT trusted")
+            print(
+                "❌ Attestation failed — JWT signature invalid, cannot inspect claims"
+            )
         raise AttestationError("JWT signature verification failed", result) from e
 
     # 2. Secure boot
@@ -124,10 +135,6 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             False,
             f"secure boot not enabled (secboot={secboot})",
         )
-        if verbose:
-            result.print_checklist()
-            print("❌ Attestation failed — enclave is NOT trusted")
-        raise AttestationError("Secure boot not enabled", result)
 
     # 3. Debug disabled
     if verbose:
@@ -142,10 +149,6 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             False,
             f"debug mode detected (dbgstat={dbgstat!r})",
         )
-        if verbose:
-            result.print_checklist()
-            print("❌ Attestation failed — enclave is NOT trusted")
-        raise AttestationError(f"Debug mode detected: dbgstat={dbgstat!r}", result)
 
     # 4. Version match
     if verbose:
@@ -162,11 +165,8 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             "version_match",
             "Version match",
             None,
-            "no version nonce in token",
+            "no version nonce in token (skipped)",
         )
-        if verbose:
-            result.print_checklist()
-            print("❌ Attestation failed — enclave is NOT trusted")
     elif actual_version_nonce == expected_version_nonce:
         result.add(
             "version_match",
@@ -181,10 +181,6 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             False,
             f"version mismatch (enclave={actual_version_nonce!r}, expected={expected_version_nonce!r})",
         )
-        if verbose:
-            result.print_checklist()
-            print("❌ Attestation failed — enclave is NOT trusted")
-        raise AttestationError("Version mismatch", result)
 
     # 5. Image digest
     if verbose:
@@ -214,13 +210,21 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             False,
             f"digest mismatch (got {image_digest or 'none'}, expected {EXPECTED_IMAGE_DIGEST[:20]}...)",
         )
-        if verbose:
-            result.print_checklist()
-            print("❌ Attestation failed — enclave is NOT trusted")
-        raise AttestationError("Image digest mismatch", result)
 
+    # Finalize — print full checklist, then raise once if anything failed
     if verbose:
         result.print_checklist()
+
+    failed = [c for c in result.checks if c.passed is False]
+    if failed:
+        failed_names = ", ".join(c.name for c in failed)
+        if verbose:
+            print(
+                f"❌ Attestation failed — {len(failed)} check(s) did not pass: {failed_names}"
+            )
+        raise AttestationError(f"Attestation failed: {failed_names}", result)
+
+    if verbose:
         print("🔒 Attestation verified — enclave is trusted")
 
     return result

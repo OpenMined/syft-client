@@ -63,31 +63,31 @@ class TestVerifyAttestationToken:
 
     def test_secure_boot_disabled(self, mock_verify):
         mock_verify.return_value = _valid_claims(secboot=False)
-        with pytest.raises(AttestationError, match="Secure boot"):
+        with pytest.raises(AttestationError, match="secure_boot"):
             verify_attestation_token("fake-token", verbose=False)
 
     def test_secure_boot_missing(self, mock_verify):
         claims = _valid_claims()
         del claims["secboot"]
         mock_verify.return_value = claims
-        with pytest.raises(AttestationError, match="Secure boot"):
+        with pytest.raises(AttestationError, match="secure_boot"):
             verify_attestation_token("fake-token", verbose=False)
 
     def test_debug_enabled(self, mock_verify):
         mock_verify.return_value = _valid_claims(dbgstat="enabled")
-        with pytest.raises(AttestationError, match="Debug mode"):
+        with pytest.raises(AttestationError, match="debug_disabled"):
             verify_attestation_token("fake-token", verbose=False)
 
     def test_version_mismatch(self, mock_verify):
         # Older enclave version sent in the correct (prefixed) format.
         mock_verify.return_value = _valid_claims(eat_nonce=["syft-client-0.0.1"])
-        with pytest.raises(AttestationError, match="Version mismatch"):
+        with pytest.raises(AttestationError, match="version_match"):
             verify_attestation_token("fake-token", verbose=False)
 
     def test_version_unprefixed_rejected(self, mock_verify):
         """A bare version (pre-fix sender) must be rejected, not accepted."""
         mock_verify.return_value = _valid_claims(eat_nonce=[EXPECTED_SYFT_VERSION])
-        with pytest.raises(AttestationError, match="Version mismatch"):
+        with pytest.raises(AttestationError, match="version_match"):
             verify_attestation_token("fake-token", verbose=False)
 
     def test_version_missing(self, mock_verify):
@@ -111,7 +111,7 @@ class TestVerifyAttestationToken:
             "sha256:expected",
         ):
             mock_verify.return_value = _valid_claims()
-            with pytest.raises(AttestationError, match="Image digest"):
+            with pytest.raises(AttestationError, match="image_digest"):
                 verify_attestation_token("fake-token", verbose=False)
 
     def test_image_digest_skipped_when_not_configured(self, mock_verify):
@@ -139,15 +139,52 @@ class TestVerifyAttestationToken:
         assert exc_info.value.result is not None
         assert exc_info.value.result.first_failure().name == "secure_boot"
 
-    def test_fails_fast_on_first_error(self, mock_verify):
-        """Earlier failure should prevent later checks from running."""
+    def test_runs_all_checks_after_failure(self, mock_verify):
+        """A failed check should NOT short-circuit later checks — operator
+        sees the full picture of what passed/failed in one go.
+        Exception: JWT signature failure still fails fast (no claims = nothing
+        to inspect for the remaining checks)."""
         mock_verify.return_value = _valid_claims(secboot=False)
         with pytest.raises(AttestationError) as exc_info:
             verify_attestation_token("fake-token", verbose=False)
         check_names = [c.name for c in exc_info.value.result.checks]
-        assert "jwt_signature" in check_names
-        assert "secure_boot" in check_names
-        assert "version_match" not in check_names
+        # All five checks should appear, even though secure_boot failed early.
+        assert check_names == [
+            "jwt_signature",
+            "secure_boot",
+            "debug_disabled",
+            "version_match",
+            "image_digest",
+        ]
+
+    def test_multiple_failures_listed(self, mock_verify):
+        """When multiple checks fail, all of them surface in the error and result."""
+        # Three simultaneous failures: secboot off, debug on, wrong version.
+        mock_verify.return_value = _valid_claims(
+            secboot=False,
+            dbgstat="enabled",
+            eat_nonce=["syft-client-0.0.1"],
+        )
+        with pytest.raises(AttestationError) as exc_info:
+            verify_attestation_token("fake-token", verbose=False)
+
+        failed = {c.name for c in exc_info.value.result.checks if c.passed is False}
+        assert failed == {"secure_boot", "debug_disabled", "version_match"}
+
+        # The error message should name every failed check.
+        msg = str(exc_info.value)
+        assert "secure_boot" in msg
+        assert "debug_disabled" in msg
+        assert "version_match" in msg
+
+    def test_jwt_failure_fails_fast(self, mock_verify):
+        """JWT signature failure is the one exception to 'run all checks'."""
+        mock_verify.side_effect = ValueError("bad signature")
+        with pytest.raises(AttestationError) as exc_info:
+            verify_attestation_token("fake-token", verbose=False)
+        # Only the JWT check ran; nothing downstream could inspect claims.
+        check_names = [c.name for c in exc_info.value.result.checks]
+        assert check_names == ["jwt_signature"]
 
 
 class TestAttestationResult:
