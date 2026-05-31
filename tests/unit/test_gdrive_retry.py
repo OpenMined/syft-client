@@ -19,6 +19,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from googleapiclient.errors import HttpError
+from httplib2 import RedirectMissingLocation
 
 from syft_client.sync.connections.drive.gdrive_retry import (
     batch_execute_with_retries,
@@ -44,6 +45,7 @@ TRANSPORT_INSTANCES = [
     ssl.SSLError("ssl"),
     http.client.RemoteDisconnected("remote disconnected"),
     http.client.BadStatusLine("bad status"),
+    RedirectMissingLocation("missing location", Mock(), b""),
 ]
 
 
