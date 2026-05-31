@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from syft_client.sync.version.attestation import (
+from syft_enclaves.attestation import (
     EXPECTED_SYFT_VERSION,
     AttestationError,
     AttestationResult,
@@ -36,8 +36,8 @@ def _valid_claims(**overrides):
 def mock_verify():
     """Patch google id_token.verify_token to return valid claims."""
     with (
-        patch("syft_client.sync.version.attestation.id_token.verify_token") as mock_vt,
-        patch("syft_client.sync.version.attestation.google_requests.Request"),
+        patch("syft_enclaves.attestation.id_token.verify_token") as mock_vt,
+        patch("syft_enclaves.attestation.google_requests.Request"),
     ):
         mock_vt.return_value = _valid_claims()
         yield mock_vt
@@ -48,7 +48,7 @@ class TestVerifyAttestationToken:
         # Configure EXPECTED_IMAGE_DIGEST so the image_digest check resolves
         # to True (not None/skipped) and all five checks pass.
         with patch(
-            "syft_client.sync.version.attestation.EXPECTED_IMAGE_DIGEST",
+            "syft_enclaves.attestation.EXPECTED_IMAGE_DIGEST",
             FAKE_IMAGE_DIGEST,
         ):
             result = verify_attestation_token("fake-token", verbose=False)
@@ -107,7 +107,7 @@ class TestVerifyAttestationToken:
 
     def test_image_digest_mismatch(self, mock_verify):
         with patch(
-            "syft_client.sync.version.attestation.EXPECTED_IMAGE_DIGEST",
+            "syft_enclaves.attestation.EXPECTED_IMAGE_DIGEST",
             "sha256:expected",
         ):
             mock_verify.return_value = _valid_claims()
@@ -124,7 +124,7 @@ class TestVerifyAttestationToken:
 
     def test_image_digest_matches(self, mock_verify):
         with patch(
-            "syft_client.sync.version.attestation.EXPECTED_IMAGE_DIGEST",
+            "syft_enclaves.attestation.EXPECTED_IMAGE_DIGEST",
             FAKE_IMAGE_DIGEST,
         ):
             result = verify_attestation_token("fake-token", verbose=False)
