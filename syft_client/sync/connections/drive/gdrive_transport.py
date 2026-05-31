@@ -10,10 +10,9 @@ from syft_client.version import SYFT_CLIENT_VERSION
 from typing import Any, Dict, List, Optional, Tuple
 from typing import TYPE_CHECKING
 from pydantic import BaseModel
-import httplib2
 from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload, build_http
 from google.oauth2.credentials import Credentials as GoogleCredentials
 
 from syft_client.sync.connections.drive.gdrive_utils import (
@@ -76,7 +75,10 @@ def build_drive_service(
     environment: Environment | None = None,
 ):
     """Build a Google Drive service with timeout-enabled authorized HTTP."""
-    http = httplib2.Http(timeout=timeout)
+    # Build the http via googleapiclient's own factory rather than constructing
+    # httplib2.Http() directly. build_http() applies Google-API-specific tweaks.
+    http = build_http()
+    http.timeout = timeout
     if environment == Environment.COLAB:
         from google.colab import auth as colab_auth
         import google.auth

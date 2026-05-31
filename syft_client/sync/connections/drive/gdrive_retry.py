@@ -10,7 +10,6 @@ from typing import Any, TypeVar
 
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
-from httplib2 import RedirectMissingLocation
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +30,6 @@ RETRYABLE_REASONS = {
 # Socket/TLS transients raised by httplib2 when Google closes an idle keepalive
 # connection. googleapiclient's own retry loop only catches ssl.SSLError and
 # socket.timeout, so these escape and surface to callers as unhandled errors.
-# RedirectMissingLocation is a transient GDrive bug during resumable uploads
-# where the server returns a 3xx without a Location header.
 RETRYABLE_TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     ConnectionResetError,
     ConnectionAbortedError,
@@ -42,7 +39,6 @@ RETRYABLE_TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     ssl.SSLError,
     http.client.RemoteDisconnected,
     http.client.BadStatusLine,
-    RedirectMissingLocation,
 )
 
 T = TypeVar("T")
