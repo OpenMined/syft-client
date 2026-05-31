@@ -37,13 +37,3 @@ class Peer(BaseModel):
     def is_requested_by_me(self) -> bool:
         """Returns True if we requested peer but they haven't reciprocated"""
         return self.state == PeerState.REQUESTED_BY_ME
-
-    def attest(self):
-        """Verify this peer's attestation. Re-reads SYFT_version.json from Drive."""
-        if self._manager is None:
-            print(
-                f"ℹ️  Peer {self.email!r} is not bound to a client; "
-                "use client.attest_peer(email) instead."
-            )
-            return None
-        return self._manager.attest_peer(self.email)

@@ -3801,6 +3801,7 @@ name = "syft-enclave"
 version = "0.1.0"
 source = { editable = "packages/syft-enclave" }
 dependencies = [
+    { name = "google-auth", extra = ["pyjwt"] },
     { name = "pydantic-settings" },
     { name = "requests" },
     { name = "syft-client" },
@@ -3808,6 +3809,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "google-auth", extras = ["pyjwt"], specifier = ">=2.22.0" },
     { name = "pydantic-settings", specifier = ">=2.11.0" },
     { name = "requests", specifier = ">=2.32.0" },
     { name = "syft-client", editable = "." },
