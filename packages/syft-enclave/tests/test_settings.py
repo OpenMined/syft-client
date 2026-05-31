@@ -34,6 +34,7 @@ def test_defaults_applied_when_required_fields_set(required_env):
     assert settings.poll_interval == 1
     assert settings.require_tee is False
     assert settings.log_level == "INFO"
+    assert settings.fresh_state is True  # default: always start with a clean slate
 
 
 def test_missing_email_raises(clean_env):
@@ -81,3 +82,9 @@ def test_settings_are_frozen(required_env):
 
     with pytest.raises(ValidationError):
         settings.poll_interval = 99
+
+
+def test_fresh_state_can_be_disabled_via_env(required_env):
+    required_env.setenv("SYFT_ENCLAVE_FRESH_STATE", "false")
+    settings = EnclaveSettings(_env_file=None)
+    assert settings.fresh_state is False
