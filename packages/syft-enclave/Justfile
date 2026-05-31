@@ -285,10 +285,13 @@ provision-secret-sa token_path secret=secret_name_default sa=sa_name_default: _p
       --data-file="{{token_path}}" --project="$project_id"
 
     sa_full="{{sa}}@${project_id}.iam.gserviceaccount.com"
-    gcloud iam service-accounts describe "$sa_full" --project="$project_id" >/dev/null 2>&1 || \
+    if ! gcloud iam service-accounts describe "$sa_full" --project="$project_id" >/dev/null 2>&1; then
       gcloud iam service-accounts create {{sa}} \
         --display-name="Syft enclave service account" \
         --project="$project_id"
+      echo "Waiting for SA to propagate..."
+      sleep 10
+    fi
 
     gcloud secrets add-iam-policy-binding {{secret}} \
       --role=roles/secretmanager.secretAccessor \
