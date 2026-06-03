@@ -233,6 +233,35 @@ start email name=vm_default machine_type=machine_type_default: _provision
       --tags=http-server \
       --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
 
+# Same as `start` but on a large machine (n2d-highmem-32) with a 200GB
+# boot disk and a large container /dev/shm. Production hardened image,
+# no SSH. For memory-heavy jobs (e.g. loading large models). Token is
+# fetched via the attached service account + Secret Manager — requires
+# `just provision-secret-sa <token>` first.
+[group('deploy')]
+start-large email name=vm_default machine_type=large_machine_type_default: _provision
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    [ -n "$sa_email" ] || { echo "Error: SA not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
+    [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
+
+    gcloud compute instances create {{name}} \
+      --project="$project_id" \
+      --zone="$zone" \
+      --machine-type={{machine_type}} \
+      --confidential-compute-type=SEV \
+      --shielded-secure-boot \
+      --maintenance-policy=MIGRATE \
+      --min-cpu-platform="AMD Milan" \
+      --image-family=confidential-space \
+      --image-project=confidential-space-images \
+      --boot-disk-size=200GB \
+      --scopes=cloud-platform \
+      --service-account="$sa_email" \
+      --tags=http-server \
+      --metadata="^~^tee-image-reference={{image}}~tee-dev-shm-size-kb=125000000~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
+
 
 [group('deploy')]
 start-debug email name=vm_default machine_type=machine_type_default: _provision
