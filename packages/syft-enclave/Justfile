@@ -150,8 +150,8 @@ _provision: _whoami
 
 # Provision Secret Manager + a dedicated service account for the
 # enclave runtime. The SA gets `secretmanager.secretAccessor` on the
-# secret and is attached to the VM at deploy time via `start-sa` /
-# `start-debug-sa`. Idempotent.
+# secret and is attached to the VM at deploy time via `start` /
+# `start-debug`. Idempotent.
 [group('setup')]
 provision-secret-sa token_path secret=secret_name_default sa=sa_name_default: _provision
     #!/bin/bash
@@ -231,8 +231,7 @@ start email name=vm_default machine_type=machine_type_default: _provision
       --tags=http-server \
       --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
 
-# Same as `start-sa` but with the debug image family (SSH + log
-# redirect enabled) for active testing.
+
 [group('deploy')]
 start-debug email name=vm_default machine_type=machine_type_default: _provision
     #!/bin/bash
