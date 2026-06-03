@@ -256,30 +256,6 @@ start-debug email name=vm_default machine_type=machine_type_default: _provision
       --tags=http-server \
       --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
 
-# Deploy a debug enclave VM (SSH enabled, log redirection on). Uses
-# SYFT_BOOTSTRAP=envvar — the token rides in metadata. DEV ONLY, only
-# with a non-production token. The bootstrap emits a DEPRECATION
-# warning at startup.
-[group('deploy')]
-start-debug-env email token_path name=vm_default machine_type=machine_type_default: _provision
-    #!/bin/bash
-    set -e
-    {{load_settings}}
-    [ -f "{{token_path}}" ] || { echo "Error: token file not found: {{token_path}}" >&2; exit 1; }
-    gcloud compute instances create {{name}} \
-      --project="$project_id" \
-      --zone="$zone" \
-      --machine-type={{machine_type}} \
-      --confidential-compute-type=SEV \
-      --shielded-secure-boot \
-      --maintenance-policy=MIGRATE \
-      --min-cpu-platform="AMD Milan" \
-      --image-family=confidential-space-debug \
-      --image-project=confidential-space-images \
-      --scopes=cloud-platform \
-      --tags=http-server \
-      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=envvar" \
-      --metadata-from-file="tee-env-SYFT_ENCLAVE_TOKEN_CONTENT={{token_path}}"
 
 # Delete the enclave VM and remove the firewall rule
 [group('teardown')]
