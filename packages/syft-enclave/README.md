@@ -6,7 +6,6 @@ Enclave support for syft-client, enabling secure computation in Trusted Executio
 
 - [Enclave Architecture](./docs/enclave_architecture.md)
 - [API](./docs/api.md)
-- [Deploy with a Service Account](./docs/deploy-with-service-account.md) — for projects where Workload Identity Federation is blocked by org policy
 
 ## Prerequisites
 
