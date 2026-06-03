@@ -465,12 +465,6 @@ class PeerManager(BaseModel):
         self.share_version_with_peer(peer_email)
         version_info = self.connection_router.read_peer_version_file(peer_email)
 
-        # Implicit attestation verification disabled — call client.attest_peer(email)
-        # or peer.attest() explicitly. Will be re-enabled later.
-        # if version_info and version_info.attestation_token:
-        #     from syft_client.sync.version.attestation import verify_attestation_token
-        #     verify_attestation_token(version_info.attestation_token, verbose=verbose)
-
         new_peer_obj.version = version_info
         new_peer_obj.public_encryption_bundle = peer_bundle
         new_peer_obj.state = new_state

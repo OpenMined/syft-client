@@ -4,22 +4,19 @@ image := image_base + ":latest"
 machine_type_default := "n2d-standard-2"
 large_machine_type_default := "n2d-highmem-32"
 vm_default := "syft-enclave-vm"
-wif_pool_default := "cs-enclave-pool"
-wif_provider_default := "cs-prod"
 secret_name_default := "syft-enclave-token"
+sa_name_default := "syft-enclave-service-account"
 
 # Shared shell snippet: loads settings from ~/.syft-enclaves/settings.json.
-# `project_id` and `zone` are written by `just init`. The WIF + secret
-# fields are written by `just provision-wif` / `provision-secret`.
+# `project_id` and `zone` are written by `just init`.
 load_settings := '''
     settings="$HOME/.syft-enclaves/settings.json"
     [ -f "$settings" ] || { echo "Error: $settings not found. Run: just init <project_id>" >&2; exit 1; }
     project_id=$(jq -r .project_id "$settings")
     zone=$(jq -r .zone "$settings")
     project_number=$(jq -r '.project_number // empty' "$settings")
-    wif_pool=$(jq -r '.wif_pool // empty' "$settings")
-    wif_audience=$(jq -r '.wif_audience // empty' "$settings")
     secret_resource=$(jq -r '.secret_resource // empty' "$settings")
+    sa_email=$(jq -r '.sa_email // empty' "$settings")
 '''
 
 # Ensure we have Docker Hub creds before pushing.
@@ -52,9 +49,12 @@ default:
 
 # Initialize ~/.syft-enclaves/settings.json and set gcloud's active project
 [group('setup')]
-init project_id zone="us-central1-a":
+init project_id token_path="" zone="us-central1-a":
     #!/bin/bash
     set -e
+
+    [ -n "{{token_path}}" ] || { echo "Error: token_path is required. Usage: just init <project_id> <token_path> [zone]" >&2; exit 1; }
+    [ -f "{{token_path}}" ] || { echo "Error: token file not found: {{token_path}}" >&2; exit 1; }
 
     # gcloud install + version + auth checks (override: SKIP_GCLOUD_CHECK=1)
     if [ "${SKIP_GCLOUD_CHECK:-0}" != "1" ]; then
@@ -109,6 +109,13 @@ init project_id zone="us-central1-a":
     echo "wrote $HOME/.syft-enclaves/settings.json"
     echo "[gcloud account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')]"
 
+    # enable APIs needed for secret + SA provisioning
+    gcloud services enable secretmanager.googleapis.com iam.googleapis.com \
+      --project="{{project_id}}"
+
+    # provision the secret + SA
+    just provision-secret-sa "{{token_path}}"
+
 # Print the active gcloud account (shown before each VM-touching recipe)
 _whoami:
     @echo "[gcloud account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')]"
@@ -145,105 +152,71 @@ _provision: _whoami
     #   --target-tags=http-server \
     #   --source-ranges=0.0.0.0/0 || true
 
-# One-time WIF setup. Enables APIs and creates the Workload Identity
-# Pool + OIDC provider that trusts the Confidential Spaces attestation
-# issuer. Condition pins swname and hwmodel. image_digest is enforced
-# via the IAM binding made by `provision-secret`.
+
+# Provision Secret Manager + a dedicated service account for the
+# enclave runtime. The SA gets `secretmanager.secretAccessor` on the
+# secret and is attached to the VM at deploy time via `start` /
+# `start-debug`. Idempotent.
 [group('setup')]
-provision-wif: _provision
+provision-secret-sa token_path secret=secret_name_default sa=sa_name_default: _provision
     #!/bin/bash
     set -e
     {{load_settings}}
-
-    gcloud services enable \
-      iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com secretmanager.googleapis.com \
-      --project="$project_id"
-
-    project_number=$(gcloud projects describe "$project_id" --format='get(projectNumber)')
-    audience="//iam.googleapis.com/projects/${project_number}/locations/global/workloadIdentityPools/{{wif_pool_default}}/providers/{{wif_provider_default}}"
-
-    gcloud iam workload-identity-pools describe {{wif_pool_default}} \
-      --location=global --project="$project_id" >/dev/null 2>&1 || \
-    gcloud iam workload-identity-pools create {{wif_pool_default}} \
-      --location=global --project="$project_id"
-
-    attribute_mapping="google.subject=assertion.sub,attribute.image_digest=assertion.submods.container.image_digest"
-    attribute_condition='assertion.swname == "CONFIDENTIAL_SPACE" && assertion.hwmodel == "GCP_AMD_SEV"'
-
-    if gcloud iam workload-identity-pools providers describe {{wif_provider_default}} \
-         --location=global --workload-identity-pool={{wif_pool_default}} \
-         --project="$project_id" >/dev/null 2>&1; then
-      gcloud iam workload-identity-pools providers update-oidc {{wif_provider_default}} \
-        --location=global --workload-identity-pool={{wif_pool_default}} \
-        --attribute-mapping="${attribute_mapping}" \
-        --attribute-condition="${attribute_condition}" \
-        --project="$project_id"
-    else
-      gcloud iam workload-identity-pools providers create-oidc {{wif_provider_default}} \
-        --location=global --workload-identity-pool={{wif_pool_default}} \
-        --issuer-uri="https://confidentialcomputing.googleapis.com" \
-        --allowed-audiences="${audience}" \
-        --attribute-mapping="${attribute_mapping}" \
-        --attribute-condition="${attribute_condition}" \
-        --project="$project_id"
-    fi
-
-    jq --arg pn "$project_number" --arg pool "{{wif_pool_default}}" --arg aud "$audience" \
-      '.project_number=$pn | .wif_pool=$pool | .wif_audience=$aud' \
-      "$settings" > "${settings}.tmp" && mv "${settings}.tmp" "$settings"
-
-    echo "WIF audience: $audience"
-
-# Upload credentials.json to Secret Manager and grant secretAccessor
-# to the workload running ``image_digest``. Idempotent — re-run after
-# rotating the credential or rolling the image.
-[group('setup')]
-provision-secret credentials_path image_digest secret=secret_name_default: _provision
-    #!/bin/bash
-    set -e
-    {{load_settings}}
-    [ -n "$wif_pool" ] || { echo "Error: WIF not provisioned. Run: just provision-wif" >&2; exit 1; }
-    [ -f "{{credentials_path}}" ] || { echo "Error: credentials file not found: {{credentials_path}}" >&2; exit 1; }
-    case "{{image_digest}}" in
-      sha256:*) ;;
-      *) echo "Error: image_digest must start with 'sha256:' (got '{{image_digest}}')" >&2; exit 1 ;;
-    esac
+    [ -f "{{token_path}}" ] || { echo "Error: token file not found: {{token_path}}" >&2; exit 1; }
 
     gcloud secrets describe {{secret}} --project="$project_id" >/dev/null 2>&1 || \
       gcloud secrets create {{secret}} --replication-policy=automatic --project="$project_id"
 
     gcloud secrets versions add {{secret}} \
-      --data-file="{{credentials_path}}" --project="$project_id"
+      --data-file="{{token_path}}" --project="$project_id"
 
-    principal="principalSet://iam.googleapis.com/projects/${project_number}/locations/global/workloadIdentityPools/${wif_pool}/attribute.image_digest/{{image_digest}}"
+    sa_full="{{sa}}@${project_id}.iam.gserviceaccount.com"
+    if ! gcloud iam service-accounts describe "$sa_full" --project="$project_id" >/dev/null 2>&1; then
+      gcloud iam service-accounts create {{sa}} \
+        --display-name="Syft enclave service account" \
+        --project="$project_id"
+      echo "Waiting for SA to propagate..."
+      sleep 10
+    fi
+
     gcloud secrets add-iam-policy-binding {{secret}} \
       --role=roles/secretmanager.secretAccessor \
-      --member="${principal}" \
+      --member="serviceAccount:${sa_full}" \
       --project="$project_id" >/dev/null
 
+    # Project-level roles the CS launcher needs from the attached SA:
+    # - confidentialcomputing.workloadUser → REST verifier client (attestation)
+    # - logging.logWriter → launcher startup + diagnostic logs to Cloud Logging
+    for role in roles/confidentialcomputing.workloadUser roles/logging.logWriter; do
+      gcloud projects add-iam-policy-binding "$project_id" \
+        --member="serviceAccount:${sa_full}" \
+        --role="$role" >/dev/null
+    done
+
+    project_number=$(gcloud projects describe "$project_id" --format='get(projectNumber)')
     secret_resource="projects/${project_number}/secrets/{{secret}}/versions/latest"
-    jq --arg sn "{{secret}}" --arg sr "$secret_resource" \
-      '.secret_name=$sn | .secret_resource=$sr' \
+    jq --arg sn "{{secret}}" --arg sr "$secret_resource" --arg sae "$sa_full" \
+      '.secret_name=$sn | .secret_resource=$sr | .sa_email=$sae' \
       "$settings" > "${settings}.tmp" && mv "${settings}.tmp" "$settings"
 
-    echo "Secret resource: $secret_resource"
-    echo "Granted secretAccessor to image_digest={{image_digest}}"
+    echo "  Secret: $secret_resource"
+    echo "  SA:     $sa_full"
+    echo "  Grants:"
+    echo "    - roles/secretmanager.secretAccessor  on {{secret}}"
+    echo "    - roles/confidentialcomputing.workloadUser  on project"
+    echo "    - roles/logging.logWriter  on project"
 
-# Deploy a production enclave VM (hardened image, no SSH).
-# Token is fetched at startup via WIF + Secret Manager. Pass the
-# `image_digest` you granted in `provision-secret` so the deployed
-# image is pinned by content, not by mutable tag.
+# Deploy a production enclave VM (hardened image, no SSH) that fetches
+# its token via the VM's attached service account + Secret Manager.
+# No WIF — use when org policy blocks WIF provider creation. Requires
+# `just provision-secret-sa <token>` first.
 [group('deploy')]
-start email image_digest name=vm_default machine_type=machine_type_default: _provision
+start email name=vm_default machine_type=machine_type_default: _provision
     #!/bin/bash
     set -e
     {{load_settings}}
-    [ -n "$wif_audience" ] || { echo "Error: WIF not provisioned. Run: just provision-wif" >&2; exit 1; }
-    [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret <credentials> <digest>" >&2; exit 1; }
-    case "{{image_digest}}" in
-      sha256:*) ;;
-      *) echo "Error: image_digest must start with 'sha256:' (got '{{image_digest}}')" >&2; exit 1 ;;
-    esac
+    [ -n "$sa_email" ] || { echo "Error: SA not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
+    [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
 
     gcloud compute instances create {{name}} \
       --project="$project_id" \
@@ -256,19 +229,19 @@ start email image_digest name=vm_default machine_type=machine_type_default: _pro
       --image-family=confidential-space \
       --image-project=confidential-space-images \
       --scopes=cloud-platform \
+      --service-account="$sa_email" \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image_base}}@{{image_digest}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=wif~tee-env-SYFT_BOOTSTRAP_WIF_AUDIENCE=${wif_audience}~tee-env-SYFT_BOOTSTRAP_WIF_SECRET=${secret_resource}"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
 
-# Deploy a debug enclave VM (SSH enabled, log redirection on). Uses
-# SYFT_BOOTSTRAP=envvar — the token rides in metadata. DEV ONLY, only
-# with a non-production token. The bootstrap emits a DEPRECATION
-# warning at startup.
+
 [group('deploy')]
-start-debug email token_path name=vm_default machine_type=machine_type_default: _provision
+start-debug email name=vm_default machine_type=machine_type_default: _provision
     #!/bin/bash
     set -e
     {{load_settings}}
-    [ -f "{{token_path}}" ] || { echo "Error: token file not found: {{token_path}}" >&2; exit 1; }
+    [ -n "$sa_email" ] || { echo "Error: SA not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
+    [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
+
     gcloud compute instances create {{name}} \
       --project="$project_id" \
       --zone="$zone" \
@@ -280,18 +253,22 @@ start-debug email token_path name=vm_default machine_type=machine_type_default: 
       --image-family=confidential-space-debug \
       --image-project=confidential-space-images \
       --scopes=cloud-platform \
+      --service-account="$sa_email" \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=envvar" \
-      --metadata-from-file="tee-env-SYFT_ENCLAVE_TOKEN_CONTENT={{token_path}}"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
 
-# Deploy a debug enclave VM (SSH + container log redirection enabled) with large machine type and 200GB boot disk.
-# Token content is shipped via instance metadata and is readable by any
-# principal with compute.instances.get on this project.
+# Same as `start-debug` but on a large machine (n2d-highmem-32) with a
+# 200GB boot disk and a large container /dev/shm. For memory-heavy jobs
+# (e.g. loading large models). Token is fetched via the attached service
+# account + Secret Manager — requires `just provision-secret-sa <token>`.
 [group('deploy')]
-start-debug-large email token_path name=vm_default machine_type=large_machine_type_default: _provision
+start-debug-large email name=vm_default machine_type=large_machine_type_default: _provision
     #!/bin/bash
     set -e
     {{load_settings}}
+    [ -n "$sa_email" ] || { echo "Error: SA not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
+    [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
+
     gcloud compute instances create {{name}} \
       --project="$project_id" \
       --zone="$zone" \
@@ -304,40 +281,10 @@ start-debug-large email token_path name=vm_default machine_type=large_machine_ty
       --image-project=confidential-space-images \
       --boot-disk-size=200GB \
       --scopes=cloud-platform \
+      --service-account="$sa_email" \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image}}~tee-dev-shm-size-kb=125000000~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true" \
-      --metadata-from-file="tee-env-SYFT_ENCLAVE_TOKEN_CONTENT={{token_path}}"
+      --metadata="^~^tee-image-reference={{image}}~tee-dev-shm-size-kb=125000000~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
 
-# Deploy a debug enclave VM (SSH enabled, log redirection on) that
-# fetches its token via WIF + Secret Manager — same bootstrap path as
-# the production `start` recipe, just with the debug image family so
-# you can SSH in and tail logs. Pass the `image_digest` you granted in
-# `provision-secret` (digest pinning is still required by the WIF
-# IAM binding, even in debug mode).
-[group('deploy')]
-start-debug-wif email image_digest name=vm_default machine_type=machine_type_default: _provision
-    #!/bin/bash
-    set -e
-    {{load_settings}}
-    [ -n "$wif_audience" ] || { echo "Error: WIF not provisioned. Run: just provision-wif" >&2; exit 1; }
-    [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret <credentials> <digest>" >&2; exit 1; }
-    case "{{image_digest}}" in
-      sha256:*) ;;
-      *) echo "Error: image_digest must start with 'sha256:' (got '{{image_digest}}')" >&2; exit 1 ;;
-    esac
-    gcloud compute instances create {{name}} \
-      --project="$project_id" \
-      --zone="$zone" \
-      --machine-type={{machine_type}} \
-      --confidential-compute-type=SEV \
-      --shielded-secure-boot \
-      --maintenance-policy=MIGRATE \
-      --min-cpu-platform="AMD Milan" \
-      --image-family=confidential-space-debug \
-      --image-project=confidential-space-images \
-      --scopes=cloud-platform \
-      --tags=http-server \
-      --metadata="^~^tee-image-reference={{image_base}}@{{image_digest}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=wif~tee-env-SYFT_BOOTSTRAP_WIF_AUDIENCE=${wif_audience}~tee-env-SYFT_BOOTSTRAP_WIF_SECRET=${secret_resource}"
 
 # Delete the enclave VM and remove the firewall rule
 [group('teardown')]
@@ -352,6 +299,48 @@ stop name=vm_default: _whoami
     # gcloud compute firewall-rules delete allow-enclave-http \
     #   --project="$project_id" \
     #   --quiet
+
+# Tear down everything provisioned by `provision-secret-sa`:
+# IAM binding → service account → secret + all versions. Mirrors the
+# provision step. DESTRUCTIVE — secret + SA are deleted (Secret Manager
+# has a recovery window but is best treated as one-way). Confirm with
+# CONFIRM_TEARDOWN=yes or answer the interactive [y/N] prompt.
+[group('teardown')]
+teardown-sa secret=secret_name_default sa=sa_name_default: _whoami
+    #!/bin/bash
+    set -e
+    {{load_settings}}
+    sa_full="{{sa}}@${project_id}.iam.gserviceaccount.com"
+    echo "About to delete on project $project_id:"
+    echo "  - IAM binding: $sa_full → roles/secretmanager.secretAccessor on {{secret}}"
+    echo "  - Service account: $sa_full"
+    echo "  - Secret: {{secret}} (all versions)"
+    if [ "${CONFIRM_TEARDOWN:-}" != "yes" ]; then
+      printf "Proceed? [y/N] "
+      read -r ans
+      case "$ans" in
+        y|Y|yes|YES) ;;
+        *) echo "Aborted."; exit 1 ;;
+      esac
+    fi
+
+    gcloud secrets remove-iam-policy-binding {{secret}} \
+      --role=roles/secretmanager.secretAccessor \
+      --member="serviceAccount:${sa_full}" \
+      --project="$project_id" >/dev/null 2>&1 || echo "  (binding already gone)"
+
+    gcloud iam service-accounts delete "$sa_full" \
+      --project="$project_id" --quiet 2>/dev/null || echo "  (SA already gone)"
+
+    gcloud secrets delete {{secret}} \
+      --project="$project_id" --quiet 2>/dev/null || echo "  (secret already gone)"
+
+    if [ -f "$settings" ]; then
+      tmp=$(mktemp)
+      jq 'del(.sa_email, .secret_name, .secret_resource)' "$settings" > "$tmp" \
+        && mv "$tmp" "$settings"
+    fi
+    echo "Teardown complete."
 
 # Print the VM's external IP
 [group('inspect')]
@@ -417,6 +406,7 @@ ssh-container name=vm_default: _whoami
       --project="$project_id" \
       --zone="$zone" \
       -- -t 'sudo ctr tasks exec -t --exec-id shell-$$ tee-container /bin/sh'
+
 
 # Set OM_DOCKER_LOGIN + OM_DOCKER_PW to skip the docker-login prompt.
 # Build a multi-arch image (linux/amd64 + linux/arm64) and push to Docker Hub.

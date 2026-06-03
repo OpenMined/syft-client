@@ -63,6 +63,30 @@ class SyftEnclaveClient:
     def reject_peer_request(self, email_or_peer: str | Peer):
         self._manager.reject_peer_request(email_or_peer)
 
+    def attest_peer(self, peer_email: str):
+        """Verify an enclave peer's attestation by re-reading SYFT_version.json
+        from Drive. Returns None (with an info print) when no token is available;
+        raises AttestationError only when verification of an existing token fails."""
+        from syft_enclaves.attestation import verify_attestation_token
+
+        version_info = (
+            self._manager.peer_manager.connection_router.read_peer_version_file(
+                peer_email
+            )
+        )
+        if version_info is None:
+            print(
+                f"ℹ️  No version file available for peer {peer_email!r}; skipping attestation."
+            )
+            return None
+        if not version_info.attestation_token:
+            print(
+                f"ℹ️  Peer {peer_email!r} has no attestation token "
+                "(not running in a Confidential Space); skipping attestation."
+            )
+            return None
+        return verify_attestation_token(version_info.attestation_token)
+
     def sync(self):
         self._manager.sync()
 

@@ -19,8 +19,10 @@ All commands are defined in the [`Justfile`](./Justfile). Run them from this dir
 ## One-time setup
 
 ```bash
-just init YOUR_PROJECT_ID
+just init YOUR_PROJECT_ID TOKEN_PATH
 ```
+
+The TOKEN_PATH refers to the credentials of enclave email downloaded gcloud console.
 
 This stores settings in `~/.syft-enclaves/settings.json` and sets the active gcloud project. Every other recipe reads `project_id` and `zone` from this file — zone is **not** a per-call arg. To deploy in a different zone, re-run `just init YOUR_PROJECT_ID europe-west4-a`.
 
@@ -29,9 +31,9 @@ This stores settings in `~/.syft-enclaves/settings.json` and sets the active gcl
 Hardened image — no SSH access, TEE enforcement enabled.
 
 ```bash
-just start EMAIL TOKEN_PATH                          # defaults: syft-enclave-vm, n2d-standard-2
-just start EMAIL TOKEN_PATH my-vm n2d-standard-4     # override name / machine type
-just stop [name]                                     # Teardown: Deletes VM and removes firewall rule (default: syft-enclave-vm)
+just start EMAIL                          # defaults: syft-enclave-vm, n2d-standard-2
+just start EMAIL my-vm n2d-standard-4     # override name / machine type
+just stop [name]                          # Teardown: Deletes VM and removes firewall rule (default: syft-enclave-vm)
 ```
 
 The first run also provisions APIs, IAM roles, and firewall rules (idempotent).
@@ -41,9 +43,9 @@ The first run also provisions APIs, IAM roles, and firewall rules (idempotent).
 Debug image — SSH enabled, container logs redirected to serial output.
 
 ```bash
-just start-debug EMAIL TOKEN_PATH                          # defaults: syft-enclave-vm, n2d-standard-2
-just start-debug EMAIL TOKEN_PATH my-vm n2d-standard-4     # override name / machine type
-just stop [name]                                           # Teardown: Deletes VM and removes firewall rule.
+just start-debug EMAIL                          # defaults: syft-enclave-vm, n2d-standard-2
+just start-debug EMAIL my-vm n2d-standard-4     # override name / machine type
+just stop [name]                                # Teardown: Deletes VM and removes firewall rule.
 ```
 
 ## Inspect a running VM

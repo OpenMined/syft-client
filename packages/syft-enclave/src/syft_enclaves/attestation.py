@@ -8,11 +8,12 @@ the claims inside it to ensure the enclave is trustworthy.
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
+
+from syft_client.version import SYFT_CLIENT_VERSION
 
 ATTESTATION_AUDIENCE = "syft-client-attestation"
 CONFIDENTIAL_COMPUTING_CERTS_URL = (
@@ -20,9 +21,10 @@ CONFIDENTIAL_COMPUTING_CERTS_URL = (
     "signer@confidentialspace-sign.iam.gserviceaccount.com"
 )
 
-# Expected values — hardcoded while infra is being built out.
-# Update these when releasing new enclave versions.
-EXPECTED_SYFT_VERSION = "0.1.117"
+# The verifier expects the enclave to run the same syft-client version as
+# this client. Tracks releases automatically — no manual bump needed when
+# syft-client's version changes.
+EXPECTED_SYFT_VERSION = SYFT_CLIENT_VERSION
 EXPECTED_IMAGE_DIGEST = ""  # TODO: set after  enclave image is published
 
 
@@ -68,21 +70,26 @@ class AttestationResult:
             print(f"{icon} {check.label:<20s} — {check.detail}")
 
 
-def _expected_version_hash() -> str:
-    return hashlib.sha256(EXPECTED_SYFT_VERSION.encode()).hexdigest()
-
-
 def verify_attestation_token(token: str, verbose: bool = True) -> AttestationResult:
     """Verify an attestation JWT and return the result checklist.
 
-    Raises ``AttestationError`` if any check fails.
+    Runs every check before raising — so a failure in one (e.g. ``dbgstat``)
+    doesn't hide failures in later checks (e.g. ``image_digest``). The
+    operator sees the full picture in one printout, then a single
+    ``AttestationError`` is raised listing every failed check.
+
+    Exception: ``jwt_signature`` fails fast because all subsequent checks
+    inspect the JWT's claims — without a verified token there's nothing
+    to inspect.
+
+    ``passed=None`` ("skipped") does not count as a failure.
     """
     result = AttestationResult()
 
     if verbose:
         print("🔒 Verifying enclave attestation...")
 
-    # 1. JWT signature + expiry
+    # 1. JWT signature + expiry — fail-fast (no claims → no point continuing)
     if verbose:
         print("  ⏳ JWT signature ...")
     try:
@@ -108,7 +115,9 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
         )
         if verbose:
             result.print_checklist()
-            print("❌ Attestation failed — enclave is NOT trusted")
+            print(
+                "❌ Attestation failed — JWT signature invalid, cannot inspect claims"
+            )
         raise AttestationError("JWT signature verification failed", result) from e
 
     # 2. Secure boot
@@ -126,10 +135,6 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             False,
             f"secure boot not enabled (secboot={secboot})",
         )
-        if verbose:
-            result.print_checklist()
-            print("❌ Attestation failed — enclave is NOT trusted")
-        raise AttestationError("Secure boot not enabled", result)
 
     # 3. Debug disabled
     if verbose:
@@ -144,25 +149,25 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             False,
             f"debug mode detected (dbgstat={dbgstat!r})",
         )
-        if verbose:
-            result.print_checklist()
-            print("❌ Attestation failed — enclave is NOT trusted")
-        raise AttestationError(f"Debug mode detected: dbgstat={dbgstat!r}", result)
 
-    # 4. Version hash
+    # 4. Version match
     if verbose:
         print("  ⏳ Version match ...")
     eat_nonce = claims.get("eat_nonce", [])
-    expected_hash = _expected_version_hash()
-    actual_hash = eat_nonce[0] if eat_nonce else None
-    if not actual_hash:
+    # Google returns a string for single nonce, array for multiple
+    if isinstance(eat_nonce, str):
+        eat_nonce = [eat_nonce]
+    actual_version_nonce = eat_nonce[0] if eat_nonce else None
+    # Must match the format produced by syft_enclaves.tee_token.build_eat_nonce.
+    expected_version_nonce = f"syft-client-{EXPECTED_SYFT_VERSION}"
+    if not actual_version_nonce:
         result.add(
             "version_match",
             "Version match",
             None,
-            "no version hash in token",
+            "no version nonce in token (skipped)",
         )
-    elif actual_hash == expected_hash:
+    elif actual_version_nonce == expected_version_nonce:
         result.add(
             "version_match",
             "Version match",
@@ -174,12 +179,8 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             "version_match",
             "Version match",
             False,
-            f"version hash mismatch (expected sha256 of {EXPECTED_SYFT_VERSION!r})",
+            f"version mismatch (enclave={actual_version_nonce!r}, expected={expected_version_nonce!r})",
         )
-        if verbose:
-            result.print_checklist()
-            print("❌ Attestation failed — enclave is NOT trusted")
-        raise AttestationError("Version hash mismatch", result)
 
     # 5. Image digest
     if verbose:
@@ -209,13 +210,21 @@ def verify_attestation_token(token: str, verbose: bool = True) -> AttestationRes
             False,
             f"digest mismatch (got {image_digest or 'none'}, expected {EXPECTED_IMAGE_DIGEST[:20]}...)",
         )
-        if verbose:
-            result.print_checklist()
-            print("❌ Attestation failed — enclave is NOT trusted")
-        raise AttestationError("Image digest mismatch", result)
 
+    # Finalize — print full checklist, then raise once if anything failed
     if verbose:
         result.print_checklist()
+
+    failed = [c for c in result.checks if c.passed is False]
+    if failed:
+        failed_names = ", ".join(c.name for c in failed)
+        if verbose:
+            print(
+                f"❌ Attestation failed — {len(failed)} check(s) did not pass: {failed_names}"
+            )
+        raise AttestationError(f"Attestation failed: {failed_names}", result)
+
+    if verbose:
         print("🔒 Attestation verified — enclave is trusted")
 
     return result

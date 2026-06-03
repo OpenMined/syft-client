@@ -59,3 +59,12 @@ class EnclaveSettings(BaseSettings):
         default="INFO",
         description="Root logging level.",
     )
+    fresh_state: bool = Field(
+        default=True,
+        description=(
+            "If true (default), wipe all enclave state (local SyftBox folder + "
+            "Google Drive files) before init. Ensures a clean slate every boot — "
+            "peers must re-add the enclave. Set false to preserve state across "
+            "restarts (e.g., for stateful job continuation)."
+        ),
+    )

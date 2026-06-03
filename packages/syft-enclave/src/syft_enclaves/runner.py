@@ -35,10 +35,12 @@ class EnclaveRunner:
         client: SyftEnclaveClient,
         poll_interval: int = 1,
         require_tee: bool = False,
+        fresh_state: bool = True,
     ) -> None:
         self.client = client
         self.poll_interval = poll_interval
         self.require_tee = require_tee
+        self.fresh_state = fresh_state
         self._shutdown_requested = False
 
     # -- public API -------------------------------------------------------
@@ -96,8 +98,15 @@ class EnclaveRunner:
     # -- phase handlers ---------------------------------------------------
 
     def _on_initializing(self) -> None:
-        """Validate configuration, ensure directories exist."""
+        """Validate configuration; optionally wipe state for a clean slate."""
         logger.info("Initializing enclave for %s", self.client.email)
+        if self.fresh_state:
+            logger.warning(
+                "fresh_state=true — wiping ALL SyftBox state "
+                "(local folder + Google Drive files) before init"
+            )
+            self.client._manager.delete_syftbox()
+            logger.info("State wipe complete — enclave starts with a clean slate")
 
     def _on_attesting(self) -> None:
         """Verify TEE environment and publish attestation token to version file."""
