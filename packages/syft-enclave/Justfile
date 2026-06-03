@@ -108,6 +108,10 @@ init project_id token_path="" zone="us-central1-a":
     echo "wrote $HOME/.syft-enclaves/settings.json"
     echo "[gcloud account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')]"
 
+    # enable APIs needed for secret + SA provisioning
+    gcloud services enable secretmanager.googleapis.com iam.googleapis.com \
+      --project="{{project_id}}"
+
     # provision the secret + SA
     just provision-secret-sa "{{token_path}}"
 
@@ -158,9 +162,6 @@ provision-secret-sa token_path secret=secret_name_default sa=sa_name_default: _p
     set -e
     {{load_settings}}
     [ -f "{{token_path}}" ] || { echo "Error: token file not found: {{token_path}}" >&2; exit 1; }
-
-    gcloud services enable secretmanager.googleapis.com iam.googleapis.com \
-      --project="$project_id"
 
     gcloud secrets describe {{secret}} --project="$project_id" >/dev/null 2>&1 || \
       gcloud secrets create {{secret}} --replication-policy=automatic --project="$project_id"
