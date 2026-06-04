@@ -40,8 +40,9 @@ def main() -> None:
     _configure_logging(settings.log_level)
     logger.info("python -m syft_enclaves starting")
     logger.info(
-        "Enclave settings — email=%s token_path=%s poll_interval=%ds require_tee=%s fresh_state=%s",
+        "Enclave settings — email=%s data_owners=%s token_path=%s poll_interval=%ds require_tee=%s fresh_state=%s",
         settings.email,
+        settings.data_owners,
         settings.token_path,
         settings.poll_interval,
         settings.require_tee,
@@ -52,6 +53,7 @@ def main() -> None:
     client = SyftEnclaveClient.for_enclave(
         email=settings.email,
         token_path=settings.token_path,
+        data_owners=settings.data_owners,
     )
     logger.info("SyftEnclaveClient ready")
 
