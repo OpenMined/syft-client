@@ -64,9 +64,19 @@ benchmark:
     python ./benchmarks/benchmark_loadtime.py
 
 
-delete-syftboxes:
+# Delete syftbox for a single account (DO, DS, or enclave)
+# Usage: just delete-syftbox user@example.com do
+#        just delete-syftbox user@example.com enclave
+delete-syftbox email name="do":
     #!/bin/bash
-    python ./scripts/delete_syftboxes.py
+    set -e
+    token="./credentials/token_{{name}}.json"
+    [ -f "$token" ] || { echo "Error: $token not found" >&2; exit 1; }
+    echo "Deleting syftbox for {{email}}..."
+    uv run python -c "
+    from syft_client.sync.utils.syftbox_utils import delete_syftbox
+    delete_syftbox(token_path='$token', email='{{email}}')
+    "
 
 clean:
     #!/bin/sh
