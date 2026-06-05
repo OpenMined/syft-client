@@ -19,7 +19,7 @@ All commands are defined in the [`Justfile`](./Justfile). Run them from this dir
 ## One-time setup
 
 ```bash
-just init YOUR_PROJECT_ID TOKEN_PATH
+just init YOUR_GCLOUD_PROJECT_ID TOKEN_PATH
 ```
 
 The TOKEN_PATH refers to the credentials of enclave email downloaded gcloud console.
