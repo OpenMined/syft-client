@@ -345,10 +345,23 @@ class SyftEnclaveClient:
             ctx.open(approval_rel).grant_write_access(do_email)
 
     @classmethod
-    def from_config(cls, config: SyftboxManagerConfig) -> "SyftEnclaveClient":
-        """Build a SyftEnclaveClient from a manager config with a wrapped job_client."""
+    def from_config(
+        cls,
+        config: SyftboxManagerConfig,
+        encryption: bool = False,
+        encryption_keys: dict | None = None,
+    ) -> "SyftEnclaveClient":
+        """Build a SyftEnclaveClient from a manager config with a wrapped job_client.
+
+        When ``encryption`` (or ``encryption_keys``) is set, this uses the
+        persistent key path (``~/.syftbox/crypto_keys.json`` or the provided
+        bundle) — suitable for long-lived DS/DO participants who want a stable
+        identity across sessions.
+        """
         manager = SyftboxManager.from_config(config)
         manager.job_client = EnclaveJobClient(manager.job_client)
+        # No-op when both falsy; otherwise loads/generates persistent keys.
+        manager._init_encryption(encryption, encryption_keys)
         return cls(manager)
 
     @classmethod
@@ -356,11 +369,16 @@ class SyftEnclaveClient:
         cls,
         email: str,
         token_path: Path | str | None = None,
+        encryption: bool = False,
+        encryption_keys: dict | None = None,
     ) -> "SyftEnclaveClient":
         """Build an enclave client backed by a real Google Drive connection.
         Args:
             email: The enclave datasite's email address.
             token_path: Path to a pre-authorized Google Drive OAuth token.
+            encryption: Enable end-to-end drive encryption.
+            encryption_keys: Optional persistent key bundle to load.
+
         """
         config = SyftboxManagerConfig.for_jupyter(
             email=email,
@@ -368,6 +386,7 @@ class SyftEnclaveClient:
             has_do_role=True,
             token_path=Path(token_path) if token_path is not None else None,
         )
+
         return cls.from_config(config)
 
     @classmethod
@@ -378,6 +397,7 @@ class SyftEnclaveClient:
         do2_email: str | None = None,
         ds_email: str | None = None,
         use_in_memory_cache: bool = True,
+        encryption: bool = False,
     ) -> tuple[
         "SyftEnclaveClient",
         "SyftEnclaveClient",
@@ -392,6 +412,8 @@ class SyftEnclaveClient:
         - DO2: peers with DS, Enclave (not DO1)
         - DS: peers with DO1, DO2, Enclave
 
+        Args:
+            encryption: Enable end-to-end drive encryption on all four clients.
         Returns:
             Tuple of (enclave, do1, do2, ds)
         """
@@ -403,6 +425,12 @@ class SyftEnclaveClient:
         setup_connections(managers)
         setup_callbacks(managers)
         write_versions(managers)
+        # Initialize encryption AFTER connections/versions but BEFORE peering,
+        # so the bundle exchange in wire_peers() picks up each client's keys
+        # (mirrors SyftboxManager.pair_with_mock_drive_service_connection).
+        if encryption:
+            for manager in managers:
+                manager._init_encrypted_peer_store()
         wire_peers(managers)
 
         return clients

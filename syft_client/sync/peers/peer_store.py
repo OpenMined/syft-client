@@ -64,6 +64,28 @@ class PeerStore(BaseModel):
             return self.decrypt(email, data)
         return data
 
+    def _is_syc_envelope(self, data: bytes) -> bool:
+        """True if `data` is an SYC encryption envelope (vs plaintext)."""
+        try:
+            syc.parse_envelope(data)
+            return True
+        except Exception:
+            return False
+
+    def decrypt_dataset_if_needed(self, owner_email: str, data: bytes) -> bytes:
+        """Decrypt a downloaded dataset file, tolerating plaintext.
+
+        Dataset *collections* (public mock previews) are uploaded unencrypted, so
+        plaintext bytes are passed through instead of raising. Bytes that are an
+        SYC envelope are still signature-verified and decrypted as usual.
+        """
+        if not self.peer_uses_encryption(owner_email):
+            return data
+        if not self._is_syc_envelope(data):
+            return data
+        self.verify_message(owner_email, data)
+        return self.decrypt(owner_email, data)
+
     def peer_uses_encryption(self, email: str) -> bool:
         peer = self.get_cached_peer(email)
         return peer is not None and peer.use_encryption
