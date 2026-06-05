@@ -210,12 +210,18 @@ provision-secret-sa token_path secret=secret_name_default sa=sa_name_default: _p
 # No WIF — use when org policy blocks WIF provider creation. Requires
 # `just provision-secret-sa <token>` first.
 [group('deploy')]
-start email name=vm_default machine_type=machine_type_default: _provision
+start email name=vm_default machine_type=machine_type_default job-timeout="": _provision
     #!/bin/bash
     set -e
     {{load_settings}}
     [ -n "$sa_email" ] || { echo "Error: SA not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
     [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
+
+    # Optional job-timeout override; when unset the container uses syft-job's built-in default (600s).
+    job_timeout_env=""
+    if [ -n "{{job-timeout}}" ]; then
+      job_timeout_env="~tee-env-SYFT_DEFAULT_JOB_TIMEOUT_SECONDS={{job-timeout}}"
+    fi
 
     gcloud compute instances create {{name}} \
       --project="$project_id" \
@@ -230,16 +236,22 @@ start email name=vm_default machine_type=machine_type_default: _provision
       --scopes=cloud-platform \
       --service-account="$sa_email" \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}${job_timeout_env}"
 
 
 [group('deploy')]
-start-debug email name=vm_default machine_type=machine_type_default: _provision
+start-debug email name=vm_default machine_type=machine_type_default job-timeout="": _provision
     #!/bin/bash
     set -e
     {{load_settings}}
     [ -n "$sa_email" ] || { echo "Error: SA not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
     [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
+
+    # Optional job-timeout override; when unset the container uses syft-job's built-in default (600s).
+    job_timeout_env=""
+    if [ -n "{{job-timeout}}" ]; then
+      job_timeout_env="~tee-env-SYFT_DEFAULT_JOB_TIMEOUT_SECONDS={{job-timeout}}"
+    fi
 
     gcloud compute instances create {{name}} \
       --project="$project_id" \
@@ -254,7 +266,7 @@ start-debug email name=vm_default machine_type=machine_type_default: _provision
       --scopes=cloud-platform \
       --service-account="$sa_email" \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}${job_timeout_env}"
 
 
 # Delete the enclave VM and remove the firewall rule
