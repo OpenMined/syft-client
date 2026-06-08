@@ -356,17 +356,23 @@ class SyftEnclaveClient:
         cls,
         email: str,
         token_path: Path | str | None = None,
+        syftbox_folder: Path | str | None = None,
     ) -> "SyftEnclaveClient":
         """Build an enclave client backed by a real Google Drive connection.
         Args:
             email: The enclave datasite's email address.
             token_path: Path to a pre-authorized Google Drive OAuth token.
+            syftbox_folder: Override the local SyftBox folder location. When
+                unset, defaults to ~/SyftBox_<email>. Point at a tmpfs path
+                (e.g. /dev/shm/SyftBox_<email>) to avoid dm-integrity write
+                throttling for memory-heavy jobs.
         """
         config = SyftboxManagerConfig.for_jupyter(
             email=email,
             has_ds_role=True,
             has_do_role=True,
             token_path=Path(token_path) if token_path is not None else None,
+            syftbox_folder=Path(syftbox_folder) if syftbox_folder is not None else None,
         )
         return cls.from_config(config)
 

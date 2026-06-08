@@ -68,3 +68,12 @@ class EnclaveSettings(BaseSettings):
             "restarts (e.g., for stateful job continuation)."
         ),
     )
+    syftbox_folder: Path | None = Field(
+        default=None,
+        description=(
+            "Override the local SyftBox folder location. When unset, defaults to "
+            "~/SyftBox_<email> (i.e. /root/SyftBox_<email> in the container). Point "
+            "at a tmpfs path like /dev/shm/SyftBox_<email> to avoid dm-integrity "
+            "write throttling on the root disk for memory-heavy jobs."
+        ),
+    )
