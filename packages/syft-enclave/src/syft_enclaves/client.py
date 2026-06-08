@@ -370,15 +370,12 @@ class SyftEnclaveClient:
         email: str,
         token_path: Path | str | None = None,
         encryption: bool = False,
-        encryption_keys: dict | None = None,
     ) -> "SyftEnclaveClient":
         """Build an enclave client backed by a real Google Drive connection.
         Args:
             email: The enclave datasite's email address.
             token_path: Path to a pre-authorized Google Drive OAuth token.
             encryption: Enable end-to-end drive encryption.
-            encryption_keys: Optional persistent key bundle to load.
-
         """
         config = SyftboxManagerConfig.for_jupyter(
             email=email,
@@ -386,9 +383,11 @@ class SyftEnclaveClient:
             has_do_role=True,
             token_path=Path(token_path) if token_path is not None else None,
         )
-        return cls.from_config(
-            config, encryption=encryption, encryption_keys=encryption_keys
-        )
+
+        # Note: We do not currently provide the ability to load encryption keys passed during creation of enclave.
+        # To be able to support loading existing enclave private keys, we need to have Key release flow , like we have for releasing
+        # token.json for enclaves, currently each time an enclave boots up, we get a fresh key pair.
+        return cls.from_config(config, encryption=encryption)
 
     @classmethod
     def quad_with_mock_drive_service_connection(
