@@ -18,11 +18,11 @@ SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent.parent
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
 
 # Credentials from CI environment
-FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
-EMAIL_DO = os.environ.get("BEACH_EMAIL_DO")
+FILE_DO = os.environ.get("ai_audit_credentials_fname_do", "token_do.json")
+EMAIL_DO = os.environ.get("AI_AUDIT_EMAIL_DO")
 
-FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
-EMAIL_DS = os.environ.get("BEACH_EMAIL_DS")
+FILE_DS = os.environ.get("ai_audit_credentials_fname_ds", "token_ds.json")
+EMAIL_DS = os.environ.get("AI_AUDIT_EMAIL_DS")
 
 token_path_do = CREDENTIALS_DIR / FILE_DO
 token_path_ds = CREDENTIALS_DIR / FILE_DS
@@ -32,7 +32,9 @@ token_path_ds = CREDENTIALS_DIR / FILE_DS
 def check_credentials():
     """Verify credentials exist before running tests."""
     if not EMAIL_DO or not EMAIL_DS:
-        pytest.skip("BEACH_EMAIL_DO and BEACH_EMAIL_DS environment variables required")
+        pytest.skip(
+            "AI_AUDIT_EMAIL_DO and AI_AUDIT_EMAIL_DS environment variables required"
+        )
     if not token_path_do.exists() or not token_path_ds.exists():
         pytest.skip(
             f"Token files not found. Expected: {token_path_do} and {token_path_ds}"

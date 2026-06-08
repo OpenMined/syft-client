@@ -12,13 +12,13 @@ sys.path.insert(0, str(REPO_ROOT))
 
 
 CREDENTIALS_DIR = REPO_ROOT / "credentials"
-EMAIL_DO = os.environ["BEACH_EMAIL_DO"]
-EMAIL_DS = os.environ["BEACH_EMAIL_DS"]
+EMAIL_DO = os.environ["AI_AUDIT_EMAIL_DO"]
+EMAIL_DS = os.environ["AI_AUDIT_EMAIL_DS"]
 token_path_do = CREDENTIALS_DIR / os.environ.get(
-    "beach_credentials_fname_do", "token_do.json"
+    "ai_audit_credentials_fname_do", "token_do.json"
 )
 token_path_ds = CREDENTIALS_DIR / os.environ.get(
-    "beach_credentials_fname_ds", "token_ds.json"
+    "ai_audit_credentials_fname_ds", "token_ds.json"
 )
 
 

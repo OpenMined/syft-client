@@ -17,11 +17,11 @@ from tests.integration.with_unit_coverage.utils import is_mock_mode
 SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent.parent
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
 
-FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
-EMAIL_DO = os.environ.get("BEACH_EMAIL_DO", "do@test.com")
+FILE_DO = os.environ.get("ai_audit_credentials_fname_do", "token_do.json")
+EMAIL_DO = os.environ.get("AI_AUDIT_EMAIL_DO", "do@test.com")
 
-FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
-EMAIL_DS = os.environ.get("BEACH_EMAIL_DS", "ds@test.com")
+FILE_DS = os.environ.get("ai_audit_credentials_fname_ds", "token_ds.json")
+EMAIL_DS = os.environ.get("AI_AUDIT_EMAIL_DS", "ds@test.com")
 
 token_path_do = CREDENTIALS_DIR / FILE_DO
 token_path_ds = CREDENTIALS_DIR / FILE_DS
