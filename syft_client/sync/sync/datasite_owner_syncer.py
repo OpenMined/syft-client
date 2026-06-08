@@ -756,9 +756,8 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         """
         if self.connection_router.peer_store.peer_uses_encryption(recipient_email):
             logger.debug(
-                "outbox compaction for %s skipped — "
-                "peer encryption is not supported yet",
-                recipient_email,
+                f"outbox compaction for {recipient_email} skipped — "
+                f"peer encryption is not supported yet"
             )
             return 0
 
