@@ -89,8 +89,8 @@ def _print_client_kwarg_warning() -> None:
         "   Your script contains 'client=client' which will fail on the DO's machine.\n"
         "   'client' is not defined there — it is only available in your local Colab session.\n\n"
         "   Fix: remove 'client=client' from resolve_dataset_files_path() and re-run %%writefile.\n\n"
-        "   ✅ Correct:  sc.resolve_dataset_files_path('beach_water_quality')\n"
-        "   ❌ Wrong:    sc.resolve_dataset_files_path('beach_water_quality', client=client)"
+        "   ✅ Correct:  sc.resolve_dataset_files_path('ocean_water_quality')\n"
+        "   ❌ Wrong:    sc.resolve_dataset_files_path('ocean_water_quality', client=client)"
     )
 
 
@@ -102,7 +102,7 @@ def _print_dataset_files_warning() -> None:
         "   you constructed locally.\n\n"
         "   Fix: replace dataset.mock_files / dataset.private_files with\n"
         "        sc.resolve_dataset_files_path('<dataset_name>') and re-run %%writefile.\n\n"
-        "   ✅ Correct:  sc.resolve_dataset_files_path('beach_water_quality')\n"
+        "   ✅ Correct:  sc.resolve_dataset_files_path('ocean_water_quality')\n"
         "   ❌ Wrong:    dataset.mock_files  /  dataset.private_files"
     )
 

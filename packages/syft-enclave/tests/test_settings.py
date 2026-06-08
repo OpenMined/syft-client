@@ -37,6 +37,7 @@ def test_defaults_applied_when_required_fields_set(required_env):
     assert settings.require_tee is False
     assert settings.log_level == "INFO"
     assert settings.fresh_state is True  # default: always start with a clean slate
+    assert settings.use_encryption is True  # default: encryption on
 
 
 def test_data_owners_parsed_from_comma_separated_string(clean_env):
@@ -105,3 +106,9 @@ def test_fresh_state_can_be_disabled_via_env(required_env):
     required_env.setenv("SYFT_ENCLAVE_FRESH_STATE", "false")
     settings = EnclaveSettings(_env_file=None)
     assert settings.fresh_state is False
+
+
+def test_use_encryption_can_be_disabled_via_env(required_env):
+    required_env.setenv("SYFT_ENCLAVE_USE_ENCRYPTION", "false")
+    settings = EnclaveSettings(_env_file=None)
+    assert settings.use_encryption is False

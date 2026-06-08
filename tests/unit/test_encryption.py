@@ -7,6 +7,7 @@ from syft_client.sync.peers.peer import Peer
 from syft_client.sync.peers.peer_store import PeerStore
 from syft_client.sync.syftbox_manager import SyftboxManager
 from tests.unit.test_sync_manager import path_for_job
+from tests.unit.utils import create_tmp_dataset_files
 
 
 # =========================================================================
@@ -534,3 +535,36 @@ def test_tampered_inbox_message_raises():
     # DO sync should fail due to signature verification
     with pytest.raises(Exception):
         do_manager.sync()
+
+
+def test_encrypted_dataset_collection_syncs():
+    """Dataset-collection sync-down works under encryption."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        encryption=True,
+    )
+
+    mock_path, private_path, readme_path = create_tmp_dataset_files()
+    do_manager.create_dataset(
+        name="demo",
+        mock_path=mock_path,
+        private_path=private_path,
+        summary="demo dataset",
+        readme_path=readme_path,
+        users=[ds_manager.email],
+        upload_private=True,
+        sync=False,
+    )
+    do_manager.sync()
+
+    ds_manager.sync()
+
+    cr = ds_manager.peer_manager.connection_router
+    collections = cr.watcher_list_dataset_collections()
+    do_collections = [c for c in collections if c["owner_email"] == do_manager.email]
+    assert do_collections, "DS does not see the DO's dataset collection"
+
+    c = do_collections[0]
+    files = cr.watcher_download_dataset_collection(
+        c["tag"], c["content_hash"], do_manager.email
+    )
+    assert files, "DS could not download the dataset collection files"

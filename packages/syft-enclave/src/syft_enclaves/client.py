@@ -370,7 +370,12 @@ class SyftEnclaveClient:
         config: SyftboxManagerConfig,
         data_owners: list[str] | None = None,
     ) -> "SyftEnclaveClient":
-        """Build a SyftEnclaveClient from a manager config with a wrapped job_client."""
+        """Build a SyftEnclaveClient from a manager config with a wrapped job_client.
+
+        Encryption settings ride along on ``config`` (via
+        ``peer_manager_config.use_encryption`` / ``peer_manager_config.encryption_keys``);
+        ``SyftboxManager.from_config`` resolves the keys, so no extra step is needed.
+        """
         manager = SyftboxManager.from_config(config)
         manager.job_client = EnclaveJobClient(manager.job_client)
         return cls(manager, data_owners=data_owners)
@@ -381,19 +386,26 @@ class SyftEnclaveClient:
         email: str,
         token_path: Path | str | None = None,
         data_owners: list[str] | None = None,
+        encryption: bool = False,
     ) -> "SyftEnclaveClient":
         """Build an enclave client backed by a real Google Drive connection.
         Args:
             email: The enclave datasite's email address.
             token_path: Path to a pre-authorized Google Drive OAuth token.
             data_owners: Emails whose approval gates every job on this enclave.
+            encryption: Enable end-to-end drive encryption.
         """
         config = SyftboxManagerConfig.for_jupyter(
             email=email,
             has_ds_role=True,
             has_do_role=True,
             token_path=Path(token_path) if token_path is not None else None,
+            encryption=encryption,
         )
+
+        # Note: We do not currently provide the ability to load encryption keys passed during creation of enclave.
+        # To be able to support loading existing enclave private keys, we need to have Key release flow , like we have for releasing
+        # token.json for enclaves, currently each time an enclave boots up, we get a fresh key pair.
         return cls.from_config(config, data_owners=data_owners)
 
     @classmethod
@@ -404,6 +416,7 @@ class SyftEnclaveClient:
         do2_email: str | None = None,
         ds_email: str | None = None,
         use_in_memory_cache: bool = True,
+        encryption: bool = False,
     ) -> tuple[
         "SyftEnclaveClient",
         "SyftEnclaveClient",
@@ -418,6 +431,8 @@ class SyftEnclaveClient:
         - DO2: peers with DS, Enclave (not DO1)
         - DS: peers with DO1, DO2, Enclave
 
+        Args:
+            encryption: Enable end-to-end drive encryption on all four clients.
         Returns:
             Tuple of (enclave, do1, do2, ds)
         """
@@ -431,6 +446,12 @@ class SyftEnclaveClient:
         setup_connections(managers)
         setup_callbacks(managers)
         write_versions(managers)
+        # Initialize encryption AFTER connections/versions but BEFORE peering,
+        # so the bundle exchange in wire_peers() picks up each client's keys
+        # (mirrors SyftboxManager.pair_with_mock_drive_service_connection).
+        if encryption:
+            for manager in managers:
+                manager._init_encrypted_peer_store()
         wire_peers(managers)
 
         return clients

@@ -4,6 +4,8 @@ Enclave support for syft-client, enabling secure computation in Trusted Executio
 
 ## About
 
+- [Collaboration Flow](./docs/flow.md)
+- [Security Overview](./docs/security.md)
 - [Enclave Architecture](./docs/enclave_architecture.md)
 - [API](./docs/api.md)
 
@@ -19,7 +21,7 @@ All commands are defined in the [`Justfile`](./Justfile). Run them from this dir
 ## One-time setup
 
 ```bash
-just init YOUR_PROJECT_ID TOKEN_PATH DATA_OWNERS
+just init YOUR_GCLOUD_PROJECT_ID TOKEN_PATH DATA_OWNERS
 ```
 
 - `TOKEN_PATH` — credentials of the enclave email downloaded from the gcloud console.

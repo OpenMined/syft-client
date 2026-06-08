@@ -13,6 +13,10 @@ from pydantic import BaseModel, PrivateAttr
 
 from syft_client.sync.peers.peer import Peer
 
+# Persistent location for this participant's encryption key bundle. Loading from
+# here gives a stable identity across sessions; generated keys are saved here.
+CRYPTO_KEYS_PATH = Path.home() / ".syftbox" / "crypto_keys.json"
+
 
 class PeerStore(BaseModel):
     """Manages peers and encryption keys for E2E encryption."""
@@ -63,6 +67,28 @@ class PeerStore(BaseModel):
             self.verify_message(email, data)
             return self.decrypt(email, data)
         return data
+
+    def _is_syc_envelope(self, data: bytes) -> bool:
+        """True if `data` is an SYC encryption envelope (vs plaintext)."""
+        try:
+            syc.parse_envelope(data)
+            return True
+        except Exception:
+            return False
+
+    def decrypt_dataset_if_needed(self, owner_email: str, data: bytes) -> bytes:
+        """Decrypt a downloaded dataset file, tolerating plaintext.
+
+        Dataset *collections* (public mock previews) are uploaded unencrypted, so
+        plaintext bytes are passed through instead of raising. Bytes that are an
+        SYC envelope are still signature-verified and decrypted as usual.
+        """
+        if not self.peer_uses_encryption(owner_email):
+            return data
+        if not self._is_syc_envelope(data):
+            return data
+        self.verify_message(owner_email, data)
+        return self.decrypt(owner_email, data)
 
     def peer_uses_encryption(self, email: str) -> bool:
         peer = self.get_cached_peer(email)
@@ -233,4 +259,30 @@ class PeerStore(BaseModel):
                 use_encryption=True,
             )
             store._peers.append(peer)
+        return store
+
+    @classmethod
+    def create(
+        cls,
+        email: str,
+        use_encryption: bool = False,
+        encryption_keys: dict | None = None,
+    ) -> "PeerStore":
+        """Build a PeerStore, resolving encryption keys when encryption is on.
+
+        - ``encryption_keys`` given: load that bundle (a stable identity).
+        - else if a key file exists at ``CRYPTO_KEYS_PATH``: load it.
+        - else: generate a fresh key pair and persist it to ``CRYPTO_KEYS_PATH``.
+
+        When encryption is off and no keys are supplied, returns a plain store.
+        """
+        if not use_encryption and not encryption_keys:
+            return cls(email=email, use_encryption=use_encryption)
+        if encryption_keys:
+            return cls.from_keys_data(email, encryption_keys)
+        if CRYPTO_KEYS_PATH.exists():
+            return cls.load_keys(CRYPTO_KEYS_PATH)
+        store = cls(email=email, use_encryption=True)
+        store.generate_keys()
+        store.save_keys(CRYPTO_KEYS_PATH)
         return store

@@ -4,6 +4,8 @@ import random
 import tempfile
 from pathlib import Path
 
+import pytest
+
 os.environ["PRE_SYNC"] = "false"
 
 from syft_enclaves import SyftEnclaveClient
@@ -63,10 +65,12 @@ def create_tmp_code_file(code: str):
     return str(code_path)
 
 
-def test_enclave_job_distribution():
+@pytest.mark.parametrize("encryption", [False, True])
+def test_enclave_job_distribution(encryption):
     """Test full flow: DS submits job to enclave, enclave distributes to DOs."""
     enclave, do1, do2, ds = SyftEnclaveClient.quad_with_mock_drive_service_connection(
         use_in_memory_cache=False,
+        encryption=encryption,
     )
 
     # DO1 creates dataset1
@@ -135,10 +139,12 @@ def test_enclave_job_distribution():
     assert "test_job" in do2_job_names
 
 
-def test_enclave_job_approval_flow():
+@pytest.mark.parametrize("encryption", [False, True])
+def test_enclave_job_approval_flow(encryption):
     """Test: enclave receives job, distributes to DOs, both approve, enclave sees approved."""
     enclave, do1, do2, ds = SyftEnclaveClient.quad_with_mock_drive_service_connection(
         use_in_memory_cache=False,
+        encryption=encryption,
     )
 
     # DOs create datasets
@@ -214,10 +220,12 @@ def test_enclave_job_approval_flow():
     assert enclave_job.status == "approved"
 
 
-def test_enclave_full_job_flow():
+@pytest.mark.parametrize("encryption", [False, True])
+def test_enclave_full_job_flow(encryption):
     """Test full flow: submit, distribute, approve, run, share results with DS and DOs."""
     enclave, do1, do2, ds = SyftEnclaveClient.quad_with_mock_drive_service_connection(
         use_in_memory_cache=False,
+        encryption=encryption,
     )
 
     mock1, private1 = create_tmp_dataset_files("do1")
