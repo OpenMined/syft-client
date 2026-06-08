@@ -8,8 +8,8 @@ from syft_client.sync.syftbox_manager import SyftboxManager
 
 REPO_ROOT = Path(__file__).parent.parent
 CREDENTIALS_DIR = REPO_ROOT / "credentials"
-EMAIL_DO = os.environ["BEACH_EMAIL_DO"]
-EMAIL_DS = os.environ["BEACH_EMAIL_DS"]
+EMAIL_DO = os.environ["AI_AUDIT_EMAIL_DO"]
+EMAIL_DS = os.environ["AI_AUDIT_EMAIL_DS"]
 token_path_do = CREDENTIALS_DIR / os.environ.get(
     "ai_audit_credentials_fname_do", "token_do.json"
 )

@@ -54,6 +54,6 @@ jobs:
 
       - name: Run integration tests
         env:
-          BEACH_EMAIL_DO: ${{ secrets.BEACH_EMAIL_DO }}
-          BEACH_EMAIL_DS: ${{ secrets.BEACH_EMAIL_DS }}
+          AI_AUDIT_EMAIL_DO: ${{ secrets.AI_AUDIT_EMAIL_DO }}
+          AI_AUDIT_EMAIL_DS: ${{ secrets.AI_AUDIT_EMAIL_DS }}
         run: just test-integration

@@ -254,14 +254,14 @@ A browser window will open for each user to authenticate.
 #### 4. Set Environment Variables
 
 ```bash
-export BEACH_EMAIL_DO=your_do_email@gmail.com
-export BEACH_EMAIL_DS=your_ds_email@gmail.com
+export AI_AUDIT_EMAIL_DO=your_do_email@gmail.com
+export AI_AUDIT_EMAIL_DS=your_ds_email@gmail.com
 ```
 
 #### 5. Run Integration Tests
 
 ```bash
-BEACH_EMAIL_DO=your_do_email@gmail.com BEACH_EMAIL_DS=your_ds_email@gmail.com pytest tests/integration/test_sync_manager.py -v -s
+AI_AUDIT_EMAIL_DO=your_do_email@gmail.com AI_AUDIT_EMAIL_DS=your_ds_email@gmail.com pytest tests/integration/test_sync_manager.py -v -s
 ```
 
 Or if you've already exported the variables:
