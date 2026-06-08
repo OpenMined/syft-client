@@ -104,6 +104,7 @@ class PeerManagerConfig(BaseModel):
     has_do_role: bool = False
     has_ds_role: bool = False
     use_encryption: bool = False
+    encryption_keys: dict | None = None
     skip_peer_on_patch_version_diff: Optional[bool] = (
         None  # None: value is determined by the role (resolves to has_do_role)
     )
@@ -163,7 +164,11 @@ class PeerManager(BaseModel):
     @classmethod
     def from_config(cls, config: PeerManagerConfig, email: str = "") -> "PeerManager":
         """Create a PeerManager from a config."""
-        peer_store = PeerStore(email=email, use_encryption=config.use_encryption)
+        peer_store = PeerStore.create(
+            email=email,
+            use_encryption=config.use_encryption,
+            encryption_keys=config.encryption_keys,
+        )
         connection_router = ConnectionRouter.from_configs(
             email, config.connection_configs
         )

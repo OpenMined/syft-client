@@ -41,6 +41,8 @@ def _login(
             email=email,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
+            encryption=encryption,
+            encryption_keys=encryption_keys,
             skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
         )
     else:
@@ -49,12 +51,14 @@ def _login(
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
             token_path=Path(token_path) if token_path is not None else None,
+            encryption=encryption,
+            encryption_keys=encryption_keys,
             skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
         )
 
-    client = SyftEnclaveClient.from_config(
-        config, encryption=encryption, encryption_keys=encryption_keys
-    )
+    # Encryption keys (when enabled) are resolved inside from_config via the
+    # config's peer_manager_config.
+    client = SyftEnclaveClient.from_config(config)
 
     # Reuses syft-client's login init: verifies the token authenticates as
     # `email`, writes the local version, then syncs / loads peers.

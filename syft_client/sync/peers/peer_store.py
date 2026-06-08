@@ -13,6 +13,10 @@ from pydantic import BaseModel, PrivateAttr
 
 from syft_client.sync.peers.peer import Peer
 
+# Persistent location for this participant's encryption key bundle. Loading from
+# here gives a stable identity across sessions; generated keys are saved here.
+CRYPTO_KEYS_PATH = Path.home() / ".syftbox" / "crypto_keys.json"
+
 
 class PeerStore(BaseModel):
     """Manages peers and encryption keys for E2E encryption."""
@@ -255,4 +259,30 @@ class PeerStore(BaseModel):
                 use_encryption=True,
             )
             store._peers.append(peer)
+        return store
+
+    @classmethod
+    def create(
+        cls,
+        email: str,
+        use_encryption: bool = False,
+        encryption_keys: dict | None = None,
+    ) -> "PeerStore":
+        """Build a PeerStore, resolving encryption keys when encryption is on.
+
+        - ``encryption_keys`` given: load that bundle (a stable identity).
+        - else if a key file exists at ``CRYPTO_KEYS_PATH``: load it.
+        - else: generate a fresh key pair and persist it to ``CRYPTO_KEYS_PATH``.
+
+        When encryption is off and no keys are supplied, returns a plain store.
+        """
+        if not use_encryption and not encryption_keys:
+            return cls(email=email, use_encryption=use_encryption)
+        if encryption_keys:
+            return cls.from_keys_data(email, encryption_keys)
+        if CRYPTO_KEYS_PATH.exists():
+            return cls.load_keys(CRYPTO_KEYS_PATH)
+        store = cls(email=email, use_encryption=True)
+        store.generate_keys()
+        store.save_keys(CRYPTO_KEYS_PATH)
         return store

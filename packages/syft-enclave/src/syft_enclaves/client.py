@@ -345,23 +345,15 @@ class SyftEnclaveClient:
             ctx.open(approval_rel).grant_write_access(do_email)
 
     @classmethod
-    def from_config(
-        cls,
-        config: SyftboxManagerConfig,
-        encryption: bool = False,
-        encryption_keys: dict | None = None,
-    ) -> "SyftEnclaveClient":
+    def from_config(cls, config: SyftboxManagerConfig) -> "SyftEnclaveClient":
         """Build a SyftEnclaveClient from a manager config with a wrapped job_client.
 
-        When ``encryption`` (or ``encryption_keys``) is set, this uses the
-        persistent key path (``~/.syftbox/crypto_keys.json`` or the provided
-        bundle) — suitable for long-lived DS/DO participants who want a stable
-        identity across sessions.
+        Encryption settings ride along on ``config`` (via
+        ``peer_manager_config.use_encryption`` / ``peer_manager_config.encryption_keys``);
+        ``SyftboxManager.from_config`` resolves the keys, so no extra step is needed.
         """
         manager = SyftboxManager.from_config(config)
         manager.job_client = EnclaveJobClient(manager.job_client)
-        # No-op when both false; otherwise loads/generates persistent keys.
-        manager._init_encryption(encryption, encryption_keys)
         return cls(manager)
 
     @classmethod
@@ -382,12 +374,13 @@ class SyftEnclaveClient:
             has_ds_role=True,
             has_do_role=True,
             token_path=Path(token_path) if token_path is not None else None,
+            encryption=encryption,
         )
 
         # Note: We do not currently provide the ability to load encryption keys passed during creation of enclave.
         # To be able to support loading existing enclave private keys, we need to have Key release flow , like we have for releasing
         # token.json for enclaves, currently each time an enclave boots up, we get a fresh key pair.
-        return cls.from_config(config, encryption=encryption)
+        return cls.from_config(config)
 
     @classmethod
     def quad_with_mock_drive_service_connection(

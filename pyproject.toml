@@ -31,7 +31,6 @@ dependencies = [
     "google-auth-oauthlib>=1.0.0",
     "rich>=13.0.0",
     "pandas",
-    "pyarrow",
     "pydantic-settings>=2.11.0",
     "pyyaml>=6.0",
     "jinja2>=3.1.0",
@@ -177,4 +176,5 @@ test = [
     "isort>=5.12.0",
     "coverage>=7.0.0",
     "syft-enclave",
+    "pyarrow",  # only used by parquet test fixtures (tests/unit/utils.py)
 ]
