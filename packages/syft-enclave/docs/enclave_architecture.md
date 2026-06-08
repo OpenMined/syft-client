@@ -20,9 +20,8 @@ This directory contains a Docker image that packages `syft-client` with an HTTP 
 │  │                 │                             │  │
 │  │  ┌──────────────▼──────────────────────────┐  │  │
 │  │  │  syft-client-enclave container          │  │  │
-│  │  │  - FastAPI server on port 8080          │  │  │
-│  │  │  - Fetches attestation via Unix socket  │  │  │
-│  │  │  - Returns signed JWT with TEE claims   │  │  │
+│  │  │  - Attestation published via gdrive     │  │  │
+│  │  │  - signed JWT with TEE claims           │  │  │
 │  │  └─────────────────────────────────────────┘  │  │
 │  └───────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────┘
