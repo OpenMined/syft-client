@@ -283,6 +283,20 @@ stop name=vm_default: _whoami
     #   --project="$project_id" \
     #   --quiet
 
+# Delete the enclave's syftbox (Drive files + local state)
+# Usage: just delete-syftbox enclave@example.com
+[group('teardown')]
+delete-syftbox email:
+    #!/bin/bash
+    set -e
+    token="../../credentials/token_enclave.json"
+    [ -f "$token" ] || { echo "Error: $token not found" >&2; exit 1; }
+    echo "Deleting syftbox for {{email}}..."
+    uv run --project ../.. -- python -c "
+    from syft_client.sync.utils.syftbox_utils import delete_syftbox
+    delete_syftbox(token_path='$token', email='{{email}}')
+    "
+
 # Tear down everything provisioned by `provision-secret-sa`:
 # IAM binding → service account → secret + all versions. Mirrors the
 # provision step. DESTRUCTIVE — secret + SA are deleted (Secret Manager
