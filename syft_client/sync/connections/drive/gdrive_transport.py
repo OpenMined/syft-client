@@ -1640,6 +1640,15 @@ class GDriveConnection(SyftboxPlatformConnection):
 
         return collections
 
+    def owner_delete_dataset_collection(self, tag: str) -> None:
+        """Delete all public dataset collection folders matching the given tag."""
+        collections = self.owner_list_all_dataset_collections_with_permissions()
+        for c in collections:
+            if c.tag == tag:
+                self.delete_file_by_id(c.folder_id)
+                cache_key = f"{c.tag}_{c.content_hash}"
+                self.dataset_collection_folder_id_cache.pop(cache_key, None)
+
     def watcher_list_dataset_collections(self) -> list[dict]:
         """List collections shared with DS (not owned by me).
 
@@ -1801,6 +1810,15 @@ class GDriveConnection(SyftboxPlatformConnection):
             except ValueError:
                 continue
         return collections
+
+    def owner_delete_private_dataset_collection(self, tag: str) -> None:
+        """Delete all private dataset collection folders matching the given tag."""
+        collections = self.owner_list_private_dataset_collections()
+        for c in collections:
+            if c.tag == tag:
+                self.delete_file_by_id(c.folder_id)
+                cache_key = f"private_{c.tag}_{c.content_hash}"
+                self.dataset_collection_folder_id_cache.pop(cache_key, None)
 
     def owner_get_private_collection_file_metadatas(
         self, tag: str, content_hash: str, owner_email: str
