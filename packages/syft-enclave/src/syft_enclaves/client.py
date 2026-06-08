@@ -360,7 +360,7 @@ class SyftEnclaveClient:
         """
         manager = SyftboxManager.from_config(config)
         manager.job_client = EnclaveJobClient(manager.job_client)
-        # No-op when both falsy; otherwise loads/generates persistent keys.
+        # No-op when both false; otherwise loads/generates persistent keys.
         manager._init_encryption(encryption, encryption_keys)
         return cls(manager)
 
@@ -386,8 +386,9 @@ class SyftEnclaveClient:
             has_do_role=True,
             token_path=Path(token_path) if token_path is not None else None,
         )
-
-        return cls.from_config(config)
+        return cls.from_config(
+            config, encryption=encryption, encryption_keys=encryption_keys
+        )
 
     @classmethod
     def quad_with_mock_drive_service_connection(
