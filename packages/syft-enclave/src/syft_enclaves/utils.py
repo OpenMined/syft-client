@@ -35,12 +35,10 @@ def create_configs(
     return enclave_config, do1_config, do2_config, ds_config
 
 
-def create_clients(configs, encryption: bool = False) -> tuple:
+def create_clients(configs) -> tuple:
     from syft_enclaves.client import SyftEnclaveClient
 
-    return tuple(
-        SyftEnclaveClient.from_config(c, encryption=encryption) for c in configs
-    )
+    return tuple(SyftEnclaveClient.from_config(c) for c in configs)
 
 
 def setup_connections(managers: tuple):
