@@ -1,11 +1,17 @@
 # Security Overview
 
 > **Read this first:** This document assumes you understand the
-> [Collaboration Flow](./flow.md). That document explains _what_ happens end to end —
-> the data owners, the data scientist, the enclave, and the Steps 0–5 referenced below. This
+> [Enclave Flow](./flow.md). That document describes the parties involved and _what_ happens end to end —
+> the data owners, the data scientist, the enclave, and how the analysis is submitted and executed. This
 > document explains _how_ each of those steps is made secure.
 
-The collaboration flow rests on a few security building blocks. Here is what makes it trustworthy.
+> This is an early **alpha** release — a deliberate zero-to-one effort. The goal
+> right now is not scale; it is to push the _Overton window_ of what private collaboration is allowed
+> to look like: to demonstrate that two organizations and an outside analyst really can run a joint
+> computation where nobody hands over their secrets. Everything is built around that
+> **mutual-secrecy** guarantee.
+
+The flow rests on a few security building blocks. This document describes what makes it trustworthy.
 
 ## 1. SyftBox and permissions
 
@@ -39,7 +45,23 @@ Every file `syft-client` exchanges is **encrypted and signed**. The signature le
 **unreadable** to them. The shared Google Drive folder is just a delivery mechanism; the security
 does not depend on Google Drive keeping anything secret.
 
-## 4. Attestation bootstraps the encryption handshake
+## 4. The enclave runs in a Trusted Execution Environment
+
+The computation itself runs inside a **secure enclave**: a **docker container with `syft-client`**
+executing in a **Trusted Execution Environment (TEE)** on confidential-compute hardware. The TEE
+isolates the running code and encrypts its memory, so the workload is **not controlled or observable
+by any person** — not the cloud operator, not the data owners, and not the data scientist. Nobody
+can log into it, read its memory, or change what it does.
+
+Inside this environment the enclave enforces the core consent rule: it **only runs computations that
+every data owner has approved**. An analysis that touches two owners' data does not execute until
+**both** have signed off (see Step 3 of the [Enclave Flow](./flow.md)). The result is a neutral
+party that no human steers, yet that runs only what all data owners agreed to.
+
+For how the enclave is built and deployed, see the
+[enclave architecture doc](./enclave_architecture.md).
+
+## 5. Attestation bootstraps the encryption handshake
 
 Encryption and signing only help if you know whose keys to trust. For a **person**, this is relatively trivial:
 if a real human controls a Google Drive account, `syft-client` can reasonably assume that what comes
@@ -71,8 +93,5 @@ properties are enforced end to end by the layers above it — **encryption** pro
 adversary at most cause a denial of service; it never yields access to plaintext or the ability to
 forge an accepted message.
 
-This is what lets Steps 1–5 of the [Collaboration Flow](./flow.md) happen without
+This is what lets Steps 1–5 of the [Enclave Flow](./flow.md) happen without
 anyone trusting Google Drive, the network, or each other.
-
-For the enclave deployment details, see the
-[enclave architecture doc](./enclave_architecture.md).
