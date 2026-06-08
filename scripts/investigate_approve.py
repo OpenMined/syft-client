@@ -31,7 +31,7 @@ After a wipe, freshly-shared P2P folders may not show up in the peer's Drive
 search index for a while, so the inbox-download path may be skipped on the
 first DO sync. The other phases (`approve()`, post-approve sync) still run.
 
-Run from `notebooks/beach/internal/`:
+Run from `notebooks/ai_audit/internal/`:
     uv run investigate_approve.py
 """
 
