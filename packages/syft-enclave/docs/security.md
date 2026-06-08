@@ -58,6 +58,13 @@ every data owner has approved**. An analysis that touches two owners' data does 
 **both** have signed off (see Step 3 of the [Enclave Flow](./flow.md)). The result is a neutral
 party that no human steers, yet that runs only what all data owners agreed to.
 
+Note that the security guarantees above cover **where** the code runs and **who** can see it — they
+do not vouch for **what the code does**. Responsibility for the safety of the analysis itself lies
+with **both data owners**: each must **read the submitted code carefully** before approving it and
+satisfy themselves that it does nothing with their data that they have not allowed. Approval is a
+deliberate review step, not a rubber stamp — the enclave will run exactly what both owners signed
+off on, and nothing more.
+
 For how the enclave is built and deployed, see the
 [enclave architecture doc](./enclave_architecture.md).
 
