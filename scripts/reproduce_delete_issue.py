@@ -28,9 +28,9 @@ from syft_client.sync.syftbox_manager import SyftboxManager
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
-FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
+FILE_DO = os.environ.get("ai_audit_credentials_fname_do", "token_do.json")
 EMAIL_DO = os.environ["BEACH_EMAIL_DO"]
-FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
+FILE_DS = os.environ.get("ai_audit_credentials_fname_ds", "token_ds.json")
 EMAIL_DS = os.environ["BEACH_EMAIL_DS"]
 
 token_path_do = CREDENTIALS_DIR / FILE_DO

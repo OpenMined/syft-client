@@ -6,7 +6,6 @@ Module hierarchy mirrors google-deepmind/gemma so checkpoint param names map
 
 Supports: 270m, 1b, 4b, 12b, 27b.
 
-Adapted from: github.com/anthropics/beach-notebooks/gemma/local_PoC.py
 """
 
 import os

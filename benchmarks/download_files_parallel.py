@@ -18,11 +18,11 @@ SYFT_CLIENT_DIR = Path(__file__).parent.parent
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
 
 # koen gmail
-FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
+FILE_DO = os.environ.get("ai_audit_credentials_fname_do", "token_do.json")
 EMAIL_DO = os.environ["BEACH_EMAIL_DO"]
 
 # koen openmined mail
-FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
+FILE_DS = os.environ.get("ai_audit_credentials_fname_ds", "token_ds.json")
 EMAIL_DS = os.environ["BEACH_EMAIL_DS"]
 
 

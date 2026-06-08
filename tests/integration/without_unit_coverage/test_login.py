@@ -18,10 +18,10 @@ SYFT_CLIENT_DIR = Path(__file__).parent.parent.parent.parent
 CREDENTIALS_DIR = SYFT_CLIENT_DIR / "credentials"
 
 # Credentials from CI environment
-FILE_DO = os.environ.get("beach_credentials_fname_do", "token_do.json")
+FILE_DO = os.environ.get("ai_audit_credentials_fname_do", "token_do.json")
 EMAIL_DO = os.environ.get("BEACH_EMAIL_DO")
 
-FILE_DS = os.environ.get("beach_credentials_fname_ds", "token_ds.json")
+FILE_DS = os.environ.get("ai_audit_credentials_fname_ds", "token_ds.json")
 EMAIL_DS = os.environ.get("BEACH_EMAIL_DS")
 
 token_path_do = CREDENTIALS_DIR / FILE_DO
