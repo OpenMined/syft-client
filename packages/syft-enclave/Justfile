@@ -236,11 +236,11 @@ start email name=vm_default machine_type=machine_type_default job-timeout="": _p
       --scopes=cloud-platform \
       --service-account="$sa_email" \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}${job_timeout_env}"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}~tee-env-SYFT_ENCLAVE_USE_ENCRYPTION=true${job_timeout_env}"
 
 
 [group('deploy')]
-start-debug email name=vm_default machine_type=machine_type_default job-timeout="": _provision
+start-debug email name=vm_default machine_type=machine_type_default job-timeout="" use_encryption="false": _provision
     #!/bin/bash
     set -e
     {{load_settings}}
@@ -266,7 +266,7 @@ start-debug email name=vm_default machine_type=machine_type_default job-timeout=
       --scopes=cloud-platform \
       --service-account="$sa_email" \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}${job_timeout_env}"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}~tee-env-SYFT_ENCLAVE_USE_ENCRYPTION={{use_encryption}}${job_timeout_env}"
 
 
 # Delete the enclave VM and remove the firewall rule
