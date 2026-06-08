@@ -420,17 +420,11 @@ class SyftEnclaveClient:
         configs = create_configs(
             enclave_email, do1_email, do2_email, ds_email, use_in_memory_cache
         )
-        clients = create_clients(configs)
+        clients = create_clients(configs, encryption=encryption)
         managers = tuple(c._manager for c in clients)
         setup_connections(managers)
         setup_callbacks(managers)
         write_versions(managers)
-        # Initialize encryption AFTER connections/versions but BEFORE peering,
-        # so the bundle exchange in wire_peers() picks up each client's keys
-        # (mirrors SyftboxManager.pair_with_mock_drive_service_connection).
-        if encryption:
-            for manager in managers:
-                manager._init_encrypted_peer_store()
         wire_peers(managers)
 
         return clients
