@@ -40,15 +40,17 @@ def main() -> None:
     _configure_logging(settings.log_level)
     logger.info("python -m syft_enclaves starting")
     logger.info(
-        f"Enclave settings — email={settings.email} token_path={settings.token_path} "
-        f"poll_interval={settings.poll_interval}s require_tee={settings.require_tee} "
-        f"fresh_state={settings.fresh_state} use_encryption={settings.use_encryption}"
+        f"Enclave settings — email={settings.email} data_owners={settings.data_owners} "
+        f"token_path={settings.token_path} poll_interval={settings.poll_interval}s "
+        f"require_tee={settings.require_tee} fresh_state={settings.fresh_state} "
+        f"use_encryption={settings.use_encryption}"
     )
 
     logger.info("Building SyftEnclaveClient...")
     client = SyftEnclaveClient.for_enclave(
         email=settings.email,
         token_path=settings.token_path,
+        data_owners=settings.data_owners,
         encryption=settings.use_encryption,
     )
     logger.info("SyftEnclaveClient ready")
