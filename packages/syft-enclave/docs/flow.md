@@ -1,4 +1,4 @@
-# The Collaboration Flow
+# The Enclave Flow
 
 This document walks through an end-to-end private collaboration in `syft-enclave`, step by step. It
 is the best place to start — the [Security Overview](./security.md) builds directly on this flow and
