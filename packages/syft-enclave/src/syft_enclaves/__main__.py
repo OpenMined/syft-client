@@ -52,7 +52,6 @@ def main() -> None:
     client = SyftEnclaveClient.for_enclave(
         email=settings.email,
         token_path=settings.token_path,
-        syftbox_folder=settings.syftbox_folder,
     )
     logger.info("SyftEnclaveClient ready")
 

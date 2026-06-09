@@ -182,12 +182,11 @@ class SyftboxManagerConfig(BaseModel):
             bool
         ] = None,  # None: value is determined by the role
         force_ignore_peer_version: bool = False,
-        syftbox_folder: Path | None = None,
     ):
         if not has_ds_role and not has_do_role:
             raise ValueError("At least one of has_ds_role or has_do_role must be True")
 
-        syftbox_folder = syftbox_folder or get_jupyter_default_syftbox_folder(email)
+        syftbox_folder = get_jupyter_default_syftbox_folder(email)
         collections_folder = syftbox_folder / email / COLLECTION_SUBPATH
 
         connection_configs = [
