@@ -19,8 +19,8 @@ from syft_client.sync.syftbox_manager import SyftboxManager
 from tests.integration.utils import token_path_do, token_path_ds
 
 
-EMAIL_DO = os.environ.get("BEACH_EMAIL_DO", "")
-EMAIL_DS = os.environ.get("BEACH_EMAIL_DS", "")
+EMAIL_DO = os.environ.get("AI_AUDIT_EMAIL_DO", "")
+EMAIL_DS = os.environ.get("AI_AUDIT_EMAIL_DS", "")
 
 
 @pytest.mark.usefixtures("setup_delete_syftboxes")

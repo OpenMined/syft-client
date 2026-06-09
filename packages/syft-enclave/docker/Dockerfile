@@ -31,8 +31,10 @@ RUN chmod +x entrypoint.sh
 # Without this, the Confidential Spaces launcher rejects every override.
 LABEL "tee.launch_policy.allow_env_override"="\
 SYFT_ENCLAVE_EMAIL,\
+SYFT_ENCLAVE_DATA_OWNERS,\
 SYFT_ENCLAVE_REQUIRE_TEE,\
 SYFT_ENCLAVE_FRESH_STATE,\
+SYFT_ENCLAVE_USE_ENCRYPTION,\
 SYFT_DEFAULT_JOB_TIMEOUT_SECONDS,\
 SYFT_BOOTSTRAP,\
 SYFT_BOOTSTRAP_WIF_AUDIENCE,\

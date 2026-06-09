@@ -104,6 +104,8 @@ class SyftboxManagerConfig(BaseModel):
         email: str,
         has_ds_role: bool = False,
         has_do_role: bool = False,
+        encryption: bool = False,
+        encryption_keys: dict | None = None,
         skip_peer_on_patch_version_diff: Optional[
             bool
         ] = None,  # None: value is determined by the role
@@ -154,6 +156,8 @@ class SyftboxManagerConfig(BaseModel):
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
+            use_encryption=encryption,
+            encryption_keys=encryption_keys,
             skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
             force_ignore_peer_version=force_ignore_peer_version,
         )
@@ -178,6 +182,8 @@ class SyftboxManagerConfig(BaseModel):
         has_ds_role: bool = False,
         has_do_role: bool = False,
         token_path: Path | None = None,
+        encryption: bool = False,
+        encryption_keys: dict | None = None,
         skip_peer_on_patch_version_diff: Optional[
             bool
         ] = None,  # None: value is determined by the role
@@ -231,6 +237,8 @@ class SyftboxManagerConfig(BaseModel):
             connection_configs=connection_configs,
             has_do_role=has_do_role,
             has_ds_role=has_ds_role,
+            use_encryption=encryption,
+            encryption_keys=encryption_keys,
             skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
             force_ignore_peer_version=force_ignore_peer_version,
         )
@@ -535,6 +543,12 @@ class SyftboxManager(BaseModel):
             config=config,
         )
 
+        # PeerManager.from_config built the (possibly key-bearing) peer store from
+        # peer_manager_config; share that single store across every syncer's router
+        # so encryption is consistent on all sync paths.
+        if peer_manager.peer_store.use_encryption:
+            manager_res._set_peer_store(peer_manager.peer_store)
+
         return manager_res
 
     def _set_peer_store(self, peer_store) -> None:
@@ -571,31 +585,27 @@ class SyftboxManager(BaseModel):
                 email=email,
                 has_ds_role=has_ds_role,
                 has_do_role=has_do_role,
+                encryption=encryption,
+                encryption_keys=encryption_keys,
                 skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
                 force_ignore_peer_version=force_ignore_peer_version,
             )
         )
-        manager._init_encryption(encryption, encryption_keys)
         return manager
 
-    def _init_encryption(
-        self, encryption: bool = False, encryption_keys: dict | None = None
-    ):
-        """Initialize encryption if requested."""
-        if not encryption and not encryption_keys:
-            return
+    def _init_encryption(self, encryption_keys: dict | None = None) -> None:
+        """Overwrite this manager's encryption keys from the top level.
+
+        Standard key init happens lower down in ``PeerManager.from_config`` via
+        the config. Call this to swap in a different key bundle (or freshly
+        generated/persisted keys when omitted) after construction, wiring the
+        new store into every connection router.
+        """
         from syft_client.sync.peers.peer_store import PeerStore
 
-        if encryption_keys:
-            ps = PeerStore.from_keys_data(self.email, encryption_keys)
-        else:
-            keys_path = Path.home() / ".syftbox" / "crypto_keys.json"
-            if keys_path.exists():
-                ps = PeerStore.load_keys(keys_path)
-            else:
-                ps = PeerStore(email=self.email, use_encryption=True)
-                ps.generate_keys()
-                ps.save_keys(keys_path)
+        ps = PeerStore.create(
+            email=self.email, use_encryption=True, encryption_keys=encryption_keys
+        )
         self._set_peer_store(ps)
 
     @classmethod
@@ -620,11 +630,12 @@ class SyftboxManager(BaseModel):
                 has_ds_role=has_ds_role,
                 has_do_role=has_do_role,
                 token_path=token_path,
+                encryption=encryption,
+                encryption_keys=encryption_keys,
                 skip_peer_on_patch_version_diff=skip_peer_on_patch_version_diff,
                 force_ignore_peer_version=force_ignore_peer_version,
             )
         )
-        manager._init_encryption(encryption, encryption_keys)
         return manager
 
     @classmethod
@@ -1593,6 +1604,8 @@ class SyftboxManager(BaseModel):
 
     def _delete_local_dirs(self):
         """Delete local syftbox folder and cache directories."""
+        from syft_client.sync.peers.peer_store import CRYPTO_KEYS_PATH
+
         syftbox_name = self.syftbox_folder.name
         syftbox_parent = self.syftbox_folder.parent
 
@@ -1604,6 +1617,9 @@ class SyftboxManager(BaseModel):
         for d in dirs_to_delete:
             if d.exists():
                 shutil.rmtree(d)
+
+        # Persistent encryption keys, so a fresh state regenerates a new identity.
+        CRYPTO_KEYS_PATH.unlink(missing_ok=True)
 
     # =========================================================================
     # CHECKPOINT METHODS

@@ -9,7 +9,7 @@ make a second Drive call. The second call hits the dead cached socket and
 fails the same way it does in the notebook -- but deterministically and
 in <1s, no waiting for Google to time us out.
 
-Reads credentials from notebooks/beach/internal/.env (TOKEN_DO_WITH_SCOPES +
+Reads credentials from notebooks/ai_audit/internal/.env (TOKEN_DO_WITH_SCOPES +
 DO_EMAIL by default; pass --side ds to use TOKEN_DS + DS_EMAIL).
 
 Usage:
@@ -36,7 +36,7 @@ from syft_client.sync.connections.drive.gdrive_transport import build_drive_serv
 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_ENV = REPO_ROOT / "notebooks" / "beach" / "internal" / ".env"
+DEFAULT_ENV = REPO_ROOT / "notebooks" / "ai_audit" / "internal" / ".env"
 
 SIDE_TO_KEYS = {
     "do": ("TOKEN_DO_WITH_SCOPES", "DO_EMAIL"),

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class EnclaveSettings(BaseSettings):
@@ -17,6 +17,7 @@ class EnclaveSettings(BaseSettings):
     Example ``.env`` for local development::
 
         SYFT_ENCLAVE_EMAIL=enclave@openmined.org
+        SYFT_ENCLAVE_DATA_OWNERS=do1@openmined.org,do2@openmined.org
         SYFT_ENCLAVE_TOKEN_PATH=/secrets/gdrive_token.json   # optional
         SYFT_ENCLAVE_REQUIRE_TEE=false
     """
@@ -32,6 +33,24 @@ class EnclaveSettings(BaseSettings):
     email: str = Field(
         description="Email address of the enclave datasite. Required.",
     )
+    # NoDecode: keep pydantic-settings from JSON-parsing the env value so the
+    # validator below can split the comma-separated string itself.
+    data_owners: Annotated[list[str], NoDecode] = Field(
+        description=(
+            "Emails of the data owners whose approval gates every job on this "
+            "enclave. A job runs only after ALL of them approve. Accepts a "
+            "comma-separated string (e.g. 'do1@x.com,do2@y.com'). Required."
+        ),
+    )
+
+    @field_validator("data_owners", mode="before")
+    @classmethod
+    def _split_data_owners(cls, v: object) -> object:
+        """Allow a comma-separated string (as passed via VM metadata)."""
+        if isinstance(v, str):
+            return [email.strip() for email in v.split(",") if email.strip()]
+        return v
+
     # Default coupled with docker/entrypoint.sh, which writes the
     # operator-supplied token to this exact path before the runner starts.
     token_path: Path = Field(
@@ -66,5 +85,12 @@ class EnclaveSettings(BaseSettings):
             "Google Drive files) before init. Ensures a clean slate every boot — "
             "peers must re-add the enclave. Set false to preserve state across "
             "restarts (e.g., for stateful job continuation)."
+        ),
+    )
+    use_encryption: bool = Field(
+        default=True,
+        description=(
+            "End-to-end drive encryption for all enclave peer communication. "
+            "Enabled by default; set false to disable."
         ),
     )

@@ -21,7 +21,7 @@ inbox-download path on the very first run after a wipe — it shows the rest of
 the work though (peer json read, version exchange, rolling state upload,
 events_message upload).
 
-Run from `notebooks/beach/internal/`:
+Run from `notebooks/ai_audit/internal/`:
     uv run investigate_do_sync.py
 """
 

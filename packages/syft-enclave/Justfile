@@ -17,6 +17,7 @@ load_settings := '''
     project_number=$(jq -r '.project_number // empty' "$settings")
     secret_resource=$(jq -r '.secret_resource // empty' "$settings")
     sa_email=$(jq -r '.sa_email // empty' "$settings")
+    data_owners=$(jq -r '.data_owners // empty' "$settings")
 '''
 
 # Ensure we have Docker Hub creds before pushing.
@@ -49,12 +50,13 @@ default:
 
 # Initialize ~/.syft-enclaves/settings.json and set gcloud's active project
 [group('setup')]
-init project_id token_path="" zone="us-central1-a":
+init project_id token_path="" data_owners="" zone="us-central1-a":
     #!/bin/bash
     set -e
 
-    [ -n "{{token_path}}" ] || { echo "Error: token_path is required. Usage: just init <project_id> <token_path> [zone]" >&2; exit 1; }
+    [ -n "{{token_path}}" ] || { echo "Error: token_path is required. Usage: just init <project_id> <token_path> <data_owners> [zone]" >&2; exit 1; }
     [ -f "{{token_path}}" ] || { echo "Error: token file not found: {{token_path}}" >&2; exit 1; }
+    [ -n "{{data_owners}}" ] || { echo "Error: data_owners is required (comma-separated emails). Usage: just init <project_id> <token_path> <data_owners> [zone]" >&2; exit 1; }
 
     # gcloud install + version + auth checks (override: SKIP_GCLOUD_CHECK=1)
     if [ "${SKIP_GCLOUD_CHECK:-0}" != "1" ]; then
@@ -101,8 +103,8 @@ init project_id token_path="" zone="us-central1-a":
 
     # write settings.json
     mkdir -p "$HOME/.syft-enclaves"
-    jq -n --arg p "{{project_id}}" --arg z "{{zone}}" \
-      '{project_id: $p, zone: $z}' > "$HOME/.syft-enclaves/settings.json"
+    jq -n --arg p "{{project_id}}" --arg z "{{zone}}" --arg do "{{data_owners}}" \
+      '{project_id: $p, zone: $z, data_owners: $do}' > "$HOME/.syft-enclaves/settings.json"
 
     # set active gcloud project
     gcloud config set project {{project_id}}
@@ -217,6 +219,7 @@ start email name=vm_default machine_type=machine_type_default job-timeout="": _p
     {{load_settings}}
     [ -n "$sa_email" ] || { echo "Error: SA not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
     [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
+    [ -n "$data_owners" ] || { echo "Error: data_owners not set. Re-run: just init <project_id> <token_path> <data_owners>" >&2; exit 1; }
 
     # Optional job-timeout override; when unset the container uses syft-job's built-in default (600s).
     job_timeout_env=""
@@ -237,7 +240,7 @@ start email name=vm_default machine_type=machine_type_default job-timeout="": _p
       --scopes=cloud-platform \
       --service-account="$sa_email" \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}${job_timeout_env}"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Never~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_DATA_OWNERS=${data_owners}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}~tee-env-SYFT_ENCLAVE_USE_ENCRYPTION=true${job_timeout_env}"
 
 # Same as `start` but on a large machine (n2d-highmem-32) with a 200GB
 # boot disk and a large container /dev/shm. Production hardened image,
@@ -276,12 +279,13 @@ start-large email name=vm_default machine_type=large_machine_type_default job-ti
 
 
 [group('deploy')]
-start-debug email name=vm_default machine_type=machine_type_default job-timeout="": _provision
+start-debug email name=vm_default machine_type=machine_type_default job-timeout="" use_encryption="false": _provision
     #!/bin/bash
     set -e
     {{load_settings}}
     [ -n "$sa_email" ] || { echo "Error: SA not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
     [ -n "$secret_resource" ] || { echo "Error: secret not provisioned. Run: just provision-secret-sa <token_path>" >&2; exit 1; }
+    [ -n "$data_owners" ] || { echo "Error: data_owners not set. Re-run: just init <project_id> <token_path> <data_owners>" >&2; exit 1; }
 
     # Optional job-timeout override; when unset the container uses syft-job's built-in default (600s).
     job_timeout_env=""
@@ -302,7 +306,7 @@ start-debug email name=vm_default machine_type=machine_type_default job-timeout=
       --scopes=cloud-platform \
       --service-account="$sa_email" \
       --tags=http-server \
-      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}${job_timeout_env}"
+      --metadata="^~^tee-image-reference={{image}}~tee-restart-policy=Always~tee-container-log-redirect=true~tee-env-SYFT_ENCLAVE_EMAIL={{email}}~tee-env-SYFT_ENCLAVE_DATA_OWNERS=${data_owners}~tee-env-SYFT_ENCLAVE_REQUIRE_TEE=true~tee-env-SYFT_BOOTSTRAP=sa~tee-env-SYFT_BOOTSTRAP_SA_SECRET=${secret_resource}~tee-env-SYFT_ENCLAVE_USE_ENCRYPTION={{use_encryption}}${job_timeout_env}"
 
 # Same as `start-debug` but on a large machine (n2d-highmem-32) with a
 # 200GB boot disk and a large container /dev/shm. For memory-heavy jobs
@@ -352,6 +356,20 @@ stop name=vm_default: _whoami
     # gcloud compute firewall-rules delete allow-enclave-http \
     #   --project="$project_id" \
     #   --quiet
+
+# Delete the enclave's syftbox (Drive files + local state)
+# Usage: just delete-syftbox enclave@example.com
+[group('teardown')]
+delete-syftbox email:
+    #!/bin/bash
+    set -e
+    token="../../credentials/token_enclave.json"
+    [ -f "$token" ] || { echo "Error: $token not found" >&2; exit 1; }
+    echo "Deleting syftbox for {{email}}..."
+    uv run --project ../.. -- python -c "
+    from syft_client.sync.utils.syftbox_utils import delete_syftbox
+    delete_syftbox(token_path='$token', email='{{email}}')
+    "
 
 # Tear down everything provisioned by `provision-secret-sa`:
 # IAM binding → service account → secret + all versions. Mirrors the
@@ -521,14 +539,16 @@ local-build tag="dev":
 # path the bootstrap dispatcher expects. Bypasses the TEE socket check
 # (SYFT_ENCLAVE_REQUIRE_TEE=false). DEV ONLY — never with a prod token.
 [group('dev')]
-local-run email token_path name="syft-enclave-local" tag="dev":
+local-run email data_owners token_path name="syft-enclave-local" tag="dev":
     #!/bin/bash
     set -e
     [ -f "{{token_path}}" ] || { echo "Error: token file not found at {{token_path}}" >&2; exit 1; }
+    [ -n "{{data_owners}}" ] || { echo "Error: data_owners is required (comma-separated emails)." >&2; exit 1; }
     docker run --rm -it \
       --name {{name}} \
       -p 8080:8080 \
       -e SYFT_ENCLAVE_EMAIL="{{email}}" \
+      -e SYFT_ENCLAVE_DATA_OWNERS="{{data_owners}}" \
       -e SYFT_ENCLAVE_REQUIRE_TEE=false \
       -v "$(realpath {{token_path}}):/run/syft-enclave/token.json:ro" \
       {{image_base}}:{{tag}}

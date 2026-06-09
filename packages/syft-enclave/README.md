@@ -4,6 +4,8 @@ Enclave support for syft-client, enabling secure computation in Trusted Executio
 
 ## About
 
+- [Collaboration Flow](./docs/flow.md)
+- [Security Overview](./docs/security.md)
 - [Enclave Architecture](./docs/enclave_architecture.md)
 - [API](./docs/api.md)
 
@@ -19,12 +21,17 @@ All commands are defined in the [`Justfile`](./Justfile). Run them from this dir
 ## One-time setup
 
 ```bash
-just init YOUR_GCLOUD_PROJECT_ID TOKEN_PATH
+just init YOUR_GCLOUD_PROJECT_ID TOKEN_PATH DATA_OWNERS
 ```
 
-The TOKEN_PATH refers to the credentials of enclave email downloaded gcloud console.
+- `TOKEN_PATH` — credentials of the enclave email downloaded from the gcloud console.
+- `DATA_OWNERS` — comma-separated emails of the data owners whose approval gates every job on this enclave, e.g. `do1@openmined.org,do2@openmined.org`.
 
-This stores settings in `~/.syft-enclaves/settings.json` and sets the active gcloud project. Every other recipe reads `project_id` and `zone` from this file — zone is **not** a per-call arg. To deploy in a different zone, re-run `just init YOUR_PROJECT_ID europe-west4-a`.
+This stores settings (including `data_owners`) in `~/.syft-enclaves/settings.json` and sets the active gcloud project. Every other recipe reads `project_id`, `zone`, and `data_owners` from this file — zone is **not** a per-call arg. To deploy in a different zone or change the data owners, re-run `just init YOUR_PROJECT_ID TOKEN_PATH DATA_OWNERS europe-west4-a`.
+
+### Approval model
+
+The data owners configured at `init` are fixed for the enclave: a job runs only after **all** of them approve it, regardless of which datasets the submission references. The emails are passed to the VM as `SYFT_ENCLAVE_DATA_OWNERS` at deploy time and held in memory by the running enclave. To change the approving data owners, re-run `just init` and redeploy.
 
 ## Production deployment
 

@@ -85,10 +85,10 @@ def test_dataset_manager_repr_html_with_tags():
         name="tagged-dataset",
         mock_path=mock_path,
         private_path=private_path,
-        tags=["beach", "water-quality"],
+        tags=["ocean", "water-quality"],
     )
     html = do_manager.datasets._repr_html_()
-    assert "[beach, water-quality]" in html
+    assert "[ocean, water-quality]" in html
 
 
 def test_dataset_manager_repr_html_empty():

@@ -29,8 +29,15 @@ from syft_enclaves.utils import (
 
 
 class SyftEnclaveClient:
-    def __init__(self, manager: SyftboxManager):
+    def __init__(
+        self,
+        manager: SyftboxManager,
+        data_owners: list[str] | None = None,
+    ):
         self._manager = manager
+        # Data owners whose approval gates every job run on this enclave.
+        # Fixed at launch/deploy time; stored in memory.
+        self.data_owners = list(data_owners or [])
 
     @property
     def email(self) -> str:
@@ -252,11 +259,16 @@ class SyftEnclaveClient:
         if distributed_marker.exists():
             return
 
-        do_emails = list(config.datasets.keys())
-        self._forward_job_to_dos(job_dir, do_emails)
-        self._save_enclave_job_state(review_dir, do_emails, config.datasets)
-        self._set_job_permissions(job_dir, do_emails)
-        self._forward_approval_files_to_dos(review_dir, do_emails)
+        # Forward the job to the DOs referenced in the submission, but gate
+        # approval on the enclave's globally-configured data owners. The job is
+        # forwarded to the union so every required approver can review it.
+        submission_dos = list(config.datasets.keys())
+        approval_dos = self.data_owners
+        recipients = list(dict.fromkeys([*submission_dos, *approval_dos]))
+        self._forward_job_to_dos(job_dir, recipients)
+        self._save_enclave_job_state(review_dir, approval_dos, config.datasets)
+        self._set_job_permissions(job_dir, recipients, approval_dos)
+        self._forward_approval_files_to_dos(review_dir, approval_dos)
 
         distributed_marker.parent.mkdir(parents=True, exist_ok=True)
         distributed_marker.write_text("distributed")
@@ -326,8 +338,14 @@ class SyftEnclaveClient:
             )
             approval.save_json(review_dir / enclave_approval_file_name(do_email))
 
-    def _set_job_permissions(self, job_dir: Path, do_emails: list[str]):
-        """Grant DOs read access to inbox and read+write on their approval file."""
+    def _set_job_permissions(
+        self,
+        job_dir: Path,
+        read_dos: list[str],
+        approval_dos: list[str],
+    ):
+        """Grant inbox read to everyone who needs to see the job (referenced +
+        approving DOs), and approval-file write to the approving DOs."""
         datasite = self._manager.syftbox_folder / self._manager.email
         ctx = SyftPermContext(datasite=datasite)
         inbox_rel = job_dir.relative_to(datasite)
@@ -339,36 +357,56 @@ class SyftEnclaveClient:
         )
         review_rel = review_dir.relative_to(datasite)
 
-        for do_email in do_emails:
+        for do_email in dict.fromkeys([*read_dos, *approval_dos]):
             ctx.open(inbox_rel).grant_read_access(do_email)
+
+        for do_email in approval_dos:
             approval_rel = review_rel / enclave_approval_file_name(do_email)
             ctx.open(approval_rel).grant_write_access(do_email)
 
     @classmethod
-    def from_config(cls, config: SyftboxManagerConfig) -> "SyftEnclaveClient":
-        """Build a SyftEnclaveClient from a manager config with a wrapped job_client."""
+    def from_config(
+        cls,
+        config: SyftboxManagerConfig,
+        data_owners: list[str] | None = None,
+    ) -> "SyftEnclaveClient":
+        """Build a SyftEnclaveClient from a manager config with a wrapped job_client.
+
+        Encryption settings ride along on ``config`` (via
+        ``peer_manager_config.use_encryption`` / ``peer_manager_config.encryption_keys``);
+        ``SyftboxManager.from_config`` resolves the keys, so no extra step is needed.
+        """
         manager = SyftboxManager.from_config(config)
         manager.job_client = EnclaveJobClient(manager.job_client)
-        return cls(manager)
+        return cls(manager, data_owners=data_owners)
 
     @classmethod
     def for_enclave(
         cls,
         email: str,
         token_path: Path | str | None = None,
+        data_owners: list[str] | None = None,
+        encryption: bool = False,
     ) -> "SyftEnclaveClient":
         """Build an enclave client backed by a real Google Drive connection.
         Args:
             email: The enclave datasite's email address.
             token_path: Path to a pre-authorized Google Drive OAuth token.
+            data_owners: Emails whose approval gates every job on this enclave.
+            encryption: Enable end-to-end drive encryption.
         """
         config = SyftboxManagerConfig.for_jupyter(
             email=email,
             has_ds_role=True,
             has_do_role=True,
             token_path=Path(token_path) if token_path is not None else None,
+            encryption=encryption,
         )
-        return cls.from_config(config)
+
+        # Note: We do not currently provide the ability to load encryption keys passed during creation of enclave.
+        # To be able to support loading existing enclave private keys, we need to have Key release flow , like we have for releasing
+        # token.json for enclaves, currently each time an enclave boots up, we get a fresh key pair.
+        return cls.from_config(config, data_owners=data_owners)
 
     @classmethod
     def quad_with_mock_drive_service_connection(
@@ -378,6 +416,7 @@ class SyftEnclaveClient:
         do2_email: str | None = None,
         ds_email: str | None = None,
         use_in_memory_cache: bool = True,
+        encryption: bool = False,
     ) -> tuple[
         "SyftEnclaveClient",
         "SyftEnclaveClient",
@@ -392,6 +431,8 @@ class SyftEnclaveClient:
         - DO2: peers with DS, Enclave (not DO1)
         - DS: peers with DO1, DO2, Enclave
 
+        Args:
+            encryption: Enable end-to-end drive encryption on all four clients.
         Returns:
             Tuple of (enclave, do1, do2, ds)
         """
@@ -399,10 +440,18 @@ class SyftEnclaveClient:
             enclave_email, do1_email, do2_email, ds_email, use_in_memory_cache
         )
         clients = create_clients(configs)
+        enclave, do1, do2, ds = clients
+        enclave.data_owners = [do1.email, do2.email]
         managers = tuple(c._manager for c in clients)
         setup_connections(managers)
         setup_callbacks(managers)
         write_versions(managers)
+        # Initialize encryption AFTER connections/versions but BEFORE peering,
+        # so the bundle exchange in wire_peers() picks up each client's keys
+        # (mirrors SyftboxManager.pair_with_mock_drive_service_connection).
+        if encryption:
+            for manager in managers:
+                manager._init_encrypted_peer_store()
         wire_peers(managers)
 
         return clients

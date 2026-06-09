@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -32,6 +33,8 @@ from syft_client.sync.checkpoints.checkpoint import (
 from syft_client.sync.checkpoints.rolling_state import RollingState
 from syft_perms import SyftPermContext
 from syft_client.sync.sync.constants import CACHE_DIR, ROLLING_STATE_FILENAME
+
+logger = logging.getLogger(__name__)
 
 # Default threshold for creating incremental checkpoint from rolling state
 DEFAULT_CHECKPOINT_EVENT_THRESHOLD = 50
@@ -752,8 +755,8 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         peer-encrypted bytes back to merge).
         """
         if self.connection_router.peer_store.peer_uses_encryption(recipient_email):
-            print(
-                f"WARNING: outbox compaction for {recipient_email} skipped — "
+            logger.debug(
+                f"outbox compaction for {recipient_email} skipped — "
                 f"peer encryption is not supported yet"
             )
             return 0
@@ -761,7 +764,7 @@ class DatasiteOwnerSyncer(BaseModelCallbackMixin):
         conn = self.connection_router.connection_for_outbox()
         folder_id = conn._get_own_datasite_outbox_id(recipient_email)
         if folder_id is None:
-            print(
+            logger.info(
                 f"WARNING: outbox compaction for {recipient_email} skipped — "
                 f"could not resolve outbox folder id"
             )

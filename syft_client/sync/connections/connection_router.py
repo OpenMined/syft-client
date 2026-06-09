@@ -318,7 +318,7 @@ class ConnectionRouter(BaseModel):
         )
         if self.peer_store and owner_email:
             files = {
-                name: self.peer_store.decrypt_and_verify_if_needed(owner_email, data)
+                name: self.peer_store.decrypt_dataset_if_needed(owner_email, data)
                 for name, data in files.items()
             }
         return files
@@ -390,7 +390,7 @@ class ConnectionRouter(BaseModel):
     def watcher_download_dataset_file(self, file_id: str, owner_email: str) -> bytes:
         connection = self.connection_for_datasite_watcher()
         data = connection.watcher_download_dataset_file(file_id)
-        data = self.peer_store.decrypt_and_verify_if_needed(owner_email, data)
+        data = self.peer_store.decrypt_dataset_if_needed(owner_email, data)
         return data
 
     # =========================================================================

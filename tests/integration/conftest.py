@@ -26,7 +26,7 @@ def setup_delete_syftboxes():
     if not tokens_exist:
         raise ValueError(
             """Credentials not found, create them using scripts/create_token.py and store them in /credentials
-            as token_do.json and token_ds.json. Also set the environment variables BEACH_EMAIL_DO and BEACH_EMAIL_DS to the email addresses of the DO and DS."""
+            as token_do.json and token_ds.json. Also set the environment variables AI_AUDIT_EMAIL_DO and AI_AUDIT_EMAIL_DS to the email addresses of the DO and DS."""
         )
     remove_syftboxes_from_drive()
     yield

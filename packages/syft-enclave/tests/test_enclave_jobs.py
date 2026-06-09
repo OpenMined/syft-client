@@ -4,6 +4,8 @@ import random
 import tempfile
 from pathlib import Path
 
+import pytest
+
 os.environ["PRE_SYNC"] = "false"
 
 from syft_enclaves import SyftEnclaveClient
@@ -63,10 +65,12 @@ def create_tmp_code_file(code: str):
     return str(code_path)
 
 
-def test_enclave_job_distribution():
+@pytest.mark.parametrize("encryption", [False, True])
+def test_enclave_job_distribution(encryption):
     """Test full flow: DS submits job to enclave, enclave distributes to DOs."""
     enclave, do1, do2, ds = SyftEnclaveClient.quad_with_mock_drive_service_connection(
         use_in_memory_cache=False,
+        encryption=encryption,
     )
 
     # DO1 creates dataset1
@@ -135,10 +139,12 @@ def test_enclave_job_distribution():
     assert "test_job" in do2_job_names
 
 
-def test_enclave_job_approval_flow():
+@pytest.mark.parametrize("encryption", [False, True])
+def test_enclave_job_approval_flow(encryption):
     """Test: enclave receives job, distributes to DOs, both approve, enclave sees approved."""
     enclave, do1, do2, ds = SyftEnclaveClient.quad_with_mock_drive_service_connection(
         use_in_memory_cache=False,
+        encryption=encryption,
     )
 
     # DOs create datasets
@@ -214,10 +220,12 @@ def test_enclave_job_approval_flow():
     assert enclave_job.status == "approved"
 
 
-def test_enclave_full_job_flow():
+@pytest.mark.parametrize("encryption", [False, True])
+def test_enclave_full_job_flow(encryption):
     """Test full flow: submit, distribute, approve, run, share results with DS and DOs."""
     enclave, do1, do2, ds = SyftEnclaveClient.quad_with_mock_drive_service_connection(
         use_in_memory_cache=False,
+        encryption=encryption,
     )
 
     mock1, private1 = create_tmp_dataset_files("do1")
@@ -294,3 +302,59 @@ def test_enclave_full_job_flow():
     do2_job = do2.jobs["test_job"]
     assert len(do1_job.output_paths) > 0
     assert len(do2_job.output_paths) > 0
+
+
+def test_approval_gated_on_configured_data_owners():
+    """A configured data owner must approve even when the submission doesn't
+    reference its dataset — the gate is the enclave's configured data_owners,
+    not the submission's datasets."""
+    enclave, do1, do2, ds = SyftEnclaveClient.quad_with_mock_drive_service_connection(
+        use_in_memory_cache=False,
+    )
+    # Enclave is configured to require both do1 and do2.
+    assert set(enclave.data_owners) == {do1.email, do2.email}
+
+    # DO1 creates a dataset; DO2 has none in this submission.
+    mock1, private1 = create_tmp_dataset_files("do1")
+    do1.create_dataset(
+        name="dataset1",
+        mock_path=mock1,
+        private_path=private1,
+        summary="Dataset 1",
+        users=[ds.email],
+        upload_private=True,
+        sync=False,
+    )
+    do1.sync()
+    ds.sync()
+
+    # DS submits a job referencing ONLY do1's dataset.
+    code_path = create_tmp_code_file(SIMPLE_JOB_CODE)
+    ds.submit_python_job(
+        enclave.email,
+        code_path,
+        "test_job",
+        datasets={do1.email: ["dataset1"]},
+    )
+
+    enclave.sync()
+    enclave.receive_jobs()
+
+    # Approval files exist for BOTH configured data owners, despite do2 not
+    # being referenced in the submission.
+    review_dir = enclave.jobs["test_job"].job_review_path
+    assert (review_dir / f"{do1.email}_approval_state.json").exists()
+    assert (review_dir / f"{do2.email}_approval_state.json").exists()
+
+    do1.sync()
+    do2.sync()
+
+    # Only do1 approves — job stays pending (do2 still required).
+    do1.approve_job(do1.jobs["test_job"])
+    enclave.sync()
+    assert enclave.jobs["test_job"].status == "pending"
+
+    # do2 approves — now the gate is satisfied.
+    do2.approve_job(do2.jobs["test_job"])
+    enclave.sync()
+    assert enclave.jobs["test_job"].status == "approved"
