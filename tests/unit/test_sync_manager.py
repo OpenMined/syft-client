@@ -2040,3 +2040,41 @@ def test_permission_change_triggers_resend():
     assert any("data.txt" in p for p in paths_for_b_after), (
         "Peer B should receive data.txt after permission change"
     )
+
+
+def test_dataset_delete_propagates_to_ds():
+    """Test that deleting a dataset on DO removes it from Drive and DS."""
+    ds_manager, do_manager = SyftboxManager.pair_with_mock_drive_service_connection(
+        use_in_memory_cache=False
+    )
+
+    mock_dset_path, private_dset_path, readme_path = create_tmp_dataset_files()
+
+    # DO creates dataset shared with DS
+    do_manager.create_dataset(
+        name="deleteme",
+        mock_path=mock_dset_path,
+        private_path=private_dset_path,
+        summary="To be deleted",
+        readme_path=readme_path,
+        users=[ds_manager.email],
+    )
+
+    # Verify collection exists on Drive
+    collections = do_manager._connection_router.owner_list_dataset_collections()
+    assert "deleteme" in collections
+
+    # DS syncs and sees the dataset
+    ds_manager.sync()
+    assert len(ds_manager.datasets.get_all()) == 1
+
+    # DO deletes the dataset
+    do_manager.delete_dataset(name="deleteme", require_confirmation=False, sync=True)
+
+    # Verify collection is gone from Drive
+    collections_after = do_manager._connection_router.owner_list_dataset_collections()
+    assert "deleteme" not in collections_after
+
+    # DS syncs again — should pick up the deletion
+    ds_manager.sync()
+    assert len(ds_manager.datasets.get_all()) == 0

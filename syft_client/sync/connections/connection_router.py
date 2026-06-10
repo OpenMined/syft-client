@@ -305,6 +305,14 @@ class ConnectionRouter(BaseModel):
         connection = self.connection_for_send_message()
         return connection.owner_list_all_dataset_collections_with_permissions()
 
+    def owner_delete_dataset_collection(self, tag: str) -> None:
+        connection = self.connection_for_send_message()
+        connection.owner_delete_dataset_collection(tag)
+
+    def owner_delete_private_dataset_collection(self, tag: str) -> None:
+        connection = self.connection_for_send_message()
+        connection.owner_delete_private_dataset_collection(tag)
+
     def watcher_list_dataset_collections(self) -> list[dict]:
         connection = self.connection_for_receive_message()
         return connection.watcher_list_dataset_collections()

@@ -1381,6 +1381,19 @@ class SyftboxManager(BaseModel):
             datasite=datasite,
             require_confirmation=require_confirmation,
         )
+        # Delete collection folders from Google Drive so DS peers
+        # pick up the deletion on their next sync.
+        try:
+            self._connection_router.owner_delete_dataset_collection(name)
+        except Exception:
+            logger.warning("Failed to delete dataset collection '%s' from Drive", name)
+        try:
+            self._connection_router.owner_delete_private_dataset_collection(name)
+        except Exception:
+            logger.warning(
+                "Failed to delete private dataset collection '%s' from Drive",
+                name,
+            )
         if sync:
             self.sync()
 
