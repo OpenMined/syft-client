@@ -583,7 +583,7 @@ class GDriveConnection(SyftboxPlatformConnection):
     ) -> list[bytes]:
         folder_id = self._get_peer_datasite_outbox_id(peer_email)
         if folder_id is None:
-            raise ValueError(f"Outbox folder for peer {peer_email} not found")
+            return []
 
         file_metadatas = self.get_file_metadatas_from_folder(
             folder_id, since_timestamp=since_timestamp
@@ -621,7 +621,7 @@ class GDriveConnection(SyftboxPlatformConnection):
         """Get file metadata from peer's outbox folder without downloading."""
         folder_id = self._get_peer_datasite_outbox_id(peer_email)
         if folder_id is None:
-            raise ValueError(f"Outbox folder for peer {peer_email} not found")
+            return []
 
         file_metadatas = self.get_file_metadatas_from_folder(
             folder_id, since_timestamp=since_timestamp
