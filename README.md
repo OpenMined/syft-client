@@ -1,4 +1,4 @@
-# This repository has moved
+# 🚨 This repository has moved 🚨
 
 **This project now lives at [OpenMined/PySyft](https://github.com/OpenMined/PySyft).**
 
